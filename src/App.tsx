@@ -3,7 +3,8 @@ import { Sparkles } from "lucide-react";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas, type ChatMessage } from "./components/ChatCanvas";
-import type { AgentProfile, Session } from "./types";
+import { ComposerDock } from "./components/ComposerDock";
+import type { AgentProfile, Session, PermissionMode } from "./types";
 
 export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
@@ -24,6 +25,9 @@ export default function App() {
       profileId: "claude-code",
       cwd: "/Users/mac/ai-perpetual-trading",
       status: "running",
+      model: "claude-sonnet-5-5",
+      effort: "High",
+      permissionMode: "bypass",
       createdAt: Date.now() - 3600000,
     },
     {
@@ -32,6 +36,9 @@ export default function App() {
       profileId: "omp",
       cwd: "/Users/mac/titan-investment",
       status: "idle",
+      model: "gemini-3.8-flash-tiered",
+      effort: "High",
+      permissionMode: "ask",
       createdAt: Date.now() - 7200000,
     },
     {
@@ -40,6 +47,9 @@ export default function App() {
       profileId: "claude-code",
       cwd: "/Users/mac/agent-desktop",
       status: "idle",
+      model: "claude-opus-5-5",
+      effort: "Medium",
+      permissionMode: "bypass",
       createdAt: Date.now() - 10800000,
     },
   ]);
@@ -191,7 +201,43 @@ Would you like me to execute this action?`,
     });
   };
 
+  const handleSendMessage = (messageText: string) => {
+    const newMessage: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      role: "user",
+      content: messageText,
+      timestamp: Date.now(),
+    };
+
+    setMessages((prev) => ({
+      ...prev,
+      [activeSessionId]: [...(prev[activeSessionId] ?? []), newMessage],
+    }));
+
+    // In Task 9, this forwards input directly to backend PTY send_input
+    handleSendPtyInput(`${messageText}\n`);
+  };
+
+  const handleModelChange = (newModel: string) => {
+    setSessions((prev) =>
+      prev.map((s) => (s.id === activeSessionId ? { ...s, model: newModel } : s))
+    );
+  };
+
+  const handleEffortChange = (newEffort: string) => {
+    setSessions((prev) =>
+      prev.map((s) => (s.id === activeSessionId ? { ...s, effort: newEffort } : s))
+    );
+  };
+
+  const handlePermissionModeChange = (newMode: PermissionMode) => {
+    setSessions((prev) =>
+      prev.map((s) => (s.id === activeSessionId ? { ...s, permissionMode: newMode } : s))
+    );
+  };
+
   const currentMessages = messages[activeSessionId] ?? [];
+  const activeAgent = agents.find((a) => a.id === activeSession?.profileId) ?? agents[0];
 
   return (
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
@@ -236,20 +282,21 @@ Would you like me to execute this action?`,
             </div>
           )}
 
-          {/* Floating Composer Placeholder */}
-          <footer className="p-4 flex justify-center">
-            <div className="w-full max-w-2xl rounded-2xl border border-neutral-800 bg-[#121212] p-3 shadow-2xl flex items-center gap-2">
-              <input
-                type="text"
-                readOnly
-                placeholder="Type / for commands, or prompt the agent..."
-                className="flex-1 bg-transparent text-sm text-neutral-300 placeholder-neutral-500 outline-none"
-              />
-              <div className="rounded-lg bg-neutral-800 px-2.5 py-1 text-xs text-neutral-400">
-                Claude Code
-              </div>
-            </div>
-          </footer>
+          {/* Floating Composer Dock */}
+          <div className="p-4 flex justify-center">
+            <ComposerDock
+              activeAgent={activeAgent}
+              selectedModel={activeSession?.model}
+              selectedEffort={activeSession?.effort}
+              permissionMode={activeSession?.permissionMode ?? "bypass"}
+              isThinking={activeSession?.status === "running"}
+              bannerMessage="Approaching weekly usage limit • Resets Fri, Oct 16, 5:00 AM"
+              onSendMessage={handleSendMessage}
+              onModelChange={handleModelChange}
+              onEffortChange={handleEffortChange}
+              onPermissionModeChange={handlePermissionModeChange}
+            />
+          </div>
 
           {/* Collapsible Raw Terminal Drawer Placeholder (Full integration in Task 9) */}
           {isTerminalOpen && (
