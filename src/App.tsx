@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
+import { ChatCanvas, type ChatMessage } from "./components/ChatCanvas";
 import type { AgentProfile, Session } from "./types";
 
 export default function App() {
@@ -43,6 +44,64 @@ export default function App() {
     },
   ]);
   const [activeSessionId, setActiveSessionId] = useState<string>("s-1");
+
+  // Mock messages per session for rich chat canvas display
+  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({
+    "s-1": [
+      {
+        id: "m-1",
+        role: "user",
+        content: "Please inspect the codebase structure and check if any build scripts require permission.",
+        timestamp: Date.now() - 3600000,
+      },
+      {
+        id: "m-2",
+        role: "agent",
+        content: `# Codebase Inspection Summary
+
+I reviewed the project layout. Here is the operational workflow:
+
+1. **Backend PTY engine**: Uses \`portable-pty\` to manage asynchronous stream IO.
+2. **Environment resolution**: Spawns user login shell to load authentic paths.
+3. **Frontend replication**: Recreates Claude Code Desktop with dark aesthetics and Action Cards.
+
+To verify the test suite, please run:
+
+\`\`\`bash
+pnpm test
+\`\`\`
+
+Would you like me to execute this action?`,
+        timestamp: Date.now() - 3500000,
+        tools: [
+          {
+            id: "t-1",
+            name: "Glob",
+            args: 'pattern: "src/**/*.ts*"',
+            status: "completed",
+          },
+          {
+            id: "t-2",
+            name: "Bash",
+            args: "cargo test --workspace",
+            status: "completed",
+          },
+        ],
+        actionCard: {
+          id: "act-1",
+          sessionId: "s-1",
+          title: "⚠️ Agent Action Approval Required",
+          prompt: "Execute `pnpm test` across the workspace?",
+          commandSnippet: "pnpm test",
+          toolName: "Bash",
+          status: "pending",
+          approvalKey: "y\n",
+          rejectKey: "n\n",
+          timestamp: Date.now() - 3400000,
+        },
+      },
+    ],
+  });
 
   // Detected agent profiles
   const [agents] = useState<AgentProfile[]>([
@@ -110,6 +169,30 @@ export default function App() {
     setIsTerminalOpen((prev) => !prev);
   };
 
+  const handleSendPtyInput = (input: string) => {
+    // Update local actionCard state to reflect approval or rejection
+    setMessages((prev) => {
+      const sessionMsgs = prev[activeSessionId] ?? [];
+      const updated = sessionMsgs.map((msg) => {
+        if (!msg.actionCard) return msg;
+        const isApproved = input.trim().toLowerCase() === "y";
+        return {
+          ...msg,
+          actionCard: {
+            ...msg.actionCard,
+            status: isApproved ? ("approved" as const) : ("rejected" as const),
+          },
+        };
+      });
+      return {
+        ...prev,
+        [activeSessionId]: updated,
+      };
+    });
+  };
+
+  const currentMessages = messages[activeSessionId] ?? [];
+
   return (
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
       {/* Top Bar Window Bar */}
@@ -135,16 +218,23 @@ export default function App() {
         />
 
         {/* Chat / Canvas Area */}
-        <article className="flex-1 flex flex-col bg-[#000000] relative">
-          <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center text-center">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-neutral-900 border border-neutral-800 text-amber-500">
-              <Sparkles size={24} />
+        <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
+          {currentMessages.length > 0 ? (
+            <ChatCanvas
+              messages={currentMessages}
+              onSendPtyInput={handleSendPtyInput}
+            />
+          ) : (
+            <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center text-center">
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-neutral-900 border border-neutral-800 text-amber-500">
+                <Sparkles size={24} />
+              </div>
+              <h1 className="text-xl font-medium text-neutral-100">Agent Desktop GUI</h1>
+              <p className="mt-1 max-w-sm text-sm text-neutral-400">
+                Generic terminal coding agent wrapper with authentic shell environment and interactive action cards.
+              </p>
             </div>
-            <h1 className="text-xl font-medium text-neutral-100">Agent Desktop GUI</h1>
-            <p className="mt-1 max-w-sm text-sm text-neutral-400">
-              Generic terminal coding agent wrapper with authentic shell environment and interactive action cards.
-            </p>
-          </div>
+          )}
 
           {/* Floating Composer Placeholder */}
           <footer className="p-4 flex justify-center">
