@@ -49,33 +49,23 @@ describe("ActionCard Component", () => {
     expect(approveBtn).toBeDefined();
     fireEvent.click(approveBtn);
 
-    expect(onApprove).toHaveBeenCalledWith("y\n", undefined);
+    expect(onApprove).toHaveBeenCalledWith("y\n");
     expect(onReject).not.toHaveBeenCalled();
   });
 
-  it("passes modifiedCommand when approving in editing mode", () => {
-    const onApprove = vi.fn();
-    const onReject = vi.fn();
-
+  it("offers no in-place command editing, so approval always targets the agent's original command", () => {
+    // Typing an edited command into a y/n prompt can approve the ORIGINAL command
+    // (e.g. "yarn clean" starts with "y"), so the card must not offer editing.
     render(
       <ActionCard
         card={mockCard}
-        onApprove={onApprove}
-        onReject={onReject}
-        onEdit={() => {}}
+        onApprove={() => {}}
+        onReject={() => {}}
       />
     );
 
-    const editBtn = screen.getByRole("button", { name: /edit/i });
-    fireEvent.click(editBtn);
-
-    const input = screen.getByLabelText(/edit command/i);
-    fireEvent.change(input, { target: { value: "pnpm test --run" } });
-
-    const approveBtn = screen.getByRole("button", { name: /approve/i });
-    fireEvent.click(approveBtn);
-
-    expect(onApprove).toHaveBeenCalledWith("y\n", "pnpm test --run");
+    expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
+    expect(screen.queryByLabelText(/edit command/i)).toBeNull();
   });
 
   it("calls onReject with rejectKey ('n\\n') when Reject button is clicked", () => {
@@ -96,25 +86,6 @@ describe("ActionCard Component", () => {
 
     expect(onReject).toHaveBeenCalledWith("n\n");
     expect(onApprove).not.toHaveBeenCalled();
-  });
-
-  it("calls onEdit callback when Edit button is clicked", () => {
-    const onEdit = vi.fn();
-
-    render(
-      <ActionCard
-        card={mockCard}
-        onApprove={() => {}}
-        onReject={() => {}}
-        onEdit={onEdit}
-      />
-    );
-
-    const editBtn = screen.getByRole("button", { name: /edit/i });
-    expect(editBtn).toBeDefined();
-    fireEvent.click(editBtn);
-
-    expect(onEdit).toHaveBeenCalledTimes(1);
   });
 
   it("disables buttons when status is approved or rejected or disabled prop is set", () => {
@@ -289,6 +260,23 @@ All systems ready for compilation.`,
     fireEvent.click(approveBtn);
 
     expect(onSendPtyInput).toHaveBeenCalledWith("y\n");
+  });
+
+  it("does not expose an Edit control on action cards, so only approval/rejection keys reach the PTY", () => {
+    const onApproveAction = vi.fn();
+
+    render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+        onApproveAction={onApproveAction}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /^edit$/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+    expect(onApproveAction).toHaveBeenCalledWith("y\n", expect.any(String));
   });
 
   it("renders message action bar (Copy, Fork, Audio, timestamp)", () => {

@@ -31,10 +31,9 @@ export interface ChatMessage {
 export interface ChatCanvasProps {
   messages: ChatMessage[];
   onSendPtyInput: (input: string) => void;
-  onApproveAction?: (key: string, cardId?: string, modifiedCommand?: string) => void;
+  onApproveAction?: (key: string, cardId?: string) => void;
   onRejectAction?: (key: string, cardId?: string) => void;
   onForkBranch?: (messageId: string) => void;
-  onEditActionCard?: (cardId: string) => void;
 }
 
 /**
@@ -311,7 +310,6 @@ export function ChatCanvas({
   onApproveAction,
   onRejectAction,
   onForkBranch,
-  onEditActionCard,
 }: ChatCanvasProps) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
@@ -323,11 +321,11 @@ export function ChatCanvas({
     }
   };
 
-  const handleApprove = (key: string, cardId: string, modifiedCommand?: string) => {
+  const handleApprove = (key: string, cardId: string) => {
     if (onApproveAction) {
-      onApproveAction(key, cardId, modifiedCommand);
+      onApproveAction(key, cardId);
     } else {
-      onSendPtyInput(modifiedCommand ? `${modifiedCommand}\n` : key);
+      onSendPtyInput(key);
     }
   };
 
@@ -429,13 +427,8 @@ export function ChatCanvas({
               {msg.actionCard && (
                 <ActionCard
                   card={msg.actionCard}
-                  onApprove={(key, modified) =>
-                    handleApprove(key, msg.actionCard!.id, modified)
-                  }
+                  onApprove={(key) => handleApprove(key, msg.actionCard!.id)}
                   onReject={(key) => handleReject(key, msg.actionCard!.id)}
-                  onEdit={() =>
-                    onEditActionCard && onEditActionCard(msg.actionCard!.id)
-                  }
                 />
               )}
             </div>

@@ -1,12 +1,16 @@
-import { useState } from "react";
-import { Check, X, Pencil, Wrench, AlertTriangle } from "lucide-react";
+import { Check, X, Wrench, AlertTriangle } from "lucide-react";
 import type { ActionCard as ActionCardType } from "../types";
 
+/**
+ * Approval card for an agent prompt. It deliberately offers no in-place command
+ * editing: the only thing a y/n prompt understands is the approval or rejection
+ * key, and typing an edited command into it can approve the original command
+ * (for example "yarn clean" begins with "y").
+ */
 export interface ActionCardProps {
   card: ActionCardType;
-  onApprove: (key: string, modifiedCommand?: string) => void;
+  onApprove: (key: string) => void;
   onReject: (key: string) => void;
-  onEdit?: () => void;
   disabled?: boolean;
 }
 
@@ -14,37 +18,19 @@ export function ActionCard({
   card,
   onApprove,
   onReject,
-  onEdit,
   disabled = false,
 }: ActionCardProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedCommand, setEditedCommand] = useState(
-    card.commandSnippet ?? ""
-  );
-
   const isResolved = card.status === "approved" || card.status === "rejected";
   const isDisabled = disabled || isResolved;
 
   const handleApprove = () => {
     if (isDisabled) return;
-    const modified =
-      isEditing && editedCommand !== card.commandSnippet
-        ? editedCommand
-        : undefined;
-    onApprove(card.approvalKey || "y\n", modified);
+    onApprove(card.approvalKey || "y\n");
   };
 
   const handleReject = () => {
     if (isDisabled) return;
     onReject(card.rejectKey || "n\n");
-  };
-
-  const handleEditClick = () => {
-    if (isDisabled) return;
-    setIsEditing((prev) => !prev);
-    if (onEdit) {
-      onEdit();
-    }
   };
 
   return (
@@ -74,30 +60,10 @@ export function ActionCard({
         {card.prompt}
       </p>
 
-      {/* Command Snippet or Edit Input */}
+      {/* Command Snippet */}
       {card.commandSnippet && (
-        <div className="mt-3">
-          {isEditing ? (
-            <div className="space-y-1">
-              <label
-                htmlFor={`edit-cmd-${card.id}`}
-                className="text-[10px] uppercase tracking-wider text-neutral-400"
-              >
-                Edit Command
-              </label>
-              <input
-                id={`edit-cmd-${card.id}`}
-                type="text"
-                value={editedCommand}
-                onChange={(e) => setEditedCommand(e.target.value)}
-                className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 font-mono text-xs text-neutral-200 outline-none focus:border-amber-500"
-              />
-            </div>
-          ) : (
-            <div className="rounded-lg border border-neutral-800/80 bg-neutral-950/80 p-2.5 font-mono text-xs text-amber-400/90 overflow-x-auto">
-              <code>{editedCommand || card.commandSnippet}</code>
-            </div>
-          )}
+        <div className="mt-3 rounded-lg border border-neutral-800/80 bg-neutral-950/80 p-2.5 font-mono text-xs text-amber-400/90 overflow-x-auto">
+          <code>{card.commandSnippet}</code>
         </div>
       )}
 
@@ -138,23 +104,6 @@ export function ActionCard({
             {card.status === "rejected" ? "Rejected" : "✕ Reject"}
           </button>
         </div>
-
-        {onEdit && (
-          <button
-            type="button"
-            onClick={handleEditClick}
-            disabled={isDisabled}
-            aria-label="Edit"
-            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
-              isDisabled
-                ? "text-neutral-600 cursor-not-allowed"
-                : "text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60"
-            }`}
-          >
-            <Pencil className="h-3 w-3" />
-            <span>Edit</span>
-          </button>
-        )}
       </div>
     </div>
   );

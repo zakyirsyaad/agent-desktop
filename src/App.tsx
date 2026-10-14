@@ -346,10 +346,9 @@ Would you like me to execute this action?`,
   };
 
   /**
-   * Action Card approval handling: updates message status and forwards approval/rejection key to PTY.
-   * If a modified command is provided from an in-place edit, sends that command instead of raw key.
+   * Action Card approval handling: updates message status and forwards only the approval key to PTY.
    */
-  const handleActionApprove = (key: string, cardId?: string, modifiedCommand?: string) => {
+  const handleActionApprove = (key: string, cardId?: string) => {
     setMessages((prev) => {
       const sessionMsgs = prev[activeSessionId] ?? [];
       const updated = sessionMsgs.map((msg) => {
@@ -369,11 +368,7 @@ Would you like me to execute this action?`,
       };
     });
 
-    if (modifiedCommand) {
-      handleSendPtyInput(`${modifiedCommand}\n`);
-    } else {
-      handleSendPtyInput(key);
-    }
+    handleSendPtyInput(key);
   };
 
   const handleActionReject = (key: string, cardId?: string) => {
