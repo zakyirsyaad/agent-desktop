@@ -21,8 +21,13 @@ const COMPLETE_ANSI_REGEX =
 const TRAILING_PARTIAL_ESCAPE_REGEX =
   /\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*|[A-Z\\-_]?)$/;
 
+// Upper bound on the unfinished line remembered between chunks, so a long
+// stream without newlines cannot grow the probe string without limit.
+const MAX_LINE_TAIL_LENGTH = 512;
+
 export class StreamParser {
   private buffer: string = '';
+  private lineTail: string = '';
   private approvalRegex: RegExp;
   private toolRegex: RegExp;
 
@@ -69,21 +74,16 @@ export class StreamParser {
 
     const events: ParsedStreamEvent[] = [];
 
-    // Check for approval prompt in clean text
-    const hasApproval = this.approvalRegex.test(cleanText);
-    if (hasApproval) {
-      // Find the approval line or prompt
-      const lines = cleanText.split('\n');
-      const approvalLines: string[] = [];
-      const nonApprovalLines: string[] = [];
+    // Check for approval prompt line by line. The first line is prefixed with the
+    // unfinished line from earlier chunks, so a prompt split across PTY reads is found.
+    const lines = cleanText.split('\n');
+    const probeLines = [this.lineTail + lines[0], ...lines.slice(1)];
+    const isApprovalLine = probeLines.map((line) => this.approvalRegex.test(line));
+    this.lineTail = this.nextLineTail(lines, isApprovalLine[isApprovalLine.length - 1]);
 
-      for (const line of lines) {
-        if (this.approvalRegex.test(line)) {
-          approvalLines.push(line);
-        } else {
-          nonApprovalLines.push(line);
-        }
-      }
+    if (isApprovalLine.some(Boolean)) {
+      const approvalLines = probeLines.filter((_, i) => isApprovalLine[i]);
+      const nonApprovalLines = lines.filter((_, i) => !isApprovalLine[i]);
 
       if (nonApprovalLines.length > 0) {
         const textContent = nonApprovalLines.join('\n');
@@ -151,9 +151,21 @@ export class StreamParser {
   }
 
   /**
-   * Resets the internal carryover buffer.
+   * Resets the internal carryover buffer and the remembered unfinished line.
    */
   public reset(): void {
     this.buffer = '';
+    this.lineTail = '';
+  }
+
+  /**
+   * Computes the unfinished last line to carry into the next chunk. A line that
+   * already produced an approval request is dropped so it is not raised twice.
+   */
+  private nextLineTail(lines: string[], lastLineWasApproval: boolean): string {
+    if (lastLineWasApproval) return '';
+    const lastLine = lines[lines.length - 1];
+    const tail = lines.length === 1 ? this.lineTail + lastLine : lastLine;
+    return tail.slice(-MAX_LINE_TAIL_LENGTH);
   }
 }
