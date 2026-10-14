@@ -69,7 +69,7 @@ impl PtySessionManager {
     /// Starts a new PTY session.
     ///
     /// Spawns `command` with `args` in `cwd`, inheriting the user's authentic shell environment
-    /// via `crate::env_resolver::resolve_user_env()`.
+    /// via `crate::env_resolver::cached_user_env()`.
     ///
     /// A background thread is spawned to read output chunks and dispatch `PtyEvent::Output`.
     /// When the process terminates or output closes, `PtyEvent::Exit` is dispatched.
@@ -98,7 +98,7 @@ impl PtySessionManager {
         cmd.cwd(cwd);
 
         // Inherit authentic user environment variables (PATH, HOME, etc.)
-        if let Ok(env_vars) = crate::env_resolver::resolve_user_env() {
+        if let Ok(env_vars) = crate::env_resolver::cached_user_env() {
             for (k, v) in env_vars {
                 cmd.env(k, v);
             }
