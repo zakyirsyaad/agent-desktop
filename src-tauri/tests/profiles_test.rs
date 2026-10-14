@@ -45,7 +45,7 @@ fn test_get_available_agent_profiles_contains_defaults() {
     let generic = generic.unwrap();
     assert_eq!(generic.name, "Custom CLI");
     assert_eq!(generic.command, "");
-    assert_eq!(generic.detected, false);
+    assert!(!generic.detected);
     assert_eq!(generic.detected_path, None);
 }
 

@@ -72,6 +72,20 @@ fn is_executable(path: &Path) -> bool {
     }
 }
 
+/// Finds a binary inside a given PATH string.
+pub fn find_binary_in_path_str(binary_name: &str, path_var: &str) -> Option<PathBuf> {
+    for dir in path_var.split(':') {
+        if dir.is_empty() {
+            continue;
+        }
+        let candidate = PathBuf::from(dir).join(binary_name);
+        if is_executable(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 /// Finds a binary in the resolved user PATH.
 ///
 /// Falls back to the current process PATH if resolving the user shell environment fails.
@@ -82,17 +96,7 @@ pub fn find_binary_in_user_path(binary_name: &str) -> Option<PathBuf> {
     }
     .or_else(|| env::var("PATH").ok())?;
 
-    for dir in path_var.split(':') {
-        if dir.is_empty() {
-            continue;
-        }
-        let candidate = PathBuf::from(dir).join(binary_name);
-        if is_executable(&candidate) {
-            return Some(candidate);
-        }
-    }
-
-    None
+    find_binary_in_path_str(binary_name, &path_var)
 }
 
 #[cfg(test)]

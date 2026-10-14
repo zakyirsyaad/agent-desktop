@@ -85,12 +85,24 @@ pub fn get_default_profiles() -> Vec<AgentProfile> {
 }
 
 /// Resolves default profiles and updates their detection status against the user's path.
+///
+/// Resolves the user environment once to avoid launching the login shell multiple times.
 pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
+    let path_var = match env_resolver::resolve_user_env() {
+        Ok(env_map) => env_map.get("PATH").cloned(),
+        Err(_) => None,
+    }
+    .or_else(|| std::env::var("PATH").ok());
+
     get_default_profiles()
         .into_iter()
         .map(|mut profile| {
             if !profile.command.is_empty() {
-                if let Some(path) = env_resolver::find_binary_in_user_path(&profile.command) {
+                let found = path_var
+                    .as_deref()
+                    .and_then(|pv| env_resolver::find_binary_in_path_str(&profile.command, pv));
+
+                if let Some(path) = found {
                     profile.detected = true;
                     profile.detected_path = Some(path.to_string_lossy().to_string());
                 } else {
