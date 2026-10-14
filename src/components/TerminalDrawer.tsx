@@ -71,23 +71,9 @@ export function TerminalDrawer({
 
     // Open terminal inside DOM container
     terminal.open(containerRef.current);
+    (containerRef.current as HTMLElement & { _xterm?: Terminal })._xterm = terminal;
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
-
-    try {
-      fitAddon.fit();
-    } catch {
-      // Container dimensions may be 0 in test environments
-    }
-
-    // Handle user keystrokes in terminal emulator
-    const onDataDisposable = terminal.onData((data) => {
-      if (onSendInput) {
-        onSendInput(data);
-      } else {
-        invoke("send_input", { sessionId, data }).catch(() => {});
-      }
-    });
 
     // Resize handling with ResizeObserver and FitAddon
     const handleResize = () => {
@@ -105,6 +91,18 @@ export function TerminalDrawer({
         // Safe catch for detached or hidden DOM elements
       }
     };
+
+    // Dispatch initial resize immediately on drawer open
+    handleResize();
+
+    // Handle user keystrokes in terminal emulator
+    const onDataDisposable = terminal.onData((data) => {
+      if (onSendInput) {
+        onSendInput(data);
+      } else {
+        invoke("send_input", { sessionId, data }).catch(() => {});
+      }
+    });
 
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined" && containerRef.current) {

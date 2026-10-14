@@ -161,6 +161,75 @@ describe("TerminalDrawer", () => {
     expect(mockListen).toHaveBeenCalledWith("pty-output", expect.any(Function));
   });
 
+  it("forwards terminal keystrokes to onSendInput and dispatches to PTY", () => {
+    const onSendInput = vi.fn();
+    render(
+      <TerminalDrawer
+        isOpen={true}
+        sessionId="s-1"
+        sessionName="Test Session"
+        pid={1234}
+        onSendInput={onSendInput}
+        onClose={vi.fn()}
+      />
+    );
+
+    const container = screen.getByTestId("xterm-terminal-container") as HTMLElement & {
+      _xterm?: { input: (data: string) => void };
+    };
+    expect(container._xterm).toBeDefined();
+
+    // Simulate user typing into terminal
+    act(() => {
+      container._xterm?.input("git status\r");
+    });
+
+    expect(onSendInput).toHaveBeenCalledWith("git status\r");
+  });
+
+  it("forwards terminal keystrokes directly to Tauri send_input when onSendInput is not provided", () => {
+    render(
+      <TerminalDrawer
+        isOpen={true}
+        sessionId="s-42"
+        sessionName="Test Session"
+        pid={1234}
+        onClose={vi.fn()}
+      />
+    );
+
+    const container = screen.getByTestId("xterm-terminal-container") as HTMLElement & {
+      _xterm?: { input: (data: string) => void };
+    };
+    expect(container._xterm).toBeDefined();
+
+    act(() => {
+      container._xterm?.input("echo hi\r");
+    });
+
+    expect(mockInvoke).toHaveBeenCalledWith("send_input", {
+      sessionId: "s-42",
+      data: "echo hi\r",
+    });
+  });
+
+  it("dispatches initial resize immediately on drawer open", () => {
+    const onResize = vi.fn();
+    render(
+      <TerminalDrawer
+        isOpen={true}
+        sessionId="s-1"
+        sessionName="Test Session"
+        pid={1234}
+        onResize={onResize}
+        onClose={vi.fn()}
+      />
+    );
+
+    // handleResize() runs synchronously upon mounting
+    expect(onResize).toHaveBeenCalledWith(expect.any(Number), expect.any(Number));
+  });
+
   it("writes output to terminal when pty-output arrives for matching session", async () => {
     render(
       <TerminalDrawer

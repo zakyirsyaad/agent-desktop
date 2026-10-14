@@ -31,6 +31,8 @@ export interface ChatMessage {
 export interface ChatCanvasProps {
   messages: ChatMessage[];
   onSendPtyInput: (input: string) => void;
+  onApproveAction?: (key: string, cardId?: string) => void;
+  onRejectAction?: (key: string, cardId?: string) => void;
   onForkBranch?: (messageId: string) => void;
   onEditActionCard?: (cardId: string) => void;
 }
@@ -306,6 +308,8 @@ function MarkdownRenderer({ content }: { content: string }) {
 export function ChatCanvas({
   messages,
   onSendPtyInput,
+  onApproveAction,
+  onRejectAction,
   onForkBranch,
   onEditActionCard,
 }: ChatCanvasProps) {
@@ -316,6 +320,22 @@ export function ChatCanvas({
       navigator.clipboard.writeText(content);
       setCopiedMessageId(id);
       setTimeout(() => setCopiedMessageId(null), 2000);
+    }
+  };
+
+  const handleApprove = (key: string, cardId: string) => {
+    if (onApproveAction) {
+      onApproveAction(key, cardId);
+    } else {
+      onSendPtyInput(key);
+    }
+  };
+
+  const handleReject = (key: string, cardId: string) => {
+    if (onRejectAction) {
+      onRejectAction(key, cardId);
+    } else {
+      onSendPtyInput(key);
     }
   };
 
@@ -409,8 +429,8 @@ export function ChatCanvas({
               {msg.actionCard && (
                 <ActionCard
                   card={msg.actionCard}
-                  onApprove={(key) => onSendPtyInput(key)}
-                  onReject={(key) => onSendPtyInput(key)}
+                  onApprove={(key) => handleApprove(key, msg.actionCard!.id)}
+                  onReject={(key) => handleReject(key, msg.actionCard!.id)}
                   onEdit={() =>
                     onEditActionCard && onEditActionCard(msg.actionCard!.id)
                   }

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas, type ChatMessage } from "./components/ChatCanvas";
@@ -180,18 +181,27 @@ Would you like me to execute this action?`,
     setIsTerminalOpen((prev) => !prev);
   };
 
+  /**
+   * Raw PTY input forwarding: dispatches keystrokes/data straight to backend PTY via Tauri send_input.
+   */
   const handleSendPtyInput = (input: string) => {
-    // Update local actionCard state to reflect approval or rejection
+    invoke("send_input", { sessionId: activeSessionId, data: input }).catch(() => {});
+  };
+
+  /**
+   * Action Card approval handling: updates message status and forwards approval/rejection key to PTY.
+   */
+  const handleActionApprove = (key: string, cardId?: string) => {
     setMessages((prev) => {
       const sessionMsgs = prev[activeSessionId] ?? [];
       const updated = sessionMsgs.map((msg) => {
         if (!msg.actionCard) return msg;
-        const isApproved = input.trim().toLowerCase() === "y";
+        if (cardId && msg.actionCard.id !== cardId) return msg;
         return {
           ...msg,
           actionCard: {
             ...msg.actionCard,
-            status: isApproved ? ("approved" as const) : ("rejected" as const),
+            status: "approved" as const,
           },
         };
       });
@@ -200,6 +210,31 @@ Would you like me to execute this action?`,
         [activeSessionId]: updated,
       };
     });
+
+    handleSendPtyInput(key);
+  };
+
+  const handleActionReject = (key: string, cardId?: string) => {
+    setMessages((prev) => {
+      const sessionMsgs = prev[activeSessionId] ?? [];
+      const updated = sessionMsgs.map((msg) => {
+        if (!msg.actionCard) return msg;
+        if (cardId && msg.actionCard.id !== cardId) return msg;
+        return {
+          ...msg,
+          actionCard: {
+            ...msg.actionCard,
+            status: "rejected" as const,
+          },
+        };
+      });
+      return {
+        ...prev,
+        [activeSessionId]: updated,
+      };
+    });
+
+    handleSendPtyInput(key);
   };
 
   const handleSendMessage = (messageText: string) => {
@@ -215,7 +250,7 @@ Would you like me to execute this action?`,
       [activeSessionId]: [...(prev[activeSessionId] ?? []), newMessage],
     }));
 
-    // In Task 9, this forwards input directly to backend PTY send_input
+    // Forwards input directly to backend PTY send_input
     handleSendPtyInput(`${messageText}\n`);
   };
 
@@ -270,6 +305,8 @@ Would you like me to execute this action?`,
             <ChatCanvas
               messages={currentMessages}
               onSendPtyInput={handleSendPtyInput}
+              onApproveAction={handleActionApprove}
+              onRejectAction={handleActionReject}
             />
           ) : (
             <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center text-center">
