@@ -10,23 +10,9 @@ import {
   Clock,
 } from "lucide-react";
 import { ActionCard } from "./ActionCard";
-import type { ActionCard as ActionCardType } from "../types";
+import type { ChatMessage } from "../types";
 
-export interface ToolExecution {
-  id: string;
-  name: string;
-  args: string;
-  status: "running" | "completed" | "failed";
-}
-
-export interface ChatMessage {
-  id: string;
-  role: "user" | "agent";
-  content: string;
-  timestamp: number;
-  tools?: ToolExecution[];
-  actionCard?: ActionCardType;
-}
+export type { ChatMessage, ToolExecution } from "../types";
 
 export interface ChatCanvasProps {
   messages: ChatMessage[];

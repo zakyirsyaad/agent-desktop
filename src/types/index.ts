@@ -65,6 +65,22 @@ export interface ParsedStreamEvent {
   metadata?: Record<string, string>;
 }
 
+export interface ToolExecution {
+  id: string;
+  name: string;
+  args: string;
+  status: 'running' | 'completed' | 'failed';
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'agent';
+  content: string;
+  timestamp: number;
+  tools?: ToolExecution[];
+  actionCard?: ActionCard;
+}
+
 export interface PtyOutputPayload {
   session_id: string;
   data: string;

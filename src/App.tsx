@@ -4,11 +4,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
-import { ChatCanvas, type ChatMessage } from "./components/ChatCanvas";
+import { ChatCanvas } from "./components/ChatCanvas";
 import { ComposerDock } from "./components/ComposerDock";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { StreamParser } from "./lib/stream-parser";
-import type { AgentProfile, Session, PermissionMode, PtyOutputPayload } from "./types";
+import { applyParsedEvents } from "./lib/apply-parsed-events";
+import type { AgentProfile, ChatMessage, Session, PermissionMode, PtyOutputPayload } from "./types";
 
 export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
@@ -189,89 +190,15 @@ Would you like me to execute this action?`,
 
       if (parsedEvents.length === 0) return;
 
-      setMessages((prev) => {
-        const sessionMsgs = [...(prev[sid] ?? [])];
-
-        for (const evt of parsedEvents) {
-          if (evt.type === "text") {
-            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
-            if (lastMsg && lastMsg.role === "agent" && !lastMsg.actionCard) {
-              // Append to active streaming agent message
-              sessionMsgs[sessionMsgs.length - 1] = {
-                ...lastMsg,
-                content: lastMsg.content ? `${lastMsg.content}\n${evt.content}` : evt.content,
-              };
-            } else {
-              sessionMsgs.push({
-                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                role: "agent",
-                content: evt.content,
-                timestamp: Date.now(),
-              });
-            }
-          } else if (evt.type === "tool_start") {
-            const toolName = evt.metadata?.tool || "Tool";
-            const toolArgs = evt.metadata?.args || "";
-            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
-
-            const newTool = {
-              id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-              name: toolName,
-              args: toolArgs,
-              status: "running" as const,
-            };
-
-            if (lastMsg && lastMsg.role === "agent") {
-              sessionMsgs[sessionMsgs.length - 1] = {
-                ...lastMsg,
-                tools: [...(lastMsg.tools ?? []), newTool],
-              };
-            } else {
-              sessionMsgs.push({
-                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                role: "agent",
-                content: "",
-                timestamp: Date.now(),
-                tools: [newTool],
-              });
-            }
-          } else if (evt.type === "approval_request") {
-            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
-            const actionCard = {
-              id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-              sessionId: sid,
-              title: "⚠️ Agent Action Approval Required",
-              prompt: evt.content,
-              commandSnippet: evt.metadata?.commandSnippet,
-              toolName: evt.metadata?.tool,
-              status: "pending" as const,
-              approvalKey: targetProfile?.approval_key || "y\n",
-              rejectKey: targetProfile?.reject_key || "n\n",
-              timestamp: Date.now(),
-            };
-
-            if (lastMsg && lastMsg.role === "agent") {
-              sessionMsgs[sessionMsgs.length - 1] = {
-                ...lastMsg,
-                actionCard,
-              };
-            } else {
-              sessionMsgs.push({
-                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                role: "agent",
-                content: "",
-                timestamp: Date.now(),
-                actionCard,
-              });
-            }
-          }
-        }
-
-        return {
-          ...prev,
-          [sid]: sessionMsgs,
-        };
-      });
+      setMessages((prev) => ({
+        ...prev,
+        [sid]: applyParsedEvents(prev[sid] ?? [], parsedEvents, {
+          sessionId: sid,
+          profile: targetProfile,
+          now: Date.now(),
+          createId: (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        }),
+      }));
     })
       .then((unlisten) => {
         if (isCancelled) {
