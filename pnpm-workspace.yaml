@@ -1,0 +1,5 @@
+minimumReleaseAgeExclude:
+  - lucide-react@1.57.0
+
+allowBuilds:
+  esbuild: true
