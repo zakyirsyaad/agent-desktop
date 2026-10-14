@@ -4,6 +4,7 @@ import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas, type ChatMessage } from "./components/ChatCanvas";
 import { ComposerDock } from "./components/ComposerDock";
+import { TerminalDrawer } from "./components/TerminalDrawer";
 import type { AgentProfile, Session, PermissionMode } from "./types";
 
 export default function App() {
@@ -298,19 +299,15 @@ Would you like me to execute this action?`,
             />
           </div>
 
-          {/* Collapsible Raw Terminal Drawer Placeholder (Full integration in Task 9) */}
-          {isTerminalOpen && (
-            <div
-              data-testid="raw-terminal-drawer"
-              className="h-64 border-t border-neutral-800 bg-[#050505] p-3 font-mono text-xs text-neutral-400"
-            >
-              <div className="flex items-center justify-between pb-2 border-b border-neutral-800 mb-2">
-                <span className="text-neutral-500">&gt; Raw Terminal Stream ({activeSession?.name})</span>
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              </div>
-              <div className="text-neutral-500">Connecting to PTY master stream...</div>
-            </div>
-          )}
+          {/* Collapsible Raw Terminal Drawer */}
+          <TerminalDrawer
+            isOpen={isTerminalOpen}
+            sessionId={activeSessionId}
+            sessionName={activeSession?.name}
+            pid={activeSession?.pid}
+            onClose={() => setIsTerminalOpen(false)}
+            onSendInput={handleSendPtyInput}
+          />
         </article>
       </section>
     </main>
