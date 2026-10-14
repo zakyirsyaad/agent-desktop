@@ -6,7 +6,7 @@ export interface StreamParserOptions {
 }
 
 const DEFAULT_APPROVAL_PATTERN = /(?:Allow this action\?|\[y\/n\]|Run command\?|Confirm\?)/i;
-const DEFAULT_TOOL_PATTERN = /(?:Running\s+)?([A-Za-z0-9_-]+)\(([^)]*)\)/;
+const DEFAULT_TOOL_PATTERN = /^(?:Running\s+|Tool:\s+|🛠\s+Tool:\s*)([A-Za-z0-9_-]+)\(([^)]*)\)/m;
 
 // Matches complete ANSI escape sequences:
 // 1. CSI codes: \x1b\[ ... [A-Za-z]

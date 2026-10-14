@@ -49,8 +49,33 @@ describe("ActionCard Component", () => {
     expect(approveBtn).toBeDefined();
     fireEvent.click(approveBtn);
 
-    expect(onApprove).toHaveBeenCalledWith("y\n");
+    expect(onApprove).toHaveBeenCalledWith("y\n", undefined);
     expect(onReject).not.toHaveBeenCalled();
+  });
+
+  it("passes modifiedCommand when approving in editing mode", () => {
+    const onApprove = vi.fn();
+    const onReject = vi.fn();
+
+    render(
+      <ActionCard
+        card={mockCard}
+        onApprove={onApprove}
+        onReject={onReject}
+        onEdit={() => {}}
+      />
+    );
+
+    const editBtn = screen.getByRole("button", { name: /edit/i });
+    fireEvent.click(editBtn);
+
+    const input = screen.getByLabelText(/edit command/i);
+    fireEvent.change(input, { target: { value: "pnpm test --run" } });
+
+    const approveBtn = screen.getByRole("button", { name: /approve/i });
+    fireEvent.click(approveBtn);
+
+    expect(onApprove).toHaveBeenCalledWith("y\n", "pnpm test --run");
   });
 
   it("calls onReject with rejectKey ('n\\n') when Reject button is clicked", () => {

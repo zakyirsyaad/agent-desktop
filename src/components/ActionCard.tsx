@@ -4,7 +4,7 @@ import type { ActionCard as ActionCardType } from "../types";
 
 export interface ActionCardProps {
   card: ActionCardType;
-  onApprove: (key: string) => void;
+  onApprove: (key: string, modifiedCommand?: string) => void;
   onReject: (key: string) => void;
   onEdit?: () => void;
   disabled?: boolean;
@@ -27,7 +27,11 @@ export function ActionCard({
 
   const handleApprove = () => {
     if (isDisabled) return;
-    onApprove(card.approvalKey || "y\n");
+    const modified =
+      isEditing && editedCommand !== card.commandSnippet
+        ? editedCommand
+        : undefined;
+    onApprove(card.approvalKey || "y\n", modified);
   };
 
   const handleReject = () => {

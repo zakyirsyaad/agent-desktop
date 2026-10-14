@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { TopBar } from "../components/TopBar";
 import { Sidebar } from "../components/Sidebar";
 import App from "../App";
@@ -165,8 +165,10 @@ describe("Navigation and Layout Components", () => {
   });
 
   describe("App Integration", () => {
-    it("renders TopBar and Sidebar inside App with functional terminal drawer toggle", () => {
-      render(<App />);
+    it("renders TopBar and Sidebar inside App with functional terminal drawer toggle", async () => {
+      await act(async () => {
+        render(<App />);
+      });
 
       expect(screen.getAllByText(/ai-perpetual-trading/i).length).toBeGreaterThan(0);
       expect(screen.getByPlaceholderText(/search/i)).toBeDefined();
@@ -174,7 +176,9 @@ describe("Navigation and Layout Components", () => {
       // Verify toggle button works in App
       const toggleBtn = screen.getByRole("button", { name: /toggle terminal/i });
       expect(toggleBtn).toBeDefined();
-      fireEvent.click(toggleBtn);
+      await act(async () => {
+        fireEvent.click(toggleBtn);
+      });
       // Drawer or state reflected
       expect(toggleBtn.getAttribute("aria-pressed")).toBe("true");
     });

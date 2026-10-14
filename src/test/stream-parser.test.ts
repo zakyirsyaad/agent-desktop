@@ -156,13 +156,27 @@ describe("StreamParser", () => {
       expect(toolEvent?.metadata?.tool).toBe("Bash");
     });
 
-    it("detects tool starts like 'Edit(src/lib/stream-parser.ts)'", () => {
-      const input = "Edit(src/lib/stream-parser.ts)\nApplying diff...";
+    it("detects tool starts like 'Tool: Edit(src/lib/stream-parser.ts)' or 'Running Edit(...)'", () => {
+      const input = "Tool: Edit(src/lib/stream-parser.ts)\nApplying diff...";
       const events = parser.feed(input);
 
       const toolEvent = events.find((e) => e.type === "tool_start");
       expect(toolEvent).toBeDefined();
       expect(toolEvent?.metadata?.tool).toBe("Edit");
+    });
+
+    it("does not misclassify inline function calls in prose as tool execution", () => {
+      const input = "We should use parseInt(str, 10) or Array.from(items) here.";
+      const events = parser.feed(input);
+
+      const toolEvent = events.find((e) => e.type === "tool_start");
+      expect(toolEvent).toBeUndefined();
+      expect(events).toEqual([
+        {
+          type: "text",
+          content: input,
+        },
+      ]);
     });
   });
 

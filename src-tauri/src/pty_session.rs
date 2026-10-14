@@ -132,20 +132,73 @@ impl PtySessionManager {
             .spawn(move || {
                 let mut reader = reader;
                 let mut buf = [0u8; 4096];
+                let mut leftover_len = 0usize;
 
                 loop {
-                    match reader.read(&mut buf) {
-                        Ok(0) => break,
+                    // Read into buffer starting after any leftover bytes
+                    match reader.read(&mut buf[leftover_len..]) {
+                        Ok(0) => {
+                            // Stream closed, flush any remaining bytes lossily
+                            if leftover_len > 0 {
+                                let text =
+                                    String::from_utf8_lossy(&buf[..leftover_len]).to_string();
+                                if let Some(cb) = &callback_opt {
+                                    cb(PtyEvent::Output {
+                                        session_id: reader_sid.clone(),
+                                        data: text,
+                                    });
+                                }
+                            }
+                            break;
+                        }
                         Ok(n) => {
-                            let text = String::from_utf8_lossy(&buf[..n]).to_string();
-                            if let Some(cb) = &callback_opt {
-                                cb(PtyEvent::Output {
-                                    session_id: reader_sid.clone(),
-                                    data: text,
-                                });
+                            let total = leftover_len + n;
+                            let (valid_bytes, remaining_bytes) = match std::str::from_utf8(&buf[..total]) {
+                                Ok(_) => (total, 0),
+                                Err(e) => {
+                                    let valid_up_to = e.valid_up_to();
+                                    if e.error_len().is_none() {
+                                        // Incomplete UTF-8 sequence at the end of the buffer
+                                        let rem = total - valid_up_to;
+                                        (valid_up_to, rem)
+                                    } else {
+                                        // Invalid byte sequence encountered; flush whole buffer lossily
+                                        (total, 0)
+                                    }
+                                }
+                            };
+
+                            if valid_bytes > 0 {
+                                let text = String::from_utf8_lossy(&buf[..valid_bytes]).to_string();
+                                if let Some(cb) = &callback_opt {
+                                    cb(PtyEvent::Output {
+                                        session_id: reader_sid.clone(),
+                                        data: text,
+                                    });
+                                }
+                            }
+
+                            if remaining_bytes > 0 {
+                                buf.copy_within(valid_bytes..total, 0);
+                                leftover_len = remaining_bytes;
+                            } else {
+                                leftover_len = 0;
                             }
                         }
-                        Err(_) => break,
+                        Err(_) => {
+                            // On read error, flush any remaining bytes lossily
+                            if leftover_len > 0 {
+                                let text =
+                                    String::from_utf8_lossy(&buf[..leftover_len]).to_string();
+                                if let Some(cb) = &callback_opt {
+                                    cb(PtyEvent::Output {
+                                        session_id: reader_sid.clone(),
+                                        data: text,
+                                    });
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
 

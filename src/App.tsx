@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Sparkles } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas, type ChatMessage } from "./components/ChatCanvas";
 import { ComposerDock } from "./components/ComposerDock";
 import { TerminalDrawer } from "./components/TerminalDrawer";
-import type { AgentProfile, Session, PermissionMode } from "./types";
+import { StreamParser } from "./lib/stream-parser";
+import type { AgentProfile, Session, PermissionMode, PtyOutputPayload } from "./types";
 
 export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
@@ -116,7 +118,7 @@ Would you like me to execute this action?`,
   });
 
   // Detected agent profiles
-  const [agents] = useState<AgentProfile[]>([
+  const [agents, setAgents] = useState<AgentProfile[]>([
     {
       id: "claude-code",
       name: "Claude Code",
@@ -145,20 +147,175 @@ Would you like me to execute this action?`,
     },
   ]);
 
+  // Map of StreamParser per session
+  const parsersRef = useRef<Map<string, StreamParser>>(new Map());
+
+  const getOrCreateParser = (sessionId: string, profile?: AgentProfile): StreamParser => {
+    let parser = parsersRef.current.get(sessionId);
+    if (!parser) {
+      parser = new StreamParser({
+        approvalPattern: profile?.approval_pattern ?? undefined,
+      });
+      parsersRef.current.set(sessionId, parser);
+    }
+    return parser;
+  };
+
+  // Discover installed agent profiles on mount
+  useEffect(() => {
+    invoke<AgentProfile[]>("get_agent_profiles")
+      .then((profiles) => {
+        if (profiles && Array.isArray(profiles) && profiles.length > 0) {
+          setAgents(profiles);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Listen to Tauri PTY output events and feed into session parser
+  useEffect(() => {
+    let unlistenOutput: UnlistenFn | null = null;
+    let isCancelled = false;
+
+    listen<PtyOutputPayload>("pty-output", (event) => {
+      const payload = event.payload;
+      if (!payload?.session_id || !payload?.data) return;
+
+      const sid = payload.session_id;
+      const targetSession = sessions.find((s) => s.id === sid);
+      const targetProfile = agents.find((a) => a.id === targetSession?.profileId);
+      const parser = getOrCreateParser(sid, targetProfile);
+      const parsedEvents = parser.feed(payload.data);
+
+      if (parsedEvents.length === 0) return;
+
+      setMessages((prev) => {
+        const sessionMsgs = [...(prev[sid] ?? [])];
+
+        for (const evt of parsedEvents) {
+          if (evt.type === "text") {
+            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
+            if (lastMsg && lastMsg.role === "agent" && !lastMsg.actionCard) {
+              // Append to active streaming agent message
+              sessionMsgs[sessionMsgs.length - 1] = {
+                ...lastMsg,
+                content: lastMsg.content ? `${lastMsg.content}\n${evt.content}` : evt.content,
+              };
+            } else {
+              sessionMsgs.push({
+                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                role: "agent",
+                content: evt.content,
+                timestamp: Date.now(),
+              });
+            }
+          } else if (evt.type === "tool_start") {
+            const toolName = evt.metadata?.tool || "Tool";
+            const toolArgs = evt.metadata?.args || "";
+            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
+
+            const newTool = {
+              id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              name: toolName,
+              args: toolArgs,
+              status: "running" as const,
+            };
+
+            if (lastMsg && lastMsg.role === "agent") {
+              sessionMsgs[sessionMsgs.length - 1] = {
+                ...lastMsg,
+                tools: [...(lastMsg.tools ?? []), newTool],
+              };
+            } else {
+              sessionMsgs.push({
+                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                role: "agent",
+                content: "",
+                timestamp: Date.now(),
+                tools: [newTool],
+              });
+            }
+          } else if (evt.type === "approval_request") {
+            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
+            const actionCard = {
+              id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              sessionId: sid,
+              title: "⚠️ Agent Action Approval Required",
+              prompt: evt.content,
+              commandSnippet: evt.metadata?.commandSnippet,
+              toolName: evt.metadata?.tool,
+              status: "pending" as const,
+              approvalKey: targetProfile?.approval_key || "y\n",
+              rejectKey: targetProfile?.reject_key || "n\n",
+              timestamp: Date.now(),
+            };
+
+            if (lastMsg && lastMsg.role === "agent") {
+              sessionMsgs[sessionMsgs.length - 1] = {
+                ...lastMsg,
+                actionCard,
+              };
+            } else {
+              sessionMsgs.push({
+                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                role: "agent",
+                content: "",
+                timestamp: Date.now(),
+                actionCard,
+              });
+            }
+          }
+        }
+
+        return {
+          ...prev,
+          [sid]: sessionMsgs,
+        };
+      });
+    })
+      .then((unlisten) => {
+        if (isCancelled) {
+          unlisten();
+        } else {
+          unlistenOutput = unlisten;
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isCancelled = true;
+      if (unlistenOutput) {
+        unlistenOutput();
+      }
+    };
+  }, [agents, sessions]);
+
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
+  const activeAgent = agents.find((a) => a.id === activeSession?.profileId) ?? agents[0];
 
   const handleNewSession = () => {
     const newSessionId = `s-${Date.now()}`;
+    const agentToSpawn = activeAgent ?? agents[0];
     const newSession: Session = {
       id: newSessionId,
       name: `Session #${sessions.length + 1}`,
-      profileId: "claude-code",
+      profileId: agentToSpawn?.id || "claude-code",
       cwd: activeWorkspace,
       status: "running",
       createdAt: Date.now(),
     };
     setSessions((prev) => [newSession, ...prev]);
     setActiveSessionId(newSessionId);
+
+    // Call spawn_session on Tauri backend
+    if (agentToSpawn && agentToSpawn.command) {
+      invoke("spawn_session", {
+        sessionId: newSessionId,
+        cwd: activeWorkspace,
+        command: agentToSpawn.command,
+        args: [],
+      }).catch(() => {});
+    }
   };
 
   const handleSelectSession = (sessionId: string) => {
@@ -190,8 +347,9 @@ Would you like me to execute this action?`,
 
   /**
    * Action Card approval handling: updates message status and forwards approval/rejection key to PTY.
+   * If a modified command is provided from an in-place edit, sends that command instead of raw key.
    */
-  const handleActionApprove = (key: string, cardId?: string) => {
+  const handleActionApprove = (key: string, cardId?: string, modifiedCommand?: string) => {
     setMessages((prev) => {
       const sessionMsgs = prev[activeSessionId] ?? [];
       const updated = sessionMsgs.map((msg) => {
@@ -211,7 +369,11 @@ Would you like me to execute this action?`,
       };
     });
 
-    handleSendPtyInput(key);
+    if (modifiedCommand) {
+      handleSendPtyInput(`${modifiedCommand}\n`);
+    } else {
+      handleSendPtyInput(key);
+    }
   };
 
   const handleActionReject = (key: string, cardId?: string) => {
@@ -273,7 +435,6 @@ Would you like me to execute this action?`,
   };
 
   const currentMessages = messages[activeSessionId] ?? [];
-  const activeAgent = agents.find((a) => a.id === activeSession?.profileId) ?? agents[0];
 
   return (
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
