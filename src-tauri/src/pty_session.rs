@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -24,6 +25,21 @@ struct SessionHandle {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+}
+
+/// Rejects a working directory that is relative or does not exist.
+///
+/// `portable-pty` silently falls back to `$HOME` when the requested cwd is not a
+/// directory, which would start the agent in the wrong project without any error.
+fn validate_cwd(cwd: &str) -> Result<(), String> {
+    let path = Path::new(cwd);
+    if !path.is_absolute() {
+        return Err(format!("Working directory must be an absolute path, got '{}'", cwd));
+    }
+    if !path.is_dir() {
+        return Err(format!("Working directory '{}' is not an existing directory", cwd));
+    }
+    Ok(())
 }
 
 /// Thread-safe manager for PTY sessions.
@@ -64,6 +80,8 @@ impl PtySessionManager {
         command: &str,
         args: &[String],
     ) -> Result<(), String> {
+        validate_cwd(cwd)?;
+
         let pty_system = native_pty_system();
 
         let pair = pty_system

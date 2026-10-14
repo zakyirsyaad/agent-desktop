@@ -143,6 +143,33 @@ fn test_pty_session_nonexistent_command_error() {
 }
 
 #[test]
+fn test_pty_session_rejects_relative_cwd() {
+    let manager = PtySessionManager::new(Box::new(|_| {}));
+
+    // A bare workspace name must not be resolved against the app's own cwd.
+    let res = manager.start_session("test-relative-cwd", "src", "/bin/sh", &[]);
+
+    let err = res.expect_err("relative cwd must be rejected");
+    assert!(err.contains("absolute"), "unexpected error: {err}");
+}
+
+#[test]
+fn test_pty_session_rejects_missing_cwd_instead_of_falling_back() {
+    let manager = PtySessionManager::new(Box::new(|_| {}));
+
+    // portable-pty would otherwise silently start the agent in $HOME.
+    let res = manager.start_session(
+        "test-missing-cwd",
+        "/nonexistent/workspace/for/sure",
+        "/bin/sh",
+        &[],
+    );
+
+    let err = res.expect_err("missing cwd must be rejected");
+    assert!(err.contains("not an existing directory"), "unexpected error: {err}");
+}
+
+#[test]
 fn test_pty_session_operations_on_missing_session() {
     let (tx, _rx) = mpsc::channel();
     let manager = PtySessionManager::new(Box::new(move |event| {

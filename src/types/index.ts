@@ -19,6 +19,12 @@ export interface AgentProfile {
 
 export type PermissionMode = 'bypass' | 'ask';
 
+/** A project folder: `name` is shown in the UI, `path` is the absolute spawn cwd. */
+export interface Workspace {
+  name: string;
+  path: string;
+}
+
 export interface SessionConfig {
   profileId: string;
   cwd: string;

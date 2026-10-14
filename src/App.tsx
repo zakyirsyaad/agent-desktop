@@ -9,18 +9,26 @@ import { ComposerDock } from "./components/ComposerDock";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { StreamParser } from "./lib/stream-parser";
 import { applyParsedEvents } from "./lib/apply-parsed-events";
-import type { AgentProfile, ChatMessage, Session, PermissionMode, PtyOutputPayload } from "./types";
+import type {
+  AgentProfile,
+  ChatMessage,
+  Session,
+  PermissionMode,
+  PtyOutputPayload,
+  Workspace,
+} from "./types";
 
 export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
 
-  // Default mock workspaces & active selection
-  const [workspaces] = useState<string[]>([
-    "ai-perpetual-trading",
-    "titan-investment",
-    "agent-desktop",
+  // Default mock workspaces & active selection (by name; path is the spawn cwd)
+  const [workspaces] = useState<Workspace[]>([
+    { name: "ai-perpetual-trading", path: "/Users/mac/ai-perpetual-trading" },
+    { name: "titan-investment", path: "/Users/mac/titan-investment" },
+    { name: "agent-desktop", path: "/Users/mac/agent-desktop" },
   ]);
   const [activeWorkspace, setActiveWorkspace] = useState<string>("ai-perpetual-trading");
+  const activeWorkspacePath = workspaces.find((ws) => ws.name === activeWorkspace)?.path;
 
   // Default mock sessions
   const [sessions, setSessions] = useState<Session[]>([
@@ -221,13 +229,16 @@ Would you like me to execute this action?`,
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId) ?? agents[0];
 
   const handleNewSession = () => {
+    // The backend rejects relative cwds, so never spawn without a resolved path.
+    if (!activeWorkspacePath) return;
+
     const newSessionId = `s-${Date.now()}`;
     const agentToSpawn = activeAgent ?? agents[0];
     const newSession: Session = {
       id: newSessionId,
       name: `Session #${sessions.length + 1}`,
       profileId: agentToSpawn?.id || "claude-code",
-      cwd: activeWorkspace,
+      cwd: activeWorkspacePath,
       status: "running",
       createdAt: Date.now(),
     };
@@ -238,7 +249,7 @@ Would you like me to execute this action?`,
     if (agentToSpawn && agentToSpawn.command) {
       invoke("spawn_session", {
         sessionId: newSessionId,
-        cwd: activeWorkspace,
+        cwd: activeWorkspacePath,
         command: agentToSpawn.command,
         args: [],
       }).catch(() => {});
@@ -250,9 +261,9 @@ Would you like me to execute this action?`,
     const selected = sessions.find((s) => s.id === sessionId);
     if (selected) {
       // If session belongs to known workspace, switch workspace too
-      const matchingWs = workspaces.find((ws) => selected.cwd.includes(ws));
+      const matchingWs = workspaces.find((ws) => ws.path === selected.cwd);
       if (matchingWs) {
-        setActiveWorkspace(matchingWs);
+        setActiveWorkspace(matchingWs.name);
       }
     }
   };
@@ -372,7 +383,7 @@ Would you like me to execute this action?`,
       <section className="flex flex-1 overflow-hidden">
         {/* Left Sidebar */}
         <Sidebar
-          workspaces={workspaces}
+          workspaces={workspaces.map((ws) => ws.name)}
           activeWorkspace={activeWorkspace}
           sessions={sessions}
           activeSessionId={activeSessionId}
