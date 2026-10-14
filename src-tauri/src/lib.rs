@@ -1,9 +1,11 @@
 pub mod env_resolver;
+pub mod profiles;
 pub mod pty_session;
 
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
+use profiles::{get_available_agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -42,6 +44,11 @@ fn resize_session(
     rows: u16,
 ) -> Result<(), String> {
     state.resize(&session_id, cols, rows)
+}
+
+#[tauri::command]
+fn get_agent_profiles() -> Result<Vec<AgentProfile>, String> {
+    Ok(get_available_agent_profiles())
 }
 
 #[tauri::command]
@@ -101,6 +108,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            get_agent_profiles,
             spawn_session,
             send_input,
             resize_session,
