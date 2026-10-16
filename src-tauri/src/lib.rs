@@ -185,6 +185,7 @@ pub fn run() {
     }));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(manager)
         .setup(move |app| {
             if let Ok(mut guard) = app_handle_holder.lock() {

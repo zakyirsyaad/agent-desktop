@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Chrome permissions for the main window and the per-session popout windows: core APIs plus the title-bar drag region that the overlay traffic-light layout needs.",
+  "description": "Permissions for the main window and per-session popout windows: core APIs, the title-bar drag region needed by the overlay traffic-light layout, and the native open dialog used to pick folders and attachments.",
   "windows": ["main", "session-*"],
-  "permissions": ["core:default", "core:window:allow-start-dragging"]
+  "permissions": ["core:default", "core:window:allow-start-dragging", "dialog:allow-open"]
 }
