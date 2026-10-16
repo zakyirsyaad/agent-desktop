@@ -45,7 +45,7 @@ describe("Navigation and Layout Components", () => {
       expect(screen.getByText("New session (fork)")).toBeDefined();
       expect(screen.getByText("ai-perpetual-trading")).toBeDefined();
 
-      // Terminal toggle button (>_)
+      // Terminal toggle button
       const terminalBtn = screen.getByRole("button", { name: /toggle terminal/i });
       expect(terminalBtn).toBeDefined();
       fireEvent.click(terminalBtn);

@@ -107,6 +107,7 @@ describe("TerminalDrawer", () => {
   it("renders terminal header and controls when isOpen is true", () => {
     render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
@@ -128,6 +129,7 @@ describe("TerminalDrawer", () => {
     const onClose = vi.fn();
     render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
@@ -143,6 +145,7 @@ describe("TerminalDrawer", () => {
   it("mounts xterm terminal instance and registers Tauri pty-output listener", async () => {
     render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
@@ -162,6 +165,7 @@ describe("TerminalDrawer", () => {
     const onSendInput = vi.fn();
     render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
@@ -192,6 +196,7 @@ describe("TerminalDrawer", () => {
 
     const { rerender } = render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         onSendInput={firstSendInput}
@@ -207,6 +212,7 @@ describe("TerminalDrawer", () => {
 
     rerender(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         onSendInput={latestSendInput}
@@ -231,6 +237,7 @@ describe("TerminalDrawer", () => {
   it("forwards terminal keystrokes directly to Tauri send_input when onSendInput is not provided", () => {
     render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-42"
         sessionName="Test Session"
@@ -257,6 +264,7 @@ describe("TerminalDrawer", () => {
     const onResize = vi.fn();
     render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
@@ -272,6 +280,7 @@ describe("TerminalDrawer", () => {
   it("writes output to terminal when pty-output arrives for matching session", async () => {
     render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
@@ -305,6 +314,7 @@ describe("TerminalDrawer", () => {
   it("clears terminal when clear button is clicked", () => {
     render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
@@ -327,6 +337,7 @@ describe("TerminalDrawer", () => {
 
     render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
@@ -346,6 +357,7 @@ describe("TerminalDrawer", () => {
     const onResize = vi.fn();
     render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
@@ -365,6 +377,7 @@ describe("TerminalDrawer", () => {
   it("cleans up terminal and unlistens on unmount", async () => {
     const { unmount } = render(
       <TerminalDrawer
+        isLive
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
@@ -374,6 +387,60 @@ describe("TerminalDrawer", () => {
 
     unmount();
     expect(mockUnlisten).toHaveBeenCalled();
+  });
+
+  it("shows a placeholder instead of a terminal when no session is selected", () => {
+    mockListen.mockClear();
+    mockInvoke.mockClear();
+    const onClose = vi.fn();
+    render(<TerminalDrawer isOpen={true} sessionId="" isLive={true} onClose={onClose} />);
+
+    expect(screen.getByText("No running session. Start one to see its terminal.")).toBeDefined();
+    expect(screen.queryByTestId("xterm-terminal-container")).toBeNull();
+    expect(mockListen).not.toHaveBeenCalled();
+    expect(mockInvoke).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /close drawer/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a placeholder and sends nothing while the session is not running", () => {
+    mockListen.mockClear();
+    mockInvoke.mockClear();
+    const onSendInput = vi.fn();
+    const onResize = vi.fn();
+    render(
+      <TerminalDrawer
+        isOpen={true}
+        sessionId="s-1"
+        sessionName="Test Session"
+        isLive={false}
+        onSendInput={onSendInput}
+        onResize={onResize}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("No running session. Start one to see its terminal.")).toBeDefined();
+    expect(screen.getByText("Terminal")).toBeDefined();
+    expect(screen.queryByTestId("xterm-terminal-container")).toBeNull();
+    expect(mockListen).not.toHaveBeenCalled();
+    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(onSendInput).not.toHaveBeenCalled();
+    expect(onResize).not.toHaveBeenCalled();
+  });
+
+  it("mounts the terminal once the session starts running", () => {
+    mockListen.mockClear();
+    const { rerender } = render(
+      <TerminalDrawer isOpen={true} sessionId="s-1" isLive={false} onClose={vi.fn()} />
+    );
+    expect(screen.queryByTestId("xterm-terminal-container")).toBeNull();
+
+    rerender(<TerminalDrawer isOpen={true} sessionId="s-1" isLive={true} onClose={vi.fn()} />);
+
+    expect(screen.getByTestId("xterm-terminal-container")).toBeDefined();
+    expect(mockListen).toHaveBeenCalledWith("pty-output", expect.any(Function));
   });
 
   it("shows the live indicator only while the session's agent is running", () => {
