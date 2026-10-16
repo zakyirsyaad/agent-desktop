@@ -17,12 +17,20 @@ export interface FakeTauriStore {
   transcripts: Record<string, unknown[]>;
 }
 
+/**
+ * Default: a returning user who finished onboarding and has three recent
+ * folders (newest first). Onboarding tests flip `onboardingCompleted` back.
+ */
 function emptyFakeStore(): FakeTauriStore {
   return {
     state: {
       version: 1,
-      settings: { defaultAgentId: null, onboardingCompleted: false },
-      recentFolders: [],
+      settings: { defaultAgentId: null, onboardingCompleted: true },
+      recentFolders: [
+        { name: "ai-perpetual-trading", path: "/Users/test/developer/ai-perpetual-trading", lastOpenedAt: 3000 },
+        { name: "titan-investment", path: "/Users/test/developer/titan-investment", lastOpenedAt: 2000 },
+        { name: "agent-desktop", path: "/Users/test/developer/agent-desktop", lastOpenedAt: 1000 },
+      ],
       sessions: [],
     },
     transcripts: {},

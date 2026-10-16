@@ -109,8 +109,10 @@ describe("New session spawning", () => {
     expect(screen.getByRole("alert").textContent).toContain("Failed to start");
   });
 
-  it("warns instead of spawning when no workspace folder was discovered", async () => {
-    const invokeSpy = stubInvoke({ list_workspaces: () => Promise.resolve([]) });
+  it("warns instead of spawning when no project folder has been opened", async () => {
+    (window as unknown as { __FAKE_TAURI_STORE__: { state: { recentFolders: unknown[] } } })
+      .__FAKE_TAURI_STORE__.state.recentFolders = [];
+    const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
 
     await act(async () => {
       render(<App />);
@@ -119,7 +121,7 @@ describe("New session spawning", () => {
       fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
     });
 
-    expect(screen.getByRole("alert").textContent).toContain("No workspace folder found");
+    expect(screen.getByRole("alert").textContent).toContain("Open a project folder first");
     expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")).toBeUndefined();
   });
 });

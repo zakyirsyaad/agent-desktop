@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { TopBar } from "../components/TopBar";
 import { Sidebar } from "../components/Sidebar";
 import App from "../App";
@@ -68,58 +68,52 @@ describe("Navigation and Layout Components", () => {
   });
 
   describe("Sidebar", () => {
-    it("renders search input, + New session button, workspaces, sessions, agents, and profile footer", () => {
+    const workspaces = [
+      { name: "ai-perpetual-trading", path: "/Users/mac/ai-perpetual-trading" },
+      { name: "titan-investment", path: "/Users/mac/titan-investment" },
+    ];
+
+    it("renders workspaces, sessions grouped by folder, agents, and the given footer", () => {
       const onNewSession = vi.fn();
       const onSelectSession = vi.fn();
       const onSelectWorkspace = vi.fn();
 
       render(
         <Sidebar
-          workspaces={["ai-perpetual-trading", "titan-investment"]}
-          activeWorkspace="ai-perpetual-trading"
+          workspaces={workspaces}
+          activeWorkspacePath="/Users/mac/ai-perpetual-trading"
           sessions={mockSessions}
           activeSessionId="s-1"
           agents={mockProfiles}
           onNewSession={onNewSession}
           onSelectSession={onSelectSession}
           onSelectWorkspace={onSelectWorkspace}
+          footer={<span>footer content</span>}
         />
       );
 
-      // Search input and new session button
-      expect(screen.getByPlaceholderText(/search/i)).toBeDefined();
-      const newSessionBtn = screen.getByRole("button", { name: /\+ new/i });
-      expect(newSessionBtn).toBeDefined();
-      fireEvent.click(newSessionBtn);
+      fireEvent.click(screen.getByRole("button", { name: /\+ new/i }));
       expect(onNewSession).toHaveBeenCalledTimes(1);
 
-      // Workspaces list
-      const wsItem = screen.getByText("ai-perpetual-trading");
-      expect(wsItem).toBeDefined();
-      fireEvent.click(screen.getByText("titan-investment"));
-      expect(onSelectWorkspace).toHaveBeenCalledWith("titan-investment");
+      const workspaceList = within(screen.getByRole("list", { name: "Workspaces" }));
+      fireEvent.click(workspaceList.getByText("titan-investment"));
+      expect(onSelectWorkspace).toHaveBeenCalledWith("/Users/mac/titan-investment");
 
-      // Sessions list
-      expect(screen.getByText("New session (fork)")).toBeDefined();
-      expect(screen.getByText("Market analyzer refactor")).toBeDefined();
-      fireEvent.click(screen.getByText("Market analyzer refactor"));
+      const titanSessions = within(screen.getByRole("list", { name: "Sessions in titan-investment" }));
+      fireEvent.click(titanSessions.getByText("Market analyzer refactor"));
       expect(onSelectSession).toHaveBeenCalledWith("s-2");
 
-      // Detected agents with green indicators
       expect(screen.getByText("Claude Code")).toBeDefined();
-      expect(screen.getByText("Oh-My-Pi")).toBeDefined();
       expect(screen.getByText("Aider")).toBeDefined();
-
-      // Profile footer
-      expect(screen.getByText(/pro/i)).toBeDefined();
-      expect(screen.getByText(/iwang/i)).toBeDefined();
+      expect(screen.getByText("footer content")).toBeDefined();
+      expect(screen.queryByText(/iwang/i)).toBeNull();
     });
 
     it("filters sessions and workspaces when searching", () => {
       render(
         <Sidebar
-          workspaces={["ai-perpetual-trading", "titan-investment"]}
-          activeWorkspace="ai-perpetual-trading"
+          workspaces={workspaces}
+          activeWorkspacePath="/Users/mac/ai-perpetual-trading"
           sessions={mockSessions}
           activeSessionId="s-1"
           agents={mockProfiles}
@@ -129,12 +123,12 @@ describe("Navigation and Layout Components", () => {
         />
       );
 
-      const searchInput = screen.getByPlaceholderText(/search/i);
-      fireEvent.change(searchInput, { target: { value: "titan" } });
+      fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "titan" } });
 
-      // titan-investment workspace should remain, ai-perpetual-trading filtered out
-      expect(screen.getByText("titan-investment")).toBeDefined();
-      expect(screen.queryByText("ai-perpetual-trading")).toBeNull();
+      const workspaceList = within(screen.getByRole("list", { name: "Workspaces" }));
+      expect(workspaceList.getByText("titan-investment")).toBeDefined();
+      expect(workspaceList.queryByText("ai-perpetual-trading")).toBeNull();
+      expect(screen.queryByRole("list", { name: "Sessions in ai-perpetual-trading" })).toBeNull();
     });
   });
 

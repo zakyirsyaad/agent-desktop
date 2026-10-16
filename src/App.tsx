@@ -17,12 +17,17 @@ import {
 import { usePersistedState } from "./hooks/usePersistedState";
 import { useTranscripts } from "./hooks/useTranscripts";
 import { usePtyEvents } from "./hooks/usePtyEvents";
-import { useAgentProfiles, useWorkspaces } from "./hooks/useDiscovery";
+import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
+import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
+import { Onboarding, type OnboardingResult } from "./components/Onboarding";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
-import type { ActionCard, AgentProfile, ChatMessage, PermissionMode, Session, SpawnOptions } from "./types";
+import type { ActionCard, AgentProfile, ChatMessage, PermissionMode, Session, Settings, SpawnOptions } from "./types";
 import { DEFAULT_PERMISSION_MODE } from "./types";
 
 const DISABLED_COMPOSER_PLACEHOLDER = "Start a session to send a message";
+const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
+const NO_AGENT_NOTICE = "No supported agent is installed. Install Claude Code, Aider or omp, then check again in Settings.";
 
 /** Options picked in the composer for the next session; CLI flags only apply at start. */
 interface SessionDraft {
@@ -85,14 +90,23 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const parsersRef = useRef<Map<string, StreamParser>>(new Map());
 
   const reportError = useCallback((message: string) => setNotice(message), []);
   const { state, isLoaded, updateState } = usePersistedState(reportError);
   const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
-  const agents = useAgentProfiles(reportError);
-  const { workspaces, activeWorkspace, activeWorkspacePath, setActiveWorkspace } =
-    useWorkspaces(reportError);
+  const { agents, refresh: refreshAgents } = useAgentProfiles(reportError);
+  const suggestedFolders = useSuggestedFolders();
+  const {
+    workspaces,
+    activeWorkspace,
+    activeWorkspacePath,
+    selectWorkspace,
+    rememberFolder,
+    openFolder,
+    removeFolder,
+  } = useWorkspaceSelection(state, isLoaded, updateState, reportError);
 
   const sessions = state.sessions;
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -144,13 +158,13 @@ export default function App() {
 
   const handleNewSession = () => {
     // The backend rejects relative and missing cwds, so never spawn without a path.
-    if (!activeWorkspacePath) {
-      setNotice("No workspace folder found. Add a project folder under ~/developer and restart the app.");
+    if (!activeWorkspace || !activeWorkspacePath) {
+      setNotice(NO_FOLDER_NOTICE);
       return;
     }
     const agentToSpawn = newSessionAgent;
     if (!agentToSpawn) {
-      setNotice("No supported agent is installed. Install Claude Code, Aider or omp, then restart the app.");
+      setNotice(NO_AGENT_NOTICE);
       return;
     }
     const options = spawnOptionsFor(agentToSpawn, draft);
@@ -167,6 +181,7 @@ export default function App() {
       agentSessionId: options.agentSessionId ?? null,
     };
     updateState((prev) => ({ ...prev, sessions: [newSession, ...prev.sessions] }));
+    rememberFolder(activeWorkspace);
     setActiveSessionId(newSession.id);
 
     invoke("spawn_session", {
@@ -184,8 +199,20 @@ export default function App() {
   const handleSelectSession = (sessionId: string) => {
     setActiveSessionId(sessionId);
     const selected = sessions.find((s) => s.id === sessionId);
-    const matchingWs = workspaces.find((ws) => ws.path === selected?.cwd);
-    if (matchingWs) setActiveWorkspace(matchingWs.name);
+    if (selected && workspaces.some((ws) => ws.path === selected.cwd)) selectWorkspace(selected.cwd);
+  };
+
+  const updateSettings = (patch: Partial<Settings>) =>
+    updateState((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }));
+
+  const handleOnboardingComplete = ({ defaultAgentId, folder }: OnboardingResult) => {
+    updateSettings({ onboardingCompleted: true, defaultAgentId });
+    rememberFolder(folder);
+  };
+
+  const handleRunOnboarding = () => {
+    setIsSettingsOpen(false);
+    updateSettings({ onboardingCompleted: false });
   };
 
   const handleStopSession = (sessionId: string) => {
@@ -237,25 +264,40 @@ export default function App() {
 
   const currentMessages = transcripts[activeSessionId] ?? [];
 
+  if (isLoaded && !state.settings.onboardingCompleted) {
+    return (
+      <Onboarding
+        agents={agents}
+        recentFolders={workspaces}
+        suggestedFolders={suggestedFolders}
+        onRecheckAgents={refreshAgents}
+        onPickFolder={openFolder}
+        onComplete={handleOnboardingComplete}
+      />
+    );
+  }
+
   return (
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
       <TopBar
         sessionName={activeSession?.name}
-        workspaceName={activeWorkspace}
+        workspaceName={activeWorkspace?.name}
         isTerminalOpen={isTerminalOpen}
         onToggleTerminal={() => setIsTerminalOpen((prev) => !prev)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       <section className="flex flex-1 overflow-hidden">
         <Sidebar
-          workspaces={workspaces.map((ws) => ws.name)}
-          activeWorkspace={activeWorkspace}
+          workspaces={workspaces}
+          activeWorkspacePath={activeWorkspacePath}
           sessions={sessions}
           activeSessionId={activeSessionId}
           agents={agents}
           onNewSession={handleNewSession}
           onSelectSession={handleSelectSession}
-          onSelectWorkspace={setActiveWorkspace}
+          onSelectWorkspace={selectWorkspace}
+          onOpenFolder={() => void openFolder()}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
         />
@@ -302,6 +344,17 @@ export default function App() {
           />
         </article>
       </section>
+      {isSettingsOpen && (
+        <SettingsPanel
+          agents={agents}
+          defaultAgentId={state.settings.defaultAgentId}
+          recentFolders={workspaces}
+          onChangeDefaultAgent={(defaultAgentId) => updateSettings({ defaultAgentId })}
+          onRemoveRecentFolder={removeFolder}
+          onRunOnboarding={handleRunOnboarding}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
     </main>
   );
 }
