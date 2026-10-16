@@ -1,6 +1,7 @@
 pub mod env_resolver;
 pub mod profiles;
 pub mod pty_session;
+pub mod spawn_plan;
 pub mod workspaces;
 
 use std::sync::Arc;
@@ -8,6 +9,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use profiles::{get_available_agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
+use spawn_plan::{build_spawn_plan, SpawnOptions};
 use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -26,16 +28,40 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+/// Starts an agent session for a known profile.
+///
+/// The webview picks a `profile_id` plus [`SpawnOptions`]; it never supplies a
+/// command or raw args. The backend resolves the profile, builds a validated
+/// plan, and spawns that — so an unknown profile, an undetected CLI, or an
+/// option the CLI does not support all fail here instead of reaching a shell.
 #[tauri::command(async)]
 fn spawn_session(
     _app: AppHandle,
     state: State<'_, PtySessionManager>,
     session_id: String,
     cwd: String,
-    command: String,
-    args: Vec<String>,
+    profile_id: String,
+    options: SpawnOptions,
 ) -> Result<(), String> {
-    state.start_session(&session_id, &cwd, &command, &args)
+    if profile_id == "generic" {
+        return Err("Custom CLI is not configured".to_string());
+    }
+
+    let profile = get_available_agent_profiles()
+        .into_iter()
+        .find(|profile| profile.id == profile_id)
+        .ok_or_else(|| format!("Unknown agent profile '{}'", profile_id))?;
+
+    if !profile.detected {
+        return Err(format!(
+            "{} is not installed ('{}' was not found on PATH)",
+            profile.name, profile.command
+        ));
+    }
+
+    let plan = build_spawn_plan(&profile, &options)?;
+
+    state.start_session(&session_id, &cwd, &plan.command, &plan.args, &plan.env)
 }
 
 #[tauri::command]

@@ -113,6 +113,7 @@ esac
         &cwd,
         "/bin/sh",
         &["-c".to_string(), dummy_agent_cli.to_string()],
+        &[],
     );
     assert!(
         spawn_res.is_ok(),
