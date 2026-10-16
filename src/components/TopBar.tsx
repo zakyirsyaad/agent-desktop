@@ -34,8 +34,8 @@ export interface TopBarProps {
 }
 
 export function TopBar({
-  sessionName = "New session (fork)",
-  workspaceName = "ai-perpetual-trading",
+  sessionName,
+  workspaceName,
   isTerminalOpen,
   onToggleTerminal,
   canGoBack = false,
@@ -82,23 +82,36 @@ export function TopBar({
         </button>
       </div>
 
-      {/* Center: Session Breadcrumb & Workspace Badge */}
+      {/* Center: what is open, or the app name when nothing is. */}
       <div
         data-tauri-drag-region
         className="flex items-center space-x-2 text-center overflow-hidden max-w-md"
       >
-        <span data-tauri-drag-region className="truncate font-medium text-neutral-200">
-          {sessionName}
-        </span>
-        <span data-tauri-drag-region className="text-neutral-600">
-          /
-        </span>
-        <span
-          data-tauri-drag-region
-          className="rounded-md bg-neutral-900/90 border border-neutral-800 px-2 py-0.5 text-[11px] font-mono text-neutral-400 truncate"
-        >
-          {workspaceName}
-        </span>
+        {sessionName && (
+          <>
+            <span data-tauri-drag-region className="truncate font-medium text-neutral-200">
+              {sessionName}
+            </span>
+            {workspaceName && (
+              <span data-tauri-drag-region className="text-neutral-600">
+                /
+              </span>
+            )}
+          </>
+        )}
+        {workspaceName && (
+          <span
+            data-tauri-drag-region
+            className="rounded-md bg-neutral-900/90 border border-neutral-800 px-2 py-0.5 text-[11px] font-mono text-neutral-400 truncate"
+          >
+            {workspaceName}
+          </span>
+        )}
+        {!sessionName && !workspaceName && (
+          <span data-tauri-drag-region className="font-medium text-neutral-400">
+            Agent Desktop
+          </span>
+        )}
       </div>
 
       {/* Right: Actions (Terminal toggle, popout, folder, overflow) */}

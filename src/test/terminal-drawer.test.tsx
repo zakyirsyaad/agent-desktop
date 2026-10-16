@@ -98,7 +98,6 @@ describe("TerminalDrawer", () => {
         isOpen={false}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={1234}
         onClose={vi.fn()}
       />
     );
@@ -111,13 +110,13 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={4567}
         onClose={vi.fn()}
       />
     );
 
-    // Terminal header title with PID
-    expect(screen.getByText(/Raw Terminal Stream \[PID: 4567\]/i)).toBeDefined();
+    expect(screen.getByText("Terminal")).toBeDefined();
+    expect(screen.getByText("Test Session")).toBeDefined();
+    expect(screen.queryByText(/PID/)).toBeNull();
 
     // Action buttons
     expect(screen.getByRole("button", { name: /clear output/i })).toBeDefined();
@@ -132,7 +131,6 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={1234}
         onClose={onClose}
       />
     );
@@ -148,7 +146,6 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={1234}
         onClose={vi.fn()}
       />
     );
@@ -168,7 +165,6 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={1234}
         onSendInput={onSendInput}
         onClose={vi.fn()}
       />
@@ -238,7 +234,6 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-42"
         sessionName="Test Session"
-        pid={1234}
         onClose={vi.fn()}
       />
     );
@@ -265,7 +260,6 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={1234}
         onResize={onResize}
         onClose={vi.fn()}
       />
@@ -281,7 +275,6 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={1234}
         onClose={vi.fn()}
       />
     );
@@ -315,7 +308,6 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={1234}
         onClose={vi.fn()}
       />
     );
@@ -338,7 +330,6 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={1234}
         onClose={vi.fn()}
       />
     );
@@ -358,7 +349,6 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={1234}
         onResize={onResize}
         onClose={vi.fn()}
       />
@@ -378,12 +368,23 @@ describe("TerminalDrawer", () => {
         isOpen={true}
         sessionId="s-1"
         sessionName="Test Session"
-        pid={1234}
         onClose={vi.fn()}
       />
     );
 
     unmount();
     expect(mockUnlisten).toHaveBeenCalled();
+  });
+
+  it("shows the live indicator only while the session's agent is running", () => {
+    const { rerender } = render(
+      <TerminalDrawer isOpen={true} sessionId="s-1" sessionName="Test Session" isLive={false} onClose={vi.fn()} />
+    );
+    expect(screen.queryByLabelText("Agent running")).toBeNull();
+
+    rerender(
+      <TerminalDrawer isOpen={true} sessionId="s-1" sessionName="Test Session" isLive={true} onClose={vi.fn()} />
+    );
+    expect(screen.getByLabelText("Agent running")).toBeDefined();
   });
 });

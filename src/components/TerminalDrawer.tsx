@@ -11,7 +11,8 @@ export interface TerminalDrawerProps {
   isOpen: boolean;
   sessionId: string;
   sessionName?: string;
-  pid?: number | null;
+  /** True while the session's agent process is running. */
+  isLive?: boolean;
   onClose: () => void;
   onSendInput?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
@@ -20,8 +21,8 @@ export interface TerminalDrawerProps {
 export function TerminalDrawer({
   isOpen,
   sessionId,
-  sessionName = "Session",
-  pid = null,
+  sessionName,
+  isLive = false,
   onClose,
   onSendInput,
   onResize,
@@ -190,13 +191,14 @@ export function TerminalDrawer({
       <div className="flex h-9 items-center justify-between border-b border-neutral-800/80 bg-[#0a0a0a] px-3 text-xs">
         <div className="flex items-center space-x-2">
           <TerminalIcon size={14} className="text-amber-400" />
-          <span className="font-mono font-medium text-neutral-200">
-            📟 Raw Terminal Stream {pid ? `[PID: ${pid}]` : `[${sessionName}]`}
-          </span>
-          <span className="flex h-2 w-2 relative">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-          </span>
+          <span className="font-mono font-medium text-neutral-200">Terminal</span>
+          {sessionName && <span className="truncate font-mono text-neutral-500">{sessionName}</span>}
+          {isLive && (
+            <span className="flex h-2 w-2 relative" role="status" aria-label="Agent running">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+          )}
         </div>
 
         {/* Drawer Action Controls */}

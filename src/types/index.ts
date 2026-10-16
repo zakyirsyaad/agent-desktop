@@ -72,7 +72,6 @@ export interface Session {
   profileId: string;
   cwd: string;
   status: 'running' | 'idle' | 'waiting_approval' | 'terminated';
-  pid?: number | null;
   model?: string;
   effort?: string;
   permissionMode?: PermissionMode;

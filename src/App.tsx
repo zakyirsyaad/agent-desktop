@@ -478,7 +478,7 @@ export default function App() {
             isOpen={isTerminalOpen}
             sessionId={activeSessionId}
             sessionName={activeSession?.name}
-            pid={activeSession?.pid}
+            isLive={isActiveRunning}
             onClose={() => setIsTerminalOpen(false)}
             onSendInput={handleSendPtyInput}
           />

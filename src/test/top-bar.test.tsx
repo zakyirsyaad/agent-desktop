@@ -180,4 +180,21 @@ describe("TopBar", () => {
       expect(screen.getByText("titan-investment")).toBeDefined();
     });
   });
+
+  describe("title", () => {
+    it("shows no made-up session or folder name when there is none", () => {
+      render(<TopBar isTerminalOpen={false} onToggleTerminal={() => {}} />);
+
+      expect(screen.queryByText(/new session \(fork\)/i)).toBeNull();
+      expect(screen.queryByText("ai-perpetual-trading")).toBeNull();
+      expect(screen.getByText("Agent Desktop")).toBeDefined();
+    });
+
+    it("shows only the folder when no session is open", () => {
+      render(<TopBar workspaceName="api" isTerminalOpen={false} onToggleTerminal={() => {}} />);
+
+      expect(screen.getByText("api")).toBeDefined();
+      expect(screen.queryByText("/")).toBeNull();
+    });
+  });
 });
