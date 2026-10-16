@@ -1,6 +1,8 @@
 pub mod env_resolver;
 pub mod profiles;
 pub mod pty_session;
+pub mod user_profile;
+pub mod windows;
 pub mod workspaces;
 
 use std::sync::Arc;
@@ -140,7 +142,10 @@ pub fn run() {
             spawn_session,
             send_input,
             resize_session,
-            terminate_session
+            terminate_session,
+            windows::open_session_window,
+            windows::reveal_in_finder,
+            user_profile::get_user_profile
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

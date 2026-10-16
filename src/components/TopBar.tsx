@@ -7,11 +7,28 @@ import {
   Terminal
 } from "lucide-react";
 
+/**
+ * Left inset reserved for the native macOS traffic lights.
+ *
+ * The window uses `titleBarStyle: Overlay` with a hidden title, so the real
+ * close/minimise/zoom buttons float over this header. Nothing may be rendered
+ * under them, and the inset replaces the fake circles that used to stand in for
+ * them. The value is wider than the buttons themselves so a click just past
+ * them does not hit an interactive control.
+ */
+export const TOP_BAR_TRAFFIC_LIGHT_INSET_PX = 78;
+
 export interface TopBarProps {
   sessionName?: string;
   workspaceName?: string;
   isTerminalOpen: boolean;
   onToggleTerminal: () => void;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onBack?: () => void;
+  onForward?: () => void;
+  /** Opens this session in its own window; the button is hidden when absent. */
+  onPopout?: () => void;
   onOpenFolder?: () => void;
   onOpenSettings?: () => void;
 }
@@ -21,45 +38,65 @@ export function TopBar({
   workspaceName = "ai-perpetual-trading",
   isTerminalOpen,
   onToggleTerminal,
+  canGoBack = false,
+  canGoForward = false,
+  onBack,
+  onForward,
+  onPopout,
   onOpenFolder,
   onOpenSettings,
 }: TopBarProps) {
   return (
-    <header className="flex h-11 w-full items-center justify-between border-b border-neutral-800/80 bg-[#000000] px-3.5 text-xs select-none">
-      {/* Left: macOS Traffic Lights + Window Navigation */}
-      <div className="flex items-center space-x-3">
-        <div className="flex items-center space-x-2" aria-label="Window controls">
-          <span className="h-3 w-3 rounded-full bg-[#ff5f56] transition-opacity hover:opacity-80 inline-block shadow-sm" />
-          <span className="h-3 w-3 rounded-full bg-[#ffbd2e] transition-opacity hover:opacity-80 inline-block shadow-sm" />
-          <span className="h-3 w-3 rounded-full bg-[#27c93f] transition-opacity hover:opacity-80 inline-block shadow-sm" />
-        </div>
-
-        <div className="flex items-center space-x-0.5 text-neutral-500 pl-2">
-          <button
-            type="button"
-            className="rounded p-1 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-            aria-label="Back"
-          >
-            <ChevronLeft size={15} />
-          </button>
-          <button
-            type="button"
-            className="rounded p-1 text-neutral-600 hover:bg-neutral-900 hover:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-            aria-label="Forward"
-            disabled
-          >
-            <ChevronRight size={15} />
-          </button>
-        </div>
+    <header
+      data-tauri-drag-region
+      style={{ paddingLeft: TOP_BAR_TRAFFIC_LIGHT_INSET_PX }}
+      className="flex h-11 w-full items-center justify-between border-b border-neutral-800/80 bg-[#000000] px-3.5 text-xs select-none"
+    >
+      {/* Left: session navigation. The traffic lights above are the OS's own. */}
+      <div data-tauri-drag-region className="flex items-center space-x-0.5 text-neutral-500">
+        <button
+          type="button"
+          onClick={canGoBack ? onBack : undefined}
+          disabled={!canGoBack}
+          className={`rounded p-1 focus:outline-none focus:ring-1 focus:ring-neutral-700 ${
+            canGoBack
+              ? "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"
+              : "text-neutral-600"
+          }`}
+          aria-label="Back"
+        >
+          <ChevronLeft size={15} />
+        </button>
+        <button
+          type="button"
+          onClick={canGoForward ? onForward : undefined}
+          disabled={!canGoForward}
+          className={`rounded p-1 focus:outline-none focus:ring-1 focus:ring-neutral-700 ${
+            canGoForward
+              ? "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"
+              : "text-neutral-600"
+          }`}
+          aria-label="Forward"
+        >
+          <ChevronRight size={15} />
+        </button>
       </div>
 
       {/* Center: Session Breadcrumb & Workspace Badge */}
-      <div className="flex items-center space-x-2 text-center overflow-hidden max-w-md">
-        <span className="truncate font-medium text-neutral-200">
+      <div
+        data-tauri-drag-region
+        className="flex items-center space-x-2 text-center overflow-hidden max-w-md"
+      >
+        <span data-tauri-drag-region className="truncate font-medium text-neutral-200">
           {sessionName}
         </span>
-        <span className="text-neutral-600">/</span>
-        <span className="rounded-md bg-neutral-900/90 border border-neutral-800 px-2 py-0.5 text-[11px] font-mono text-neutral-400 truncate">
+        <span data-tauri-drag-region className="text-neutral-600">
+          /
+        </span>
+        <span
+          data-tauri-drag-region
+          className="rounded-md bg-neutral-900/90 border border-neutral-800 px-2 py-0.5 text-[11px] font-mono text-neutral-400 truncate"
+        >
           {workspaceName}
         </span>
       </div>
@@ -81,31 +118,38 @@ export function TopBar({
           <span>&gt;_</span>
         </button>
 
-        <button
-          type="button"
-          onClick={onOpenFolder}
-          className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-          aria-label="Open workspace directory"
-        >
-          <Folder size={14} />
-        </button>
+        {onOpenFolder && (
+          <button
+            type="button"
+            onClick={onOpenFolder}
+            className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            aria-label="Open workspace directory"
+          >
+            <Folder size={14} />
+          </button>
+        )}
 
-        <button
-          type="button"
-          className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-          aria-label="Popout window"
-        >
-          <ExternalLink size={14} />
-        </button>
+        {onPopout && (
+          <button
+            type="button"
+            onClick={onPopout}
+            className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            aria-label="Popout window"
+          >
+            <ExternalLink size={14} />
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-          aria-label="More options"
-        >
-          <MoreHorizontal size={15} />
-        </button>
+        {onOpenSettings && (
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            aria-label="More options"
+          >
+            <MoreHorizontal size={15} />
+          </button>
+        )}
       </div>
     </header>
   );
