@@ -1,3 +1,4 @@
+pub mod acp;
 pub mod env_resolver;
 pub mod fork_handoff;
 pub mod profiles;

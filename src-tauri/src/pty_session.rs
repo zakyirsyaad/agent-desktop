@@ -34,7 +34,7 @@ struct SessionHandle {
 ///
 /// `portable-pty` silently falls back to `$HOME` when the requested cwd is not a
 /// directory, which would start the agent in the wrong project without any error.
-fn validate_cwd(cwd: &str) -> Result<(), String> {
+pub(crate) fn validate_cwd(cwd: &str) -> Result<(), String> {
     let path = Path::new(cwd);
     if !path.is_absolute() {
         return Err(format!("Working directory must be an absolute path, got '{}'", cwd));
