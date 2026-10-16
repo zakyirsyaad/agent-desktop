@@ -1,4 +1,5 @@
 pub mod env_resolver;
+pub mod fork_handoff;
 pub mod profiles;
 pub mod pty_session;
 pub mod spawn_plan;
@@ -145,6 +146,25 @@ fn delete_transcript(store: State<'_, AppStore>, session_id: String) -> Result<(
     store.delete_transcript(&session_id)
 }
 
+/// Writes a fork handoff document under the app data dir and returns its absolute path.
+///
+/// The frontend then starts a new session whose first prompt points the agent at it.
+#[tauri::command(async)]
+fn write_fork_handoff(
+    app: AppHandle,
+    handoff_id: String,
+    content: String,
+) -> Result<String, String> {
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Cannot locate the app data dir: {e}"))?;
+    let path = fork_handoff::write_handoff(&root, &handoff_id, &content)?;
+    path.into_os_string()
+        .into_string()
+        .map_err(|p| format!("Handoff path is not valid UTF-8: {}", p.to_string_lossy()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_handle_holder: Arc<std::sync::Mutex<Option<AppHandle>>> =
@@ -223,7 +243,8 @@ pub fn run() {
             delete_transcript,
             windows::open_session_window,
             windows::reveal_in_finder,
-            user_profile::get_user_profile
+            user_profile::get_user_profile,
+            write_fork_handoff
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,8 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { ActionCard } from "../components/ActionCard";
 import { ChatCanvas, type ChatMessage } from "../components/ChatCanvas";
 import type { ActionCard as ActionCardType } from "../types";
+import {
+  installSpeechMock,
+  uninstallSpeechMock,
+  type SpeechMock,
+} from "./helpers/speech-mock";
 
 describe("ActionCard Component", () => {
   const mockCard: ActionCardType = {
@@ -176,6 +181,19 @@ All systems ready for compilation.`,
     },
   ];
 
+  /** Two agent messages so read-aloud ownership can be tested. */
+  const twoAgentMessages: ChatMessage[] = [
+    ...mockMessages,
+    {
+      id: "msg-3",
+      role: "agent",
+      content: "Second reply with **bold** text.",
+      timestamp: Date.now() - 30000,
+    },
+  ];
+
+  let speech: SpeechMock;
+
   beforeEach(() => {
     // Mock navigator.clipboard
     Object.assign(navigator, {
@@ -183,6 +201,11 @@ All systems ready for compilation.`,
         writeText: vi.fn().mockImplementation(() => Promise.resolve()),
       },
     });
+    speech = installSpeechMock();
+  });
+
+  afterEach(() => {
+    uninstallSpeechMock();
   });
 
   it("renders user and agent messages with clean markdown formatting", () => {
@@ -284,6 +307,7 @@ All systems ready for compilation.`,
       <ChatCanvas
         messages={mockMessages}
         onSendPtyInput={() => {}}
+        onForkBranch={() => {}}
       />
     );
 
@@ -292,5 +316,220 @@ All systems ready for compilation.`,
     expect(screen.getByRole("button", { name: /fork branch/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /read aloud/i })).toBeDefined();
     expect(screen.getByText(/ago/i)).toBeDefined();
+  });
+
+  it("labels agent messages with the active agent name instead of a hard-coded product", () => {
+    render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+        agentName="Aider"
+      />
+    );
+
+    expect(screen.getByText("Aider")).toBeDefined();
+    expect(screen.queryByText("Claude Code")).toBeNull();
+  });
+
+  it("falls back to a generic Agent label when no agentName is provided", () => {
+    render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    expect(screen.getByText("Agent")).toBeDefined();
+    expect(screen.queryByText("Claude Code")).toBeNull();
+  });
+
+  it("hides the Fork button when the host app cannot fork a branch", () => {
+    render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /fork branch/i })).toBeNull();
+  });
+
+  it("calls onForkBranch with the agent message id when Fork is clicked", () => {
+    const onForkBranch = vi.fn();
+
+    render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+        onForkBranch={onForkBranch}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /fork branch/i }));
+
+    expect(onForkBranch).toHaveBeenCalledTimes(1);
+    expect(onForkBranch).toHaveBeenCalledWith("msg-2");
+  });
+
+  it("speaks a markdown-free version of the message and offers to stop", () => {
+    render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /read aloud/i }));
+
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+    const spoken = speech.utterances[0];
+    expect(spoken.text).not.toContain("```");
+    expect(spoken.text).toContain("code block omitted");
+    expect(spoken.text).toContain("Project Structure Overview");
+
+    expect(screen.getByRole("button", { name: /stop reading/i })).toBeDefined();
+  });
+
+  it("stops speaking and restores the Read aloud label when Stop reading is clicked", () => {
+    render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /read aloud/i }));
+    speech.cancel.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: /stop reading/i }));
+
+    expect(speech.cancel).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: /read aloud/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /stop reading/i })).toBeNull();
+  });
+
+  it("resets to Read aloud when the current utterance ends on its own", () => {
+    render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /read aloud/i }));
+    const utterance = speech.utterances[0];
+
+    act(() => {
+      utterance.onend?.();
+    });
+
+    expect(screen.getByRole("button", { name: /read aloud/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /stop reading/i })).toBeNull();
+  });
+
+  it("keeps a single speaker when Read aloud is clicked on a second message", () => {
+    render(
+      <ChatCanvas
+        messages={twoAgentMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    const second = screen.getByTestId("chat-message-msg-2");
+    const third = screen.getByTestId("chat-message-msg-3");
+
+    fireEvent.click(within(second).getByRole("button", { name: /read aloud/i }));
+    fireEvent.click(within(third).getByRole("button", { name: /read aloud/i }));
+
+    expect(screen.getAllByRole("button", { name: /stop reading/i })).toHaveLength(1);
+    expect(within(third).getByRole("button", { name: /stop reading/i })).toBeDefined();
+    expect(within(second).getByRole("button", { name: /read aloud/i })).toBeDefined();
+  });
+
+  it("ignores the end event of a superseded utterance so the new speaker keeps reading", () => {
+    render(
+      <ChatCanvas
+        messages={twoAgentMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    const second = screen.getByTestId("chat-message-msg-2");
+    const third = screen.getByTestId("chat-message-msg-3");
+
+    fireEvent.click(within(second).getByRole("button", { name: /read aloud/i }));
+    fireEvent.click(within(third).getByRole("button", { name: /read aloud/i }));
+
+    const superseded = speech.utterances[0];
+    act(() => {
+      superseded.onend?.();
+    });
+
+    expect(within(third).getByRole("button", { name: /stop reading/i })).toBeDefined();
+    expect(screen.getAllByRole("button", { name: /stop reading/i })).toHaveLength(1);
+  });
+
+  it("ignores a stale end event after the same message is stopped and restarted", () => {
+    render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /read aloud/i }));
+    fireEvent.click(screen.getByRole("button", { name: /stop reading/i }));
+    fireEvent.click(screen.getByRole("button", { name: /read aloud/i }));
+
+    act(() => {
+      speech.utterances[0].onerror?.({ error: "canceled" });
+    });
+
+    expect(screen.getByRole("button", { name: /stop reading/i })).toBeDefined();
+  });
+
+  it("hides Read aloud entirely when the platform has no speech engine", () => {
+    uninstallSpeechMock();
+
+    render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /read aloud/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /stop reading/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /copy message/i })).toBeDefined();
+  });
+
+  it("stops the utterance when the canvas unmounts mid-speech", () => {
+    const { unmount } = render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /read aloud/i }));
+    speech.cancel.mockClear();
+
+    unmount();
+
+    expect(speech.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cancel on unmount when nothing was being read", () => {
+    const { unmount } = render(
+      <ChatCanvas
+        messages={mockMessages}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    speech.cancel.mockClear();
+    unmount();
+
+    expect(speech.cancel).not.toHaveBeenCalled();
   });
 });
