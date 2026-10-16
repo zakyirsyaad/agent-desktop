@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyParsedEvents, type ApplyParsedEventsContext } from '../lib/apply-parsed-events';
+import { StreamParser } from '../lib/stream-parser';
 import type { AgentProfile, ChatMessage } from '../types';
 
 function makeContext(overrides: Partial<ApplyParsedEventsContext> = {}): ApplyParsedEventsContext {
@@ -82,5 +83,65 @@ describe('applyParsedEvents', () => {
     applyParsedEvents(original, [{ type: 'text', content: ' more' }], makeContext());
 
     expect(original).toEqual(snapshot);
+  });
+
+  it('keeps newline-only text around a tool start so lines do not run together', () => {
+    const parser = new StreamParser();
+    const ctx = makeContext();
+
+    let messages: ChatMessage[] = [];
+    for (const chunk of ['Reading files', '\nRunning Read(a.ts)\n', 'Found it']) {
+      messages = applyParsedEvents(messages, parser.feed(chunk), ctx);
+    }
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe('agent');
+    expect(messages[0].content).toBe('Reading files\n\nFound it');
+    expect(messages[0].tools).toHaveLength(1);
+    expect(messages[0].tools?.[0]).toMatchObject({ name: 'Read', args: 'a.ts', status: 'running' });
+  });
+
+  it('retracts the prompt fragment already appended before the action card', () => {
+    const messages: ChatMessage[] = [
+      { id: 'a-1', role: 'agent', content: 'Some output\nAllow this ac', timestamp: 1 },
+    ];
+
+    const result = applyParsedEvents(
+      messages,
+      [
+        {
+          type: 'approval_request',
+          content: 'Allow this action?',
+          metadata: { retractedText: 'Allow this ac' },
+        },
+      ],
+      makeContext(),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toBe('Some output\n');
+    expect(result[0].actionCard).toMatchObject({ prompt: 'Allow this action?', status: 'pending' });
+  });
+
+  it('leaves content untouched when retractedText is not an exact suffix', () => {
+    const messages: ChatMessage[] = [
+      { id: 'a-1', role: 'agent', content: 'Some output\nAllow this ac', timestamp: 1 },
+    ];
+
+    const result = applyParsedEvents(
+      messages,
+      [
+        {
+          type: 'approval_request',
+          content: 'Allow this action?',
+          metadata: { retractedText: 'unrelated fragment' },
+        },
+      ],
+      makeContext(),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toBe('Some output\nAllow this ac');
+    expect(result[0].actionCard).toBeDefined();
   });
 });

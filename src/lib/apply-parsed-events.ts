@@ -26,6 +26,17 @@ function replaceLast(messages: readonly ChatMessage[], next: ChatMessage): ChatM
   return [...messages.slice(0, -1), next];
 }
 
+/**
+ * Drops a prompt fragment that was rendered as ordinary text before the parser
+ * recognized it. Only an exact suffix is removed, so unrelated output survives.
+ */
+function retractSuffix(content: string, retractedText?: string): string {
+  if (!retractedText || !content.endsWith(retractedText)) {
+    return content;
+  }
+  return content.slice(0, content.length - retractedText.length);
+}
+
 function newAgentMessage(
   ctx: ApplyParsedEventsContext,
   fields: Partial<ChatMessage>,
@@ -89,7 +100,11 @@ function applyApprovalRequest(
   };
   const last = lastAgentMessage(messages);
   if (last) {
-    return replaceLast(messages, { ...last, actionCard });
+    return replaceLast(messages, {
+      ...last,
+      content: retractSuffix(last.content, event.metadata?.retractedText),
+      actionCard,
+    });
   }
   return [...messages, newAgentMessage(ctx, { actionCard })];
 }

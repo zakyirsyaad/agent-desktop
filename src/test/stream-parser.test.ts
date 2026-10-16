@@ -189,7 +189,16 @@ describe("StreamParser", () => {
       expect(events).toContainEqual({
         type: "approval_request",
         content: "Allow this action?",
+        metadata: { retractedText: "Allow this ac" },
       });
+    });
+
+    it("omits metadata when the whole prompt arrives in a single chunk", () => {
+      const events = parser.feed("Allow this action? [y/n] ");
+
+      expect(events).toStrictEqual([
+        { type: "approval_request", content: "Allow this action? [y/n]" },
+      ]);
     });
 
     it("does not raise the same prompt twice when more output follows on that line", () => {

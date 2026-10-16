@@ -76,8 +76,11 @@ export class StreamParser {
 
     // Check for approval prompt line by line. The first line is prefixed with the
     // unfinished line from earlier chunks, so a prompt split across PTY reads is found.
+    // Captured before it is overwritten, because a prompt completed here means that
+    // carried tail was already shown to the user as ordinary text.
+    const carriedTail = this.lineTail;
     const lines = cleanText.split('\n');
-    const probeLines = [this.lineTail + lines[0], ...lines.slice(1)];
+    const probeLines = [carriedTail + lines[0], ...lines.slice(1)];
     const isApprovalLine = probeLines.map((line) => this.approvalRegex.test(line));
     this.lineTail = this.nextLineTail(lines, isApprovalLine[isApprovalLine.length - 1]);
 
@@ -95,9 +98,12 @@ export class StreamParser {
         }
       }
 
+      const completedCarriedPrompt = isApprovalLine[0] && carriedTail.length > 0;
+
       events.push({
         type: 'approval_request',
         content: approvalLines.join('\n').trim() || cleanText.trim(),
+        ...(completedCarriedPrompt ? { metadata: { retractedText: carriedTail } } : {}),
       });
 
       return events;
@@ -115,7 +121,7 @@ export class StreamParser {
       const preText = cleanText.slice(0, toolStartIdx);
       const postText = cleanText.slice(toolStartIdx + matchedString.length);
 
-      if (preText.trim()) {
+      if (preText.length > 0) {
         events.push({
           type: 'text',
           content: preText,
@@ -131,7 +137,7 @@ export class StreamParser {
         },
       });
 
-      if (postText.trim()) {
+      if (postText.length > 0) {
         events.push({
           type: 'text',
           content: postText,
