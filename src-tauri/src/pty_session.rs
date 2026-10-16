@@ -23,7 +23,10 @@ pub type EventCallback = Box<dyn Fn(PtyEvent) + Send + Sync + 'static>;
 /// Internal handle for an active PTY session.
 struct SessionHandle {
     master: Box<dyn MasterPty + Send>,
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// Sends stdin bytes to the session's dedicated writer thread. A single
+    /// thread owns the PTY writer so concurrent `write_stdin` calls stay in
+    /// submission order, and callers never block on a full PTY input buffer.
+    input_tx: std::sync::mpsc::Sender<Vec<u8>>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
 }
 
@@ -123,11 +126,31 @@ impl PtySessionManager {
             .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
 
         let shared_child = Arc::new(Mutex::new(child));
-        let shared_writer = Arc::new(Mutex::new(writer));
+
+        // One writer thread per session owns the PTY writer. `write_stdin` only
+        // enqueues bytes, so a full PTY input buffer stalls this thread instead
+        // of the caller (which for a sync Tauri command is the main thread).
+        let (input_tx, input_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+
+        thread::Builder::new()
+            .name(format!("pty-writer-{}", session_id))
+            .spawn(move || {
+                let mut writer = writer;
+                // Ends when every sender is dropped, i.e. the session is gone.
+                while let Ok(chunk) = input_rx.recv() {
+                    if writer.write_all(&chunk).is_err() {
+                        break;
+                    }
+                    if writer.flush().is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|e| format!("Failed to spawn writer thread: {}", e))?;
 
         let handle = SessionHandle {
             master: pair.master,
-            writer: Arc::clone(&shared_writer),
+            input_tx,
             child: Arc::clone(&shared_child),
         };
 
@@ -247,9 +270,13 @@ impl PtySessionManager {
         Ok(())
     }
 
-    /// Writes data to the session's stdin.
+    /// Queues data for the session's stdin.
+    ///
+    /// The bytes are handed to the session's writer thread over a channel, so
+    /// they reach the PTY in submission order and this call never blocks on the
+    /// PTY, even when the child is busy and its input buffer is full.
     pub fn write_stdin(&self, session_id: &str, data: &str) -> Result<(), String> {
-        let writer = {
+        let input_tx = {
             let sessions = self
                 .sessions
                 .lock()
@@ -257,18 +284,12 @@ impl PtySessionManager {
             let handle = sessions
                 .get(session_id)
                 .ok_or_else(|| format!("Session '{}' not found", session_id))?;
-            Arc::clone(&handle.writer)
+            handle.input_tx.clone()
         };
 
-        let mut writer_guard = writer
-            .lock()
-            .map_err(|e| format!("Writer lock poisoned: {}", e))?;
-        writer_guard
-            .write_all(data.as_bytes())
-            .map_err(|e| format!("Failed to write to stdin: {}", e))?;
-        writer_guard
-            .flush()
-            .map_err(|e| format!("Failed to flush stdin: {}", e))?;
+        input_tx
+            .send(data.as_bytes().to_vec())
+            .map_err(|_| format!("Session '{}' input is closed", session_id))?;
 
         Ok(())
     }

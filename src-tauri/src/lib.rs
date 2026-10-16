@@ -13,6 +13,11 @@ use pty_session::{PtyEvent, PtySessionManager};
 // Commands without `async` run on the main thread in Tauri 2. Commands that may
 // resolve the login-shell environment or wait on a child process are marked
 // `async` so they run on the async runtime and cannot freeze the window.
+//
+// `send_input` stays sync deliberately. It only enqueues bytes to the session's
+// writer thread, which owns the PTY and drains the queue in order, so it never
+// blocks on a full PTY input buffer. Marking it `async` would run keystrokes on
+// a thread pool, where concurrent calls could reach the PTY out of order.
 
 #[tauri::command]
 fn greet(name: &str) -> String {
