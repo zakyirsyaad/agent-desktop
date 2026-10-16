@@ -1,13 +1,15 @@
 pub mod env_resolver;
 pub mod profiles;
 pub mod pty_session;
+pub mod store;
 pub mod workspaces;
 
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use profiles::{get_available_agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
+use store::{AppStore, PersistedState};
 use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -20,11 +22,6 @@ use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 // writer thread, which owns the PTY and drains the queue in order, so it never
 // blocks on a full PTY input buffer. Marking it `async` would run keystrokes on
 // a thread pool, where concurrent calls could reach the PTY out of order.
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 #[tauri::command(async)]
 fn spawn_session(
@@ -81,6 +78,45 @@ fn terminate_session(
     state.kill_session(&session_id)
 }
 
+/// Loads the persisted app state, or the default state on a first launch.
+///
+/// Reads the state file from disk, so it stays off the main thread.
+#[tauri::command(async)]
+fn load_app_state(store: State<'_, AppStore>) -> Result<PersistedState, String> {
+    store.load_state()
+}
+
+/// Persists the app state atomically, replacing the previous file.
+#[tauri::command(async)]
+fn save_app_state(store: State<'_, AppStore>, state: PersistedState) -> Result<(), String> {
+    store.save_state(&state)
+}
+
+/// Loads a session's chat transcript, empty when the session has no messages yet.
+#[tauri::command(async)]
+fn load_transcript(
+    store: State<'_, AppStore>,
+    session_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    store.load_transcript(&session_id)
+}
+
+/// Saves a session's chat transcript, replacing the previous copy atomically.
+#[tauri::command(async)]
+fn save_transcript(
+    store: State<'_, AppStore>,
+    session_id: String,
+    messages: Vec<serde_json::Value>,
+) -> Result<(), String> {
+    store.save_transcript(&session_id, &messages)
+}
+
+/// Deletes a session's chat transcript; an already-missing transcript succeeds.
+#[tauri::command(async)]
+fn delete_transcript(store: State<'_, AppStore>, session_id: String) -> Result<(), String> {
+    store.delete_transcript(&session_id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_handle_holder: Arc<std::sync::Mutex<Option<AppHandle>>> =
@@ -126,6 +162,17 @@ pub fn run() {
             if let Ok(mut guard) = app_handle_holder.lock() {
                 *guard = Some(app.handle().clone());
             }
+
+            // Persistence lives in the platform app-data directory, which only
+            // exists once the app handle does, so the store is built here.
+            let data_dir = app.path().app_data_dir().map_err(|e| {
+                format!(
+                    "Failed to resolve the app data directory for persisted state: {}",
+                    e
+                )
+            })?;
+            app.manage(AppStore::new(data_dir));
+
             // Warm the login-shell environment off the main thread so the first
             // session spawn and profile scan do not pay for it.
             std::thread::spawn(|| {
@@ -134,13 +181,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             get_agent_profiles,
             list_workspaces,
             spawn_session,
             send_input,
             resize_session,
-            terminate_session
+            terminate_session,
+            load_app_state,
+            save_app_state,
+            load_transcript,
+            save_transcript,
+            delete_transcript
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
