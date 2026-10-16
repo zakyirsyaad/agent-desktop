@@ -12,6 +12,13 @@ export interface FolderStepProps {
 
 const PICK_ERROR = "Couldn't open the folder dialog. Try again.";
 
+/** Lists longer than this scroll inside a fixed-height area instead of growing the page. */
+export const MAX_VISIBLE_FOLDERS = 5;
+
+const LIST_CLASS = "flex flex-col gap-1";
+/** About five folder rows (two text lines plus padding and gap each). */
+const SCROLL_LIST_CLASS = `${LIST_CLASS} max-h-[17rem] overflow-y-auto overscroll-contain pr-1`;
+
 interface FolderListProps {
   label: string;
   folders: readonly FolderOption[];
@@ -21,12 +28,13 @@ interface FolderListProps {
 
 function FolderList({ label, folders, selectedPath, onSelect }: FolderListProps) {
   if (folders.length === 0) return null;
+  const listClass = folders.length > MAX_VISIBLE_FOLDERS ? SCROLL_LIST_CLASS : LIST_CLASS;
   return (
     <section className="flex flex-col gap-1.5">
       <h3 className="px-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
         {label}
       </h3>
-      <ul aria-label={label} className="flex flex-col gap-1">
+      <ul aria-label={label} className={listClass}>
         {folders.map((folder) => {
           const selected = folder.path === selectedPath;
           return (
