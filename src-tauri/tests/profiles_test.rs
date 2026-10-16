@@ -11,9 +11,9 @@ fn find<'a>(profiles: &'a [AgentProfile], id: &str) -> &'a AgentProfile {
 fn test_get_available_agent_profiles_contains_defaults() {
     let profiles = get_available_agent_profiles();
 
-    // Must return at least claude-code, omp, aider, and generic
+    // Every agent this app knows how to drive.
     assert!(profiles.len() >= 4);
-    for id in ["claude-code", "omp", "aider", "generic"] {
+    for id in ["claude-code", "qwen", "codex", "omp", "aider"] {
         find(&profiles, id);
     }
 }
@@ -219,23 +219,6 @@ fn test_aider_profile_does_not_claim_unverified_capabilities() {
     assert_eq!(bypass.args, vec!["--yes-always".to_string()]);
 }
 
-#[test]
-fn test_generic_profile_offers_no_options() {
-    let profiles = get_default_profiles();
-    let generic = find(&profiles, "generic");
-
-    assert_eq!(generic.name, "Custom CLI");
-    assert_eq!(generic.command, "");
-    assert!(!generic.detected);
-    assert_eq!(generic.detected_path, None);
-    assert!(generic.models.is_empty());
-    assert_eq!(generic.model_arg, None);
-    assert!(generic.effort_levels.is_empty());
-    assert!(generic.permission_modes.is_empty());
-    assert_eq!(generic.session_id_arg, None);
-    assert_eq!(generic.fork_support, "handoff");
-    assert!(generic.resume_fork_args.is_empty());
-}
 
 #[test]
 fn test_no_profile_lists_an_effort_level_without_a_real_mechanism() {
@@ -380,5 +363,63 @@ fn test_detection_flags_match_system_binaries() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn test_there_is_no_unconfigurable_custom_cli_profile() {
+    let profiles = get_default_profiles();
+
+    assert!(profiles.iter().all(|p| p.id != "generic" && !p.command.is_empty()));
+}
+
+#[test]
+fn test_acp_agents_are_driven_over_acp_with_pinned_adapters() {
+    let profiles = get_default_profiles();
+
+    let qwen = find(&profiles, "qwen");
+    assert_eq!(qwen.name, "Qwen Code");
+    assert_eq!(qwen.command, "qwen");
+    assert_eq!(qwen.transport, "acp");
+    assert_eq!(qwen.acp_program.as_deref(), Some("qwen"));
+    assert_eq!(qwen.acp_args, vec!["--acp".to_string()]);
+
+    let claude = find(&profiles, "claude-code");
+    assert_eq!(claude.transport, "acp");
+    assert_eq!(claude.acp_program.as_deref(), Some("npx"));
+    assert!(claude.acp_args.contains(&"@agentclientprotocol/claude-agent-acp@0.85.1".to_string()));
+
+    let codex = find(&profiles, "codex");
+    assert_eq!(codex.command, "codex");
+    assert_eq!(codex.transport, "acp");
+    assert!(codex.acp_args.contains(&"@agentclientprotocol/codex-acp@2.1.1".to_string()));
+}
+
+#[test]
+fn test_npx_adapters_are_pinned_to_exact_versions() {
+    for profile in get_default_profiles().iter().filter(|p| p.acp_program.as_deref() == Some("npx")) {
+        let package = profile
+            .acp_args
+            .iter()
+            .find(|a| a.starts_with('@'))
+            .expect("an npx adapter package");
+        let version = package.rsplit('@').next().unwrap();
+        assert!(
+            version.chars().all(|c| c.is_ascii_digit() || c == '.'),
+            "{} must pin an exact version, got {}",
+            profile.id,
+            package
+        );
+    }
+}
+
+#[test]
+fn test_agents_without_acp_stay_on_the_terminal() {
+    let profiles = get_default_profiles();
+
+    for id in ["omp", "aider"] {
+        let profile = find(&profiles, id);
+        assert_eq!(profile.transport, "pty", "{id}");
+        assert_eq!(profile.acp_program, None, "{id}");
     }
 }

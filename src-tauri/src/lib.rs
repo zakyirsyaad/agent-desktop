@@ -12,6 +12,8 @@ pub mod workspaces;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use acp::commands::{event_payload, ACP_EVENT};
+use acp::manager::AcpManager;
 use profiles::{get_available_agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
 use spawn_plan::{build_spawn_plan, SpawnOptions};
@@ -44,10 +46,6 @@ fn spawn_session(
     profile_id: String,
     options: SpawnOptions,
 ) -> Result<(), String> {
-    if profile_id == "generic" {
-        return Err("Custom CLI is not configured".to_string());
-    }
-
     let profile = get_available_agent_profiles()
         .into_iter()
         .find(|profile| profile.id == profile_id)
@@ -205,9 +203,17 @@ pub fn run() {
         }
     }));
 
+    let acp_holder = Arc::clone(&app_handle_holder);
+    let acp_manager = AcpManager::new(Box::new(move |event| {
+        if let Some(app) = acp_holder.lock().ok().and_then(|guard| guard.clone()) {
+            let _ = app.emit(ACP_EVENT, event_payload(&event));
+        }
+    }));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(manager)
+        .manage(acp_manager)
         .setup(move |app| {
             if let Ok(mut guard) = app_handle_holder.lock() {
                 *guard = Some(app.handle().clone());
@@ -245,7 +251,15 @@ pub fn run() {
             windows::open_session_window,
             windows::reveal_in_finder,
             user_profile::get_user_profile,
-            write_fork_handoff
+            write_fork_handoff,
+            acp::commands::acp_start_session,
+            acp::commands::acp_fork_session,
+            acp::commands::acp_prompt,
+            acp::commands::acp_cancel,
+            acp::commands::acp_respond_permission,
+            acp::commands::acp_set_mode,
+            acp::commands::acp_set_config_option,
+            acp::commands::acp_stop_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

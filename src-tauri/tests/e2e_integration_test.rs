@@ -26,12 +26,34 @@ fn compute_file_sha256(path: &Path) -> Option<String> {
     )
 }
 
-/// Helper to snapshot known harness configuration files.
-fn snapshot_harness_configs() -> Vec<(PathBuf, Option<String>)> {
+/// Harness config files the app must never touch, relative to HOME.
+const HARNESS_CONFIGS: [&str; 3] = [".claude/settings.json", ".claude.json", ".omp/agent/config.yml"];
+
+/// A throwaway HOME holding copies of the harness configs.
+///
+/// The real `~/.claude.json` is rewritten constantly by any Claude Code session
+/// running on the machine, so hashing it made this test fail at random. The
+/// agent under test runs with HOME pointed here instead, which still proves the
+/// app never writes the configs of the agent it drives.
+fn isolated_home() -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let home = std::env::temp_dir().join(format!("agent-desktop-e2e-home-{}-{}", std::process::id(), nanos));
+    for relative in HARNESS_CONFIGS {
+        let path = home.join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, format!("fixture for {}\n", relative)).unwrap();
+    }
+    home
+}
+
+/// Helper to snapshot known harness configuration files under `home`.
+fn snapshot_harness_configs(home_path: &Path) -> Vec<(PathBuf, Option<String>)> {
     let mut snapshots = Vec::new();
 
-    if let Ok(home) = std::env::var("HOME") {
-        let home_path = Path::new(&home);
+    {
 
         // Claude Code settings
         let claude_settings = home_path.join(".claude").join("settings.json");
@@ -55,7 +77,8 @@ fn snapshot_harness_configs() -> Vec<(PathBuf, Option<String>)> {
 #[test]
 fn test_e2e_pty_interactive_approval_and_zero_harness_mutation() {
     // STEP 1: Take initial snapshot of harness configurations
-    let initial_snapshots = snapshot_harness_configs();
+    let home = isolated_home();
+    let initial_snapshots = snapshot_harness_configs(&home);
     assert!(
         !initial_snapshots.is_empty(),
         "Expected at least one harness config file path to check"
@@ -113,7 +136,7 @@ esac
         &cwd,
         "/bin/sh",
         &["-c".to_string(), dummy_agent_cli.to_string()],
-        &[],
+        &[("HOME".to_string(), home.to_string_lossy().to_string())],
     );
     assert!(
         spawn_res.is_ok(),
@@ -182,7 +205,7 @@ esac
 
     // STEP 4: Zero Harness Mutation Guarantee Verification
     // Re-verify that no configuration files were created, deleted, or modified.
-    let final_snapshots = snapshot_harness_configs();
+    let final_snapshots = snapshot_harness_configs(&home);
     assert_eq!(
         initial_snapshots.len(),
         final_snapshots.len(),
@@ -201,4 +224,6 @@ esac
             final_hash
         );
     }
+
+    let _ = fs::remove_dir_all(&home);
 }

@@ -192,6 +192,13 @@ impl AcpConnection {
     }
 }
 
+impl Drop for AcpConnection {
+    /// An agent must not outlive the app session that started it.
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+
 /// The human-readable part of a JSON-RPC error object.
 pub fn error_message(error: &Value) -> String {
     let message = error["message"].as_str().unwrap_or("unknown error");

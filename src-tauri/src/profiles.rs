@@ -65,6 +65,16 @@ impl PermissionModeOption {
 pub const FORK_SUPPORT_NATIVE: &str = "native";
 pub const FORK_SUPPORT_HANDOFF: &str = "handoff";
 
+/// Driven over the Agent Client Protocol (structured JSON-RPC on stdin/stdout).
+pub const TRANSPORT_ACP: &str = "acp";
+/// Driven through a pseudo-terminal; the UI shows the agent's own terminal.
+pub const TRANSPORT_PTY: &str = "pty";
+
+/// Official ACP adapters, pinned to stable releases at least two weeks old so a
+/// freshly published (possibly compromised) version is never pulled implicitly.
+const CLAUDE_ACP_ADAPTER: &str = "@agentclientprotocol/claude-agent-acp@0.85.1";
+const CODEX_ACP_ADAPTER: &str = "@agentclientprotocol/codex-acp@2.1.1";
+
 /// Static description of one agent CLI: what it is called, how to invoke it, and
 /// which of its real flags this app is allowed to pass.
 ///
@@ -95,6 +105,13 @@ pub struct AgentProfile {
     pub approval_pattern: Option<String>,
     pub approval_key: Option<String>,
     pub reject_key: Option<String>,
+    /// [`TRANSPORT_ACP`] or [`TRANSPORT_PTY`].
+    pub transport: String,
+    /// Program that speaks ACP for this agent (the CLI itself, or `npx` for an adapter).
+    pub acp_program: Option<String>,
+    pub acp_args: Vec<String>,
+    /// Absolute path of `acp_program` on this machine, once detected.
+    pub acp_program_path: Option<String>,
 }
 
 impl AgentProfile {
@@ -115,7 +132,19 @@ impl AgentProfile {
             approval_pattern: None,
             approval_key: None,
             reject_key: None,
+            transport: TRANSPORT_PTY.to_string(),
+            acp_program: None,
+            acp_args: Vec::new(),
+            acp_program_path: None,
         }
+    }
+
+    /// Drives this agent over ACP by running `program args`.
+    pub fn with_acp(mut self, program: impl Into<String>, args: &[&str]) -> Self {
+        self.transport = TRANSPORT_ACP.to_string();
+        self.acp_program = Some(program.into());
+        self.acp_args = args.iter().map(|&s| s.to_string()).collect();
+        self
     }
 
     pub fn with_models(mut self, models: &[&str]) -> Self {
@@ -212,6 +241,23 @@ fn claude_code_profile() -> AgentProfile {
         .with_session_id_arg("--session-id")
         .with_native_fork(&["--resume", "{session_id}", "--fork-session"])
         .with_approval(r"(Allow this action\?|\[y/n\]|Run command\?)", "y\n", "n\n")
+        // The TUI cannot be rendered as a chat, so Claude Code runs through the
+        // official ACP adapter (Claude Agent SDK) and the user's existing login.
+        .with_acp("npx", &["-y", CLAUDE_ACP_ADAPTER])
+}
+
+/// Qwen Code, verified against `qwen --help` (qwen-code 0.25.x): `--acp` "Starts
+/// the agent in ACP mode". Over ACP the agent itself reports its models and
+/// approval modes (plan, default, auto-edit, auto, yolo) per session, so the
+/// profile declares none.
+fn qwen_profile() -> AgentProfile {
+    AgentProfile::new("qwen", "Qwen Code", "qwen").with_acp("qwen", &["--acp"])
+}
+
+/// Codex CLI (codex-cli 0.160.x) through the official ACP adapter. Models and
+/// approval modes are reported by the agent per session.
+fn codex_profile() -> AgentProfile {
+    AgentProfile::new("codex", "Codex", "codex").with_acp("npx", &["-y", CODEX_ACP_ADAPTER])
 }
 
 /// omp (Oh-My-Pi), verified against `omp --help` (omp v18.10.3).
@@ -280,11 +326,10 @@ fn aider_profile() -> AgentProfile {
 pub fn get_default_profiles() -> Vec<AgentProfile> {
     vec![
         claude_code_profile(),
+        qwen_profile(),
+        codex_profile(),
         omp_profile(),
         aider_profile(),
-        // A blank slate: the user supplies the command, so nothing here may
-        // claim models, effort levels, permission modes, or session handling.
-        AgentProfile::new("generic", "Custom CLI", ""),
     ]
 }
 
@@ -300,24 +345,26 @@ pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
 
     get_default_profiles()
         .into_iter()
-        .map(|mut profile| {
-            if !profile.command.is_empty() {
-                let found = path_var
-                    .as_deref()
-                    .and_then(|pv| env_resolver::find_binary_in_path_str(&profile.command, pv));
-
-                if let Some(path) = found {
-                    profile.detected = true;
-                    profile.detected_path = Some(path.to_string_lossy().to_string());
-                } else {
-                    profile.detected = false;
-                    profile.detected_path = None;
-                }
-            } else {
-                profile.detected = false;
-                profile.detected_path = None;
-            }
-            profile
-        })
+        .map(|profile| detect(profile, path_var.as_deref()))
         .collect()
+}
+
+/// Marks a profile detected when its CLI is on PATH and, for ACP agents, the
+/// program that speaks ACP (the CLI itself or `npx` for an adapter) is too.
+fn detect(profile: AgentProfile, path_var: Option<&str>) -> AgentProfile {
+    let locate = |binary: &str| {
+        path_var
+            .and_then(|pv| env_resolver::find_binary_in_path_str(binary, pv))
+            .map(|path| path.to_string_lossy().to_string())
+    };
+    let detected_path = locate(&profile.command);
+    let acp_program_path = profile.acp_program.as_deref().and_then(locate);
+    let detected = detected_path.is_some() && (profile.acp_program.is_none() || acp_program_path.is_some());
+
+    AgentProfile {
+        detected,
+        detected_path,
+        acp_program_path,
+        ..profile
+    }
 }
