@@ -3,7 +3,7 @@ use std::env;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{mpsc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -14,8 +14,13 @@ use std::os::unix::fs::PermissionsExt;
 const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(10);
 /// How often a running login shell is polled for exit.
 const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(20);
+/// Longest stderr excerpt kept in an error message.
+const MAX_STDERR_IN_ERROR: usize = 500;
 
-static USER_ENV: OnceLock<HashMap<String, String>> = OnceLock::new();
+/// Outcome of a single login shell environment resolve, cached as-is.
+type EnvResult = Result<HashMap<String, String>, String>;
+
+static USER_ENV: OnceLock<EnvResult> = OnceLock::new();
 
 /// Resolves the user's authentic login shell environment variables.
 ///
@@ -46,37 +51,48 @@ pub fn resolve_user_env() -> Result<HashMap<String, String>, String> {
     }
 }
 
-/// Returns the user environment, resolving the login shell only on first success.
+/// Returns the user environment, resolved at most once per app run.
 ///
 /// Spawning a login shell can take seconds with heavy dotfiles, so every session spawn
-/// and profile scan shares one result. A failed resolve is not cached and is retried.
-pub fn cached_user_env() -> Result<HashMap<String, String>, String> {
-    if let Some(env_map) = USER_ENV.get() {
-        return Ok(env_map.clone());
-    }
-    let resolved = resolve_user_env()?;
-    Ok(USER_ENV.get_or_init(|| resolved).clone())
+/// and profile scan shares one result. The outcome — success or failure — is resolved
+/// once and cached, so changes to the user's dotfiles need an app restart to take
+/// effect. Callers already fall back to the process environment when this returns `Err`.
+pub fn cached_user_env() -> EnvResult {
+    resolve_once(&USER_ENV, resolve_user_env)
+}
+
+/// Runs `resolve` for `cell` exactly once and returns the stored outcome.
+///
+/// Concurrent callers block on the single in-flight resolve instead of spawning extra
+/// login shells, and a failed resolve is kept rather than retried on the next call.
+fn resolve_once(cell: &OnceLock<EnvResult>, resolve: impl FnOnce() -> EnvResult) -> EnvResult {
+    cell.get_or_init(resolve).clone()
 }
 
 /// Runs `program` with stdin closed and returns its stdout, killing it after `timeout`.
+///
+/// Both streams are drained on helper threads and the reads share the exit deadline, so
+/// a backgrounded daemon that keeps stdout open cannot outlive `timeout`.
 fn run_with_timeout(program: &str, args: &[&str], timeout: Duration) -> Result<String, String> {
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to execute login shell {}: {}", program, e))?;
 
-    // Drain stdout concurrently so a large environment cannot fill the pipe and stall the shell.
-    let mut stdout = child
+    // Drain both streams concurrently so a large environment cannot fill a pipe and stall the shell.
+    let stdout = child
         .stdout
         .take()
         .ok_or_else(|| format!("Failed to capture stdout of {}", program))?;
-    let reader = thread::spawn(move || {
-        let mut buf = Vec::new();
-        stdout.read_to_end(&mut buf).map(|_| buf)
-    });
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("Failed to capture stderr of {}", program))?;
+    let stdout_rx = drain_in_background(stdout);
+    let stderr_rx = drain_in_background(stderr);
 
     let deadline = Instant::now() + timeout;
     let status = loop {
@@ -95,14 +111,68 @@ fn run_with_timeout(program: &str, args: &[&str], timeout: Duration) -> Result<S
     };
 
     if !status.success() {
-        return Err(format!("Login shell {} exited with status {}", program, status));
+        return Err(format!(
+            "Login shell {} exited with status {}: {}",
+            program,
+            status,
+            read_stderr_tail(&stderr_rx, deadline)
+        ));
     }
 
-    let bytes = reader
-        .join()
-        .map_err(|_| format!("Reader thread for {} panicked", program))?
-        .map_err(|e| format!("Failed to read output of {}: {}", program, e))?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    match recv_by_deadline(&stdout_rx, deadline) {
+        Some(Ok(bytes)) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
+        Some(Err(e)) => Err(format!("Failed to read output of {}: {}", program, e)),
+        None => Err(format!(
+            "Login shell {} timed out after {:?} while its output stayed open",
+            program, timeout
+        )),
+    }
+}
+
+/// Reads `stream` to the end on a helper thread and hands the bytes back over a channel.
+///
+/// Decoupling the read from the caller is what lets `run_with_timeout` abandon a stream
+/// that a backgrounded grandchild keeps open.
+fn drain_in_background<R: Read + Send + 'static>(
+    stream: R,
+) -> mpsc::Receiver<std::io::Result<Vec<u8>>> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut stream = stream;
+        let mut buf = Vec::new();
+        let _ = tx.send(stream.read_to_end(&mut buf).map(|_| buf));
+    });
+    rx
+}
+
+/// Receives a drained stream's bytes, returning `None` when `deadline` passes first.
+fn recv_by_deadline(
+    rx: &mpsc::Receiver<std::io::Result<Vec<u8>>>,
+    deadline: Instant,
+) -> Option<std::io::Result<Vec<u8>>> {
+    rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .ok()
+}
+
+/// Returns the trimmed tail of the shell's stderr for an error message.
+///
+/// A stderr stream that is still open or failed to read is reported as empty, because the
+/// exit status alone is already enough to fail the resolve.
+fn read_stderr_tail(rx: &mpsc::Receiver<std::io::Result<Vec<u8>>>, deadline: Instant) -> String {
+    let bytes = match recv_by_deadline(rx, deadline) {
+        Some(Ok(bytes)) => bytes,
+        _ => Vec::new(),
+    };
+    last_chars(String::from_utf8_lossy(&bytes).trim(), MAX_STDERR_IN_ERROR)
+}
+
+/// Returns the last `max` characters of `text`, never splitting a char boundary.
+fn last_chars(text: &str, max: usize) -> String {
+    let total = text.chars().count();
+    if total <= max {
+        return text.to_string();
+    }
+    text.chars().skip(total - max).collect()
 }
 
 /// Checks whether a given path is an executable file.
