@@ -1,4 +1,4 @@
-import { useEffect, useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Folder, RotateCcw, Trash2, X } from "lucide-react";
 import { readyAgents, type AgentSummary } from "../lib/agent-readiness";
 import type { FolderOption } from "./onboarding/types";
@@ -73,8 +73,14 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const titleId = useId();
   const selectId = useId();
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const ready = readyAgents(agents);
   useEscapeKey(onClose);
+
+  // Move keyboard focus into the modal when it opens.
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
@@ -89,6 +95,7 @@ export function SettingsPanel({
             Settings
           </h2>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             aria-label="Close settings"

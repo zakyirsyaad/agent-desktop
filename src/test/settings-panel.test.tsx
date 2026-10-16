@@ -81,6 +81,12 @@ describe("SettingsPanel — dialog", () => {
     ).toBeInTheDocument();
   });
 
+  it("moves keyboard focus into the dialog when it opens", () => {
+    renderSettings();
+
+    expect(screen.getByRole("button", { name: "Close settings" })).toHaveFocus();
+  });
+
   it("closes when Close settings is clicked", () => {
     const onClose = vi.fn();
     renderSettings({ onClose });

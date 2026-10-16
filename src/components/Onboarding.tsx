@@ -124,7 +124,8 @@ export function Onboarding({
   };
 
   return (
-    <main className="flex h-screen w-full items-center justify-center overflow-y-auto bg-[#000000] px-4 py-8 text-neutral-200 select-none">
+    // Top-anchored (not vertically centered) so the header stays put as step heights change.
+    <main className="flex h-screen w-full items-start justify-center overflow-y-auto bg-[#000000] px-4 pt-[12vh] pb-8 text-neutral-200 select-none">
       <div className="flex w-full max-w-xl flex-col gap-5">
         <header className="flex flex-col gap-4">
           <div className="flex items-center gap-2 text-xs text-neutral-400">
