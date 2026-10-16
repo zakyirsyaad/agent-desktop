@@ -3,6 +3,8 @@ pub mod profiles;
 pub mod pty_session;
 pub mod spawn_plan;
 pub mod store;
+pub mod user_profile;
+pub mod windows;
 pub mod workspaces;
 
 use std::sync::Arc;
@@ -217,7 +219,10 @@ pub fn run() {
             save_app_state,
             load_transcript,
             save_transcript,
-            delete_transcript
+            delete_transcript,
+            windows::open_session_window,
+            windows::reveal_in_finder,
+            user_profile::get_user_profile
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

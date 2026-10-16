@@ -55,7 +55,7 @@ describe("Navigation and Layout Components", () => {
   ];
 
   describe("TopBar", () => {
-    it("renders macOS traffic lights, session breadcrumb, workspace badge, and action buttons", () => {
+    it("renders the session breadcrumb, workspace badge, and terminal toggle", () => {
       const onToggleTerminal = vi.fn();
 
       render(
