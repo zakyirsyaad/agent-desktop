@@ -82,35 +82,35 @@ function SessionRow({ session, isActive, onSelect, onStop, onDelete }: SessionRo
   );
 }
 
-function AgentList({ agents }: { agents: AgentProfile[] }) {
+/** Installed agents, pinned above the footer; renders nothing when none are detected. */
+function DetectedAgents({ agents }: { agents: AgentProfile[] }) {
+  const detected = agents.filter((agent) => agent.detected);
+  if (detected.length === 0) return null;
   return (
-    <div>
+    <section aria-label="Detected agents" className="border-t border-neutral-800/60 px-3 pt-2.5 pb-2">
       <div className={SECTION_HEADER}>
         <span>Detected Agents</span>
-        <span className="text-[10px] text-neutral-600">{agents.length}</span>
+        <span className="text-[10px] text-neutral-600">{detected.length}</span>
       </div>
-      <ul className="space-y-0.5">
-        {agents.map((agent) => (
+      <ul aria-label="Detected agents" className="space-y-0.5">
+        {detected.map((agent) => (
           <li
             key={agent.id}
+            title={agent.detected_path ?? undefined}
             className="flex items-center justify-between rounded-md px-2 py-1 text-neutral-300 hover:bg-neutral-900/40"
           >
             <div className="flex items-center gap-2 truncate">
-              <Bot size={13} className={agent.detected ? "text-emerald-400" : "text-neutral-600"} />
+              <Bot size={13} aria-hidden="true" className="text-emerald-400" />
               <span className="truncate">{agent.name}</span>
             </div>
-            {agent.detected ? (
-              <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
-                Ready
-              </span>
-            ) : (
-              <span className="text-[10px] text-neutral-600">Not found</span>
-            )}
+            <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
+              Ready
+            </span>
           </li>
         ))}
       </ul>
-    </div>
+    </section>
   );
 }
 
@@ -241,10 +241,9 @@ export function Sidebar({
             </div>
           ))}
         </div>
-
-        <AgentList agents={agents} />
       </div>
 
+      <DetectedAgents agents={agents} />
       {footer && <div className="border-t border-neutral-800/80 bg-[#0a0a0a]">{footer}</div>}
     </aside>
   );

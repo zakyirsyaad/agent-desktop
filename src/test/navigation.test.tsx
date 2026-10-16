@@ -4,7 +4,7 @@ import { TopBar } from "../components/TopBar";
 import { Sidebar } from "../components/Sidebar";
 import App from "../App";
 import type { AgentProfile, Session } from "../types";
-import { fakeProfiles } from "./fixtures/agents";
+import { fakeProfiles, makeProfile } from "./fixtures/agents";
 
 describe("Navigation and Layout Components", () => {
   const mockProfiles: AgentProfile[] = fakeProfiles;
@@ -103,10 +103,61 @@ describe("Navigation and Layout Components", () => {
       fireEvent.click(titanSessions.getByText("Market analyzer refactor"));
       expect(onSelectSession).toHaveBeenCalledWith("s-2");
 
-      expect(screen.getByText("Claude Code")).toBeDefined();
-      expect(screen.getByText("Aider")).toBeDefined();
+      const agentList = within(screen.getByRole("list", { name: "Detected agents" }));
+      expect(agentList.getByText("Claude Code")).toBeDefined();
+      // Aider is not installed in the fixtures, so it is not listed at all.
+      expect(screen.queryByText("Aider")).toBeNull();
       expect(screen.getByText("footer content")).toBeDefined();
       expect(screen.queryByText(/iwang/i)).toBeNull();
+    });
+
+    function renderWithAgents(agents: AgentProfile[]) {
+      return render(
+        <Sidebar
+          workspaces={workspaces}
+          sessions={mockSessions}
+          agents={agents}
+          onNewSession={() => {}}
+          onSelectSession={() => {}}
+          onSelectWorkspace={() => {}}
+          footer={<span>footer content</span>}
+        />
+      );
+    }
+
+    it("lists only detected agents, without a Not found status", () => {
+      renderWithAgents([
+        makeProfile({ id: "claude-code", name: "Claude Code", detected: true }),
+        makeProfile({ id: "aider", name: "Aider", detected: false }),
+        makeProfile({ id: "omp", name: "Oh-My-Pi", detected: true }),
+      ]);
+
+      const items = within(screen.getByRole("list", { name: "Detected agents" })).getAllByRole("listitem");
+      expect(items.map((item) => item.textContent)).toEqual([
+        expect.stringContaining("Claude Code"),
+        expect.stringContaining("Oh-My-Pi"),
+      ]);
+      expect(screen.queryByText("Aider")).toBeNull();
+      expect(screen.queryByText("Not found")).toBeNull();
+    });
+
+    it("pins detected agents directly above the footer, outside the scrolling area", () => {
+      renderWithAgents([makeProfile({ id: "claude-code", name: "Claude Code", detected: true })]);
+
+      const section = screen.getByRole("region", { name: "Detected agents" });
+      const footer = screen.getByText("footer content");
+
+      expect(section.closest(".overflow-y-auto")).toBeNull();
+      expect(screen.getByRole("list", { name: "Workspaces" }).closest(".overflow-y-auto")).not.toBeNull();
+      expect(section.nextElementSibling?.contains(footer)).toBe(true);
+    });
+
+    it("hides the agents section when no agent is detected", () => {
+      renderWithAgents([makeProfile({ id: "aider", name: "Aider", detected: false })]);
+
+      expect(screen.queryByRole("region", { name: "Detected agents" })).toBeNull();
+      expect(screen.queryByText(/Detected Agents/i)).toBeNull();
+      expect(screen.getByText("footer content")).toBeDefined();
     });
 
     it("filters sessions and workspaces when searching", () => {
