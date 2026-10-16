@@ -58,14 +58,6 @@ export interface Workspace {
   path: string;
 }
 
-export interface SessionConfig {
-  profileId: string;
-  cwd: string;
-  model?: string;
-  effort?: string;
-  permissionMode?: PermissionMode;
-}
-
 export interface Session {
   id: string;
   name: string;
