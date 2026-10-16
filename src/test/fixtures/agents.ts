@@ -16,6 +16,10 @@ export function makeProfile(overrides: Partial<AgentProfile> & Pick<AgentProfile
     approval_pattern: null,
     approval_key: null,
     reject_key: null,
+    transport: "pty",
+    acp_program: null,
+    acp_args: [],
+    acp_program_path: null,
     ...overrides,
   };
 }
@@ -64,4 +68,18 @@ export const aiderProfile = makeProfile({
   detected: false,
 });
 
-export const fakeProfiles: AgentProfile[] = [claudeProfile, ompProfile, aiderProfile];
+/** Shaped like the real Qwen Code profile: everything comes from the ACP session. */
+export const qwenProfile = makeProfile({
+  id: "qwen",
+  name: "Qwen Code",
+  command: "qwen",
+  detected: true,
+  detected_path: "/Users/test/.local/bin/qwen",
+  permission_modes: [],
+  transport: "acp",
+  acp_program: "qwen",
+  acp_args: ["--acp"],
+  acp_program_path: "/Users/test/.local/bin/qwen",
+});
+
+export const fakeProfiles: AgentProfile[] = [claudeProfile, qwenProfile, ompProfile, aiderProfile];

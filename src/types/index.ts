@@ -36,7 +36,14 @@ export interface AgentProfile {
   approval_pattern?: string | null;
   approval_key?: string | null;
   reject_key?: string | null;
+  /** "acp": structured Agent Client Protocol; "pty": the agent's own terminal. */
+  transport: AgentTransport;
+  acp_program?: string | null;
+  acp_args: string[];
+  acp_program_path?: string | null;
 }
+
+export type AgentTransport = 'acp' | 'pty';
 
 /** A `PermissionModeOption.id`; `"ask"` is the safe default every agent supports. */
 export type PermissionMode = string;
@@ -72,6 +79,9 @@ export interface Session {
   exitCode?: number | null;
   forkedFrom?: string | null;
   agentSessionId?: string | null;
+  /** Missing on sessions saved before ACP existed: those ran in a terminal. */
+  transport?: AgentTransport;
+  acpSessionId?: string | null;
 }
 
 export interface Settings {
@@ -104,6 +114,17 @@ export interface ActionCard {
   approvalKey: string;
   rejectKey: string;
   timestamp: number;
+  /** ACP permission requests: the agent's own choices and the request to answer. */
+  options?: PermissionChoice[];
+  requestId?: string | number;
+  /** The option the user picked, once answered. */
+  chosenOptionId?: string;
+}
+
+export interface PermissionChoice {
+  optionId: string;
+  name: string;
+  kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always' | string;
 }
 
 export type ParsedStreamEventType =
@@ -123,6 +144,15 @@ export interface ToolExecution {
   name: string;
   args: string;
   status: 'running' | 'completed' | 'failed';
+  /** ACP tool kind, e.g. "read", "edit", "execute". */
+  kind?: string;
+}
+
+/** One step of an agent's plan, as reported over ACP. */
+export interface PlanEntry {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  priority?: string;
 }
 
 export interface ChatMessage {
@@ -132,6 +162,11 @@ export interface ChatMessage {
   timestamp: number;
   tools?: ToolExecution[];
   actionCard?: ActionCard;
+  /** The agent's visible reasoning for this reply, when it streams any. */
+  thinking?: string;
+  plan?: PlanEntry[];
+  /** Set when the agent's turn ended; the next reply starts a new message. */
+  isComplete?: boolean;
 }
 
 export interface PtyOutputPayload {
