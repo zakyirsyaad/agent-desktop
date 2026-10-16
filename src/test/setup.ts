@@ -55,6 +55,8 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
     case "delete_transcript":
       delete store.transcripts[args?.sessionId ?? ""];
       return Promise.resolve(undefined);
+    case "write_fork_handoff":
+      return Promise.resolve(`/fake/app-data/handoffs/${(args as { handoffId?: string })?.handoffId}.md`);
     case "get_user_profile":
       return Promise.resolve({ name: "Test User", email: "test@example.com" });
     case "plugin:app|version":

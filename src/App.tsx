@@ -26,6 +26,10 @@ import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useUserProfile } from "./hooks/useUserProfile";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import type { PopoutAction } from "./lib/popout-bridge";
+import { useAgentActivity } from "./hooks/useAgentActivity";
+import { useFirstPrompts } from "./hooks/useFirstPrompts";
+import { buildForkHandoff, buildForkPrompt } from "./lib/fork-handoff";
+import { pickFiles } from "./lib/file-picker";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { ActionCard, AgentProfile, ChatMessage, PermissionMode, Session, Settings, SpawnOptions } from "./types";
 import { DEFAULT_PERMISSION_MODE } from "./types";
@@ -105,6 +109,10 @@ export default function App() {
   const suggestedFolders = useSuggestedFolders();
   const userProfile = useUserProfile();
   const navigation = useNavigationHistory();
+  const activity = useAgentActivity();
+  const firstPrompts = useFirstPrompts(activity, state.sessions, (sessionId, prompt) => {
+    void sendMessage(sessionId, prompt);
+  });
   const {
     workspaces,
     activeWorkspace,
@@ -146,6 +154,8 @@ export default function App() {
 
   usePtyEvents({
     onOutput: (sessionId, data) => {
+      activity.markOutput(sessionId);
+      firstPrompts.noteOutput(sessionId);
       const session = sessions.find((s) => s.id === sessionId);
       const profile = agents.find((a) => a.id === session?.profileId);
       let parser = parsersRef.current.get(sessionId);
@@ -165,44 +175,114 @@ export default function App() {
     },
   });
 
-  const handleNewSession = () => {
-    // The backend rejects relative and missing cwds, so never spawn without a path.
-    if (!activeWorkspace || !activeWorkspacePath) {
-      setNotice(NO_FOLDER_NOTICE);
-      return;
-    }
-    const agentToSpawn = newSessionAgent;
-    if (!agentToSpawn) {
-      setNotice(NO_AGENT_NOTICE);
-      return;
-    }
-    const options = spawnOptionsFor(agentToSpawn, draft);
-    const newSession: Session = {
-      id: createId("s"),
-      name: `Session #${sessions.length + 1}`,
-      profileId: agentToSpawn.id,
-      cwd: activeWorkspacePath,
+  interface StartSessionSpec {
+    agent: AgentProfile;
+    cwd: string;
+    name: string;
+    options: SpawnOptions;
+    id?: string;
+    forkedFrom?: string;
+    initialMessages?: ChatMessage[];
+    firstPrompt?: string;
+  }
+
+  /** Records a session, shows it, and asks the backend to start its agent. */
+  const startSession = (spec: StartSessionSpec) => {
+    const { agent, cwd, options } = spec;
+    const session: Session = {
+      id: spec.id ?? createId("s"),
+      name: spec.name,
+      profileId: agent.id,
+      cwd,
       status: "running",
       createdAt: Date.now(),
       model: options.model,
       effort: options.effort,
       permissionMode: options.permissionMode,
       agentSessionId: options.agentSessionId ?? null,
+      forkedFrom: spec.forkedFrom ?? null,
     };
-    updateState((prev) => ({ ...prev, sessions: [newSession, ...prev.sessions] }));
-    rememberFolder(activeWorkspace);
-    setActiveSessionId(newSession.id);
+    updateState((prev) => ({ ...prev, sessions: [session, ...prev.sessions] }));
+    if (spec.initialMessages) updateMessages(session.id, () => spec.initialMessages ?? []);
+    if (spec.firstPrompt) firstPrompts.queue(session.id, spec.firstPrompt);
+    setActiveSessionId(session.id);
 
-    invoke("spawn_session", {
-      sessionId: newSession.id,
-      cwd: activeWorkspacePath,
-      profileId: agentToSpawn.id,
-      options,
-    }).catch((error) => {
+    invoke("spawn_session", { sessionId: session.id, cwd, profileId: agent.id, options }).catch((error) => {
       // The PTY never came up, so the session cannot stay "running".
-      patchSession(newSession.id, { status: "terminated", endedAt: Date.now() });
-      setNotice(`Failed to start ${agentToSpawn.name}: ${String(error)}`);
+      firstPrompts.cancel(session.id);
+      patchSession(session.id, { status: "terminated", endedAt: Date.now() });
+      setNotice(`Failed to start ${agent.name}: ${String(error)}`);
     });
+  };
+
+  const handleNewSession = () => {
+    // The backend rejects relative and missing cwds, so never spawn without a path.
+    if (!activeWorkspace || !activeWorkspacePath) {
+      setNotice(NO_FOLDER_NOTICE);
+      return;
+    }
+    if (!newSessionAgent) {
+      setNotice(NO_AGENT_NOTICE);
+      return;
+    }
+    rememberFolder(activeWorkspace);
+    startSession({
+      agent: newSessionAgent,
+      cwd: activeWorkspacePath,
+      name: `Session #${sessions.length + 1}`,
+      options: spawnOptionsFor(newSessionAgent, draft),
+    });
+  };
+
+  /**
+   * Forks the active session at `messageId`. Claude Code can resume and fork
+   * its own session natively when forking from the latest message; otherwise
+   * the conversation is written to a handoff file and the new agent is asked,
+   * in one line, to read it.
+   */
+  const handleFork = async (messageId: string) => {
+    const source = activeSession;
+    const agent = agents.find((a) => a.id === source?.profileId);
+    if (!source || !agent?.detected) {
+      setNotice("The agent for this session is not installed, so it cannot be forked.");
+      return;
+    }
+    const messages = transcripts[source.id] ?? [];
+    const index = messages.findIndex((m) => m.id === messageId);
+    if (index < 0) return;
+
+    const id = createId("s");
+    const baseOptions: SessionDraft = {
+      model: source.model,
+      effort: source.effort,
+      permissionMode: source.permissionMode ?? DEFAULT_PERMISSION_MODE,
+    };
+    const spec = {
+      agent,
+      cwd: source.cwd,
+      id,
+      name: `${source.name} (fork)`,
+      forkedFrom: source.id,
+      initialMessages: messages.slice(0, index + 1),
+    };
+    const isLatest = index === messages.length - 1;
+    if (agent.fork_support === "native" && isLatest && source.agentSessionId) {
+      startSession({ ...spec, options: { ...baseOptions, forkFromAgentSessionId: source.agentSessionId } });
+      return;
+    }
+
+    try {
+      const content = buildForkHandoff(messages, messageId, {
+        sourceSessionName: source.name,
+        agentName: agent.name,
+        cwd: source.cwd,
+        createdAt: Date.now(),
+      });
+      const handoffPath = await invoke<string>("write_fork_handoff", { handoffId: id, content });
+      startSession({ ...spec, options: spawnOptionsFor(agent, baseOptions), firstPrompt: buildForkPrompt(handoffPath) });
+    } catch (error) {
+      setNotice(`Could not fork the session: ${String(error)}`);
+    }
   };
 
   const handleSelectSession = (sessionId: string) => {
@@ -364,6 +444,8 @@ export default function App() {
           {activeSession && currentMessages.length > 0 ? (
             <ChatCanvas
               messages={currentMessages}
+              agentName={activeAgent?.name}
+              onForkBranch={(messageId) => void handleFork(messageId)}
               onSendPtyInput={handleSendPtyInput}
               onApproveAction={(key, cardId) => resolveActionCard(activeSessionId, key, cardId, "approved")}
               onRejectAction={(key, cardId) => resolveActionCard(activeSessionId, key, cardId, "rejected")}
@@ -381,10 +463,11 @@ export default function App() {
                 isActiveRunning ? activeSession?.permissionMode ?? DEFAULT_PERMISSION_MODE : draft.permissionMode
               }
               optionsLocked={isActiveRunning}
-              isThinking={isActiveRunning}
+              isThinking={isActiveRunning && activity.isBusy(activeSessionId)}
               disabled={!isActiveRunning}
               placeholder={isActiveRunning ? undefined : DISABLED_COMPOSER_PLACEHOLDER}
               onSendMessage={(text) => void sendMessage(activeSessionId, text)}
+              onAttach={pickFiles}
               onModelChange={(model) => setDraft((prev) => ({ ...prev, model }))}
               onEffortChange={(effort) => setDraft((prev) => ({ ...prev, effort }))}
               onPermissionModeChange={(permissionMode) => setDraft((prev) => ({ ...prev, permissionMode }))}
