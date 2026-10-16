@@ -1,35 +1,45 @@
-import { useState, useRef, useEffect } from "react";
-import {
-  Plus,
-  ChevronDown,
-  CornerDownLeft,
-  Shield,
-  ShieldAlert,
-  Cpu,
-  Gauge,
-} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge } from "lucide-react";
 import type { AgentProfile, PermissionMode } from "../types";
+import { DEFAULT_PERMISSION_MODE } from "../types";
+import { OptionDropdown, type DropdownOption } from "./composer/OptionDropdown";
+import { appendAttachments } from "../lib/attachments";
+
+const MAX_PROMPT_HEIGHT_PX = 180;
+const LOCKED_OPTIONS_TITLE = "Applies to the next new session: CLI flags are set when an agent starts.";
+
+type OpenDropdown = "permission" | "model" | "effort" | null;
 
 export interface ComposerDockProps {
   activeAgent?: AgentProfile;
+  /** A model alias from the agent profile; undefined means the agent's default. */
   selectedModel?: string;
+  /** An effort label from the agent profile; undefined means the agent's default. */
   selectedEffort?: string;
   permissionMode?: PermissionMode;
+  /** True while a session runs: its flags were fixed when it started. */
+  optionsLocked?: boolean;
   isThinking?: boolean;
   placeholder?: string;
   disabled?: boolean;
   onSendMessage: (message: string) => void;
-  onModelChange?: (model: string) => void;
-  onEffortChange?: (effort: string) => void;
+  onModelChange?: (model: string | undefined) => void;
+  onEffortChange?: (effort: string | undefined) => void;
   onPermissionModeChange?: (mode: PermissionMode) => void;
-  onAttach?: () => void;
+  /** Opens a file picker and resolves with the chosen paths; hidden when absent. */
+  onAttach?: () => Promise<string[]>;
+}
+
+function withDefault(defaultLabel: string, values: readonly string[]): DropdownOption[] {
+  return [{ value: undefined, label: defaultLabel }, ...values.map((v) => ({ value: v, label: v }))];
 }
 
 export function ComposerDock({
   activeAgent,
   selectedModel,
-  selectedEffort = "Medium",
-  permissionMode = "ask",
+  selectedEffort,
+  permissionMode = DEFAULT_PERMISSION_MODE,
+  optionsLocked = false,
   isThinking = false,
   placeholder = "Type / for commands, or prompt the agent...",
   disabled = false,
@@ -40,12 +50,11 @@ export function ComposerDock({
   onAttach,
 }: ComposerDockProps) {
   const [text, setText] = useState("");
-  const [openDropdown, setOpenDropdown] = useState<"permission" | "model" | "effort" | null>(null);
-
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null);
+  const containerRef = useRef<HTMLElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Close dropdown on click outside
+  // Close any open dropdown on a click outside the composer.
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -53,31 +62,32 @@ export function ComposerDock({
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Available models and effort levels
-  const availableModels = activeAgent?.models && activeAgent.models.length > 0
-    ? activeAgent.models
-    : ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-4-5"];
+  const permissionOptions: DropdownOption[] = (activeAgent?.permission_modes ?? []).map((m) => ({
+    value: m.id,
+    label: m.label,
+  }));
+  const modelOptions = withDefault("Default model", activeAgent?.models ?? []);
+  const effortOptions = withDefault(
+    "Default effort",
+    (activeAgent?.effort_levels ?? []).map((e) => e.label),
+  );
 
-  const availableEfforts = activeAgent?.effort_levels && activeAgent.effort_levels.length > 0
-    ? activeAgent.effort_levels
-    : ["Low", "Medium", "High"];
-
-  const currentModel = selectedModel || availableModels[0] || "claude-sonnet-5-5";
-  const currentEffort = selectedEffort || availableEfforts[0] || "Medium";
+  const toggle = (name: Exclude<OpenDropdown, null>) =>
+    setOpenDropdown((current) => (current === name ? null : name));
+  const choose = <T,>(handler: ((value: T) => void) | undefined) => (value: T) => {
+    handler?.(value);
+    setOpenDropdown(null);
+  };
 
   const handleSend = () => {
     const trimmed = text.trim();
     if (!trimmed || disabled) return;
     onSendMessage(trimmed);
     setText("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -89,112 +99,77 @@ export function ComposerDock({
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
-    // Auto-resize up to a max height
     e.target.style.height = "auto";
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`;
+    e.target.style.height = `${Math.min(e.target.scrollHeight, MAX_PROMPT_HEIGHT_PX)}px`;
   };
+
+  const handleAttach = async () => {
+    if (!onAttach) return;
+    const paths = await onAttach();
+    setText((current) => appendAttachments(current, paths));
+    textareaRef.current?.focus();
+  };
+
+  const isRiskyPermission = permissionMode !== DEFAULT_PERMISSION_MODE;
 
   return (
     <footer ref={containerRef} className="w-full max-w-3xl flex flex-col items-center px-4 select-none">
-      {/* Floating Pill Composer */}
       <div
         className="w-full rounded-xl border border-[#262626] bg-[#121212] p-3 shadow-2xl transition-all focus-within:border-neutral-700 focus-within:ring-1 focus-within:ring-amber-500/20"
         style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }}
       >
-        {/* Text Input Area */}
-        <div className="w-full">
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={text}
-            onChange={handleTextChange}
-            onKeyDown={handleKeyDown}
-            disabled={disabled}
-            placeholder={placeholder}
-            aria-label="Prompt"
-            className="w-full bg-transparent text-sm text-neutral-200 placeholder-neutral-500 outline-none resize-none leading-relaxed min-h-[26px] max-h-[180px]"
-          />
-        </div>
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={text}
+          onChange={handleTextChange}
+          onKeyDown={handleKeyDown}
+          disabled={disabled}
+          placeholder={placeholder}
+          aria-label="Prompt"
+          className="w-full bg-transparent text-sm text-neutral-200 placeholder-neutral-500 outline-none resize-none leading-relaxed min-h-[26px] max-h-[180px]"
+        />
 
-        {/* Controls Row */}
         <div className="mt-2 flex items-center justify-between border-t border-neutral-800/40 pt-2 text-xs">
-          {/* Left Controls: Attach, Voice, Permission Mode */}
-          <div className="flex items-center gap-1 relative">
-            <button
-              type="button"
-              aria-label="Add attachment"
-              onClick={onAttach}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors cursor-pointer"
-            >
-              <Plus size={15} />
-            </button>
-
-            {/* Permission Mode Dropdown Button */}
-            <div className="relative">
+          <div className="flex items-center gap-1">
+            {onAttach && (
               <button
                 type="button"
-                aria-label="Permission mode"
-                onClick={() => setOpenDropdown(openDropdown === "permission" ? null : "permission")}
-                className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 transition-colors cursor-pointer border border-neutral-800/60"
+                aria-label="Add attachment"
+                title="Attach files"
+                onClick={() => void handleAttach()}
+                disabled={disabled}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {permissionMode === "bypass" ? (
-                  <ShieldAlert size={13} className="text-amber-500" />
-                ) : (
-                  <Shield size={13} className="text-emerald-500" />
-                )}
-                <span>{permissionMode === "bypass" ? "Bypass permissions" : "Ask every time"}</span>
-                <ChevronDown size={11} className="text-neutral-500" />
+                <Plus size={15} />
               </button>
+            )}
 
-              {openDropdown === "permission" && (
-                <div className="absolute bottom-full left-0 mb-2 w-48 rounded-lg border border-neutral-800 bg-[#181818] p-1 shadow-2xl z-50">
-                  <button
-                    type="button"
-                    aria-label="Select bypass permissions"
-                    onClick={() => {
-                      onPermissionModeChange?.("bypass");
-                      setOpenDropdown(null);
-                    }}
-                    className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-xs text-left transition-colors cursor-pointer ${
-                      permissionMode === "bypass"
-                        ? "bg-neutral-800 text-amber-400 font-medium"
-                        : "text-neutral-300 hover:bg-neutral-800/60 hover:text-neutral-100"
-                    }`}
-                  >
-                    <ShieldAlert size={13} className="text-amber-500 shrink-0" />
-                    <div className="flex flex-col">
-                      <span>Bypass permissions</span>
-                      <span className="text-[10px] text-neutral-500 font-normal">Auto-approve bash/tools</span>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    aria-label="Select ask every time"
-                    onClick={() => {
-                      onPermissionModeChange?.("ask");
-                      setOpenDropdown(null);
-                    }}
-                    className={`mt-1 flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-xs text-left transition-colors cursor-pointer ${
-                      permissionMode === "ask"
-                        ? "bg-neutral-800 text-emerald-400 font-medium"
-                        : "text-neutral-300 hover:bg-neutral-800/60 hover:text-neutral-100"
-                    }`}
-                  >
-                    <Shield size={13} className="text-emerald-500 shrink-0" />
-                    <div className="flex flex-col">
-                      <span>Ask every time</span>
-                      <span className="text-[10px] text-neutral-500 font-normal">Require action cards</span>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
+            {permissionOptions.length > 0 && (
+              <OptionDropdown
+                label="Permission mode"
+                align="left"
+                icon={
+                  isRiskyPermission ? (
+                    <ShieldAlert size={13} className="text-amber-500" />
+                  ) : (
+                    <Shield size={13} className="text-emerald-500" />
+                  )
+                }
+                options={permissionOptions}
+                selected={permissionMode}
+                isOpen={openDropdown === "permission"}
+                onToggle={() => toggle("permission")}
+                onSelect={choose((value: string | undefined) =>
+                  onPermissionModeChange?.(value ?? DEFAULT_PERMISSION_MODE),
+                )}
+                disabled={optionsLocked}
+                disabledTitle={LOCKED_OPTIONS_TITLE}
+              />
+            )}
           </div>
 
-          {/* Right Controls: Thinking indicator, Model, Effort, Send */}
-          <div className="flex items-center gap-2 relative">
-            {/* Thinking Animated Ring */}
+          <div className="flex items-center gap-2">
             {isThinking && (
               <div
                 data-testid="thinking-indicator-ring"
@@ -202,89 +177,34 @@ export function ComposerDock({
               />
             )}
 
-            {/* Model Selector Dropdown */}
-            <div className="relative">
-              <button
-                type="button"
-                aria-label="Model selector"
-                onClick={() => setOpenDropdown(openDropdown === "model" ? null : "model")}
-                className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 transition-colors cursor-pointer border border-neutral-800/60"
-              >
-                <Cpu size={12} className="text-neutral-400" />
-                <span className="max-w-[110px] truncate">{currentModel}</span>
-                <ChevronDown size={11} className="text-neutral-500" />
-              </button>
+            {modelOptions.length > 1 && (
+              <OptionDropdown
+                label="Model"
+                icon={<Cpu size={12} className="text-neutral-400" />}
+                options={modelOptions}
+                selected={selectedModel}
+                isOpen={openDropdown === "model"}
+                onToggle={() => toggle("model")}
+                onSelect={choose(onModelChange)}
+                disabled={optionsLocked}
+                disabledTitle={LOCKED_OPTIONS_TITLE}
+              />
+            )}
 
-              {openDropdown === "model" && (
-                <div className="absolute bottom-full right-0 mb-2 min-w-44 rounded-lg border border-neutral-800 bg-[#181818] p-1 shadow-2xl z-50">
-                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-neutral-500 font-semibold">
-                    {activeAgent?.name || "Agent"} Models
-                  </div>
-                  {availableModels.map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      aria-label={`Select model ${m.toLowerCase()}`}
-                      onClick={() => {
-                        onModelChange?.(m);
-                        setOpenDropdown(null);
-                      }}
-                      className={`flex w-full items-center justify-between rounded px-2.5 py-1.5 text-xs text-left transition-colors cursor-pointer ${
-                        currentModel === m
-                          ? "bg-neutral-800 text-amber-400 font-medium"
-                          : "text-neutral-300 hover:bg-neutral-800/60 hover:text-neutral-100"
-                      }`}
-                    >
-                      <span className="truncate">{m}</span>
-                      {currentModel === m && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            {effortOptions.length > 1 && (
+              <OptionDropdown
+                label="Effort"
+                icon={<Gauge size={12} className="text-neutral-400" />}
+                options={effortOptions}
+                selected={selectedEffort}
+                isOpen={openDropdown === "effort"}
+                onToggle={() => toggle("effort")}
+                onSelect={choose(onEffortChange)}
+                disabled={optionsLocked}
+                disabledTitle={LOCKED_OPTIONS_TITLE}
+              />
+            )}
 
-            {/* Effort Selector Dropdown */}
-            <div className="relative">
-              <button
-                type="button"
-                aria-label="Effort selector"
-                onClick={() => setOpenDropdown(openDropdown === "effort" ? null : "effort")}
-                className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 transition-colors cursor-pointer border border-neutral-800/60"
-              >
-                <Gauge size={12} className="text-neutral-400" />
-                <span>{currentEffort}</span>
-                <ChevronDown size={11} className="text-neutral-500" />
-              </button>
-
-              {openDropdown === "effort" && (
-                <div className="absolute bottom-full right-0 mb-2 w-32 rounded-lg border border-neutral-800 bg-[#181818] p-1 shadow-2xl z-50">
-                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-neutral-500 font-semibold">
-                    Thinking Effort
-                  </div>
-                  {availableEfforts.map((e) => (
-                    <button
-                      key={e}
-                      type="button"
-                      aria-label={`Select effort ${e.toLowerCase()}`}
-                      onClick={() => {
-                        onEffortChange?.(e);
-                        setOpenDropdown(null);
-                      }}
-                      className={`flex w-full items-center justify-between rounded px-2.5 py-1.5 text-xs text-left transition-colors cursor-pointer ${
-                        currentEffort === e
-                          ? "bg-neutral-800 text-amber-400 font-medium"
-                          : "text-neutral-300 hover:bg-neutral-800/60 hover:text-neutral-100"
-                      }`}
-                    >
-                      <span>{e}</span>
-                      {currentEffort === e && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Send Button */}
             <button
               type="button"
               aria-label="Send message"

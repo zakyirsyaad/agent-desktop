@@ -18,9 +18,30 @@ import { usePersistedState } from "./hooks/usePersistedState";
 import { useTranscripts } from "./hooks/useTranscripts";
 import { usePtyEvents } from "./hooks/usePtyEvents";
 import { useAgentProfiles, useWorkspaces } from "./hooks/useDiscovery";
-import type { ActionCard, ChatMessage, PermissionMode, Session } from "./types";
+import { resolveDefaultAgentId } from "./lib/agent-readiness";
+import type { ActionCard, AgentProfile, ChatMessage, PermissionMode, Session, SpawnOptions } from "./types";
+import { DEFAULT_PERMISSION_MODE } from "./types";
 
 const DISABLED_COMPOSER_PLACEHOLDER = "Start a session to send a message";
+
+/** Options picked in the composer for the next session; CLI flags only apply at start. */
+interface SessionDraft {
+  model?: string;
+  effort?: string;
+  permissionMode: PermissionMode;
+}
+
+const EMPTY_DRAFT: SessionDraft = { permissionMode: DEFAULT_PERMISSION_MODE };
+
+function spawnOptionsFor(agent: AgentProfile, draft: SessionDraft): SpawnOptions {
+  return {
+    model: draft.model,
+    effort: draft.effort,
+    permissionMode: draft.permissionMode,
+    // Agents with a session-id flag get an id we choose, so they can be forked natively later.
+    agentSessionId: agent.session_id_arg ? crypto.randomUUID() : undefined,
+  };
+}
 
 function createId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -63,6 +84,7 @@ export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState("");
+  const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
   const parsersRef = useRef<Map<string, StreamParser>>(new Map());
 
   const reportError = useCallback((message: string) => setNotice(message), []);
@@ -74,8 +96,13 @@ export default function App() {
 
   const sessions = state.sessions;
   const activeSession = sessions.find((s) => s.id === activeSessionId);
-  const activeAgent = agents.find((a) => a.id === activeSession?.profileId) ?? agents[0];
+  const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
+  const newSessionAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId);
+  const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
+
+  // A model or effort chosen for one agent means nothing to another one.
+  useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
 
   // Once saved sessions are loaded, show the most recent one.
   useEffect(() => {
@@ -121,11 +148,12 @@ export default function App() {
       setNotice("No workspace folder found. Add a project folder under ~/developer and restart the app.");
       return;
     }
-    const agentToSpawn = activeAgent?.detected ? activeAgent : agents.find((a) => a.detected);
+    const agentToSpawn = newSessionAgent;
     if (!agentToSpawn) {
       setNotice("No supported agent is installed. Install Claude Code, Aider or omp, then restart the app.");
       return;
     }
+    const options = spawnOptionsFor(agentToSpawn, draft);
     const newSession: Session = {
       id: createId("s"),
       name: `Session #${sessions.length + 1}`,
@@ -133,6 +161,10 @@ export default function App() {
       cwd: activeWorkspacePath,
       status: "running",
       createdAt: Date.now(),
+      model: options.model,
+      effort: options.effort,
+      permissionMode: options.permissionMode,
+      agentSessionId: options.agentSessionId ?? null,
     };
     updateState((prev) => ({ ...prev, sessions: [newSession, ...prev.sessions] }));
     setActiveSessionId(newSession.id);
@@ -140,8 +172,8 @@ export default function App() {
     invoke("spawn_session", {
       sessionId: newSession.id,
       cwd: activeWorkspacePath,
-      command: agentToSpawn.command,
-      args: [],
+      profileId: agentToSpawn.id,
+      options,
     }).catch((error) => {
       // The PTY never came up, so the session cannot stay "running".
       patchSession(newSession.id, { status: "terminated", endedAt: Date.now() });
@@ -243,19 +275,20 @@ export default function App() {
 
           <div className="p-4 flex justify-center">
             <ComposerDock
-              activeAgent={activeAgent}
-              selectedModel={activeSession?.model}
-              selectedEffort={activeSession?.effort}
-              permissionMode={activeSession?.permissionMode ?? "ask"}
+              activeAgent={isActiveRunning ? activeAgent : newSessionAgent}
+              selectedModel={isActiveRunning ? activeSession?.model : draft.model}
+              selectedEffort={isActiveRunning ? activeSession?.effort : draft.effort}
+              permissionMode={
+                isActiveRunning ? activeSession?.permissionMode ?? DEFAULT_PERMISSION_MODE : draft.permissionMode
+              }
+              optionsLocked={isActiveRunning}
               isThinking={isActiveRunning}
               disabled={!isActiveRunning}
               placeholder={isActiveRunning ? undefined : DISABLED_COMPOSER_PLACEHOLDER}
               onSendMessage={(text) => void handleSendMessage(text)}
-              onModelChange={(model) => patchSession(activeSessionId, { model })}
-              onEffortChange={(effort) => patchSession(activeSessionId, { effort })}
-              onPermissionModeChange={(mode: PermissionMode) =>
-                patchSession(activeSessionId, { permissionMode: mode })
-              }
+              onModelChange={(model) => setDraft((prev) => ({ ...prev, model }))}
+              onEffortChange={(effort) => setDraft((prev) => ({ ...prev, effort }))}
+              onPermissionModeChange={(permissionMode) => setDraft((prev) => ({ ...prev, permissionMode }))}
             />
           </div>
 

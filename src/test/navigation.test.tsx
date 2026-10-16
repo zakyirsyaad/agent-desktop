@@ -4,36 +4,10 @@ import { TopBar } from "../components/TopBar";
 import { Sidebar } from "../components/Sidebar";
 import App from "../App";
 import type { AgentProfile, Session } from "../types";
+import { fakeProfiles } from "./fixtures/agents";
 
 describe("Navigation and Layout Components", () => {
-  const mockProfiles: AgentProfile[] = [
-    {
-      id: "claude-code",
-      name: "Claude Code",
-      command: "claude",
-      detected: true,
-      detected_path: "/opt/homebrew/bin/claude",
-      models: ["claude-opus-5-5", "claude-sonnet-5-5"],
-      effort_levels: ["Low", "Medium", "High"],
-    },
-    {
-      id: "omp",
-      name: "Oh-My-Pi",
-      command: "omp",
-      detected: true,
-      detected_path: "/usr/local/bin/omp",
-      models: ["gemini-3.8-flash-tiered"],
-      effort_levels: ["Low", "High"],
-    },
-    {
-      id: "aider",
-      name: "Aider",
-      command: "aider",
-      detected: false,
-      models: ["gpt-5"],
-      effort_levels: [],
-    },
-  ];
+  const mockProfiles: AgentProfile[] = fakeProfiles;
 
   const mockSessions: Session[] = [
     {

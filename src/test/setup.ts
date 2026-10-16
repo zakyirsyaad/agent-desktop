@@ -1,6 +1,7 @@
 // Global test setup for Vitest (JSDOM environment mocks)
 
 import { afterEach } from "vitest";
+import { fakeProfiles } from "./fixtures/agents";
 
 /**
  * In-memory stand-in for the backend store commands. Tests seed it through
@@ -92,34 +93,7 @@ if (typeof window !== "undefined") {
           ]);
         }
         if (cmd === "get_agent_profiles") {
-          return Promise.resolve([
-            {
-              id: "claude-code",
-              name: "Claude Code",
-              command: "claude",
-              detected: true,
-              detected_path: "/opt/homebrew/bin/claude",
-              models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"],
-              effort_levels: ["Low", "Medium", "High"],
-            },
-            {
-              id: "omp",
-              name: "Oh-My-Pi",
-              command: "omp",
-              detected: true,
-              detected_path: "/usr/local/bin/omp",
-              models: ["gemini-3.8-flash-tiered"],
-              effort_levels: ["Low", "High"],
-            },
-            {
-              id: "aider",
-              name: "Aider",
-              command: "aider",
-              detected: false,
-              models: ["gpt-5"],
-              effort_levels: [],
-            },
-          ]);
+          return Promise.resolve(structuredClone(fakeProfiles));
         }
         return Promise.resolve(undefined);
       },

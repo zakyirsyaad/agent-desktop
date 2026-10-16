@@ -2,6 +2,24 @@
  * Core type definitions for Agent Desktop GUI
  */
 
+/** A reasoning-effort choice backed by a real CLI flag or env var. */
+export interface EffortLevel {
+  label: string;
+  args: string[];
+  env: [string, string][];
+}
+
+/** A permission mode the CLI supports; `"ask"` is always first and passes no args. */
+export interface PermissionModeOption {
+  id: string;
+  label: string;
+  args: string[];
+}
+
+/** How a session can be forked: resumed natively by the CLI, or via a handoff file. */
+export type ForkSupport = 'native' | 'handoff';
+
+/** Mirrors the Rust `AgentProfile` (snake_case on the wire). */
 export interface AgentProfile {
   id: string;
   name: string;
@@ -10,14 +28,29 @@ export interface AgentProfile {
   detected_path?: string | null;
   models: string[];
   model_arg?: string | null;
-  effort_levels: string[];
-  effort_env?: string | null;
+  effort_levels: EffortLevel[];
+  permission_modes: PermissionModeOption[];
+  session_id_arg?: string | null;
+  fork_support: ForkSupport | string;
+  resume_fork_args: string[];
   approval_pattern?: string | null;
   approval_key?: string | null;
   reject_key?: string | null;
 }
 
-export type PermissionMode = 'bypass' | 'ask';
+/** A `PermissionModeOption.id`; `"ask"` is the safe default every agent supports. */
+export type PermissionMode = string;
+
+export const DEFAULT_PERMISSION_MODE: PermissionMode = 'ask';
+
+/** What the backend's `spawn_session` accepts besides the profile id (camelCase). */
+export interface SpawnOptions {
+  model?: string;
+  effort?: string;
+  permissionMode?: PermissionMode;
+  agentSessionId?: string;
+  forkFromAgentSessionId?: string;
+}
 
 /** A project folder: `name` is shown in the UI, `path` is the absolute spawn cwd. */
 export interface Workspace {

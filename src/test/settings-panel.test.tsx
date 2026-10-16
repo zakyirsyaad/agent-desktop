@@ -3,35 +3,33 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, within, fireEvent } from "@testing-library/react";
 import { SettingsPanel } from "../components/SettingsPanel";
 import type { AgentProfile } from "../types";
+import { makeProfile } from "./fixtures/agents";
 
-const claudeCode: AgentProfile = {
+const claudeCode: AgentProfile = makeProfile({
   id: "claude-code",
   name: "Claude Code",
   command: "claude",
   detected: true,
   detected_path: "/opt/homebrew/bin/claude",
   models: ["claude-sonnet-5-5"],
-  effort_levels: ["Low", "Medium", "High"],
-};
+});
 
-const omp: AgentProfile = {
+const omp: AgentProfile = makeProfile({
   id: "omp",
   name: "Oh-My-Pi",
   command: "omp",
   detected: false,
   models: [],
-  effort_levels: [],
-};
+});
 
-const aider: AgentProfile = {
+const aider: AgentProfile = makeProfile({
   id: "aider",
   name: "Aider",
   command: "aider",
   detected: true,
   detected_path: "/usr/local/bin/aider",
   models: ["gpt-5"],
-  effort_levels: [],
-};
+});
 
 const AGENTS = [claudeCode, omp, aider];
 
