@@ -24,6 +24,8 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { ProfileFooter } from "./components/ProfileFooter";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useUserProfile } from "./hooks/useUserProfile";
+import { usePopoutHost } from "./hooks/usePopoutHost";
+import type { PopoutAction } from "./lib/popout-bridge";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { ActionCard, AgentProfile, ChatMessage, PermissionMode, Session, Settings, SpawnOptions } from "./types";
 import { DEFAULT_PERMISSION_MODE } from "./types";
@@ -257,10 +259,10 @@ export default function App() {
     }
   };
 
-  /** Sends raw input to the active session's PTY; reports failures instead of hiding them. */
-  const sendToActiveSession = async (data: string): Promise<boolean> => {
+  /** Sends raw input to a session's PTY; reports failures instead of hiding them. */
+  const sendToSession = async (sessionId: string, data: string): Promise<boolean> => {
     try {
-      await invoke("send_input", { sessionId: activeSessionId, data });
+      await invoke("send_input", { sessionId, data });
       return true;
     } catch (error) {
       setNotice(`Failed to send input: ${String(error)}`);
@@ -269,24 +271,39 @@ export default function App() {
   };
 
   const handleSendPtyInput = (input: string) => {
-    void sendToActiveSession(input);
+    void sendToSession(activeSessionId, input);
   };
 
-  const handleSendMessage = async (messageText: string) => {
-    if (!(await sendToActiveSession(`${messageText}\n`))) return;
+  const sendMessage = async (sessionId: string, messageText: string) => {
+    if (!(await sendToSession(sessionId, `${messageText}\n`))) return;
     const message: ChatMessage = {
       id: createId("msg"),
       role: "user",
       content: messageText,
       timestamp: Date.now(),
     };
-    updateMessages(activeSessionId, (prev) => [...prev, message]);
+    updateMessages(sessionId, (prev) => [...prev, message]);
   };
 
-  const resolveActionCard = (key: string, cardId: string | undefined, status: ActionCard["status"]) => {
-    updateMessages(activeSessionId, (prev) => setCardStatus(prev, cardId, status));
-    handleSendPtyInput(key);
+  const resolveActionCard = (
+    sessionId: string,
+    key: string,
+    cardId: string | undefined,
+    status: ActionCard["status"],
+  ) => {
+    updateMessages(sessionId, (prev) => setCardStatus(prev, cardId, status));
+    void sendToSession(sessionId, key);
   };
+
+  usePopoutHost({
+    sessions,
+    transcripts,
+    ensureLoaded,
+    onAction: (sessionId: string, action: PopoutAction) => {
+      if (action.kind === "send") void sendMessage(sessionId, action.text);
+      else resolveActionCard(sessionId, action.key, action.cardId, action.status);
+    },
+  });
 
   const currentMessages = transcripts[activeSessionId] ?? [];
 
@@ -348,8 +365,8 @@ export default function App() {
             <ChatCanvas
               messages={currentMessages}
               onSendPtyInput={handleSendPtyInput}
-              onApproveAction={(key, cardId) => resolveActionCard(key, cardId, "approved")}
-              onRejectAction={(key, cardId) => resolveActionCard(key, cardId, "rejected")}
+              onApproveAction={(key, cardId) => resolveActionCard(activeSessionId, key, cardId, "approved")}
+              onRejectAction={(key, cardId) => resolveActionCard(activeSessionId, key, cardId, "rejected")}
             />
           ) : (
             <EmptySessionState />
@@ -367,7 +384,7 @@ export default function App() {
               isThinking={isActiveRunning}
               disabled={!isActiveRunning}
               placeholder={isActiveRunning ? undefined : DISABLED_COMPOSER_PLACEHOLDER}
-              onSendMessage={(text) => void handleSendMessage(text)}
+              onSendMessage={(text) => void sendMessage(activeSessionId, text)}
               onModelChange={(model) => setDraft((prev) => ({ ...prev, model }))}
               onEffortChange={(effort) => setDraft((prev) => ({ ...prev, effort }))}
               onPermissionModeChange={(permissionMode) => setDraft((prev) => ({ ...prev, permissionMode }))}
