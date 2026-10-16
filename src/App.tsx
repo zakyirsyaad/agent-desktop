@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { TopBar } from "./components/TopBar";
@@ -21,14 +21,14 @@ import type {
 export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
 
-  // Default mock workspaces & active selection (by name; path is the spawn cwd)
-  const [workspaces] = useState<Workspace[]>([
-    { name: "ai-perpetual-trading", path: "/Users/mac/ai-perpetual-trading" },
-    { name: "titan-investment", path: "/Users/mac/titan-investment" },
-    { name: "agent-desktop", path: "/Users/mac/agent-desktop" },
-  ]);
-  const [activeWorkspace, setActiveWorkspace] = useState<string>("ai-perpetual-trading");
+  // Real workspaces discovered from disk on mount; `activeWorkspace` holds the
+  // selected name and its `path` is the spawn cwd.
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWorkspace, setActiveWorkspace] = useState<string>("");
   const activeWorkspacePath = workspaces.find((ws) => ws.name === activeWorkspace)?.path;
+
+  // Transient error surfaced to the user instead of being swallowed.
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Default mock sessions
   const [sessions, setSessions] = useState<Session[]>([
@@ -181,6 +181,23 @@ Would you like me to execute this action?`,
       .catch(() => {});
   }, []);
 
+  // Discover real project folders on mount. The backend refuses to spawn into a
+  // cwd that is not an existing directory, so the UI must only ever offer paths
+  // it read from disk.
+  useEffect(() => {
+    invoke<Workspace[]>("list_workspaces")
+      .then((discovered) => {
+        const found = Array.isArray(discovered) ? discovered : [];
+        setWorkspaces(found);
+        if (found.length > 0) {
+          setActiveWorkspace(found[0].name);
+        }
+      })
+      .catch((error) => {
+        setNotice(`Failed to load workspaces: ${String(error)}`);
+      });
+  }, []);
+
   // Listen to Tauri PTY output events and feed into session parser
   useEffect(() => {
     let unlistenOutput: UnlistenFn | null = null;
@@ -229,8 +246,14 @@ Would you like me to execute this action?`,
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId) ?? agents[0];
 
   const handleNewSession = () => {
-    // The backend rejects relative cwds, so never spawn without a resolved path.
-    if (!activeWorkspacePath) return;
+    // The backend rejects relative and missing cwds, so never spawn without a
+    // resolved path — tell the user why the button did nothing instead.
+    if (!activeWorkspacePath) {
+      setNotice(
+        "No workspace folder found. Add a project folder under ~/developer and restart the app."
+      );
+      return;
+    }
 
     const newSessionId = `s-${Date.now()}`;
     const agentToSpawn = activeAgent ?? agents[0];
@@ -252,7 +275,15 @@ Would you like me to execute this action?`,
         cwd: activeWorkspacePath,
         command: agentToSpawn.command,
         args: [],
-      }).catch(() => {});
+      }).catch((error) => {
+        // The PTY never came up, so the session cannot be "running" forever.
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === newSessionId ? { ...s, status: "terminated" as const } : s
+          )
+        );
+        setNotice(`Failed to start ${agentToSpawn.name}: ${String(error)}`);
+      });
     }
   };
 
@@ -280,7 +311,9 @@ Would you like me to execute this action?`,
    * Raw PTY input forwarding: dispatches keystrokes/data straight to backend PTY via Tauri send_input.
    */
   const handleSendPtyInput = (input: string) => {
-    invoke("send_input", { sessionId: activeSessionId, data: input }).catch(() => {});
+    invoke("send_input", { sessionId: activeSessionId, data: input }).catch((error) => {
+      setNotice(`Failed to send input: ${String(error)}`);
+    });
   };
 
   /**
@@ -395,6 +428,22 @@ Would you like me to execute this action?`,
 
         {/* Chat / Canvas Area */}
         <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
+          {notice && (
+            <div
+              role="alert"
+              className="border-rose-800/60 bg-rose-950/40 text-rose-200 text-xs rounded-lg px-3 py-2 mx-6 mt-3 flex justify-between items-center"
+            >
+              <span className="break-words">{notice}</span>
+              <button
+                type="button"
+                onClick={() => setNotice(null)}
+                aria-label="Dismiss notice"
+                className="shrink-0 ml-3 rounded p-0.5 text-rose-300 hover:text-rose-100 focus:outline-none focus:ring-1 focus:ring-rose-700"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
           {currentMessages.length > 0 ? (
             <ChatCanvas
               messages={currentMessages}

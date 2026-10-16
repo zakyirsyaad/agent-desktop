@@ -17,6 +17,13 @@ if (typeof window !== "undefined") {
   if (!win.__TAURI_INTERNALS__) {
     win.__TAURI_INTERNALS__ = {
       invoke: (cmd: string, _args?: unknown) => {
+        if (cmd === "list_workspaces") {
+          return Promise.resolve([
+            { name: "ai-perpetual-trading", path: "/Users/test/developer/ai-perpetual-trading" },
+            { name: "titan-investment", path: "/Users/test/developer/titan-investment" },
+            { name: "agent-desktop", path: "/Users/test/developer/agent-desktop" },
+          ]);
+        }
         if (cmd === "get_agent_profiles") {
           return Promise.resolve([
             {

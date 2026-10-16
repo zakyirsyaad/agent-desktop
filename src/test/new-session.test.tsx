@@ -13,6 +13,23 @@ describe("New session spawning", () => {
     vi.restoreAllMocks();
   });
 
+  /**
+   * Replaces the fake invoke for one command and delegates everything else to
+   * the real test double from setup.ts.
+   */
+  function stubInvoke(
+    overrides: Record<string, (args?: Record<string, unknown>) => Promise<unknown>>
+  ) {
+    const internals = tauriInternals();
+    const originalInvoke = internals.invoke;
+    return vi
+      .spyOn(internals, "invoke")
+      .mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+        const override = overrides[cmd];
+        return override ? override(args) : originalInvoke(cmd, args);
+      });
+  }
+
   it("spawns the agent in the workspace's absolute path, not its display name", async () => {
     const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
 
@@ -28,5 +45,37 @@ describe("New session spawning", () => {
     const cwd = (spawnCall?.[1] as { cwd: string }).cwd;
     expect(cwd.startsWith("/")).toBe(true);
     expect(cwd.endsWith("/ai-perpetual-trading")).toBe(true);
+  });
+
+  it("surfaces an alert when the backend rejects the spawn cwd", async () => {
+    stubInvoke({
+      spawn_session: () =>
+        Promise.reject(
+          "Working directory '/Users/test/developer/ai-perpetual-trading' is not an existing directory"
+        ),
+    });
+
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+
+    expect(screen.getByRole("alert").textContent).toContain("Failed to start");
+  });
+
+  it("warns instead of spawning when no workspace folder was discovered", async () => {
+    const invokeSpy = stubInvoke({ list_workspaces: () => Promise.resolve([]) });
+
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+
+    expect(screen.getByRole("alert").textContent).toContain("No workspace folder found");
+    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")).toBeUndefined();
   });
 });

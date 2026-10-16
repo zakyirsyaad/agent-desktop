@@ -1,12 +1,14 @@
 pub mod env_resolver;
 pub mod profiles;
 pub mod pty_session;
+pub mod workspaces;
 
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 use profiles::{get_available_agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
+use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 //
@@ -58,6 +60,17 @@ fn resize_session(
 #[tauri::command(async)]
 fn get_agent_profiles() -> Result<Vec<AgentProfile>, String> {
     Ok(get_available_agent_profiles())
+}
+
+/// Lists the project folders under `$HOME/developer` the UI can spawn into.
+///
+/// Reading the directory touches the filesystem, so this stays off the main thread.
+#[tauri::command(async)]
+fn list_workspaces() -> Result<Vec<Workspace>, String> {
+    match default_workspace_root() {
+        Some(root) => Ok(list_workspaces_in(&root)),
+        None => Err("HOME is not set, cannot locate workspaces".to_string()),
+    }
 }
 
 #[tauri::command(async)]
@@ -123,6 +136,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             get_agent_profiles,
+            list_workspaces,
             spawn_session,
             send_input,
             resize_session,
