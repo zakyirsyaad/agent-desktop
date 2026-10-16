@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas } from "./components/ChatCanvas";
@@ -9,412 +8,213 @@ import { ComposerDock } from "./components/ComposerDock";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { StreamParser } from "./lib/stream-parser";
 import { applyParsedEvents } from "./lib/apply-parsed-events";
-import type {
-  AgentProfile,
-  ChatMessage,
-  Session,
-  PermissionMode,
-  PtyOutputPayload,
-  Workspace,
-} from "./types";
+import {
+  mostRecentSessionId,
+  patchSessionIn,
+  removeSessionFrom,
+  setCardStatus,
+} from "./lib/session-helpers";
+import { usePersistedState } from "./hooks/usePersistedState";
+import { useTranscripts } from "./hooks/useTranscripts";
+import { usePtyEvents } from "./hooks/usePtyEvents";
+import { useAgentProfiles, useWorkspaces } from "./hooks/useDiscovery";
+import type { ActionCard, ChatMessage, PermissionMode, Session } from "./types";
+
+const DISABLED_COMPOSER_PLACEHOLDER = "Start a session to send a message";
+
+function createId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function NoticeBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="border-rose-800/60 bg-rose-950/40 text-rose-200 text-xs rounded-lg px-3 py-2 mx-6 mt-3 flex justify-between items-center"
+    >
+      <span className="break-words">{message}</span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss notice"
+        className="shrink-0 ml-3 rounded p-0.5 text-rose-300 hover:text-rose-100 focus:outline-none focus:ring-1 focus:ring-rose-700"
+      >
+        <X size={13} />
+      </button>
+    </div>
+  );
+}
+
+function EmptySessionState() {
+  return (
+    <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center text-center">
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-neutral-900 border border-neutral-800 text-amber-500">
+        <Sparkles size={24} />
+      </div>
+      <h1 className="text-xl font-medium text-neutral-100">No session yet</h1>
+      <p className="mt-1 max-w-sm text-sm text-neutral-400">
+        Pick a workspace in the sidebar, then click New to start an agent.
+      </p>
+    </div>
+  );
+}
 
 export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-
-  // Real workspaces discovered from disk on mount; `activeWorkspace` holds the
-  // selected name and its `path` is the spawn cwd.
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeWorkspace, setActiveWorkspace] = useState<string>("");
-  const activeWorkspacePath = workspaces.find((ws) => ws.name === activeWorkspace)?.path;
-
-  // Transient error surfaced to the user instead of being swallowed.
   const [notice, setNotice] = useState<string | null>(null);
-
-  // Default mock sessions
-  const [sessions, setSessions] = useState<Session[]>([
-    {
-      id: "s-1",
-      name: "New session (fork)",
-      profileId: "claude-code",
-      cwd: "/Users/mac/ai-perpetual-trading",
-      status: "running",
-      model: "claude-sonnet-5-5",
-      effort: "High",
-      permissionMode: "bypass",
-      createdAt: Date.now() - 3600000,
-    },
-    {
-      id: "s-2",
-      name: "Market analyzer refactor",
-      profileId: "omp",
-      cwd: "/Users/mac/titan-investment",
-      status: "idle",
-      model: "gemini-3.8-flash-tiered",
-      effort: "High",
-      permissionMode: "ask",
-      createdAt: Date.now() - 7200000,
-    },
-    {
-      id: "s-3",
-      name: "Claude Code Session #1",
-      profileId: "claude-code",
-      cwd: "/Users/mac/agent-desktop",
-      status: "idle",
-      model: "claude-opus-5-5",
-      effort: "Medium",
-      permissionMode: "bypass",
-      createdAt: Date.now() - 10800000,
-    },
-  ]);
-  const [activeSessionId, setActiveSessionId] = useState<string>("s-1");
-
-  // Mock messages per session for rich chat canvas display
-  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({
-    "s-1": [
-      {
-        id: "m-1",
-        role: "user",
-        content: "Please inspect the codebase structure and check if any build scripts require permission.",
-        timestamp: Date.now() - 3600000,
-      },
-      {
-        id: "m-2",
-        role: "agent",
-        content: `# Codebase Inspection Summary
-
-I reviewed the project layout. Here is the operational workflow:
-
-1. **Backend PTY engine**: Uses \`portable-pty\` to manage asynchronous stream IO.
-2. **Environment resolution**: Spawns user login shell to load authentic paths.
-3. **Frontend replication**: Recreates Claude Code Desktop with dark aesthetics and Action Cards.
-
-To verify the test suite, please run:
-
-\`\`\`bash
-pnpm test
-\`\`\`
-
-Would you like me to execute this action?`,
-        timestamp: Date.now() - 3500000,
-        tools: [
-          {
-            id: "t-1",
-            name: "Glob",
-            args: 'pattern: "src/**/*.ts*"',
-            status: "completed",
-          },
-          {
-            id: "t-2",
-            name: "Bash",
-            args: "cargo test --workspace",
-            status: "completed",
-          },
-        ],
-        actionCard: {
-          id: "act-1",
-          sessionId: "s-1",
-          title: "⚠️ Agent Action Approval Required",
-          prompt: "Execute `pnpm test` across the workspace?",
-          commandSnippet: "pnpm test",
-          toolName: "Bash",
-          status: "pending",
-          approvalKey: "y\n",
-          rejectKey: "n\n",
-          timestamp: Date.now() - 3400000,
-        },
-      },
-    ],
-  });
-
-  // Detected agent profiles
-  const [agents, setAgents] = useState<AgentProfile[]>([
-    {
-      id: "claude-code",
-      name: "Claude Code",
-      command: "claude",
-      detected: true,
-      detected_path: "/opt/homebrew/bin/claude",
-      models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"],
-      effort_levels: ["Low", "Medium", "High"],
-    },
-    {
-      id: "omp",
-      name: "Oh-My-Pi",
-      command: "omp",
-      detected: true,
-      detected_path: "/usr/local/bin/omp",
-      models: ["gemini-3.8-flash-tiered"],
-      effort_levels: ["Low", "High"],
-    },
-    {
-      id: "aider",
-      name: "Aider",
-      command: "aider",
-      detected: false,
-      models: ["gpt-5"],
-      effort_levels: [],
-    },
-  ]);
-
-  // Map of StreamParser per session
+  const [activeSessionId, setActiveSessionId] = useState("");
   const parsersRef = useRef<Map<string, StreamParser>>(new Map());
 
-  const getOrCreateParser = (sessionId: string, profile?: AgentProfile): StreamParser => {
-    let parser = parsersRef.current.get(sessionId);
-    if (!parser) {
-      parser = new StreamParser({
-        approvalPattern: profile?.approval_pattern ?? undefined,
-      });
-      parsersRef.current.set(sessionId, parser);
-    }
-    return parser;
-  };
+  const reportError = useCallback((message: string) => setNotice(message), []);
+  const { state, isLoaded, updateState } = usePersistedState(reportError);
+  const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
+  const agents = useAgentProfiles(reportError);
+  const { workspaces, activeWorkspace, activeWorkspacePath, setActiveWorkspace } =
+    useWorkspaces(reportError);
 
-  // Discover installed agent profiles on mount
-  useEffect(() => {
-    invoke<AgentProfile[]>("get_agent_profiles")
-      .then((profiles) => {
-        if (profiles && Array.isArray(profiles) && profiles.length > 0) {
-          setAgents(profiles);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  // Discover real project folders on mount. The backend refuses to spawn into a
-  // cwd that is not an existing directory, so the UI must only ever offer paths
-  // it read from disk.
-  useEffect(() => {
-    invoke<Workspace[]>("list_workspaces")
-      .then((discovered) => {
-        const found = Array.isArray(discovered) ? discovered : [];
-        setWorkspaces(found);
-        if (found.length > 0) {
-          setActiveWorkspace(found[0].name);
-        }
-      })
-      .catch((error) => {
-        setNotice(`Failed to load workspaces: ${String(error)}`);
-      });
-  }, []);
-
-  // Listen to Tauri PTY output events and feed into session parser
-  useEffect(() => {
-    let unlistenOutput: UnlistenFn | null = null;
-    let isCancelled = false;
-
-    listen<PtyOutputPayload>("pty-output", (event) => {
-      const payload = event.payload;
-      if (!payload?.session_id || !payload?.data) return;
-
-      const sid = payload.session_id;
-      const targetSession = sessions.find((s) => s.id === sid);
-      const targetProfile = agents.find((a) => a.id === targetSession?.profileId);
-      const parser = getOrCreateParser(sid, targetProfile);
-      const parsedEvents = parser.feed(payload.data);
-
-      if (parsedEvents.length === 0) return;
-
-      setMessages((prev) => ({
-        ...prev,
-        [sid]: applyParsedEvents(prev[sid] ?? [], parsedEvents, {
-          sessionId: sid,
-          profile: targetProfile,
-          now: Date.now(),
-          createId: (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        }),
-      }));
-    })
-      .then((unlisten) => {
-        if (isCancelled) {
-          unlisten();
-        } else {
-          unlistenOutput = unlisten;
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      isCancelled = true;
-      if (unlistenOutput) {
-        unlistenOutput();
-      }
-    };
-  }, [agents, sessions]);
-
-  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
+  const sessions = state.sessions;
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId) ?? agents[0];
+  const isActiveRunning = activeSession?.status === "running";
+
+  // Once saved sessions are loaded, show the most recent one.
+  useEffect(() => {
+    if (isLoaded) setActiveSessionId((current) => current || mostRecentSessionId(state.sessions));
+    // Only on the load transition; later session changes must not move the selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded]);
+
+  useEffect(() => {
+    if (activeSessionId) ensureLoaded(activeSessionId);
+  }, [activeSessionId, ensureLoaded]);
+
+  const patchSession = useCallback(
+    (sessionId: string, patch: Partial<Session>) =>
+      updateState((prev) => patchSessionIn(prev, sessionId, patch)),
+    [updateState],
+  );
+
+  usePtyEvents({
+    onOutput: (sessionId, data) => {
+      const session = sessions.find((s) => s.id === sessionId);
+      const profile = agents.find((a) => a.id === session?.profileId);
+      let parser = parsersRef.current.get(sessionId);
+      if (!parser) {
+        parser = new StreamParser({ approvalPattern: profile?.approval_pattern ?? undefined });
+        parsersRef.current.set(sessionId, parser);
+      }
+      const events = parser.feed(data);
+      if (events.length === 0) return;
+      updateMessages(sessionId, (prev) =>
+        applyParsedEvents(prev, events, { sessionId, profile, now: Date.now(), createId }),
+      );
+    },
+    onExit: (sessionId, exitCode) => {
+      parsersRef.current.delete(sessionId);
+      patchSession(sessionId, { status: "terminated", endedAt: Date.now(), exitCode });
+    },
+  });
 
   const handleNewSession = () => {
-    // The backend rejects relative and missing cwds, so never spawn without a
-    // resolved path — tell the user why the button did nothing instead.
+    // The backend rejects relative and missing cwds, so never spawn without a path.
     if (!activeWorkspacePath) {
-      setNotice(
-        "No workspace folder found. Add a project folder under ~/developer and restart the app."
-      );
+      setNotice("No workspace folder found. Add a project folder under ~/developer and restart the app.");
       return;
     }
-
-    const newSessionId = `s-${Date.now()}`;
-    const agentToSpawn = activeAgent ?? agents[0];
+    const agentToSpawn = activeAgent?.detected ? activeAgent : agents.find((a) => a.detected);
+    if (!agentToSpawn) {
+      setNotice("No supported agent is installed. Install Claude Code, Aider or omp, then restart the app.");
+      return;
+    }
     const newSession: Session = {
-      id: newSessionId,
+      id: createId("s"),
       name: `Session #${sessions.length + 1}`,
-      profileId: agentToSpawn?.id || "claude-code",
+      profileId: agentToSpawn.id,
       cwd: activeWorkspacePath,
       status: "running",
       createdAt: Date.now(),
     };
-    setSessions((prev) => [newSession, ...prev]);
-    setActiveSessionId(newSessionId);
+    updateState((prev) => ({ ...prev, sessions: [newSession, ...prev.sessions] }));
+    setActiveSessionId(newSession.id);
 
-    // Call spawn_session on Tauri backend
-    if (agentToSpawn && agentToSpawn.command) {
-      invoke("spawn_session", {
-        sessionId: newSessionId,
-        cwd: activeWorkspacePath,
-        command: agentToSpawn.command,
-        args: [],
-      }).catch((error) => {
-        // The PTY never came up, so the session cannot be "running" forever.
-        setSessions((prev) =>
-          prev.map((s) =>
-            s.id === newSessionId ? { ...s, status: "terminated" as const } : s
-          )
-        );
-        setNotice(`Failed to start ${agentToSpawn.name}: ${String(error)}`);
-      });
-    }
+    invoke("spawn_session", {
+      sessionId: newSession.id,
+      cwd: activeWorkspacePath,
+      command: agentToSpawn.command,
+      args: [],
+    }).catch((error) => {
+      // The PTY never came up, so the session cannot stay "running".
+      patchSession(newSession.id, { status: "terminated", endedAt: Date.now() });
+      setNotice(`Failed to start ${agentToSpawn.name}: ${String(error)}`);
+    });
   };
 
   const handleSelectSession = (sessionId: string) => {
     setActiveSessionId(sessionId);
     const selected = sessions.find((s) => s.id === sessionId);
-    if (selected) {
-      // If session belongs to known workspace, switch workspace too
-      const matchingWs = workspaces.find((ws) => ws.path === selected.cwd);
-      if (matchingWs) {
-        setActiveWorkspace(matchingWs.name);
-      }
+    const matchingWs = workspaces.find((ws) => ws.path === selected?.cwd);
+    if (matchingWs) setActiveWorkspace(matchingWs.name);
+  };
+
+  const handleStopSession = (sessionId: string) => {
+    // The status flips to "terminated" when the backend reports pty-exit.
+    invoke("terminate_session", { sessionId }).catch((error) => {
+      setNotice(`Failed to stop the session: ${String(error)}`);
+    });
+  };
+
+  const handleDeleteSession = (sessionId: string) => {
+    parsersRef.current.delete(sessionId);
+    updateState((prev) => removeSessionFrom(prev, sessionId));
+    removeTranscript(sessionId);
+    if (sessionId === activeSessionId) {
+      setActiveSessionId(mostRecentSessionId(sessions.filter((s) => s.id !== sessionId)));
     }
   };
 
-  const handleSelectWorkspace = (workspace: string) => {
-    setActiveWorkspace(workspace);
-  };
-
-  const handleToggleTerminal = () => {
-    setIsTerminalOpen((prev) => !prev);
-  };
-
-  /**
-   * Raw PTY input forwarding: dispatches keystrokes/data straight to backend PTY via Tauri send_input.
-   */
-  const handleSendPtyInput = (input: string) => {
-    invoke("send_input", { sessionId: activeSessionId, data: input }).catch((error) => {
+  /** Sends raw input to the active session's PTY; reports failures instead of hiding them. */
+  const sendToActiveSession = async (data: string): Promise<boolean> => {
+    try {
+      await invoke("send_input", { sessionId: activeSessionId, data });
+      return true;
+    } catch (error) {
       setNotice(`Failed to send input: ${String(error)}`);
-    });
+      return false;
+    }
   };
 
-  /**
-   * Action Card approval handling: updates message status and forwards only the approval key to PTY.
-   */
-  const handleActionApprove = (key: string, cardId?: string) => {
-    setMessages((prev) => {
-      const sessionMsgs = prev[activeSessionId] ?? [];
-      const updated = sessionMsgs.map((msg) => {
-        if (!msg.actionCard) return msg;
-        if (cardId && msg.actionCard.id !== cardId) return msg;
-        return {
-          ...msg,
-          actionCard: {
-            ...msg.actionCard,
-            status: "approved" as const,
-          },
-        };
-      });
-      return {
-        ...prev,
-        [activeSessionId]: updated,
-      };
-    });
-
-    handleSendPtyInput(key);
+  const handleSendPtyInput = (input: string) => {
+    void sendToActiveSession(input);
   };
 
-  const handleActionReject = (key: string, cardId?: string) => {
-    setMessages((prev) => {
-      const sessionMsgs = prev[activeSessionId] ?? [];
-      const updated = sessionMsgs.map((msg) => {
-        if (!msg.actionCard) return msg;
-        if (cardId && msg.actionCard.id !== cardId) return msg;
-        return {
-          ...msg,
-          actionCard: {
-            ...msg.actionCard,
-            status: "rejected" as const,
-          },
-        };
-      });
-      return {
-        ...prev,
-        [activeSessionId]: updated,
-      };
-    });
-
-    handleSendPtyInput(key);
-  };
-
-  const handleSendMessage = (messageText: string) => {
-    const newMessage: ChatMessage = {
-      id: `msg-${Date.now()}`,
+  const handleSendMessage = async (messageText: string) => {
+    if (!(await sendToActiveSession(`${messageText}\n`))) return;
+    const message: ChatMessage = {
+      id: createId("msg"),
       role: "user",
       content: messageText,
       timestamp: Date.now(),
     };
-
-    setMessages((prev) => ({
-      ...prev,
-      [activeSessionId]: [...(prev[activeSessionId] ?? []), newMessage],
-    }));
-
-    // Forwards input directly to backend PTY send_input
-    handleSendPtyInput(`${messageText}\n`);
+    updateMessages(activeSessionId, (prev) => [...prev, message]);
   };
 
-  const handleModelChange = (newModel: string) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === activeSessionId ? { ...s, model: newModel } : s))
-    );
+  const resolveActionCard = (key: string, cardId: string | undefined, status: ActionCard["status"]) => {
+    updateMessages(activeSessionId, (prev) => setCardStatus(prev, cardId, status));
+    handleSendPtyInput(key);
   };
 
-  const handleEffortChange = (newEffort: string) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === activeSessionId ? { ...s, effort: newEffort } : s))
-    );
-  };
-
-  const handlePermissionModeChange = (newMode: PermissionMode) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === activeSessionId ? { ...s, permissionMode: newMode } : s))
-    );
-  };
-
-  const currentMessages = messages[activeSessionId] ?? [];
+  const currentMessages = transcripts[activeSessionId] ?? [];
 
   return (
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
-      {/* Top Bar Window Bar */}
       <TopBar
-        sessionName={activeSession?.name ?? "Claude Code Session #1"}
+        sessionName={activeSession?.name}
         workspaceName={activeWorkspace}
         isTerminalOpen={isTerminalOpen}
-        onToggleTerminal={handleToggleTerminal}
+        onToggleTerminal={() => setIsTerminalOpen((prev) => !prev)}
       />
 
-      {/* Main Workspace Body */}
       <section className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar */}
         <Sidebar
           workspaces={workspaces.map((ws) => ws.name)}
           activeWorkspace={activeWorkspace}
@@ -423,63 +223,42 @@ Would you like me to execute this action?`,
           agents={agents}
           onNewSession={handleNewSession}
           onSelectSession={handleSelectSession}
-          onSelectWorkspace={handleSelectWorkspace}
+          onSelectWorkspace={setActiveWorkspace}
+          onStopSession={handleStopSession}
+          onDeleteSession={handleDeleteSession}
         />
 
-        {/* Chat / Canvas Area */}
         <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
-          {notice && (
-            <div
-              role="alert"
-              className="border-rose-800/60 bg-rose-950/40 text-rose-200 text-xs rounded-lg px-3 py-2 mx-6 mt-3 flex justify-between items-center"
-            >
-              <span className="break-words">{notice}</span>
-              <button
-                type="button"
-                onClick={() => setNotice(null)}
-                aria-label="Dismiss notice"
-                className="shrink-0 ml-3 rounded p-0.5 text-rose-300 hover:text-rose-100 focus:outline-none focus:ring-1 focus:ring-rose-700"
-              >
-                <X size={13} />
-              </button>
-            </div>
-          )}
-          {currentMessages.length > 0 ? (
+          {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
+          {activeSession && currentMessages.length > 0 ? (
             <ChatCanvas
               messages={currentMessages}
               onSendPtyInput={handleSendPtyInput}
-              onApproveAction={handleActionApprove}
-              onRejectAction={handleActionReject}
+              onApproveAction={(key, cardId) => resolveActionCard(key, cardId, "approved")}
+              onRejectAction={(key, cardId) => resolveActionCard(key, cardId, "rejected")}
             />
           ) : (
-            <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center text-center">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-neutral-900 border border-neutral-800 text-amber-500">
-                <Sparkles size={24} />
-              </div>
-              <h1 className="text-xl font-medium text-neutral-100">Agent Desktop GUI</h1>
-              <p className="mt-1 max-w-sm text-sm text-neutral-400">
-                Generic terminal coding agent wrapper with authentic shell environment and interactive action cards.
-              </p>
-            </div>
+            <EmptySessionState />
           )}
 
-          {/* Floating Composer Dock */}
           <div className="p-4 flex justify-center">
             <ComposerDock
               activeAgent={activeAgent}
               selectedModel={activeSession?.model}
               selectedEffort={activeSession?.effort}
-              permissionMode={activeSession?.permissionMode ?? "bypass"}
-              isThinking={activeSession?.status === "running"}
-              bannerMessage="Approaching weekly usage limit • Resets Fri, Oct 16, 5:00 AM"
-              onSendMessage={handleSendMessage}
-              onModelChange={handleModelChange}
-              onEffortChange={handleEffortChange}
-              onPermissionModeChange={handlePermissionModeChange}
+              permissionMode={activeSession?.permissionMode ?? "ask"}
+              isThinking={isActiveRunning}
+              disabled={!isActiveRunning}
+              placeholder={isActiveRunning ? undefined : DISABLED_COMPOSER_PLACEHOLDER}
+              onSendMessage={(text) => void handleSendMessage(text)}
+              onModelChange={(model) => patchSession(activeSessionId, { model })}
+              onEffortChange={(effort) => patchSession(activeSessionId, { effort })}
+              onPermissionModeChange={(mode: PermissionMode) =>
+                patchSession(activeSessionId, { permissionMode: mode })
+              }
             />
           </div>
 
-          {/* Collapsible Raw Terminal Drawer */}
           <TerminalDrawer
             isOpen={isTerminalOpen}
             sessionId={activeSessionId}

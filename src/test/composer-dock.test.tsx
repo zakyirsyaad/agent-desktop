@@ -13,33 +13,27 @@ describe("ComposerDock Component", () => {
     effort_levels: ["Low", "Medium", "High"],
   };
 
-  it("renders usage/token banner with text, Upgrade button, and dismiss button", () => {
-    const onDismissBanner = vi.fn();
+  it("renders no usage banner, Upgrade or voice controls (no data source exists for them)", () => {
     render(
       <ComposerDock
         activeAgent={mockAgent}
         selectedModel="Sonnet 5.5"
         selectedEffort="High"
-        permissionMode="bypass"
+        permissionMode="ask"
         isThinking={false}
         onSendMessage={() => {}}
-        onModelChange={() => {}}
-        onEffortChange={() => {}}
-        onPermissionModeChange={() => {}}
-        bannerMessage="Approaching weekly usage limit • Resets Fri, Oct 16, 5:00 AM"
-        onDismissBanner={onDismissBanner}
       />
     );
 
-    expect(
-      screen.getByText(/Approaching weekly usage limit • Resets Fri, Oct 16, 5:00 AM/i)
-    ).toBeDefined();
-    expect(screen.getByRole("button", { name: /upgrade/i })).toBeDefined();
+    expect(screen.queryByText(/usage limit/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /upgrade/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /voice dictation/i })).toBeNull();
+  });
 
-    const dismissBtn = screen.getByRole("button", { name: /dismiss banner/i });
-    expect(dismissBtn).toBeDefined();
-    fireEvent.click(dismissBtn);
-    expect(onDismissBanner).toHaveBeenCalledTimes(1);
+  it("defaults the permission mode to asking every time", () => {
+    render(<ComposerDock activeAgent={mockAgent} onSendMessage={() => {}} />);
+
+    expect(screen.getByText("Ask every time")).toBeDefined();
   });
 
   it("submits message on Enter without Shift and clears input", () => {
@@ -280,7 +274,7 @@ describe("ComposerDock Component", () => {
     expect(ring.className).toContain("animate-spin");
   });
 
-  it("renders attachment (+) and voice (🎤) buttons", () => {
+  it("renders the attachment (+) button", () => {
     render(
       <ComposerDock
         activeAgent={mockAgent}
@@ -296,6 +290,5 @@ describe("ComposerDock Component", () => {
     );
 
     expect(screen.getByRole("button", { name: /add attachment/i })).toBeDefined();
-    expect(screen.getByRole("button", { name: /voice dictation/i })).toBeDefined();
   });
 });

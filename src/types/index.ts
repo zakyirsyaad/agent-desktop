@@ -44,6 +44,29 @@ export interface Session {
   effort?: string;
   permissionMode?: PermissionMode;
   createdAt: number;
+  endedAt?: number | null;
+  exitCode?: number | null;
+  forkedFrom?: string | null;
+  agentSessionId?: string | null;
+}
+
+export interface Settings {
+  defaultAgentId: string | null;
+  onboardingCompleted: boolean;
+}
+
+export interface RecentFolder {
+  name: string;
+  path: string;
+  lastOpenedAt: number;
+}
+
+/** Everything the backend store keeps in `state.json` (camelCase on the wire). */
+export interface PersistedState {
+  version: number;
+  settings: Settings;
+  recentFolders: RecentFolder[];
+  sessions: Session[];
 }
 
 export interface ActionCard {

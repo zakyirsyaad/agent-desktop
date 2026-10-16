@@ -1,5 +1,68 @@
 // Global test setup for Vitest (JSDOM environment mocks)
 
+import { afterEach } from "vitest";
+
+/**
+ * In-memory stand-in for the backend store commands. Tests seed it through
+ * `window.__FAKE_TAURI_STORE__` and it is reset after every test.
+ */
+export interface FakeTauriStore {
+  state: {
+    version: number;
+    settings: { defaultAgentId: string | null; onboardingCompleted: boolean };
+    recentFolders: unknown[];
+    sessions: unknown[];
+  };
+  transcripts: Record<string, unknown[]>;
+}
+
+function emptyFakeStore(): FakeTauriStore {
+  return {
+    state: {
+      version: 1,
+      settings: { defaultAgentId: null, onboardingCompleted: false },
+      recentFolders: [],
+      sessions: [],
+    },
+    transcripts: {},
+  };
+}
+
+type StoreArgs = { state?: FakeTauriStore["state"]; sessionId?: string; messages?: unknown[] };
+
+function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<unknown> | null {
+  const store = (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__;
+  switch (cmd) {
+    case "load_app_state":
+      return Promise.resolve(structuredClone(store.state));
+    case "save_app_state":
+      store.state = structuredClone(args?.state ?? store.state);
+      return Promise.resolve(undefined);
+    case "load_transcript":
+      return Promise.resolve(structuredClone(store.transcripts[args?.sessionId ?? ""] ?? []));
+    case "save_transcript":
+      store.transcripts[args?.sessionId ?? ""] = structuredClone(args?.messages ?? []);
+      return Promise.resolve(undefined);
+    case "delete_transcript":
+      delete store.transcripts[args?.sessionId ?? ""];
+      return Promise.resolve(undefined);
+    case "terminate_session":
+    case "spawn_session":
+    case "send_input":
+    case "resize_session":
+      return Promise.resolve(undefined);
+    default:
+      return null;
+  }
+}
+
+if (typeof window !== "undefined") {
+  (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
+  afterEach(() => {
+    (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
+  });
+}
+
 if (typeof window !== "undefined") {
   // Provide mock for Tauri invoke and event system if not running in real Tauri webview
   let nextCallbackId = 1;
@@ -16,7 +79,11 @@ if (typeof window !== "undefined") {
 
   if (!win.__TAURI_INTERNALS__) {
     win.__TAURI_INTERNALS__ = {
-      invoke: (cmd: string, _args?: unknown) => {
+      invoke: (cmd: string, args?: unknown) => {
+        const storeResult = handleStoreCommand(cmd, args as StoreArgs | undefined);
+        if (storeResult) {
+          return storeResult;
+        }
         if (cmd === "list_workspaces") {
           return Promise.resolve([
             { name: "ai-perpetual-trading", path: "/Users/test/developer/ai-perpetual-trading" },

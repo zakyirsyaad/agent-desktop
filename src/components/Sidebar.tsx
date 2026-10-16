@@ -6,7 +6,9 @@ import {
   Settings,
   GitBranch,
   GitFork,
-  Bot
+  Bot,
+  Square,
+  Trash2
 } from "lucide-react";
 import type { AgentProfile, Session } from "../types";
 
@@ -19,6 +21,8 @@ export interface SidebarProps {
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
   onSelectWorkspace: (workspace: string) => void;
+  onStopSession?: (sessionId: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
 }
 
 export function Sidebar({
@@ -30,6 +34,8 @@ export function Sidebar({
   onNewSession,
   onSelectSession,
   onSelectWorkspace,
+  onStopSession,
+  onDeleteSession,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -119,30 +125,55 @@ export function Sidebar({
           <ul className="space-y-0.5">
             {filteredSessions.map((s) => {
               const isActive = s.id === activeSessionId;
-              const isFork = s.name.toLowerCase().includes("fork");
+              const isRunning = s.status === "running";
               return (
-                <li key={s.id}>
+                <li
+                  key={s.id}
+                  className={`group flex items-center rounded-md transition-colors ${
+                    isActive
+                      ? "bg-neutral-800/90 text-neutral-100 font-medium"
+                      : "text-neutral-400 hover:bg-neutral-900/60 hover:text-neutral-200"
+                  }`}
+                >
                   <button
                     type="button"
                     onClick={() => onSelectSession(s.id)}
-                    className={`w-full flex items-center justify-between rounded-md px-2 py-1.5 text-left transition-colors ${
-                      isActive
-                        ? "bg-neutral-800/90 text-neutral-100 font-medium"
-                        : "text-neutral-400 hover:bg-neutral-900/60 hover:text-neutral-200"
-                    }`}
+                    className="flex-1 min-w-0 flex items-center justify-between px-2 py-1.5 text-left"
                   >
                     <div className="flex items-center gap-2 truncate">
-                      {isFork ? (
+                      {s.forkedFrom ? (
                         <GitFork size={13} className="text-purple-400 shrink-0" />
                       ) : (
                         <GitBranch size={13} className="text-neutral-500 shrink-0" />
                       )}
                       <span className="truncate">{s.name}</span>
                     </div>
-                    {s.status === "running" && (
+                    {isRunning && (
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0 ml-1 animate-pulse" />
                     )}
                   </button>
+                  {isRunning && onStopSession && (
+                    <button
+                      type="button"
+                      aria-label="Stop session"
+                      title="Stop session"
+                      onClick={() => onStopSession(s.id)}
+                      className="mr-1 rounded p-1 text-neutral-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-300 focus:outline-none focus:ring-1 focus:ring-neutral-600"
+                    >
+                      <Square size={11} />
+                    </button>
+                  )}
+                  {!isRunning && onDeleteSession && (
+                    <button
+                      type="button"
+                      aria-label="Delete session"
+                      title="Delete session"
+                      onClick={() => onDeleteSession(s.id)}
+                      className="mr-1 rounded p-1 text-neutral-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-300 focus:outline-none focus:ring-1 focus:ring-neutral-600"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
                 </li>
               );
             })}

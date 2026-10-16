@@ -1,11 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import {
   Plus,
-  Mic,
   ChevronDown,
   CornerDownLeft,
-  X,
-  Clock,
   Shield,
   ShieldAlert,
   Cpu,
@@ -19,37 +16,30 @@ export interface ComposerDockProps {
   selectedEffort?: string;
   permissionMode?: PermissionMode;
   isThinking?: boolean;
-  bannerMessage?: string;
   placeholder?: string;
   disabled?: boolean;
   onSendMessage: (message: string) => void;
   onModelChange?: (model: string) => void;
   onEffortChange?: (effort: string) => void;
   onPermissionModeChange?: (mode: PermissionMode) => void;
-  onDismissBanner?: () => void;
   onAttach?: () => void;
-  onVoice?: () => void;
 }
 
 export function ComposerDock({
   activeAgent,
   selectedModel,
   selectedEffort = "Medium",
-  permissionMode = "bypass",
+  permissionMode = "ask",
   isThinking = false,
-  bannerMessage,
   placeholder = "Type / for commands, or prompt the agent...",
   disabled = false,
   onSendMessage,
   onModelChange,
   onEffortChange,
   onPermissionModeChange,
-  onDismissBanner,
   onAttach,
-  onVoice,
 }: ComposerDockProps) {
   const [text, setText] = useState("");
-  const [isBannerDismissed, setIsBannerDismissed] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<"permission" | "model" | "effort" | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -104,42 +94,8 @@ export function ComposerDock({
     e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`;
   };
 
-  const handleDismissBanner = () => {
-    setIsBannerDismissed(true);
-    onDismissBanner?.();
-  };
-
-  const showBanner = !isBannerDismissed && Boolean(bannerMessage);
-
   return (
     <footer ref={containerRef} className="w-full max-w-3xl flex flex-col items-center px-4 select-none">
-      {/* Usage / Token Banner */}
-      {showBanner && (
-        <div className="mb-2 flex w-full items-center justify-between rounded-lg border border-neutral-800/80 bg-[#161616]/95 px-3 py-1.5 text-xs text-neutral-300 shadow-lg backdrop-blur">
-          <div className="flex items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap">
-            <Clock size={13} className="text-amber-500 shrink-0" />
-            <span className="truncate">{bannerMessage}</span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 ml-2">
-            <button
-              type="button"
-              aria-label="Upgrade"
-              className="rounded bg-neutral-800 px-2 py-0.5 text-[11px] font-medium text-amber-400 hover:bg-neutral-700 transition-colors cursor-pointer"
-            >
-              Upgrade
-            </button>
-            <button
-              type="button"
-              aria-label="Dismiss banner"
-              onClick={handleDismissBanner}
-              className="text-neutral-500 hover:text-neutral-300 transition-colors p-0.5 rounded cursor-pointer"
-            >
-              <X size={13} />
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Floating Pill Composer */}
       <div
         className="w-full rounded-xl border border-[#262626] bg-[#121212] p-3 shadow-2xl transition-all focus-within:border-neutral-700 focus-within:ring-1 focus-within:ring-amber-500/20"
@@ -155,6 +111,7 @@ export function ComposerDock({
             onKeyDown={handleKeyDown}
             disabled={disabled}
             placeholder={placeholder}
+            aria-label="Prompt"
             className="w-full bg-transparent text-sm text-neutral-200 placeholder-neutral-500 outline-none resize-none leading-relaxed min-h-[26px] max-h-[180px]"
           />
         </div>
@@ -170,15 +127,6 @@ export function ComposerDock({
               className="flex h-7 w-7 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors cursor-pointer"
             >
               <Plus size={15} />
-            </button>
-
-            <button
-              type="button"
-              aria-label="Voice dictation"
-              onClick={onVoice}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors cursor-pointer"
-            >
-              <Mic size={15} />
             </button>
 
             {/* Permission Mode Dropdown Button */}

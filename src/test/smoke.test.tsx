@@ -3,14 +3,15 @@ import { render, screen, act } from "@testing-library/react";
 import App from "../App";
 
 describe("App smoke test", () => {
-  it("renders header and initial workspace title", async () => {
+  it("starts without any mock content and shows the empty state and detected agents", async () => {
     await act(async () => {
       render(<App />);
     });
-    expect(screen.getAllByText("New session (fork)").length).toBeGreaterThan(0);
-    expect(screen.getByText("Claude Code Session #1")).toBeDefined();
-    expect(screen.getByText("agent-desktop")).toBeDefined();
-    expect(screen.getByText("Codebase Inspection Summary")).toBeDefined();
+
+    expect(screen.queryByText("Codebase Inspection Summary")).toBeNull();
+    expect(screen.queryByText("Market analyzer refactor")).toBeNull();
+    expect(screen.getByRole("heading", { name: "No session yet" })).toBeDefined();
+    expect(screen.getByText("Claude Code")).toBeDefined();
+    expect(screen.getByText("Oh-My-Pi")).toBeDefined();
   });
 });
-
