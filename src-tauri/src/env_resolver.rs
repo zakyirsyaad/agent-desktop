@@ -157,6 +157,7 @@ pub fn find_binary_in_user_path(binary_name: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn test_is_executable() {
@@ -189,6 +190,74 @@ mod tests {
         );
 
         assert_eq!(res.expect("read must hit EOF immediately"), "done\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_with_timeout_bounds_reading_when_a_background_process_keeps_stdout_open() {
+        // A dotfile that backgrounds a daemon (ssh-agent, gpg-agent) leaves the
+        // shell's stdout open after the shell itself exits.
+        let started = std::time::Instant::now();
+
+        let res = run_with_timeout(
+            "/bin/sh",
+            &["-c", "sleep 5 & echo started"],
+            Duration::from_millis(300),
+        );
+
+        let err = res.expect_err("an open stdout must not block past the timeout");
+        assert!(err.contains("timed out"), "unexpected error: {err}");
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_with_timeout_reports_stderr_when_the_shell_fails() {
+        let res = run_with_timeout(
+            "/bin/sh",
+            &["-c", "echo 'zprofile: nvm not found' >&2; exit 3"],
+            Duration::from_secs(5),
+        );
+
+        let err = res.expect_err("non-zero exit must be an error");
+        assert!(err.contains("nvm not found"), "stderr missing from: {err}");
+    }
+
+    #[test]
+    fn resolve_once_runs_a_single_resolve_for_concurrent_callers() {
+        let cell = OnceLock::new();
+        let calls = AtomicUsize::new(0);
+
+        thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    resolve_once(&cell, || {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        thread::sleep(Duration::from_millis(50));
+                        Ok(HashMap::new())
+                    })
+                });
+            }
+        });
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn resolve_once_keeps_a_failed_resolve_instead_of_retrying() {
+        let cell = OnceLock::new();
+        let calls = AtomicUsize::new(0);
+        let failing = || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err("login shell timed out".to_string())
+        };
+
+        let first = resolve_once(&cell, failing);
+        let second = resolve_once(&cell, failing);
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(first, second);
+        assert!(first.is_err());
     }
 
     #[test]
