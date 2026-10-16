@@ -21,6 +21,9 @@ import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
 import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
 import { Onboarding, type OnboardingResult } from "./components/Onboarding";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { ProfileFooter } from "./components/ProfileFooter";
+import { useNavigationHistory } from "./hooks/useNavigationHistory";
+import { useUserProfile } from "./hooks/useUserProfile";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { ActionCard, AgentProfile, ChatMessage, PermissionMode, Session, Settings, SpawnOptions } from "./types";
 import { DEFAULT_PERMISSION_MODE } from "./types";
@@ -98,6 +101,8 @@ export default function App() {
   const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
   const { agents, refresh: refreshAgents } = useAgentProfiles(reportError);
   const suggestedFolders = useSuggestedFolders();
+  const userProfile = useUserProfile();
+  const navigation = useNavigationHistory();
   const {
     workspaces,
     activeWorkspace,
@@ -126,8 +131,10 @@ export default function App() {
   }, [isLoaded]);
 
   useEffect(() => {
-    if (activeSessionId) ensureLoaded(activeSessionId);
-  }, [activeSessionId, ensureLoaded]);
+    if (!activeSessionId) return;
+    ensureLoaded(activeSessionId);
+    navigation.visit(activeSessionId);
+  }, [activeSessionId, ensureLoaded, navigation.visit]);
 
   const patchSession = useCallback(
     (sessionId: string, patch: Partial<Session>) =>
@@ -202,6 +209,24 @@ export default function App() {
     if (selected && workspaces.some((ws) => ws.path === selected.cwd)) selectWorkspace(selected.cwd);
   };
 
+  const navigateTo = (sessionId: string | null) => {
+    if (sessionId) handleSelectSession(sessionId);
+  };
+
+  const handleRevealFolder = () => {
+    if (!activeWorkspacePath) return;
+    invoke("reveal_in_finder", { path: activeWorkspacePath }).catch((error) => {
+      setNotice(`Could not open the folder: ${String(error)}`);
+    });
+  };
+
+  const handlePopout = () => {
+    if (!activeSession) return;
+    invoke("open_session_window", { sessionId: activeSession.id }).catch((error) => {
+      setNotice(`Could not open a new window: ${String(error)}`);
+    });
+  };
+
   const updateSettings = (patch: Partial<Settings>) =>
     updateState((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }));
 
@@ -224,6 +249,7 @@ export default function App() {
 
   const handleDeleteSession = (sessionId: string) => {
     parsersRef.current.delete(sessionId);
+    navigation.remove(sessionId);
     updateState((prev) => removeSessionFrom(prev, sessionId));
     removeTranscript(sessionId);
     if (sessionId === activeSessionId) {
@@ -284,6 +310,12 @@ export default function App() {
         workspaceName={activeWorkspace?.name}
         isTerminalOpen={isTerminalOpen}
         onToggleTerminal={() => setIsTerminalOpen((prev) => !prev)}
+        canGoBack={navigation.canGoBack}
+        canGoForward={navigation.canGoForward}
+        onBack={() => navigateTo(navigation.back())}
+        onForward={() => navigateTo(navigation.forward())}
+        onOpenFolder={activeWorkspacePath ? handleRevealFolder : undefined}
+        onPopout={activeSession ? handlePopout : undefined}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
@@ -300,6 +332,14 @@ export default function App() {
           onOpenFolder={() => void openFolder()}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
+          footer={
+            <ProfileFooter
+              name={userProfile.name}
+              email={userProfile.email}
+              version={userProfile.version}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+            />
+          }
         />
 
         <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
