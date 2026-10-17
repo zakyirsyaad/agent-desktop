@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -172,14 +172,19 @@ impl AcpManager {
     /// environment) are for the user to set up outside the app.
     pub fn authenticate(&self, cwd: &str, launch: &AcpLaunch, method_id: &str) -> Result<(), String> {
         validate_cwd(cwd)?;
-        let connection_key = self.next_connection_key.fetch_add(1, Ordering::SeqCst);
-        let connection = AcpConnection::spawn(
-            &launch.program,
-            &launch.args,
-            cwd,
-            &launch.env,
-            self.connection_sink(connection_key),
-        )?;
+        // This process hosts no app session, so routing cannot answer its
+        // requests; refuse them here so the agent never waits on us.
+        let connection_slot: Arc<OnceLock<Weak<AcpConnection>>> = Arc::new(OnceLock::new());
+        let sink_slot = Arc::clone(&connection_slot);
+        let sink: EventSink = Arc::new(move |event| {
+            if let ConnectionEvent::Request { id, .. } = event {
+                if let Some(connection) = sink_slot.get().and_then(Weak::upgrade) {
+                    let _ = connection.respond_error(&id, METHOD_NOT_FOUND, "Not available while signing in");
+                }
+            }
+        });
+        let connection = AcpConnection::spawn(&launch.program, &launch.args, cwd, &launch.env, sink)?;
+        let _ = connection_slot.set(Arc::downgrade(&connection));
         let result = initialize(&connection).and_then(|_| {
             connection.request("authenticate", json!({ "methodId": method_id }), AUTHENTICATE_TIMEOUT)
         });
@@ -370,9 +375,16 @@ fn refuse(routes: &Arc<Mutex<Routes>>, connection_key: u64, id: &Value) {
 
 /// `-32000` is also JSON-RPC's generic server error, so the message must say it is about signing in.
 fn is_auth_required(error: &Value) -> bool {
-    let message = error["message"].as_str().unwrap_or_default().to_ascii_lowercase();
+    // Letters only, so "Not logged in", "log-in" and "signed in" all match.
+    let message: String = error["message"]
+        .as_str()
+        .unwrap_or_default()
+        .chars()
+        .filter(char::is_ascii_alphabetic)
+        .collect::<String>()
+        .to_ascii_lowercase();
     error["code"].as_i64() == Some(AUTH_REQUIRED)
-        && ["auth", "login", "log in", "sign in"].iter().any(|word| message.contains(word))
+        && ["auth", "login", "loggedin", "signin", "signedin"].iter().any(|word| message.contains(word))
 }
 
 /// Opens a session; an "authentication required" answer becomes an error

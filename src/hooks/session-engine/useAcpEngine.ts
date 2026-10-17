@@ -169,34 +169,37 @@ export function useAcpEngine({
     stoppedRef.current.delete(session.id);
     const message = options.first ? userMessage(options.first.text, options.first.attachments) : null;
     if (message) updateMessages(session.id, (prev) => [...prev, message]);
+    // Busy until the first prompt is out: a message sent meanwhile would race it.
     markStarting(session.id, true);
-    let info: AcpSessionInfo;
     try {
-      info = await open();
-    } catch (error) {
-      if (isStopped(session.id)) return;
-      if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
-      patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
-      const authMethods = parseAuthRequired(error);
-      if (authMethods) {
-        onAuthRequired(session.profileId, session.cwd, authMethods, options.first);
+      let info: AcpSessionInfo;
+      try {
+        info = await open();
+      } catch (error) {
+        if (isStopped(session.id)) return;
+        if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+        patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
+        const authMethods = parseAuthRequired(error);
+        if (authMethods) {
+          onAuthRequired(session.profileId, session.cwd, authMethods, options.first);
+          return;
+        }
+        const name = agents.find((a) => a.id === session.profileId)?.name ?? session.profileId;
+        reportError(`Failed to ${options.action} ${name}: ${String(error)}`);
         return;
       }
-      const name = agents.find((a) => a.id === session.profileId)?.name ?? session.profileId;
-      reportError(`Failed to ${options.action} ${name}: ${String(error)}`);
-      return;
+      if (isStopped(session.id)) {
+        // Stopped while starting: the backend could not end an agent it did not know yet.
+        acp.stop(session.id).catch(reportFailure('Failed to stop the agent'));
+        return;
+      }
+      rememberOptions(session.profileId, { modes: info.modes, configOptions: info.configOptions });
+      if (info.acpSessionId) patchSession(session.id, { acpSessionId: info.acpSessionId });
+      await applyChanges(session.id, info, options);
+      if (message && !isStopped(session.id)) await prompt(session.id, message);
     } finally {
       markStarting(session.id, false);
     }
-    if (isStopped(session.id)) {
-      // Stopped while starting: the backend could not end an agent it did not know yet.
-      acp.stop(session.id).catch(reportFailure('Failed to stop the agent'));
-      return;
-    }
-    rememberOptions(session.profileId, { modes: info.modes, configOptions: info.configOptions });
-    if (info.acpSessionId) patchSession(session.id, { acpSessionId: info.acpSessionId });
-    await applyChanges(session.id, info, options);
-    if (message && !isStopped(session.id)) await prompt(session.id, message);
   };
 
   const start = (session: Session, first?: FirstMessage, choices: AcpChoices = NO_CHOICES) =>

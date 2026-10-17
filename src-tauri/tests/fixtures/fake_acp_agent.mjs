@@ -77,7 +77,7 @@ const handlers = {
       return;
     }
     if (process.env.FAKE_ACP_AUTH_REQUIRED) {
-      send({ id, error: { code: -32000, message: "Authentication required" } });
+      send({ id, error: { code: -32000, message: process.env.FAKE_ACP_AUTH_MESSAGE ?? "Authentication required" } });
       return;
     }
     reply(id, {

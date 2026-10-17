@@ -27,6 +27,8 @@ export function useTranscripts(onError: (message: string) => void): TranscriptsH
   const transcriptsRef = useLatest(transcripts);
   const onErrorRef = useLatest(onError);
   const requestedRef = useRef(new Set<string>());
+  // Sessions whose file is being read: saving now would overwrite their history.
+  const loadingRef = useRef(new Set<string>());
   const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
@@ -42,6 +44,10 @@ export function useTranscripts(onError: (message: string) => void): TranscriptsH
         sessionId,
         setTimeout(() => {
           timers.delete(sessionId);
+          if (loadingRef.current.has(sessionId)) {
+            scheduleSaveRef.current(sessionId);
+            return;
+          }
           saveTranscript(sessionId, transcriptsRef.current[sessionId] ?? []).catch((error) => {
             onErrorRef.current(`Failed to save the conversation: ${String(error)}`);
           });
@@ -50,22 +56,26 @@ export function useTranscripts(onError: (message: string) => void): TranscriptsH
     },
     [transcriptsRef, onErrorRef],
   );
+  const scheduleSaveRef = useLatest(scheduleSave);
 
   const ensureLoaded = useCallback(
     (sessionId: string) => {
       if (requestedRef.current.has(sessionId)) return;
       requestedRef.current.add(sessionId);
+      loadingRef.current.add(sessionId);
       loadTranscript(sessionId)
         .then((loaded) =>
-          // Live output that arrived while loading wins over an empty file.
-          setTranscripts((prev) => ({
-            ...prev,
-            [sessionId]: (prev[sessionId]?.length ?? 0) > 0 ? prev[sessionId] : loaded,
-          })),
+          // Messages that arrived while loading come after the saved history.
+          setTranscripts((prev) => {
+            const live = prev[sessionId] ?? [];
+            const savedIds = new Set(loaded.map((m) => m.id));
+            return { ...prev, [sessionId]: [...loaded, ...live.filter((m) => !savedIds.has(m.id))] };
+          }),
         )
         .catch((error) => {
           onErrorRef.current(`Failed to load the conversation: ${String(error)}`);
-        });
+        })
+        .finally(() => loadingRef.current.delete(sessionId));
     },
     [onErrorRef],
   );

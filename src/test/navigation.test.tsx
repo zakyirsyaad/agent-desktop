@@ -184,22 +184,15 @@ describe("Navigation and Layout Components", () => {
   });
 
   describe("App Integration", () => {
-    it("renders TopBar and Sidebar inside App with functional terminal drawer toggle", async () => {
+    it("renders TopBar and Sidebar inside App, without the popout-only terminal drawer toggle", async () => {
       await act(async () => {
         render(<App />);
       });
 
       expect(screen.getAllByText(/ai-perpetual-trading/i).length).toBeGreaterThan(0);
       expect(screen.getByPlaceholderText(/search/i)).toBeDefined();
-
-      // Verify toggle button works in App
-      const toggleBtn = screen.getByRole("button", { name: /toggle terminal/i });
-      expect(toggleBtn).toBeDefined();
-      await act(async () => {
-        fireEvent.click(toggleBtn);
-      });
-      // Drawer or state reflected
-      expect(toggleBtn.getAttribute("aria-pressed")).toBe("true");
+      // Terminal agents show their screen as the main view, so the main window has no drawer.
+      expect(screen.queryByRole("button", { name: /toggle terminal/i })).toBeNull();
     });
   });
 });

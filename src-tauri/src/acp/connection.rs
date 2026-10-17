@@ -14,6 +14,8 @@ use super::jsonrpc::{self, Incoming};
 
 /// Lines of the agent's stderr kept for error messages.
 const STDERR_TAIL_LINES: usize = 40;
+/// How often the reader checks whether the agent has exited after stdout closed.
+const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// What the reader thread reports besides responses to our own requests.
 #[derive(Debug, Clone)]
@@ -119,10 +121,17 @@ impl AcpConnection {
             for handler in waiting {
                 handler(Err(json!({ "message": "The agent exited before answering" })));
             }
-            let code = weak
-                .upgrade()
-                .and_then(|conn| conn.child.lock().ok().and_then(|mut c| c.wait().ok()))
-                .and_then(|status| status.code());
+            // Poll instead of a blocking `wait()`: the child lock must stay free
+            // for `kill()`, which may run while the process still lingers.
+            let code = loop {
+                let Some(conn) = weak.upgrade() else { break None };
+                let status = conn.child.lock().ok().and_then(|mut c| c.try_wait().ok().flatten());
+                drop(conn);
+                if let Some(status) = status {
+                    break status.code();
+                }
+                thread::sleep(EXIT_POLL_INTERVAL);
+            };
             sink(ConnectionEvent::Exited { code });
         });
     }
@@ -138,6 +147,11 @@ impl AcpConnection {
 
     /// Sends a request; `on_done` runs on the reader thread with the result.
     pub fn send_request(&self, method: &str, params: Value, on_done: ResponseHandler) -> Result<(), String> {
+        self.send_request_with_id(method, params, on_done).map(|_| ())
+    }
+
+    /// Like [`send_request`](Self::send_request), returning the request id.
+    fn send_request_with_id(&self, method: &str, params: Value, on_done: ResponseHandler) -> Result<u64, String> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         self.pending
             .lock()
@@ -145,11 +159,15 @@ impl AcpConnection {
             .insert(id, on_done);
         let written = self.write_line(&jsonrpc::request(id, method, params));
         if written.is_err() {
-            if let Ok(mut pending) = self.pending.lock() {
-                pending.remove(&id);
-            }
+            self.forget_request(id);
         }
-        written
+        written.map(|_| id)
+    }
+
+    fn forget_request(&self, id: u64) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(&id);
+        }
     }
 
     /// Sends a request and blocks until the agent answers or `timeout` passes.
@@ -162,11 +180,14 @@ impl AcpConnection {
     /// object (inner `Err`) apart from transport failures and timeouts.
     pub fn request_raw(&self, method: &str, params: Value, timeout: Duration) -> Result<Result<Value, Value>, String> {
         let (tx, rx) = mpsc::channel();
-        self.send_request(method, params, Box::new(move |result| {
+        let id = self.send_request_with_id(method, params, Box::new(move |result| {
             let _ = tx.send(result);
         }))?;
-        rx.recv_timeout(timeout)
-            .map_err(|_| format!("{} timed out after {:?}", method, timeout))
+        rx.recv_timeout(timeout).map_err(|_| {
+            // Nobody waits for this answer any more; don't keep its handler around.
+            self.forget_request(id);
+            format!("{} timed out after {:?}", method, timeout)
+        })
     }
 
     pub fn notify(&self, method: &str, params: Value) -> Result<(), String> {

@@ -262,3 +262,20 @@ fn reports_a_generic_server_error_as_is_rather_than_as_a_sign_in() {
     assert!(!error.starts_with(agent_desktop_lib::acp::manager::AUTH_REQUIRED_PREFIX));
     assert!(error.contains("disk full"), "unexpected error: {error}");
 }
+
+#[test]
+fn recognizes_a_sign_in_request_however_the_agent_phrases_it() {
+    for message in ["Not logged in. Run `codex login`", "You must be signed in", "log-in required"] {
+        let (manager, _rx) = manager();
+        let mut launch = fake_agent();
+        launch.env.push(("FAKE_ACP_AUTH_REQUIRED".to_string(), "1".to_string()));
+        launch.env.push(("FAKE_ACP_AUTH_MESSAGE".to_string(), message.to_string()));
+
+        let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
+
+        assert!(
+            error.starts_with(agent_desktop_lib::acp::manager::AUTH_REQUIRED_PREFIX),
+            "{message:?} gave {error}"
+        );
+    }
+}

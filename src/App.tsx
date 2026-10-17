@@ -5,7 +5,6 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas } from "./components/ChatCanvas";
 import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { FilesPanel } from "./components/FilesPanel";
-import { TerminalDrawer } from "./components/TerminalDrawer";
 import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
 import { AuthPanel, type AuthStatus } from "./components/AuthPanel";
 import type { AuthMethod } from "./lib/acp-auth";
@@ -43,8 +42,6 @@ import { NO_CHOICES, type AcpChoices, type AgentOptions } from "./lib/acp-draft"
 import type { AgentProfile, ChatMessage, Session, Settings, SpawnOptions } from "./types";
 import { DEFAULT_PERMISSION_MODE, TRANSPORT_ACP } from "./types";
 
-const ACP_NO_TERMINAL_MESSAGE = "This agent talks to the app directly over ACP, so it has no terminal.";
-const TERMINAL_IS_MAIN_MESSAGE = "This agent's terminal is the main view.";
 const NO_WORKSPACE_PLACEHOLDER = "Open a folder and install an agent to start";
 const NEW_SESSION_PLACEHOLDER = "Message the agent to start a new session...";
 const RESUME_PLACEHOLDER = "Message the agent to continue this session...";
@@ -81,7 +78,6 @@ function titleFor({ text, attachments }: FirstMessage): string {
 }
 
 export default function App() {
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
@@ -271,7 +267,8 @@ export default function App() {
       forkedFrom: source.id,
       initialMessages: messages.slice(0, index + 1),
     };
-    if (isAcp(source) && isLatest && acp.canFork(source.id)) {
+    // A native fork needs the source agent alive; after it exited, fall back to a handoff.
+    if (isAcp(source) && source.status === "running" && isLatest && acp.canFork(source.id)) {
       void acp.fork(source.id, recordSession(spec));
       return;
     }
@@ -437,8 +434,6 @@ export default function App() {
       <TopBar
         sessionName={activeSession?.name}
         workspaceName={activeWorkspace?.name}
-        isTerminalOpen={isTerminalOpen}
-        onToggleTerminal={() => setIsTerminalOpen((prev) => !prev)}
         canGoBack={navigation.canGoBack}
         canGoForward={navigation.canGoForward}
         onBack={() => navigateTo(navigation.back())}
@@ -532,17 +527,6 @@ export default function App() {
             />
           </div>
 
-          <TerminalDrawer
-            isOpen={isTerminalOpen}
-            sessionId={activeSessionId}
-            sessionName={activeSession?.name}
-            isLive={false}
-            emptyMessage={
-              !isActiveRunning ? undefined : isAcp(activeSession) ? ACP_NO_TERMINAL_MESSAGE : TERMINAL_IS_MAIN_MESSAGE
-            }
-            onClose={() => setIsTerminalOpen(false)}
-            onSendInput={(input) => void pty.sendRaw(activeSessionId, input)}
-          />
         </article>
         {isFilesOpen && activeWorkspace && activeWorkspacePath && (
           <FilesPanel

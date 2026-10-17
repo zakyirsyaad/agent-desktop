@@ -21,8 +21,9 @@ export const TOP_BAR_TRAFFIC_LIGHT_INSET_PX = 78;
 export interface TopBarProps {
   sessionName?: string;
   workspaceName?: string;
-  isTerminalOpen: boolean;
-  onToggleTerminal: () => void;
+  isTerminalOpen?: boolean;
+  /** Shows or hides the terminal drawer; the button is hidden when absent. */
+  onToggleTerminal?: () => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
   onBack?: () => void;
@@ -38,7 +39,7 @@ export interface TopBarProps {
 export function TopBar({
   sessionName,
   workspaceName,
-  isTerminalOpen,
+  isTerminalOpen = false,
   onToggleTerminal,
   canGoBack = false,
   canGoForward = false,
@@ -119,23 +120,25 @@ export function TopBar({
 
       {/* Right: Actions (Terminal toggle, popout, folder, overflow) */}
       <div className="flex items-center space-x-1 text-neutral-400">
-        <button
-          type="button"
-          onClick={onToggleTerminal}
-          aria-label="Toggle terminal drawer"
-          aria-pressed={isTerminalOpen}
-          className={`flex items-center rounded-md p-1.5 transition-all focus:outline-none focus:ring-1 focus:ring-neutral-700 ${
-            isTerminalOpen
-              ? "bg-amber-500/15 border border-amber-500/40 text-amber-300"
-              : "bg-neutral-900 border border-neutral-800/80 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100"
-          }`}
-        >
-          <Terminal
-            size={14}
-            aria-hidden="true"
-            className={isTerminalOpen ? "text-amber-400" : "text-neutral-400"}
-          />
-        </button>
+        {onToggleTerminal && (
+          <button
+            type="button"
+            onClick={onToggleTerminal}
+            aria-label="Toggle terminal drawer"
+            aria-pressed={isTerminalOpen}
+            className={`flex items-center rounded-md p-1.5 transition-all focus:outline-none focus:ring-1 focus:ring-neutral-700 ${
+              isTerminalOpen
+                ? "bg-amber-500/15 border border-amber-500/40 text-amber-300"
+                : "bg-neutral-900 border border-neutral-800/80 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100"
+            }`}
+          >
+            <Terminal
+              size={14}
+              aria-hidden="true"
+              className={isTerminalOpen ? "text-amber-400" : "text-neutral-400"}
+            />
+          </button>
+        )}
 
         {onToggleFiles && (
           <button

@@ -1,12 +1,17 @@
 //! Read-only browsing of a workspace folder for the Files panel.
 //!
-//! The webview sends a workspace root plus a path relative to it. Every path is
-//! canonicalized and must stay inside the canonical root, so `..` segments and
-//! symlinks pointing elsewhere cannot list or open files outside the workspace.
+//! The webview sends a workspace root plus a path relative to it. The root must
+//! be one of the user's workspaces as the app state records them, and every
+//! path is canonicalized and must stay inside the canonical root, so `..`
+//! segments and symlinks pointing elsewhere cannot list or open files outside
+//! the workspace.
 
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use tauri::State;
+
+use crate::store::AppStore;
 
 #[cfg(target_os = "macos")]
 use std::process::Command;
@@ -99,15 +104,43 @@ fn compare_entries(a: &DirEntryInfo, b: &DirEntryInfo) -> std::cmp::Ordering {
         .then_with(|| a.name.cmp(&b.name))
 }
 
+/// Accepts `root` only when it is one of `workspaces` (compared canonically),
+/// so a caller cannot widen the browsable area to any folder it names.
+pub fn ensure_known_workspace(root: &str, workspaces: &[String]) -> Result<(), String> {
+    let root = canonical_root(root)?;
+    let is_known = workspaces
+        .iter()
+        .filter_map(|w| Path::new(w).canonicalize().ok())
+        .any(|w| w == root);
+    if is_known {
+        Ok(())
+    } else {
+        Err(format!("{} is not one of your workspaces", root.display()))
+    }
+}
+
+/// The folders the user opened and the folders their sessions ran in.
+fn workspaces_of(store: &AppStore) -> Result<Vec<String>, String> {
+    let state = store.load_state()?;
+    Ok(state
+        .recent_folders
+        .into_iter()
+        .map(|f| f.path)
+        .chain(state.sessions.into_iter().map(|s| s.cwd))
+        .collect())
+}
+
 /// Lists the children of `relative` inside the workspace `root`.
 #[tauri::command(async)]
-pub fn list_directory(root: String, relative: String) -> Result<Vec<DirEntryInfo>, String> {
+pub fn list_directory(store: State<'_, AppStore>, root: String, relative: String) -> Result<Vec<DirEntryInfo>, String> {
+    ensure_known_workspace(&root, &workspaces_of(&store)?)?;
     list_entries(&root, &relative)
 }
 
 /// Opens a workspace file with its default application.
 #[tauri::command(async)]
-pub fn open_path(root: String, relative: String) -> Result<(), String> {
+pub fn open_path(store: State<'_, AppStore>, root: String, relative: String) -> Result<(), String> {
+    ensure_known_workspace(&root, &workspaces_of(&store)?)?;
     let (_, target) = resolve_inside_root(&root, &relative)?;
     open_with_default_app(&target)
 }
@@ -286,6 +319,20 @@ mod tests {
         let missing = ws.path.join("no-such-folder");
 
         assert!(list_entries(missing.to_str().expect("utf-8"), "").is_err());
+    }
+
+    #[test]
+    fn accepts_only_a_root_that_is_a_known_workspace() {
+        let ws = TempWorkspace::new("known");
+        ws.mkdir("inner");
+        let known = vec![ws.root().to_string()];
+
+        assert!(ensure_known_workspace(ws.root(), &known).is_ok());
+        // Another spelling of the same folder is the same workspace.
+        assert!(ensure_known_workspace(&format!("{}/inner/..", ws.root()), &known).is_ok());
+        let err = ensure_known_workspace("/", &known).expect_err("must reject");
+        assert!(err.contains("not one of your workspaces"), "unexpected error: {err}");
+        assert!(ensure_known_workspace(&format!("{}/inner", ws.root()), &known).is_err());
     }
 
     #[test]

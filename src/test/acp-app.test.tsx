@@ -345,16 +345,11 @@ describe("ACP sessions in the app", () => {
     expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("second");
   });
 
-  it("explains in the terminal drawer that an ACP agent has no terminal", async () => {
+  it("offers no terminal drawer in the main window: terminal agents show their screen as the main view", async () => {
     const spy = await renderWithQwen();
     await startQwenSession(spy);
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Toggle terminal drawer" }));
-    });
-
-    expect(screen.getByText(/has no terminal/i)).toBeDefined();
-    expect(screen.queryByText(/no running session/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Toggle terminal drawer" })).toBeNull();
   });
 
   it("remembers the options an agent reported, for the composer before the next session", async () => {
@@ -587,6 +582,51 @@ describe("ACP sessions in the app", () => {
     });
 
     expect(screen.getAllByRole("option").map((o) => o.getAttribute("data-command"))).toEqual(["init"]);
+  });
+
+  it("forks through a handoff file once the source agent has exited", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan it");
+    await acpEvent({
+      sessionId,
+      kind: "update",
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Here is the plan" } },
+    });
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await acpEvent({ sessionId, kind: "exit", code: 1 });
+
+    const reply = screen.getByText("Here is the plan").closest("[data-testid^='chat-message-']") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(reply).getByRole("button", { name: "Fork branch" }));
+    });
+
+    await waitFor(() => expect(callsTo(spy, "write_fork_handoff")).toHaveLength(1));
+    expect(callsTo(spy, "acp_fork_session")).toHaveLength(0);
+  });
+
+  it("stays busy until the first prompt is out, so a second message cannot slip in", async () => {
+    const spy = await renderWithQwen();
+    let finishSetMode: () => void = () => {};
+    spy.mockImplementation((cmd, args) =>
+      cmd === "acp_set_mode"
+        ? new Promise((resolve) => {
+            finishSetMode = () => resolve(realInvoke(cmd, args));
+          })
+        : realInvoke(cmd, args)
+    );
+
+    await send("first");
+    await waitFor(() => expect(callsTo(spy, "acp_set_mode")).toHaveLength(1));
+    await send("second");
+
+    expect(callsTo(spy, "acp_prompt")).toHaveLength(0);
+    expect(prompt().value).toBe("second");
+    await act(async () => {
+      finishSetMode();
+    });
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
+    expect(callsTo(spy, "acp_prompt")[0][1]).toMatchObject({ text: "first" });
   });
 });
 
