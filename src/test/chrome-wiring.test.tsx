@@ -80,6 +80,23 @@ describe("Window chrome wiring", () => {
     );
   });
 
+  it("keeps Files for a session whose folder has left the recents", async () => {
+    fakeStore().state.sessions = [
+      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/old-project", status: "terminated", createdAt: 1 },
+    ];
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+    await renderApp();
+
+    await click(header().getByRole("button", { name: "Toggle files panel" }));
+
+    expect(spy).toHaveBeenCalledWith(
+      "list_directory",
+      expect.objectContaining({ root: "/Users/test/developer/old-project" }),
+      undefined,
+    );
+    expect(screen.getByRole("complementary", { name: "Files panel" }).textContent).toContain("old-project");
+  });
+
   it("goes back from a new session to the session viewed last", async () => {
     seedSessions();
     await renderApp();

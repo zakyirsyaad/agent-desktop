@@ -125,9 +125,11 @@ export default function App() {
   // A session shows the folder it runs in, even one no longer in the recents.
   const shownFolderPath = activeSession?.cwd ?? activeWorkspacePath;
   const workspaceDetails = useWorkspaceDetails(shownFolderPath);
-  // Files and Reveal act on the folder the top bar names; the backend only
-  // browses known workspaces, so a folder gone from the recents has neither.
-  const filesFolder = workspaces.find((ws) => ws.path === shownFolderPath);
+  // Files and Reveal act on the folder the top bar names. The backend browses
+  // every saved session's folder, so one gone from the recents keeps them.
+  const filesFolder =
+    workspaces.find((ws) => ws.path === shownFolderPath) ??
+    (activeSession ? { name: folderNameOf(activeSession.cwd), path: activeSession.cwd } : undefined);
 
   // An ended ACP session continues where it left off with its own agent.
   const isResumable =
