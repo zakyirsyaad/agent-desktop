@@ -32,3 +32,12 @@ export function EmptySessionState() {
     </div>
   );
 }
+
+/** Shown over the conversation while files are dragged onto the window. */
+export function FileDropOverlay() {
+  return (
+    <div className="pointer-events-none absolute inset-3 z-40 flex items-center justify-center rounded-xl border-2 border-dashed border-amber-500/60 bg-black/70 text-sm text-amber-200">
+      Drop files to add them to your message
+    </div>
+  );
+}

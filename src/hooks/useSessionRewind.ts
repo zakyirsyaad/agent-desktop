@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { keptConfigOf, type AcpChoices, type AgentOptions } from '../lib/acp-draft';
+import { keptConfigOf, type AcpChoices, type RewoundOptions } from '../lib/acp-draft';
 import type { AcpEngine, FirstMessage } from './session-engine/useAcpEngine';
 import { buildForkHandoff, buildRewindContext } from '../lib/fork-handoff';
 import { createId } from '../lib/ids';
@@ -32,8 +32,6 @@ export interface SessionRewind {
    */
   rewoundOptionsOf: (sessionId: string) => RewoundOptions | undefined;
 }
-
-export type RewoundOptions = Required<Pick<AgentOptions, 'configOptions' | 'preferredConfig'>>;
 
 /** Messages before the one with `messageId`; all of them when it is gone. */
 const before = (messages: readonly ChatMessage[], messageId: string): ChatMessage[] => {

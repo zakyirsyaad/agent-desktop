@@ -5,7 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas } from "./components/ChatCanvas";
 import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { FilesPanel } from "./components/FilesPanel";
-import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
+import { EmptySessionState, FileDropOverlay, NoticeBanner } from "./components/AppPlaceholders";
 import { AuthPanel } from "./components/AuthPanel";
 import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
@@ -17,11 +17,19 @@ import { usePullRequest } from "./hooks/usePullRequest";
 import { useRepoPullRequests } from "./hooks/useRepoPullRequests";
 import { useAgentAuth } from "./hooks/useAgentAuth";
 import { createSessionWorktree } from "./lib/session-worktree";
-import { EMPTY_DRAFT, spawnOptionsFor, titleFor, type SessionSpec } from "./lib/session-start";
+import {
+  EMPTY_DRAFT,
+  isWaitingForAnswer,
+  newSessionRecord,
+  spawnOptionsFor,
+  titleFor,
+  type SessionSpec,
+} from "./lib/session-start";
 import { createPtyOutputStore } from "./lib/pty-output-store";
 import { isAwaitingPermission } from "./lib/acp-events";
 import {
   folderNameOf,
+  isAcpSession as isAcp,
   isListed,
   isAutoName,
   workspacePathOf,
@@ -29,7 +37,6 @@ import {
   nextSessionName,
   patchSessionIn,
 } from "./lib/session-helpers";
-import { createId } from "./lib/ids";
 import { usePersistedState } from "./hooks/usePersistedState";
 import { useTranscripts } from "./hooks/useTranscripts";
 import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
@@ -55,20 +62,15 @@ import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { SessionDraft } from "./lib/composer-controls";
-import { composerStateFor } from "./lib/composer-state";
-import { NO_CHOICES, rememberedChoice, withPreferred, type AcpChoices, type AgentOptions } from "./lib/acp-draft";
+import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
+import { NO_CHOICES, rememberedChoice, withPreferred, withRewound, type AcpChoices, type AgentOptions } from "./lib/acp-draft";
 import type { Session, SessionWorktree, Settings } from "./types";
 import { TRANSPORT_ACP } from "./types";
 
-const NO_WORKSPACE_PLACEHOLDER = "Open a folder and install an agent to start";
-const NEW_SESSION_PLACEHOLDER = "Message the agent to start a new session...";
-const RESUME_PLACEHOLDER = "Message the agent to continue this session...";
-const CREATING_WORKTREE_PLACEHOLDER = "Creating a worktree for the session...";
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
 const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
-const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
 // eslint-disable-next-line no-control-regex -- matching control characters is the point.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 
@@ -223,13 +225,7 @@ export default function App() {
   // model picked last; a rewound session's fresh agent, the model and effort it
   // ran with, checked against its own lists (another model offers other efforts).
   const rewound = activeSession && isResumable ? rewoundOptionsOf(activeSession.id) : undefined;
-  const agentOptions =
-    draftAgent && rewound
-      ? {
-          ...state.agentOptions,
-          [draftAgent.id]: { modes: null, ...state.agentOptions?.[draftAgent.id], ...rewound },
-        }
-      : state.agentOptions;
+  const agentOptions = withRewound(state.agentOptions, draftAgent?.id, rewound);
   const startChoices = draftAgent ? withPreferred(acpChoices, agentOptions?.[draftAgent.id]) : acpChoices;
 
   /**
@@ -270,38 +266,13 @@ export default function App() {
   };
   // The agent may have checked out another branch: the top bar reads it again after each turn.
   useEffect(() => setBranchCheck(turnsEnded), [turnsEnded]);
-  /**
-   * Whether a session's agent waits for the user's answer. An ACP agent stays
-   * busy while it asks; a terminal agent goes quiet on its y/n prompt, so for
-   * it a running session with an unanswered approval card is enough.
-   */
-  const isSessionWaiting = (sessionId: string) => {
-    const session = sessionById(sessionId);
-    if (session?.status !== "running") return false;
-    const messages = transcripts[sessionId] ?? [];
-    return isAcp(session)
-      ? isSessionBusy(sessionId) && isAwaitingPermission(messages)
-      : isAwaitingPermission(messages, { includeTerminal: true });
-  };
-
+  const isSessionWaiting = (sessionId: string) =>
+    isWaitingForAnswer(sessionById(sessionId), transcripts[sessionId] ?? [], () => isSessionBusy(sessionId));
 
   /** Records a new session and shows it; the agent is started by its engine. */
-  const recordSession = ({ id, agent, cwd, name, options, forkedFrom, initialMessages, worktree }: SessionSpec): Session => {
-    const session: Session = {
-      id: id ?? createId("s"),
-      name,
-      profileId: agent.id,
-      cwd,
-      status: "running",
-      createdAt: Date.now(),
-      model: options?.model,
-      effort: options?.effort,
-      permissionMode: options?.permissionMode,
-      agentSessionId: options?.agentSessionId ?? null,
-      forkedFrom: forkedFrom ?? null,
-      transport: agent.transport,
-      worktree: worktree ?? null,
-    };
+  const recordSession = (spec: SessionSpec): Session => {
+    const session = newSessionRecord(spec);
+    const { initialMessages } = spec;
     updateState((prev) => ({ ...prev, sessions: [session, ...prev.sessions] }));
     if (initialMessages) updateMessages(session.id, () => initialMessages);
     setActiveSessionId(session.id);
@@ -530,14 +501,13 @@ export default function App() {
   // A terminal agent shows its real screen: live, or the last one while it is still in memory.
   const showsTerminal =
     Boolean(activeSession) && !isAcp(activeSession) && (isActiveRunning || ptyOutput.has(activeSessionId));
-  // A live ACP session's own commands; before it runs, the ones its agent offered last time.
-  const composerCommands = isActiveRunning
-    ? isAcp(activeSession)
-      ? acp.info[activeSessionId]?.commands
-      : undefined
-    : draftAgent?.transport === TRANSPORT_ACP
-      ? state.agentOptions?.[draftAgent.id]?.commands
-      : undefined;
+  const composerCommands = composerCommandsFor({
+    session: activeSession,
+    isRunning: isActiveRunning,
+    liveCommands: acp.info[activeSessionId]?.commands,
+    draftAgent,
+    agentOptions: state.agentOptions,
+  });
 
   if (isLoaded && !state.settings.onboardingCompleted) {
     return (
@@ -604,11 +574,7 @@ export default function App() {
         />
 
         <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
-          {isDraggingFiles && (
-            <div className="pointer-events-none absolute inset-3 z-40 flex items-center justify-center rounded-xl border-2 border-dashed border-amber-500/60 bg-black/70 text-sm text-amber-200">
-              Drop files to add them to your message
-            </div>
-          )}
+          {isDraggingFiles && <FileDropOverlay />}
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
           {authRequest && (
             <AuthPanel
@@ -668,17 +634,12 @@ export default function App() {
               isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
               onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
               disabled={isCreatingWorktree || (!isActiveRunning && !isResumable && !canStartSession)}
-              placeholder={
-                isActiveRunning
-                  ? undefined
-                  : isCreatingWorktree
-                    ? CREATING_WORKTREE_PLACEHOLDER
-                    : isResumable
-                    ? RESUME_PLACEHOLDER
-                    : canStartSession
-                      ? NEW_SESSION_PLACEHOLDER
-                      : NO_WORKSPACE_PLACEHOLDER
-              }
+              placeholder={composerPlaceholder({
+                isRunning: isActiveRunning,
+                isCreatingWorktree,
+                isResumable,
+                canStartSession,
+              })}
               onSendMessage={handleSendMessage}
               attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}
               onAttach={pickFiles}

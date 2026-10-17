@@ -112,3 +112,20 @@ export function changesToApply(
   }
   return changes;
 }
+
+/** A rewound session's model and effort, and the lists they came from (an effort list follows its model). */
+export type RewoundOptions = Required<Pick<AgentOptions, 'configOptions' | 'preferredConfig'>>;
+
+/**
+ * The remembered options, with a rewound session's own picks and lists in
+ * place of its agent's: its fresh agent starts as the session ran, and an
+ * effort only its model offers is not dropped.
+ */
+export function withRewound(
+  options: Readonly<Record<string, AgentOptions>> | undefined,
+  agentId: string | undefined,
+  rewound: RewoundOptions | undefined,
+): Readonly<Record<string, AgentOptions>> | undefined {
+  if (!agentId || !rewound) return options;
+  return { ...options, [agentId]: { modes: null, ...options?.[agentId], ...rewound } };
+}
