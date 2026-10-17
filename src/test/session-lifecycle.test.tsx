@@ -416,4 +416,32 @@ describe("Session lifecycle", () => {
     expect(within(sidebar().getByRole("list", { name: /^Sessions in/ })).getByText("Fix login")).toBeDefined();
     expect(sidebar().queryByRole("button", { name: /^Archived/ })).toBeNull();
   });
+
+  it("after an archive that waited for its agent, shows a session that is still listed", async () => {
+    fakeStore().state.sessions = [
+      { ...seedSession("s-a", "Alpha", 3000), status: "running" },
+      seedSession("s-b", "Beta", 2000),
+      seedSession("s-c", "Gamma", 1000),
+    ];
+    await renderApp();
+    const original = tauriInternals().invoke;
+    let finishStopping: () => void = () => {};
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "terminate_session"
+        ? new Promise((resolve) => {
+            finishStopping = () => resolve(undefined);
+          })
+        : original(cmd, args)
+    );
+    expect(screen.getByRole("banner").textContent).toContain("Alpha");
+
+    await chooseFromMenu("Alpha", "Archive");
+    await chooseFromMenu("Beta", "Archive");
+    await act(async () => {
+      finishStopping();
+    });
+
+    // Beta was archived while Alpha's agent stopped, so Gamma is the one left to show.
+    expect(screen.getByRole("banner").textContent).toContain("Gamma");
+  });
 });

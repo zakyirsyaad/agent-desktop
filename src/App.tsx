@@ -38,6 +38,7 @@ import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useUserProfile } from "./hooks/useUserProfile";
 import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { usePopoutHost } from "./hooks/usePopoutHost";
+import { useLatest } from "./hooks/useLatest";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
 import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
@@ -96,6 +97,7 @@ export default function App() {
   } = useWorkspaceSelection(state, isLoaded, updateState, reportError);
 
   const sessions = state.sessions;
+  const sessionsRef = useLatest(sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
@@ -411,10 +413,16 @@ export default function App() {
     return isAcp(session) ? acp.stop(session.id) : pty.stop(session.id);
   };
 
-  /** After a session leaves the list, the most recent listed one is shown if it was. */
+  /**
+   * After a session leaves the list, the most recent listed one is shown if it
+   * was. Read from the latest sessions: an archive may have waited for its
+   * agent while other sessions were archived or deleted.
+   */
   const selectNextAfter = (sessionId: string) =>
     setActiveSessionId((current) =>
-      current === sessionId ? mostRecentSessionId(sessions.filter((s) => s.id !== sessionId && isListed(s))) : current,
+      current === sessionId
+        ? mostRecentSessionId(sessionsRef.current.filter((s) => s.id !== sessionId && isListed(s)))
+        : current,
     );
 
   const handleDeleteSession = (sessionId: string) => {
