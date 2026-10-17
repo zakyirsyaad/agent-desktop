@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
-import type { FakeTauriStore } from "./setup";
+import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
 
 const openDialog = vi.fn();
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: (...args: unknown[]) => openDialog(...args) }));
@@ -91,14 +91,13 @@ describe("First run and project folders", () => {
   it("reads a newly opened folder only once the backend has registered it", async () => {
     openDialog.mockResolvedValue("/Users/test/code/new-project");
     await renderApp();
-    const original = tauriInternals().invoke;
     let finishRegistering: () => void = () => {};
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "remember_workspace"
         ? new Promise((resolve) => {
             finishRegistering = () => resolve(undefined);
           })
-        : original(cmd, args)
+        : fakeTauriInvoke(cmd, args)
     );
     const detailsReads = () =>
       spy.mock.calls.filter(([cmd, a]) => cmd === "workspace_details" && (a as { path?: string })?.path === "/Users/test/code/new-project");

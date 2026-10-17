@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, within } from "@testing-library/react";
-import type { FakeTauriStore } from "./setup";
+import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
 import App from "../App";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
@@ -99,14 +99,13 @@ describe("Window chrome wiring", () => {
 
   it("counts the session's changes and shows them in a panel that takes turns with Files", async () => {
     seedSessions();
-    const original = tauriInternals().invoke;
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "session_changes"
         ? Promise.resolve([
             { path: "src/app.ts", oldPath: null, kind: "modified" },
             { path: "notes.md", oldPath: null, kind: "untracked" },
           ])
-        : original(cmd, args)
+        : fakeTauriInvoke(cmd, args)
     );
     await renderApp();
 
@@ -127,7 +126,6 @@ describe("Window chrome wiring", () => {
 
   it("lists the user's pull requests in the changes panel, read only while it is open, and opens one", async () => {
     seedSessions();
-    const original = tauriInternals().invoke;
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
       if (cmd === "session_changes") return Promise.resolve([]);
       if (cmd === "repo_pull_requests") {
@@ -136,7 +134,7 @@ describe("Window chrome wiring", () => {
         ]);
       }
       if (cmd === "open_external_url") return Promise.resolve(undefined);
-      return original(cmd, args);
+      return fakeTauriInvoke(cmd, args);
     });
     await renderApp();
     expect(spy.mock.calls.some(([cmd]) => cmd === "repo_pull_requests")).toBe(false);
@@ -157,9 +155,8 @@ describe("Window chrome wiring", () => {
 
   it("offers no changes panel for a folder that is not a git repository", async () => {
     seedSessions();
-    const original = tauriInternals().invoke;
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-      cmd === "workspace_details" ? Promise.resolve({ location: "~/developer", branch: null }) : original(cmd, args)
+      cmd === "workspace_details" ? Promise.resolve({ location: "~/developer", branch: null }) : fakeTauriInvoke(cmd, args)
     );
     await renderApp();
 
@@ -169,7 +166,6 @@ describe("Window chrome wiring", () => {
 
   it("shows the pull request for the session's branch and opens it", async () => {
     seedSessions();
-    const original = tauriInternals().invoke;
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "session_pull_request"
         ? Promise.resolve({
@@ -181,7 +177,7 @@ describe("Window chrome wiring", () => {
             isDraft: false,
             checks: { passing: 3, failing: 0, pending: 0 },
           })
-        : original(cmd, args)
+        : fakeTauriInvoke(cmd, args)
     );
     await renderApp();
 
@@ -232,11 +228,10 @@ describe("Window chrome wiring", () => {
   });
 
   it("adds a file from the files panel to the prompt", async () => {
-    const original = tauriInternals().invoke;
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "list_directory"
         ? Promise.resolve([{ name: "README.md", relativePath: "README.md", isDir: false }])
-        : original(cmd, args)
+        : fakeTauriInvoke(cmd, args)
     );
     await renderApp();
 
