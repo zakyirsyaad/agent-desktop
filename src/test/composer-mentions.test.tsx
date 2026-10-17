@@ -119,4 +119,19 @@ describe("Composer @-mentions", () => {
 
     expect(screen.queryByRole("listbox", { name: "Files to mention" })).toBeNull();
   });
+
+  it("replaces the whole @word when a file is picked with the caret inside it", async () => {
+    renderComposer(false);
+    await type("open @app now");
+    await act(async () => {
+      prompt().setSelectionRange(7, 7);
+      fireEvent.click(prompt());
+    });
+
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByRole("option", { name: /App\.tsx/ }));
+    });
+
+    expect(prompt().value).toBe("open /w/api/src/App.tsx now");
+  });
 });

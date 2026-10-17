@@ -9,15 +9,17 @@ export interface MentionQuery {
 export const MENTION_LIMIT = 8;
 
 /**
- * The @word the caret is at the end of, when the @ starts the text or follows
- * whitespace, so an email address is not taken for one.
+ * The @word the caret is in, when the @ starts the text or follows
+ * whitespace, so an email address is not taken for one. It is matched on
+ * what is before the caret, and spans the whole word, so picking a file
+ * with the caret inside it replaces all of it.
  */
 export function mentionAt(text: string, caret: number): MentionQuery | null {
-  const before = text.slice(0, caret);
-  const match = /(^|\s)@([^\s@]*)$/.exec(before);
+  const match = /(^|\s)@([^\s@]*)$/.exec(text.slice(0, caret));
   if (!match) return null;
   const start = caret - match[2].length - 1;
-  return { start, end: caret, query: match[2] };
+  const rest = /^[^\s@]*/.exec(text.slice(caret))?.[0] ?? '';
+  return { start, end: caret + rest.length, query: match[2] };
 }
 
 /** How well a path matches: lower is better, null when it does not. */

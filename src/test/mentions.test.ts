@@ -8,6 +8,10 @@ describe("mentionAt", () => {
     expect(mentionAt("see @", 5)).toEqual({ start: 4, end: 5, query: "" });
   });
 
+  it("covers the whole @word when the caret is inside it, matching on what is before the caret", () => {
+    expect(mentionAt("@app more", 2)).toEqual({ start: 0, end: 4, query: "a" });
+  });
+
   it("ignores an @ inside a word, like an email address, or a word the caret has left", () => {
     expect(mentionAt("mail me@example.com", 19)).toBeNull();
     expect(mentionAt("@app and more", 13)).toBeNull();
