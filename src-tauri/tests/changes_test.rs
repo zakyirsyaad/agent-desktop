@@ -100,18 +100,8 @@ fn diffs_a_changed_file_against_the_last_commit_and_shows_a_new_one_whole() {
     fs::write(repo.join("src/app.ts"), "one\n2\nthree\n").expect("modify");
     fs::write(repo.join("notes.md"), "hello\nworld\n").expect("untracked");
 
-    let modified = file_diff(
-        &git_path(),
-        &repo,
-        &change("src/app.ts", ChangeKind::Modified),
-    )
-    .expect("diff");
-    let untracked = file_diff(
-        &git_path(),
-        &repo,
-        &change("notes.md", ChangeKind::Untracked),
-    )
-    .expect("diff");
+    let modified = file_diff(&git_path(), &repo, "src/app.ts").expect("diff");
+    let untracked = file_diff(&git_path(), &repo, "notes.md").expect("diff");
 
     assert!(modified.contains("-two\n+2\n"), "{modified}");
     assert!(untracked.contains("+hello\n+world\n"), "{untracked}");
@@ -187,5 +177,112 @@ fn keeps_a_rename_from_a_very_short_name() {
             kind: ChangeKind::Renamed
         }]
     );
+    fs::remove_dir_all(repo).ok();
+}
+
+#[test]
+fn commits_a_file_named_like_a_pattern_and_nothing_it_would_match() {
+    let repo = repo("literal");
+    fs::write(repo.join("*.txt"), "star\n").expect("write");
+    fs::write(repo.join("other.txt"), "other\n").expect("write");
+
+    commit_files(
+        &git_path(),
+        &repo,
+        &["*.txt".to_string()],
+        "Add the star file",
+    )
+    .expect("commit");
+
+    let left = list_changes(&git_path(), &repo).expect("list changes");
+    assert_eq!(
+        left,
+        vec![change("other.txt", ChangeKind::Untracked)],
+        "the unchosen .txt file stays out"
+    );
+    fs::remove_dir_all(repo).ok();
+}
+
+#[test]
+fn commits_a_staged_rename() {
+    let repo = repo("rename-commit");
+    git(&repo, &["mv", "old.md", "new.md"]);
+
+    commit_files(
+        &git_path(),
+        &repo,
+        &["new.md".to_string(), "old.md".to_string()],
+        "Rename the notes",
+    )
+    .expect("commit");
+
+    assert_eq!(
+        list_changes(&git_path(), &repo).expect("list changes"),
+        vec![]
+    );
+    assert_eq!(
+        git(&repo, &["log", "-1", "--format=%s"]),
+        "Rename the notes"
+    );
+    fs::remove_dir_all(repo).ok();
+}
+
+#[test]
+fn refuses_to_show_a_file_outside_the_repository_through_a_link() {
+    let repo = repo("link");
+    let outside = repo.with_extension("outside");
+    fs::create_dir_all(&outside).expect("create outside folder");
+    fs::write(outside.join("secret.txt"), "top secret\n").expect("write secret");
+    std::os::unix::fs::symlink(&outside, repo.join("linked-dir")).expect("link a folder");
+    std::os::unix::fs::symlink(outside.join("secret.txt"), repo.join("linked-file"))
+        .expect("link a file");
+
+    let through_folder = file_diff(&git_path(), &repo, "linked-dir/secret.txt");
+    let through_file = file_diff(&git_path(), &repo, "linked-file");
+
+    assert!(through_folder.is_err(), "{through_folder:?}");
+    assert!(
+        !format!("{through_file:?}").contains("top secret"),
+        "{through_file:?}"
+    );
+    fs::remove_dir_all(repo).ok();
+    fs::remove_dir_all(outside).ok();
+}
+
+#[test]
+fn diffs_a_staged_file_before_the_first_commit() {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let repo = std::env::temp_dir().join(format!(
+        "agent-desktop-changes-fresh-{}-{nanos}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&repo).expect("create repo");
+    git(&repo, &["init", "-q", "-b", "main"]);
+    fs::write(repo.join("first.md"), "hello\n").expect("write");
+    git(&repo, &["add", "first.md"]);
+
+    let diff = file_diff(&git_path(), &repo, "first.md").expect("diff");
+
+    assert!(diff.contains("+hello"), "{diff}");
+    fs::remove_dir_all(repo).ok();
+}
+
+#[test]
+fn cuts_a_huge_diff_without_reading_it_all() {
+    let repo = repo("huge");
+    let line = "x".repeat(99) + "\n";
+    fs::write(repo.join("big.txt"), line.repeat(50_000)).expect("write a 5 MB file");
+
+    let diff = file_diff(&git_path(), &repo, "big.txt").expect("diff");
+
+    assert!(
+        diff.chars().count() < 210_000,
+        "{} characters",
+        diff.chars().count()
+    );
+    assert!(diff.contains("diff cut"), "the cut is said");
     fs::remove_dir_all(repo).ok();
 }

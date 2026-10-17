@@ -11,6 +11,8 @@ export interface ChangesPanelProps {
   branch?: string;
   /** null while the first list is read. */
   changes: FileChange[] | null;
+  /** Goes up with every list read; open diffs read again then. */
+  version: number;
   onReload: () => void;
   onClose: () => void;
 }
@@ -70,7 +72,7 @@ function ChangeRow({ change, isChecked, isOpen, onCheck, onOpen }: {
  * What changed in a session's repository since the last commit: each file's
  * diff, and a commit of the files chosen. It never pushes or throws changes away.
  */
-export function ChangesPanel({ rootPath, rootName, branch, changes, onReload, onClose }: ChangesPanelProps) {
+export function ChangesPanel({ rootPath, rootName, branch, changes, version, onReload, onClose }: ChangesPanelProps) {
   // Files left out of the commit; any new change is included by default.
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set());
   const [openPath, setOpenPath] = useState<string | null>(null);
@@ -150,7 +152,7 @@ export function ChangesPanel({ rootPath, rootName, branch, changes, onReload, on
                 onCheck={(isChecked) => setIncluded(change.path, isChecked)}
                 onOpen={() => setOpenPath((current) => (current === change.path ? null : change.path))}
               />
-              {openPath === change.path && <FileDiff rootPath={rootPath} change={change} />}
+              {openPath === change.path && <FileDiff rootPath={rootPath} change={change} version={version} />}
             </li>
           ))}
         </ul>

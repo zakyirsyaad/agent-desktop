@@ -112,7 +112,11 @@ describe("Window chrome wiring", () => {
 
     const toggle = await header().findByRole("button", { name: "Toggle changes panel" });
     expect(toggle.textContent).toContain("2");
+    const reads = () => (tauriInternals().invoke as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(([cmd]) => cmd === "session_changes").length;
+    const readsBefore = reads();
     await click(toggle);
+    // Opening the panel reads the list afresh, not the one from before.
+    expect(reads()).toBeGreaterThan(readsBefore);
     const panel = within(screen.getByRole("complementary", { name: "Changes panel" }));
     expect(panel.getByText("app.ts")).toBeDefined();
 

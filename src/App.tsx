@@ -228,8 +228,11 @@ export default function App() {
   const isSessionBusy = (sessionId: string) =>
     isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) : pty.isBusy(sessionId);
 
-  const toggleSidePanel = (panel: "files" | "changes") =>
+  const toggleSidePanel = (panel: "files" | "changes") => {
+    // The list may be stale while the panel is closed (an agent mid-turn): opening reads it afresh.
+    if (panel === "changes" && sidePanel !== "changes") sessionChanges.reload();
     setSidePanel((current) => (current === panel ? null : panel));
+  };
   // When the active agent stops working, what it changed is read again.
   const isActiveBusy = Boolean(activeSessionId) && isSessionBusy(activeSessionId);
   const wasActiveBusyRef = useRef(false);
@@ -724,6 +727,7 @@ export default function App() {
             rootName={filesFolder.name}
             branch={workspaceDetails?.branch ?? undefined}
             changes={sessionChanges.changes}
+            version={sessionChanges.version}
             onReload={sessionChanges.reload}
             onClose={() => setSidePanel(null)}
           />

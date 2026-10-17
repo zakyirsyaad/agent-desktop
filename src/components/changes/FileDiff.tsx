@@ -15,21 +15,22 @@ const ROW_SIGN: Record<UnifiedRowKind, string> = { added: "+", removed: "-", con
 type DiffState = { status: "loading" } | { status: "ready"; diff: string } | { status: "failed"; error: string };
 
 /** One changed file's diff against the last commit, read when it is opened. */
-export function FileDiff({ rootPath, change }: { rootPath: string; change: FileChange }) {
+export function FileDiff({ rootPath, change, version }: { rootPath: string; change: FileChange; version: number }) {
   const [state, setState] = useState<DiffState>({ status: "loading" });
 
-  const { path, oldPath, kind } = change;
-  // Keyed on the change's fields: a reloaded list makes new objects for the same file.
+  const { path, kind } = change;
+  // Read again with every new list (`version`): the file may have changed since.
   useEffect(() => {
     let isCancelled = false;
-    setState({ status: "loading" });
-    invoke<string>("session_file_diff", { path: rootPath, change: { path, oldPath, kind } })
+    // A diff already shown stays until the new one arrives, so a refresh does not flash.
+    setState((prev) => (prev.status === "ready" ? prev : { status: "loading" }));
+    invoke<string>("session_file_diff", { path: rootPath, file: path })
       .then((diff) => !isCancelled && setState({ status: "ready", diff: diff ?? "" }))
       .catch((error) => !isCancelled && setState({ status: "failed", error: String(error) }));
     return () => {
       isCancelled = true;
     };
-  }, [rootPath, path, oldPath, kind]);
+  }, [rootPath, path, kind, version]);
 
   const rows = useMemo(() => (state.status === "ready" ? unifiedDiffRows(state.diff) : []), [state]);
 

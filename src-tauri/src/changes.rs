@@ -1,8 +1,13 @@
 //! The uncommitted changes in a session's repository: listing them, showing
 //! one file's diff, and committing a chosen set of files.
+//!
+//! Every path the UI sends back is checked against what `git status` reports,
+//! and git reads paths literally, so a file named `*.txt` is that file alone.
 
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -13,6 +18,9 @@ use crate::store::AppStore;
 
 /// The longest diff sent to the UI, in characters; a bigger one is cut.
 const MAX_DIFF_CHARS: usize = 200_000;
+/// How much of git's diff output is read at most: enough for the longest
+/// diff in any text, and a bound on memory however big the file is.
+const MAX_DIFF_BYTES: usize = MAX_DIFF_CHARS * 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -34,12 +42,20 @@ pub struct FileChange {
     pub kind: ChangeKind,
 }
 
-/// Runs git in `dir`; `ok_codes` are the exit codes that mean success.
-fn run_git_with(git: &Path, dir: &Path, args: &[&str], ok_codes: &[i32]) -> Result<String, String> {
-    let output = Command::new(git)
+/// git, reading paths literally rather than as patterns.
+fn git_command(git: &Path, dir: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new(git);
+    command
+        .arg("--literal-pathspecs")
         .arg("-C")
         .arg(dir)
-        .args(args)
+        .args(args);
+    command
+}
+
+/// Runs git in `dir`; `ok_codes` are the exit codes that mean success.
+fn run_git_with(git: &Path, dir: &Path, args: &[&str], ok_codes: &[i32]) -> Result<String, String> {
+    let output = git_command(git, dir, args)
         .output()
         .map_err(|e| format!("Could not run git: {e}"))?;
     if output
@@ -55,6 +71,52 @@ fn run_git_with(git: &Path, dir: &Path, args: &[&str], ok_codes: &[i32]) -> Resu
 
 fn run_git(git: &Path, dir: &Path, args: &[&str]) -> Result<String, String> {
     run_git_with(git, dir, args, &[0])
+}
+
+/// Runs git and reads at most `MAX_DIFF_BYTES` of its output; the flag says
+/// whether there was more, in which case git is stopped rather than drained.
+fn run_git_bounded(
+    git: &Path,
+    dir: &Path,
+    args: &[&str],
+    ok_codes: &[i32],
+) -> Result<(String, bool), String> {
+    let mut child = git_command(git, dir, args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Could not run git: {e}"))?;
+    // stderr is read on its own thread, so a chatty git cannot block on it.
+    let stderr = child.stderr.take().map(|mut pipe| {
+        thread::spawn(move || {
+            let mut text = String::new();
+            let _ = pipe.read_to_string(&mut text);
+            text
+        })
+    });
+    let mut output = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        stdout
+            .take(MAX_DIFF_BYTES as u64 + 1)
+            .read_to_end(&mut output)
+            .map_err(|e| format!("Could not read git's output: {e}"))?;
+    }
+    let is_cut = output.len() > MAX_DIFF_BYTES;
+    if is_cut {
+        output.truncate(MAX_DIFF_BYTES);
+        // Stopping git closes its pipes; failing to is no worse than waiting.
+        let _ = child.kill();
+    }
+    let status = child
+        .wait()
+        .map_err(|e| format!("Could not run git: {e}"))?;
+    let errors = stderr
+        .and_then(|reader| reader.join().ok())
+        .unwrap_or_default();
+    if !is_cut && !status.code().is_some_and(|code| ok_codes.contains(&code)) {
+        return Err(errors.trim().to_string());
+    }
+    Ok((String::from_utf8_lossy(&output).into_owned(), is_cut))
 }
 
 /// The root of the repository `dir` is in.
@@ -107,55 +169,91 @@ fn parse_status(output: &str) -> Vec<FileChange> {
     changes
 }
 
-/// Every uncommitted change in the repository `dir` is in, untracked files
-/// one by one rather than as whole folders.
-pub fn list_changes(git: &Path, dir: &Path) -> Result<Vec<FileChange>, String> {
-    let toplevel = toplevel_of(git, dir)?;
+fn changes_at(git: &Path, toplevel: &Path) -> Result<Vec<FileChange>, String> {
     let output = run_git(
         git,
-        &toplevel,
+        toplevel,
         &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
     )?;
     Ok(parse_status(&output))
 }
 
-/// Cuts a diff to `MAX_DIFF_CHARS`, on a character boundary.
-fn bounded(diff: String) -> String {
-    if diff.chars().count() <= MAX_DIFF_CHARS {
-        return diff;
-    }
-    let kept: String = diff.chars().take(MAX_DIFF_CHARS).collect();
-    format!("{kept}\n… diff cut: it is longer than {MAX_DIFF_CHARS} characters\n")
+/// Every uncommitted change in the repository `dir` is in, untracked files
+/// one by one rather than as whole folders.
+pub fn list_changes(git: &Path, dir: &Path) -> Result<Vec<FileChange>, String> {
+    changes_at(git, &toplevel_of(git, dir)?)
 }
 
-/// A file's unified diff against the last commit; a new file shows whole.
-pub fn file_diff(git: &Path, dir: &Path, change: &FileChange) -> Result<String, String> {
+/// What the working tree is compared with: the last commit, or an empty tree
+/// in a repository that has none yet.
+fn diff_base(git: &Path, toplevel: &Path) -> Result<String, String> {
+    if run_git(git, toplevel, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_ok() {
+        return Ok("HEAD".to_string());
+    }
+    run_git(git, toplevel, &["hash-object", "-t", "tree", "/dev/null"])
+        .map(|hash| hash.trim().to_string())
+}
+
+/// True when `path` resolves to a place inside `toplevel`, links followed.
+fn resolves_inside(toplevel: &Path, path: &str) -> bool {
+    let (Ok(root), Ok(target)) = (toplevel.canonicalize(), toplevel.join(path).canonicalize())
+    else {
+        return false;
+    };
+    target.starts_with(root)
+}
+
+/// A changed file's unified diff against the last commit; a new file shows
+/// whole. Only a file git reports as changed is shown, and a new file only
+/// when it resolves inside the repository, so nothing outside can be read.
+pub fn file_diff(git: &Path, dir: &Path, path: &str) -> Result<String, String> {
     let toplevel = toplevel_of(git, dir)?;
-    let diff = match change.kind {
-        // `--no-index` exits with 1 when the files differ, which they always do here.
-        ChangeKind::Untracked => run_git_with(
-            git,
-            &toplevel,
-            &[
-                "diff",
-                "--no-color",
-                "--no-index",
-                "--",
-                "/dev/null",
-                &change.path,
-            ],
-            &[0, 1],
-        )?,
+    let change = changes_at(git, &toplevel)?
+        .into_iter()
+        .find(|change| change.path == path)
+        .ok_or_else(|| format!("{path} is not a changed file in this repository"))?;
+    let (diff, is_cut) = match change.kind {
+        ChangeKind::Untracked => {
+            if !resolves_inside(&toplevel, &change.path) {
+                return Err(format!(
+                    "{path} points outside the repository, so it is not shown"
+                ));
+            }
+            // `--no-index` exits with 1 when the files differ, which they always do here.
+            run_git_bounded(
+                git,
+                &toplevel,
+                &[
+                    "diff",
+                    "--no-color",
+                    "--no-index",
+                    "--",
+                    "/dev/null",
+                    &change.path,
+                ],
+                &[0, 1],
+            )?
+        }
         _ => {
-            let mut args = vec!["diff", "--no-color", "-M", "HEAD", "--"];
+            let base = diff_base(git, &toplevel)?;
+            let mut args = vec!["diff", "--no-color", "-M", base.as_str(), "--"];
             if let Some(old) = &change.old_path {
                 args.push(old);
             }
             args.push(&change.path);
-            run_git(git, &toplevel, &args)?
+            run_git_bounded(git, &toplevel, &args, &[0])?
         }
     };
-    Ok(bounded(diff))
+    Ok(bounded(diff, is_cut))
+}
+
+/// Cuts a diff to `MAX_DIFF_CHARS`, on a character boundary, and says so.
+fn bounded(diff: String, is_cut: bool) -> String {
+    if !is_cut && diff.chars().count() <= MAX_DIFF_CHARS {
+        return diff;
+    }
+    let kept: String = diff.chars().take(MAX_DIFF_CHARS).collect();
+    format!("{kept}\n… diff cut: it is longer than {MAX_DIFF_CHARS} characters\n")
 }
 
 /// True for a plain relative path inside the repository.
@@ -164,8 +262,9 @@ fn is_inside(path: &str) -> bool {
     !path.as_os_str().is_empty() && path.components().all(|c| matches!(c, Component::Normal(_)))
 }
 
-/// Commits `files` (paths from `list_changes`) with `message`, leaving every
-/// other change uncommitted; returns the new commit's short hash.
+/// Commits `files` (paths from `list_changes`, a rename's old path included)
+/// with `message`, leaving every other change uncommitted; returns the new
+/// commit's short hash.
 pub fn commit_files(
     git: &Path,
     dir: &Path,
@@ -180,19 +279,32 @@ pub fn commit_files(
         return Err("No files are chosen to commit".to_string());
     }
     let toplevel = toplevel_of(git, dir)?;
+    let changes = changes_at(git, &toplevel)?;
     // Only files git itself reports as changed can be committed, which also
     // keeps out paths outside the repository and anything git could read as an option.
-    let changed: Vec<String> = list_changes(git, &toplevel)?
-        .into_iter()
-        .flat_map(|c| std::iter::once(c.path).chain(c.old_path))
-        .collect();
-    if let Some(bad) = files.iter().find(|f| !is_inside(f) || !changed.contains(f)) {
+    let is_changed = |file: &String| {
+        changes
+            .iter()
+            .any(|c| &c.path == file || c.old_path.as_ref() == Some(file))
+    };
+    if let Some(bad) = files.iter().find(|f| !is_inside(f) || !is_changed(f)) {
         return Err(format!("{bad} is not a changed file in this repository"));
     }
 
+    // A rename's old path is already staged as removed; `git add` would find
+    // nothing there and fail, but the commit still needs it.
+    let staged_removals: Vec<&String> =
+        changes.iter().filter_map(|c| c.old_path.as_ref()).collect();
     let mut add = vec!["add", "-A", "--"];
-    add.extend(files.iter().map(String::as_str));
-    run_git(git, &toplevel, &add).map_err(|e| format!("Could not stage the files: {e}"))?;
+    add.extend(
+        files
+            .iter()
+            .filter(|f| !staged_removals.contains(f))
+            .map(String::as_str),
+    );
+    if add.len() > 3 {
+        run_git(git, &toplevel, &add).map_err(|e| format!("Could not stage the files: {e}"))?;
+    }
     let mut commit = vec!["commit", "-m", message, "--"];
     commit.extend(files.iter().map(String::as_str));
     run_git(git, &toplevel, &commit).map_err(|e| format!("Could not commit: {e}"))?;
@@ -209,23 +321,18 @@ pub fn session_changes(
     list_changes(&git_binary(), Path::new(&path))
 }
 
-/// One changed file's diff.
+/// One changed file's diff, by its path relative to the repository's root.
 #[tauri::command(async)]
 pub fn session_file_diff(
     store: State<'_, AppStore>,
     path: String,
-    change: FileChange,
+    file: String,
 ) -> Result<String, String> {
     ensure_known_workspace(&path, |p| store.is_known_workspace(p))?;
-    if !is_inside(&change.path)
-        || change
-            .old_path
-            .as_deref()
-            .is_some_and(|old| !is_inside(old))
-    {
-        return Err(format!("{} is not a file in this repository", change.path));
+    if !is_inside(&file) {
+        return Err(format!("{file} is not a file in this repository"));
     }
-    file_diff(&git_binary(), Path::new(&path), &change)
+    file_diff(&git_binary(), Path::new(&path), &file)
 }
 
 /// Commits the chosen changed files.

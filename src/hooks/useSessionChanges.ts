@@ -6,6 +6,8 @@ import { useLatest } from './useLatest';
 export interface SessionChanges {
   /** The uncommitted changes, or null before the first answer (or outside a repository). */
   changes: FileChange[] | null;
+  /** Goes up with every list read, so what shows a file's diff knows to read it again. */
+  version: number;
   reload: () => void;
 }
 
@@ -20,7 +22,7 @@ export function useSessionChanges(
   refreshKey: number,
   onError: (message: string) => void,
 ): SessionChanges {
-  const [state, setState] = useState<{ path: string; changes: FileChange[] } | null>(null);
+  const [state, setState] = useState<{ path: string; changes: FileChange[]; version: number } | null>(null);
   const [reloads, setReloads] = useState(0);
   const onErrorRef = useLatest(onError);
   const reload = useCallback(() => setReloads((n) => n + 1), []);
@@ -29,16 +31,21 @@ export function useSessionChanges(
     if (!path || !isRepository) return;
     let isCancelled = false;
     let hasReported = false;
-    const load = () =>
-      invoke<FileChange[]>('session_changes', { path })
+    // Reads can overlap (focus, a turn ending): only the latest one's answer is kept.
+    let latestRead = 0;
+    const load = () => {
+      const read = ++latestRead;
+      return invoke<FileChange[]>('session_changes', { path })
         .then((changes) => {
-          if (!isCancelled && Array.isArray(changes)) setState({ path, changes });
+          if (isCancelled || read !== latestRead || !Array.isArray(changes)) return;
+          setState((prev) => ({ path, changes, version: (prev?.version ?? 0) + 1 }));
         })
         .catch((error) => {
           if (isCancelled || hasReported) return;
           hasReported = true;
           onErrorRef.current(`Could not read the changes in ${path}: ${String(error)}`);
         });
+    };
     load();
     window.addEventListener('focus', load);
     return () => {
@@ -48,5 +55,6 @@ export function useSessionChanges(
   }, [path, isRepository, refreshKey, reloads, onErrorRef]);
 
   // Never show one folder's changes under another while it loads.
-  return { changes: isRepository && state && state.path === path ? state.changes : null, reload };
+  const isCurrent = isRepository && state !== null && state.path === path;
+  return { changes: isCurrent ? state.changes : null, version: isCurrent ? state.version : 0, reload };
 }

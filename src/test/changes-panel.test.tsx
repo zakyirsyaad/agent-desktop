@@ -21,6 +21,7 @@ function renderPanel(overrides: Partial<Parameters<typeof ChangesPanel>[0]> = {}
     rootName: "api",
     branch: "agent/fix",
     changes: CHANGES,
+    version: 1,
     onReload: vi.fn(),
     onClose: vi.fn(),
     ...overrides,
@@ -57,12 +58,38 @@ describe("ChangesPanel", () => {
 
     expect(spy).toHaveBeenCalledWith(
       "session_file_diff",
-      { path: "/w/api", change: { path: "src/app.ts", oldPath: null, kind: "modified" } },
+      { path: "/w/api", file: "src/app.ts" },
       undefined,
     );
     const diff = within(screen.getByLabelText("Diff of src/app.ts"));
     expect(diff.getByText("two").closest("[data-line]")?.getAttribute("data-line")).toBe("removed");
     expect(diff.getByText("2").closest("[data-line]")?.getAttribute("data-line")).toBe("added");
+  });
+
+  it("reads an open diff again when the list is read again", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) =>
+      cmd === "session_file_diff" ? Promise.resolve("@@ -1 +1 @@\n-a\n+b\n") : Promise.resolve(undefined),
+    );
+    const props = {
+      rootPath: "/w/api",
+      rootName: "api",
+      changes: CHANGES,
+      version: 1,
+      onReload: () => {},
+      onClose: () => {},
+    };
+    const { rerender } = render(<ChangesPanel {...props} />);
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("src/app.ts"));
+    });
+    const reads = () => spy.mock.calls.filter(([cmd]) => cmd === "session_file_diff").length;
+    expect(reads()).toBe(1);
+
+    await act(async () => {
+      rerender(<ChangesPanel {...props} changes={[...CHANGES]} version={2} />);
+    });
+
+    expect(reads()).toBe(2);
   });
 
   it("commits only the chosen files, with a rename's old path, and reloads", async () => {
