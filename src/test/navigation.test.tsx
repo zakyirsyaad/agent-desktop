@@ -187,6 +187,93 @@ describe("Navigation and Layout Components", () => {
       expect(screen.getByText("Market analyzer refactor")).toBeDefined();
     });
 
+    describe("organizing sessions", () => {
+      const base = mockSessions[1];
+      const organized: Session[] = [
+        { ...base, id: "plain", name: "Plain work", createdAt: 3 },
+        { ...base, id: "pinned", name: "Pinned work", createdAt: 2, pinned: true },
+        { ...base, id: "archived", name: "Old work", createdAt: 1, archivedAt: 10 },
+      ];
+      function renderOrganized(handlers: Partial<Parameters<typeof Sidebar>[0]> = {}) {
+        render(
+          <Sidebar
+            workspaces={workspaces}
+            sessions={organized}
+            agents={mockProfiles}
+            onNewSession={() => {}}
+            onSelectSession={() => {}}
+            onRenameSession={() => {}}
+            onPinSession={() => {}}
+            onArchiveSession={() => {}}
+            {...handlers}
+          />
+        );
+      }
+      function openMenu(sessionName: string) {
+        const row = screen.getByText(sessionName).closest("li") as HTMLElement;
+        fireEvent.click(within(row).getByRole("button", { name: `More actions for ${sessionName}` }));
+        return within(screen.getByRole("menu", { name: `Actions for ${sessionName}` }));
+      }
+
+      it("lists pinned sessions on top and archived ones folded at the bottom, out of their workspace", () => {
+        renderOrganized();
+
+        const pinned = within(screen.getByRole("list", { name: "Pinned sessions" }));
+        expect(pinned.getByText("Pinned work")).toBeDefined();
+        const titan = within(screen.getByRole("list", { name: "Sessions in titan-investment" }));
+        expect(titan.getByText("Plain work")).toBeDefined();
+        expect(titan.queryByText("Pinned work")).toBeNull();
+        expect(screen.queryByText("Old work")).toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: "Archived (1)" }));
+        expect(within(screen.getByRole("list", { name: "Archived sessions" })).getByText("Old work")).toBeDefined();
+      });
+
+      it("pins, unpins, archives and unarchives from a session's menu", () => {
+        const onPinSession = vi.fn();
+        const onArchiveSession = vi.fn();
+        renderOrganized({ onPinSession, onArchiveSession });
+
+        fireEvent.click(openMenu("Plain work").getByRole("menuitem", { name: "Pin" }));
+        expect(onPinSession).toHaveBeenCalledWith("plain", true);
+        fireEvent.click(openMenu("Pinned work").getByRole("menuitem", { name: "Unpin" }));
+        expect(onPinSession).toHaveBeenCalledWith("pinned", false);
+        fireEvent.click(openMenu("Plain work").getByRole("menuitem", { name: "Archive" }));
+        expect(onArchiveSession).toHaveBeenCalledWith("plain", true);
+
+        fireEvent.click(screen.getByRole("button", { name: "Archived (1)" }));
+        fireEvent.click(openMenu("Old work").getByRole("menuitem", { name: "Unarchive" }));
+        expect(onArchiveSession).toHaveBeenCalledWith("archived", false);
+      });
+
+      it("renames a session in place: Enter saves, Escape keeps the old name", () => {
+        const onRenameSession = vi.fn();
+        renderOrganized({ onRenameSession });
+
+        fireEvent.click(openMenu("Plain work").getByRole("menuitem", { name: "Rename" }));
+        const input = screen.getByRole("textbox", { name: "Rename Plain work" });
+        fireEvent.change(input, { target: { value: "  Parser rewrite  " } });
+        fireEvent.keyDown(input, { key: "Enter" });
+        expect(onRenameSession).toHaveBeenCalledWith("plain", "Parser rewrite");
+
+        fireEvent.click(openMenu("Pinned work").getByRole("menuitem", { name: "Rename" }));
+        const second = screen.getByRole("textbox", { name: "Rename Pinned work" });
+        fireEvent.change(second, { target: { value: "Something else" } });
+        fireEvent.keyDown(second, { key: "Escape" });
+        expect(onRenameSession).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole("textbox", { name: /^Rename/ })).toBeNull();
+      });
+
+      it("finds pinned and archived sessions when searching", () => {
+        renderOrganized();
+
+        fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "work" } });
+
+        expect(within(screen.getByRole("list", { name: "Pinned sessions" })).getByText("Pinned work")).toBeDefined();
+        expect(within(screen.getByRole("list", { name: "Archived sessions" })).getByText("Old work")).toBeDefined();
+      });
+    });
+
     it("nests a fork under the session it came from", () => {
       const source: Session = { ...mockSessions[1], id: "src", name: "Refactor plan" };
       const forked: Session = { ...source, id: "fork", name: "Refactor plan (fork)", forkedFrom: "src", createdAt: source.createdAt + 1 };

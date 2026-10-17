@@ -96,8 +96,10 @@ export function useAcpEngine({
       const title = sessionTitleOf(update);
       if (title) {
         // The agent's own title (e.g. a summary) beats one cut from the first
-        // prompt; it is held to the same one-line, bounded shape.
-        patchSession(sessionId, { name: titleFromPrompt(title) });
+        // prompt, but never a name the user gave; it is held to the same
+        // one-line, bounded shape.
+        const isNamedByUser = sessions.find((s) => s.id === sessionId)?.namedByUser === true;
+        if (!isNamedByUser) patchSession(sessionId, { name: titleFromPrompt(title) });
         return;
       }
       if (isCommandsUpdate(update)) {

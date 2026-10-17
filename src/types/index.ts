@@ -104,6 +104,12 @@ export interface Session {
   acpSessionId?: string | null;
   /** Set when the session runs in a worktree; `cwd` is then inside it. */
   worktree?: SessionWorktree | null;
+  /** Shown in the sidebar's Pinned section. */
+  pinned?: boolean;
+  /** When the session was archived: hidden from the session list until unarchived. */
+  archivedAt?: number | null;
+  /** The user renamed the session, so the agent's own titles no longer replace its name. */
+  namedByUser?: boolean;
 }
 
 export interface Settings {

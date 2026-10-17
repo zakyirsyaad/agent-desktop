@@ -59,6 +59,8 @@ const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
 const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
+/** Shown in the session list: not archived. */
+const isListed = (session: Session) => !session.archivedAt;
 
 export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
@@ -136,7 +138,7 @@ export default function App() {
 
   // Once saved sessions are loaded, show the most recent one.
   useEffect(() => {
-    if (isLoaded) setActiveSessionId((current) => current || mostRecentSessionId(state.sessions));
+    if (isLoaded) setActiveSessionId((current) => current || mostRecentSessionId(state.sessions.filter(isListed)));
     // Only on the load transition; later session changes must not move the selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded]);
@@ -414,7 +416,31 @@ export default function App() {
       void removeSessionWorktree(session, sessions, stopped).then((kept) => kept && setNotice(kept));
     }
     if (sessionId === activeSessionId) {
-      setActiveSessionId(mostRecentSessionId(sessions.filter((s) => s.id !== sessionId)));
+      setActiveSessionId(mostRecentSessionId(sessions.filter((s) => s.id !== sessionId && isListed(s))));
+    }
+  };
+
+  const handleRenameSession = (sessionId: string, name: string) =>
+    patchSession(sessionId, { name, namedByUser: true });
+
+  const handlePinSession = (sessionId: string, isPinned: boolean) => patchSession(sessionId, { pinned: isPinned });
+
+  /**
+   * Archiving hides a session and ends its agent; its conversation stays, and
+   * an ACP session can be continued after unarchiving it.
+   */
+  const handleArchiveSession = (sessionId: string, isArchived: boolean) => {
+    if (!isArchived) {
+      patchSession(sessionId, { archivedAt: null });
+      return;
+    }
+    const session = sessionById(sessionId);
+    const isRunning = session?.status === "running";
+    if (isRunning) void (isAcp(session) ? acp.stop(sessionId) : pty.stop(sessionId));
+    const now = Date.now();
+    patchSession(sessionId, { archivedAt: now, pinned: false, ...(isRunning ? { status: "terminated", endedAt: now } : {}) });
+    if (sessionId === activeSessionId) {
+      setActiveSessionId(mostRecentSessionId(sessions.filter((s) => s.id !== sessionId && isListed(s))));
     }
   };
 
@@ -544,6 +570,9 @@ export default function App() {
           isSessionWaiting={isSessionWaiting}
           onStopSession={handleInterrupt}
           onDeleteSession={handleDeleteSession}
+          onRenameSession={handleRenameSession}
+          onPinSession={handlePinSession}
+          onArchiveSession={handleArchiveSession}
           footer={
             <ProfileFooter
               name={userProfile.name}

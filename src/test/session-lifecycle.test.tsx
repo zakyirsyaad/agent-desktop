@@ -310,4 +310,45 @@ describe("Session lifecycle", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("uncommitted changes");
   });
+
+  async function chooseFromMenu(sessionName: string, action: string) {
+    await act(async () => {
+      fireEvent.click(within(sessionRow(sessionName)).getByRole("button", { name: `More actions for ${sessionName}` }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: action }));
+    });
+  }
+
+  it("archives a running session: stops its agent, keeps its conversation, and lists it under Archived", async () => {
+    await renderApp();
+    const sessionId = await startNewSession();
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+
+    await chooseFromMenu(FIRST_MESSAGE, "Archive");
+
+    expect(spy).toHaveBeenCalledWith("terminate_session", { sessionId }, undefined);
+    expect(spy.mock.calls.some(([cmd]) => cmd === "delete_transcript")).toBe(false);
+    await waitFor(() => {
+      const [saved] = fakeStore().state.sessions as { archivedAt?: number; status: string }[];
+      expect(saved.archivedAt).toEqual(expect.any(Number));
+      expect(saved.status).toBe("terminated");
+    });
+    await act(async () => {
+      fireEvent.click(sidebar().getByRole("button", { name: "Archived (1)" }));
+    });
+    expect(within(sidebar().getByRole("list", { name: "Archived sessions" })).getByText(FIRST_MESSAGE)).toBeDefined();
+  });
+
+  it("pins a session to the top of the sidebar", async () => {
+    fakeStore().state.sessions = [seedSession("s-old", "Refactor parser", 1000), seedSession("s-new", "Fix login", 2000)];
+    await renderApp();
+
+    await chooseFromMenu("Refactor parser", "Pin");
+
+    expect(within(sidebar().getByRole("list", { name: "Pinned sessions" })).getByText("Refactor parser")).toBeDefined();
+    await waitFor(() =>
+      expect((fakeStore().state.sessions as { id: string; pinned?: boolean }[]).find((s) => s.id === "s-old")?.pinned).toBe(true)
+    );
+  });
 });

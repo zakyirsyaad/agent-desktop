@@ -125,6 +125,12 @@ pub struct SessionRecord {
     /// The git worktree the session runs in, when it was given one.
     #[serde(deserialize_with = "lenient_worktree")]
     pub worktree: Option<SessionWorktreeRecord>,
+    /// Shown in the sidebar's Pinned section.
+    pub pinned: bool,
+    /// When the session was archived: hidden from the session list until unarchived.
+    pub archived_at: Option<i64>,
+    /// The user renamed the session, so the agent's own titles no longer replace its name.
+    pub named_by_user: bool,
 }
 
 /// A session's worktree: the workspace it was made from, its root and branch.

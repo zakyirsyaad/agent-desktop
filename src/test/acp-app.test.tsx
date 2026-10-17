@@ -658,6 +658,34 @@ describe("ACP sessions in the app", () => {
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
   });
 
+  it("keeps a name the user gave when the agent later reports its own title", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    const sidebar = within(screen.getByRole("complementary"));
+    const row = sidebar.getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: `More actions for ${FIRST_MESSAGE}` }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: `Rename ${FIRST_MESSAGE}` }), { target: { value: "Parser work" } });
+      fireEvent.keyDown(screen.getByRole("textbox", { name: `Rename ${FIRST_MESSAGE}` }), { key: "Enter" });
+    });
+
+    await acpEvent({ sessionId, kind: "update", update: { sessionUpdate: "session_info_update", title: "Agent's summary" } });
+
+    expect(sidebar.getByText("Parser work")).toBeDefined();
+    expect(sidebar.queryByText("Agent's summary")).toBeNull();
+    await waitFor(() =>
+      expect(fakeStore().state.sessions.find((s) => (s as { id: string }).id === sessionId)).toMatchObject({
+        name: "Parser work",
+        namedByUser: true,
+      })
+    );
+  });
+
   it("shows the context the agent has used, as it reports it", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);
