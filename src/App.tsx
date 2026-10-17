@@ -153,11 +153,12 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded]);
 
+  const visitSession = navigation.visit;
   useEffect(() => {
     if (!activeSessionId) return;
     ensureLoaded(activeSessionId);
-    navigation.visit(activeSessionId);
-  }, [activeSessionId, ensureLoaded, navigation.visit]);
+    visitSession(activeSessionId);
+  }, [activeSessionId, ensureLoaded, visitSession]);
 
   const patchSession = useCallback(
     (sessionId: string, patch: Partial<Session>) =>
