@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square, Bot } from "lucide-react";
 import { OptionDropdown } from "./composer/OptionDropdown";
 import { FolderPicker, type FolderControl } from "./composer/FolderPicker";
@@ -8,6 +8,7 @@ import { ContextMeter } from "./composer/ContextMeter";
 import { isRiskyMode, type ComposerControl, type ComposerControls } from "../lib/composer-controls";
 import { matchingCommands, pendingHint, slashQuery } from "../lib/slash-commands";
 import { SlashCommandMenu } from "./composer/SlashCommandMenu";
+import { useDismiss } from "../hooks/useDismiss";
 import type { ContextUsage, SlashCommand } from "../types";
 
 const MAX_PROMPT_HEIGHT_PX = 180;
@@ -91,16 +92,7 @@ export function ComposerDock({
   const containerRef = useRef<HTMLElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Close any open dropdown on a click outside the composer.
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpenDropdown(null);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  useDismiss(containerRef, openDropdown !== null, () => setOpenDropdown(null));
 
   const toggle = (name: Exclude<OpenDropdown, null>) =>
     setOpenDropdown((current) => (current === name ? null : name));

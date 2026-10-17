@@ -164,7 +164,8 @@ describe("Navigation and Layout Components", () => {
       expect(onNewSessionIn).not.toHaveBeenCalled();
     });
 
-    it("folds a workspace's sessions away and back from its heading", () => {
+    it("folds a workspace's sessions away and back from its heading, which also makes it active", () => {
+      const onSelectWorkspace = vi.fn();
       render(
         <Sidebar
           workspaces={workspaces}
@@ -172,11 +173,13 @@ describe("Navigation and Layout Components", () => {
           agents={mockProfiles}
           onNewSession={() => {}}
           onSelectSession={() => {}}
+          onSelectWorkspace={onSelectWorkspace}
         />
       );
       const heading = screen.getByRole("button", { name: "titan-investment" });
 
       fireEvent.click(heading);
+      expect(onSelectWorkspace).toHaveBeenCalledWith("/Users/mac/titan-investment");
       expect(heading.getAttribute("aria-expanded")).toBe("false");
       expect(screen.queryByText("Market analyzer refactor")).toBeNull();
       // Other workspaces stay open.

@@ -122,7 +122,9 @@ export default function App() {
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
   // No session is selected: the window shows a new one, not started until its first message.
   const isNewSessionDraft = !activeSession;
-  const workspaceDetails = useWorkspaceDetails(activeWorkspacePath);
+  // A session shows the folder it runs in, even one no longer in the recents.
+  const shownFolderPath = activeSession?.cwd ?? activeWorkspacePath;
+  const workspaceDetails = useWorkspaceDetails(shownFolderPath);
 
   // An ended ACP session continues where it left off with its own agent.
   const isResumable =
@@ -264,9 +266,8 @@ export default function App() {
 
   /** Starts a session in the active workspace with the agent picked for it. */
   const handleNewSession = (first?: FirstMessage) => {
-    const folder = activeWorkspace;
     // The backend rejects relative and missing cwds, so never spawn without a path.
-    if (!folder) {
+    if (!activeWorkspace) {
       setNotice(NO_FOLDER_NOTICE);
       return;
     }
@@ -274,12 +275,12 @@ export default function App() {
       setNotice(NO_AGENT_NOTICE);
       return;
     }
-    rememberFolder(folder);
+    rememberFolder(activeWorkspace);
     setPickedAgentId(null);
     startSession(
       {
         agent: newSessionAgent,
-        cwd: folder.path,
+        cwd: activeWorkspace.path,
         name: first ? titleFor(first) : nextSessionName(sessions),
       },
       first,
@@ -360,6 +361,8 @@ export default function App() {
 
   const handleSelectSession = (sessionId: string) => {
     setActiveSessionId(sessionId);
+    // An agent picked for a new session that was never started is forgotten.
+    setPickedAgentId(null);
     const selected = sessionById(sessionId);
     if (selected && workspaces.some((ws) => ws.path === selected.cwd)) selectWorkspace(selected.cwd);
   };
@@ -510,8 +513,8 @@ export default function App() {
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
       <TopBar
         sessionName={activeSession?.name}
-        workspaceName={activeWorkspace?.name}
-        workspacePath={activeWorkspacePath}
+        workspaceName={activeSession ? folderNameOf(activeSession.cwd) : activeWorkspace?.name}
+        workspacePath={shownFolderPath}
         branch={workspaceDetails?.branch ?? undefined}
         canGoBack={canGoBack}
         canGoForward={navigation.canGoForward}
@@ -533,6 +536,7 @@ export default function App() {
           onNewSession={() => openNewSession()}
           onSelectSession={handleSelectSession}
           onNewSessionIn={openNewSession}
+          onSelectWorkspace={chooseFolder}
           defaultAgentId={defaultAgentId ?? undefined}
           onOpenFolder={() => void openFolder()}
           isSessionBusy={isSessionBusy}

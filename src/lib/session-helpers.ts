@@ -108,14 +108,17 @@ export function groupSessionsByWorkspace(
   sessions: readonly Session[],
 ): SessionGroup[] {
   const byPath = new Map<string, Session[]>();
+  const newestIn = new Map<string, number>();
   for (const session of sessions) {
-    byPath.set(session.cwd, [...(byPath.get(session.cwd) ?? []), session]);
+    const list = byPath.get(session.cwd);
+    if (list) list.push(session);
+    else byPath.set(session.cwd, [session]);
+    newestIn.set(session.cwd, Math.max(newestIn.get(session.cwd) ?? -Infinity, session.createdAt));
   }
   const known = new Set(workspaces.map((ws) => ws.path));
-  const newestIn = (path: string) => Math.max(...(byPath.get(path) ?? []).map((s) => s.createdAt));
   const others = [...byPath.keys()]
     .filter((path) => !known.has(path))
-    .sort((a, b) => newestIn(b) - newestIn(a))
+    .sort((a, b) => (newestIn.get(b) ?? 0) - (newestIn.get(a) ?? 0))
     .map((path) => ({ name: folderNameOf(path), path }));
   return [...workspaces, ...others].map(({ name, path }) => ({
     path,

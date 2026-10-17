@@ -19,16 +19,13 @@ export interface FolderPickerProps extends FolderControl {
 /** A composer chip naming the folder, with a searchable list of recent ones. */
 export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, isOpen, onToggle }: FolderPickerProps) {
   const [query, setQuery] = useState("");
+  // However the list closed (a pick, Escape, a click elsewhere), it reopens unfiltered.
+  if (!isOpen && query !== "") setQuery("");
   const selected = folders.find((folder) => folder.path === selectedPath);
   const needle = query.trim().toLowerCase();
   const shown = folders.filter(
     (folder) => needle === "" || folder.name.toLowerCase().includes(needle) || folder.path.toLowerCase().includes(needle),
   );
-
-  const close = () => {
-    setQuery("");
-    onToggle();
-  };
 
   return (
     <div className="relative">
@@ -37,7 +34,7 @@ export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, is
         aria-label={`Folder: ${selected?.name ?? "none"}`}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
-        onClick={isOpen ? close : onToggle}
+        onClick={onToggle}
         title={selected?.path}
         className="flex items-center gap-1.5 rounded-lg border border-neutral-800/60 px-2 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
       >
@@ -58,10 +55,9 @@ export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, is
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Escape") close();
               if (e.key === "Enter" && shown[0]) {
                 onSelect(shown[0].path);
-                close();
+                onToggle();
               }
             }}
             placeholder="Search folders..."
@@ -83,7 +79,7 @@ export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, is
                       title={folder.path}
                       onClick={() => {
                         onSelect(folder.path);
-                        close();
+                        onToggle();
                       }}
                       className="flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-xs text-neutral-300 transition-colors hover:bg-neutral-800/60 hover:text-neutral-100"
                     >
@@ -100,7 +96,7 @@ export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, is
               <button
                 type="button"
                 onClick={() => {
-                  close();
+                  onToggle();
                   onOpenFolder();
                 }}
                 className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs text-neutral-300 transition-colors hover:bg-neutral-800/60 hover:text-neutral-100"

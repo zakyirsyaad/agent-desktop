@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Bot, Plus } from "lucide-react";
 import type { AgentProfile } from "../../types";
+import { useDismiss } from "../../hooks/useDismiss";
 
 export interface NewSessionMenuProps {
   folderName: string;
@@ -21,21 +22,7 @@ export function NewSessionMenu({ folderName, agents, defaultAgentId, onPick }: N
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const closeOnOutsideClick = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) setIsOpen(false);
-    };
-    const closeOnEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsOpen(false);
-    };
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutsideClick);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen]);
+  useDismiss(containerRef, isOpen, () => setIsOpen(false));
 
   const choices = defaultFirst(agents, defaultAgentId);
 

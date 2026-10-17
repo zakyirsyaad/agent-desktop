@@ -131,6 +131,33 @@ describe("New session spawning", () => {
     expect(screen.queryByRole("button", { name: /^Folder:/ })).toBeNull();
   });
 
+  it("forgets an agent picked for a new session once the user opens another session", async () => {
+    (window as unknown as { __FAKE_TAURI_STORE__: { state: { sessions: unknown[] } } }).__FAKE_TAURI_STORE__.state.sessions = [
+      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/agent-desktop", status: "terminated", createdAt: 1 },
+    ];
+    const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Agent: Claude Code" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "Oh-My-Pi" }));
+    });
+
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("complementary")).getByText("Old work"));
+    });
+    await sendFirst();
+
+    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { profileId: string };
+    expect(args.profileId).toBe("claude-code");
+  });
+
   it("spawns by agent profile and options, never by a raw command", async () => {
     const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
 

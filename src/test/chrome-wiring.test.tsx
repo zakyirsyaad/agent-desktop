@@ -54,6 +54,15 @@ describe("Window chrome wiring", () => {
     expect(header().getByText("Alpha work")).toBeDefined();
   });
 
+  it("shows the folder and branch of the session itself, not of the last chosen workspace", async () => {
+    seedSessions();
+    await renderApp();
+
+    expect(header().getByText("Beta work")).toBeDefined();
+    expect(header().getByText("agent-desktop")).toBeDefined();
+    expect(await header().findByLabelText("Branch main")).toBeDefined();
+  });
+
   it("goes back from a new session to the session viewed last", async () => {
     seedSessions();
     await renderApp();
