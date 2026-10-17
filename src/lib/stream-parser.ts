@@ -21,8 +21,13 @@ const COMPLETE_ANSI_REGEX =
 const TRAILING_PARTIAL_ESCAPE_REGEX =
   /\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*|[A-Z\\-_]?)$/;
 
+// Upper bound on the unfinished line remembered between chunks, so a long
+// stream without newlines cannot grow the probe string without limit.
+const MAX_LINE_TAIL_LENGTH = 512;
+
 export class StreamParser {
   private buffer: string = '';
+  private lineTail: string = '';
   private approvalRegex: RegExp;
   private toolRegex: RegExp;
 
@@ -69,21 +74,19 @@ export class StreamParser {
 
     const events: ParsedStreamEvent[] = [];
 
-    // Check for approval prompt in clean text
-    const hasApproval = this.approvalRegex.test(cleanText);
-    if (hasApproval) {
-      // Find the approval line or prompt
-      const lines = cleanText.split('\n');
-      const approvalLines: string[] = [];
-      const nonApprovalLines: string[] = [];
+    // Check for approval prompt line by line. The first line is prefixed with the
+    // unfinished line from earlier chunks, so a prompt split across PTY reads is found.
+    // Captured before it is overwritten, because a prompt completed here means that
+    // carried tail was already shown to the user as ordinary text.
+    const carriedTail = this.lineTail;
+    const lines = cleanText.split('\n');
+    const probeLines = [carriedTail + lines[0], ...lines.slice(1)];
+    const isApprovalLine = probeLines.map((line) => this.approvalRegex.test(line));
+    this.lineTail = this.nextLineTail(lines, isApprovalLine[isApprovalLine.length - 1]);
 
-      for (const line of lines) {
-        if (this.approvalRegex.test(line)) {
-          approvalLines.push(line);
-        } else {
-          nonApprovalLines.push(line);
-        }
-      }
+    if (isApprovalLine.some(Boolean)) {
+      const approvalLines = probeLines.filter((_, i) => isApprovalLine[i]);
+      const nonApprovalLines = lines.filter((_, i) => !isApprovalLine[i]);
 
       if (nonApprovalLines.length > 0) {
         const textContent = nonApprovalLines.join('\n');
@@ -95,9 +98,12 @@ export class StreamParser {
         }
       }
 
+      const completedCarriedPrompt = isApprovalLine[0] && carriedTail.length > 0;
+
       events.push({
         type: 'approval_request',
         content: approvalLines.join('\n').trim() || cleanText.trim(),
+        ...(completedCarriedPrompt ? { metadata: { retractedText: carriedTail } } : {}),
       });
 
       return events;
@@ -115,7 +121,7 @@ export class StreamParser {
       const preText = cleanText.slice(0, toolStartIdx);
       const postText = cleanText.slice(toolStartIdx + matchedString.length);
 
-      if (preText.trim()) {
+      if (preText.length > 0) {
         events.push({
           type: 'text',
           content: preText,
@@ -131,7 +137,7 @@ export class StreamParser {
         },
       });
 
-      if (postText.trim()) {
+      if (postText.length > 0) {
         events.push({
           type: 'text',
           content: postText,
@@ -151,9 +157,21 @@ export class StreamParser {
   }
 
   /**
-   * Resets the internal carryover buffer.
+   * Resets the internal carryover buffer and the remembered unfinished line.
    */
   public reset(): void {
     this.buffer = '';
+    this.lineTail = '';
+  }
+
+  /**
+   * Computes the unfinished last line to carry into the next chunk. A line that
+   * already produced an approval request is dropped so it is not raised twice.
+   */
+  private nextLineTail(lines: string[], lastLineWasApproval: boolean): string {
+    if (lastLineWasApproval) return '';
+    const lastLine = lines[lines.length - 1];
+    const tail = lines.length === 1 ? this.lineTail + lastLine : lastLine;
+    return tail.slice(-MAX_LINE_TAIL_LENGTH);
   }
 }

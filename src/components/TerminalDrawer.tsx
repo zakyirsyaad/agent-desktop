@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -30,6 +30,15 @@ export function TerminalDrawer({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Parents pass fresh callback identities on every render (App re-renders per PTY chunk).
+  // Read them through refs so a re-render never disposes the terminal and its scrollback.
+  const onSendInputRef = useRef(onSendInput);
+  const onResizeRef = useRef(onResize);
+  useLayoutEffect(() => {
+    onSendInputRef.current = onSendInput;
+    onResizeRef.current = onResize;
+  });
 
   useEffect(() => {
     if (!isOpen || !containerRef.current) return;
@@ -81,8 +90,9 @@ export function TerminalDrawer({
         fitAddon.fit();
         const { cols, rows } = terminal;
         if (cols && rows) {
-          if (onResize) {
-            onResize(cols, rows);
+          const onResizeLatest = onResizeRef.current;
+          if (onResizeLatest) {
+            onResizeLatest(cols, rows);
           } else {
             invoke("resize_session", { sessionId, cols, rows }).catch(() => {});
           }
@@ -97,8 +107,9 @@ export function TerminalDrawer({
 
     // Handle user keystrokes in terminal emulator
     const onDataDisposable = terminal.onData((data) => {
-      if (onSendInput) {
-        onSendInput(data);
+      const onSendInputLatest = onSendInputRef.current;
+      if (onSendInputLatest) {
+        onSendInputLatest(data);
       } else {
         invoke("send_input", { sessionId, data }).catch(() => {});
       }
@@ -143,7 +154,7 @@ export function TerminalDrawer({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [isOpen, sessionId, onSendInput, onResize]);
+  }, [isOpen, sessionId]);
 
   if (!isOpen) return null;
 

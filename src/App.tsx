@@ -1,25 +1,34 @@
 import { useState, useEffect, useRef } from "react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
-import { ChatCanvas, type ChatMessage } from "./components/ChatCanvas";
+import { ChatCanvas } from "./components/ChatCanvas";
 import { ComposerDock } from "./components/ComposerDock";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { StreamParser } from "./lib/stream-parser";
-import type { AgentProfile, Session, PermissionMode, PtyOutputPayload } from "./types";
+import { applyParsedEvents } from "./lib/apply-parsed-events";
+import type {
+  AgentProfile,
+  ChatMessage,
+  Session,
+  PermissionMode,
+  PtyOutputPayload,
+  Workspace,
+} from "./types";
 
 export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
 
-  // Default mock workspaces & active selection
-  const [workspaces] = useState<string[]>([
-    "ai-perpetual-trading",
-    "titan-investment",
-    "agent-desktop",
-  ]);
-  const [activeWorkspace, setActiveWorkspace] = useState<string>("ai-perpetual-trading");
+  // Real workspaces discovered from disk on mount; `activeWorkspace` holds the
+  // selected name and its `path` is the spawn cwd.
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWorkspace, setActiveWorkspace] = useState<string>("");
+  const activeWorkspacePath = workspaces.find((ws) => ws.name === activeWorkspace)?.path;
+
+  // Transient error surfaced to the user instead of being swallowed.
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Default mock sessions
   const [sessions, setSessions] = useState<Session[]>([
@@ -172,6 +181,23 @@ Would you like me to execute this action?`,
       .catch(() => {});
   }, []);
 
+  // Discover real project folders on mount. The backend refuses to spawn into a
+  // cwd that is not an existing directory, so the UI must only ever offer paths
+  // it read from disk.
+  useEffect(() => {
+    invoke<Workspace[]>("list_workspaces")
+      .then((discovered) => {
+        const found = Array.isArray(discovered) ? discovered : [];
+        setWorkspaces(found);
+        if (found.length > 0) {
+          setActiveWorkspace(found[0].name);
+        }
+      })
+      .catch((error) => {
+        setNotice(`Failed to load workspaces: ${String(error)}`);
+      });
+  }, []);
+
   // Listen to Tauri PTY output events and feed into session parser
   useEffect(() => {
     let unlistenOutput: UnlistenFn | null = null;
@@ -189,89 +215,15 @@ Would you like me to execute this action?`,
 
       if (parsedEvents.length === 0) return;
 
-      setMessages((prev) => {
-        const sessionMsgs = [...(prev[sid] ?? [])];
-
-        for (const evt of parsedEvents) {
-          if (evt.type === "text") {
-            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
-            if (lastMsg && lastMsg.role === "agent" && !lastMsg.actionCard) {
-              // Append to active streaming agent message
-              sessionMsgs[sessionMsgs.length - 1] = {
-                ...lastMsg,
-                content: lastMsg.content ? `${lastMsg.content}\n${evt.content}` : evt.content,
-              };
-            } else {
-              sessionMsgs.push({
-                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                role: "agent",
-                content: evt.content,
-                timestamp: Date.now(),
-              });
-            }
-          } else if (evt.type === "tool_start") {
-            const toolName = evt.metadata?.tool || "Tool";
-            const toolArgs = evt.metadata?.args || "";
-            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
-
-            const newTool = {
-              id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-              name: toolName,
-              args: toolArgs,
-              status: "running" as const,
-            };
-
-            if (lastMsg && lastMsg.role === "agent") {
-              sessionMsgs[sessionMsgs.length - 1] = {
-                ...lastMsg,
-                tools: [...(lastMsg.tools ?? []), newTool],
-              };
-            } else {
-              sessionMsgs.push({
-                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                role: "agent",
-                content: "",
-                timestamp: Date.now(),
-                tools: [newTool],
-              });
-            }
-          } else if (evt.type === "approval_request") {
-            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
-            const actionCard = {
-              id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-              sessionId: sid,
-              title: "⚠️ Agent Action Approval Required",
-              prompt: evt.content,
-              commandSnippet: evt.metadata?.commandSnippet,
-              toolName: evt.metadata?.tool,
-              status: "pending" as const,
-              approvalKey: targetProfile?.approval_key || "y\n",
-              rejectKey: targetProfile?.reject_key || "n\n",
-              timestamp: Date.now(),
-            };
-
-            if (lastMsg && lastMsg.role === "agent") {
-              sessionMsgs[sessionMsgs.length - 1] = {
-                ...lastMsg,
-                actionCard,
-              };
-            } else {
-              sessionMsgs.push({
-                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                role: "agent",
-                content: "",
-                timestamp: Date.now(),
-                actionCard,
-              });
-            }
-          }
-        }
-
-        return {
-          ...prev,
-          [sid]: sessionMsgs,
-        };
-      });
+      setMessages((prev) => ({
+        ...prev,
+        [sid]: applyParsedEvents(prev[sid] ?? [], parsedEvents, {
+          sessionId: sid,
+          profile: targetProfile,
+          now: Date.now(),
+          createId: (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        }),
+      }));
     })
       .then((unlisten) => {
         if (isCancelled) {
@@ -294,13 +246,22 @@ Would you like me to execute this action?`,
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId) ?? agents[0];
 
   const handleNewSession = () => {
+    // The backend rejects relative and missing cwds, so never spawn without a
+    // resolved path — tell the user why the button did nothing instead.
+    if (!activeWorkspacePath) {
+      setNotice(
+        "No workspace folder found. Add a project folder under ~/developer and restart the app."
+      );
+      return;
+    }
+
     const newSessionId = `s-${Date.now()}`;
     const agentToSpawn = activeAgent ?? agents[0];
     const newSession: Session = {
       id: newSessionId,
       name: `Session #${sessions.length + 1}`,
       profileId: agentToSpawn?.id || "claude-code",
-      cwd: activeWorkspace,
+      cwd: activeWorkspacePath,
       status: "running",
       createdAt: Date.now(),
     };
@@ -311,10 +272,18 @@ Would you like me to execute this action?`,
     if (agentToSpawn && agentToSpawn.command) {
       invoke("spawn_session", {
         sessionId: newSessionId,
-        cwd: activeWorkspace,
+        cwd: activeWorkspacePath,
         command: agentToSpawn.command,
         args: [],
-      }).catch(() => {});
+      }).catch((error) => {
+        // The PTY never came up, so the session cannot be "running" forever.
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === newSessionId ? { ...s, status: "terminated" as const } : s
+          )
+        );
+        setNotice(`Failed to start ${agentToSpawn.name}: ${String(error)}`);
+      });
     }
   };
 
@@ -323,9 +292,9 @@ Would you like me to execute this action?`,
     const selected = sessions.find((s) => s.id === sessionId);
     if (selected) {
       // If session belongs to known workspace, switch workspace too
-      const matchingWs = workspaces.find((ws) => selected.cwd.includes(ws));
+      const matchingWs = workspaces.find((ws) => ws.path === selected.cwd);
       if (matchingWs) {
-        setActiveWorkspace(matchingWs);
+        setActiveWorkspace(matchingWs.name);
       }
     }
   };
@@ -342,14 +311,15 @@ Would you like me to execute this action?`,
    * Raw PTY input forwarding: dispatches keystrokes/data straight to backend PTY via Tauri send_input.
    */
   const handleSendPtyInput = (input: string) => {
-    invoke("send_input", { sessionId: activeSessionId, data: input }).catch(() => {});
+    invoke("send_input", { sessionId: activeSessionId, data: input }).catch((error) => {
+      setNotice(`Failed to send input: ${String(error)}`);
+    });
   };
 
   /**
-   * Action Card approval handling: updates message status and forwards approval/rejection key to PTY.
-   * If a modified command is provided from an in-place edit, sends that command instead of raw key.
+   * Action Card approval handling: updates message status and forwards only the approval key to PTY.
    */
-  const handleActionApprove = (key: string, cardId?: string, modifiedCommand?: string) => {
+  const handleActionApprove = (key: string, cardId?: string) => {
     setMessages((prev) => {
       const sessionMsgs = prev[activeSessionId] ?? [];
       const updated = sessionMsgs.map((msg) => {
@@ -369,11 +339,7 @@ Would you like me to execute this action?`,
       };
     });
 
-    if (modifiedCommand) {
-      handleSendPtyInput(`${modifiedCommand}\n`);
-    } else {
-      handleSendPtyInput(key);
-    }
+    handleSendPtyInput(key);
   };
 
   const handleActionReject = (key: string, cardId?: string) => {
@@ -450,7 +416,7 @@ Would you like me to execute this action?`,
       <section className="flex flex-1 overflow-hidden">
         {/* Left Sidebar */}
         <Sidebar
-          workspaces={workspaces}
+          workspaces={workspaces.map((ws) => ws.name)}
           activeWorkspace={activeWorkspace}
           sessions={sessions}
           activeSessionId={activeSessionId}
@@ -462,6 +428,22 @@ Would you like me to execute this action?`,
 
         {/* Chat / Canvas Area */}
         <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
+          {notice && (
+            <div
+              role="alert"
+              className="border-rose-800/60 bg-rose-950/40 text-rose-200 text-xs rounded-lg px-3 py-2 mx-6 mt-3 flex justify-between items-center"
+            >
+              <span className="break-words">{notice}</span>
+              <button
+                type="button"
+                onClick={() => setNotice(null)}
+                aria-label="Dismiss notice"
+                className="shrink-0 ml-3 rounded p-0.5 text-rose-300 hover:text-rose-100 focus:outline-none focus:ring-1 focus:ring-rose-700"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
           {currentMessages.length > 0 ? (
             <ChatCanvas
               messages={currentMessages}

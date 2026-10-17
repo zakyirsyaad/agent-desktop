@@ -1,21 +1,32 @@
 pub mod env_resolver;
 pub mod profiles;
 pub mod pty_session;
+pub mod workspaces;
 
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 use profiles::{get_available_agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
+use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+//
+// Commands without `async` run on the main thread in Tauri 2. Commands that may
+// resolve the login-shell environment or wait on a child process are marked
+// `async` so they run on the async runtime and cannot freeze the window.
+//
+// `send_input` stays sync deliberately. It only enqueues bytes to the session's
+// writer thread, which owns the PTY and drains the queue in order, so it never
+// blocks on a full PTY input buffer. Marking it `async` would run keystrokes on
+// a thread pool, where concurrent calls could reach the PTY out of order.
 
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn spawn_session(
     _app: AppHandle,
     state: State<'_, PtySessionManager>,
@@ -46,12 +57,23 @@ fn resize_session(
     state.resize(&session_id, cols, rows)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_agent_profiles() -> Result<Vec<AgentProfile>, String> {
     Ok(get_available_agent_profiles())
 }
 
-#[tauri::command]
+/// Lists the project folders under `$HOME/developer` the UI can spawn into.
+///
+/// Reading the directory touches the filesystem, so this stays off the main thread.
+#[tauri::command(async)]
+fn list_workspaces() -> Result<Vec<Workspace>, String> {
+    match default_workspace_root() {
+        Some(root) => Ok(list_workspaces_in(&root)),
+        None => Err("HOME is not set, cannot locate workspaces".to_string()),
+    }
+}
+
+#[tauri::command(async)]
 fn terminate_session(
     state: State<'_, PtySessionManager>,
     session_id: String,
@@ -104,11 +126,17 @@ pub fn run() {
             if let Ok(mut guard) = app_handle_holder.lock() {
                 *guard = Some(app.handle().clone());
             }
+            // Warm the login-shell environment off the main thread so the first
+            // session spawn and profile scan do not pay for it.
+            std::thread::spawn(|| {
+                let _ = env_resolver::cached_user_env();
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             greet,
             get_agent_profiles,
+            list_workspaces,
             spawn_session,
             send_input,
             resize_session,

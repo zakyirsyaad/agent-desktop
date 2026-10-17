@@ -86,9 +86,9 @@ pub fn get_default_profiles() -> Vec<AgentProfile> {
 
 /// Resolves default profiles and updates their detection status against the user's path.
 ///
-/// Resolves the user environment once to avoid launching the login shell multiple times.
+/// Uses the cached user environment to avoid launching the login shell multiple times.
 pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
-    let path_var = match env_resolver::resolve_user_env() {
+    let path_var = match env_resolver::cached_user_env() {
         Ok(env_map) => env_map.get("PATH").cloned(),
         Err(_) => None,
     }

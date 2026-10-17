@@ -180,6 +180,53 @@ describe("StreamParser", () => {
     });
   });
 
+  describe("approval prompts split across PTY chunks", () => {
+    it("detects an approval prompt whose text arrives in two chunks", () => {
+      expect(parser.feed("Allow this ac")).toEqual([{ type: "text", content: "Allow this ac" }]);
+
+      const events = parser.feed("tion?");
+
+      expect(events).toContainEqual({
+        type: "approval_request",
+        content: "Allow this action?",
+        metadata: { retractedText: "Allow this ac" },
+      });
+    });
+
+    it("omits metadata when the whole prompt arrives in a single chunk", () => {
+      const events = parser.feed("Allow this action? [y/n] ");
+
+      expect(events).toStrictEqual([
+        { type: "approval_request", content: "Allow this action? [y/n]" },
+      ]);
+    });
+
+    it("does not raise the same prompt twice when more output follows on that line", () => {
+      parser.feed("Allow this action?");
+
+      const events = parser.feed(" (waiting)");
+
+      expect(events.some((e) => e.type === "approval_request")).toBe(false);
+    });
+
+    it("only joins the unfinished line, not lines that already ended", () => {
+      parser.feed("Allow this ac\n");
+
+      const events = parser.feed("tion?");
+
+      expect(events.some((e) => e.type === "approval_request")).toBe(false);
+    });
+
+    it("reset() forgets the unfinished line", () => {
+      parser.feed("Allow this ac");
+      parser.reset();
+
+      const events = parser.feed("tion?");
+
+      expect(events.some((e) => e.type === "approval_request")).toBe(false);
+    });
+  });
+
   describe("reset()", () => {
     it("clears internal incomplete buffer", () => {
       parser.feed("Beginning \u001b[3");

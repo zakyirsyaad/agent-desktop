@@ -19,6 +19,12 @@ export interface AgentProfile {
 
 export type PermissionMode = 'bypass' | 'ask';
 
+/** A project folder: `name` is shown in the UI, `path` is the absolute spawn cwd. */
+export interface Workspace {
+  name: string;
+  path: string;
+}
+
 export interface SessionConfig {
   profileId: string;
   cwd: string;
@@ -63,6 +69,22 @@ export interface ParsedStreamEvent {
   type: ParsedStreamEventType;
   content: string;
   metadata?: Record<string, string>;
+}
+
+export interface ToolExecution {
+  id: string;
+  name: string;
+  args: string;
+  status: 'running' | 'completed' | 'failed';
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'agent';
+  content: string;
+  timestamp: number;
+  tools?: ToolExecution[];
+  actionCard?: ActionCard;
 }
 
 export interface PtyOutputPayload {

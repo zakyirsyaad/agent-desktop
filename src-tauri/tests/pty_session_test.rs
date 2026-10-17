@@ -143,6 +143,33 @@ fn test_pty_session_nonexistent_command_error() {
 }
 
 #[test]
+fn test_pty_session_rejects_relative_cwd() {
+    let manager = PtySessionManager::new(Box::new(|_| {}));
+
+    // A bare workspace name must not be resolved against the app's own cwd.
+    let res = manager.start_session("test-relative-cwd", "src", "/bin/sh", &[]);
+
+    let err = res.expect_err("relative cwd must be rejected");
+    assert!(err.contains("absolute"), "unexpected error: {err}");
+}
+
+#[test]
+fn test_pty_session_rejects_missing_cwd_instead_of_falling_back() {
+    let manager = PtySessionManager::new(Box::new(|_| {}));
+
+    // portable-pty would otherwise silently start the agent in $HOME.
+    let res = manager.start_session(
+        "test-missing-cwd",
+        "/nonexistent/workspace/for/sure",
+        "/bin/sh",
+        &[],
+    );
+
+    let err = res.expect_err("missing cwd must be rejected");
+    assert!(err.contains("not an existing directory"), "unexpected error: {err}");
+}
+
+#[test]
 fn test_pty_session_operations_on_missing_session() {
     let (tx, _rx) = mpsc::channel();
     let manager = PtySessionManager::new(Box::new(move |event| {
@@ -160,4 +187,69 @@ fn test_pty_session_operations_on_missing_session() {
     let kill_res = manager.kill_session("missing-id");
     assert!(kill_res.is_err());
     assert!(kill_res.unwrap_err().contains("not found"));
+}
+
+#[test]
+fn test_write_stdin_does_not_block_when_a_raw_mode_child_is_not_reading_input() {
+    let (tx, rx) = mpsc::channel();
+    let manager = PtySessionManager::new(Box::new(move |event| {
+        let _ = tx.send(event);
+    }));
+
+    let session_id = "test-nonblocking-write-raw";
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+
+    // Agent CLIs switch their tty to raw mode, then stop reading stdin while
+    // they are busy. Raw mode is what makes the PTY input buffer fill up and
+    // stall the writer; the canonical mode left by a plain `sleep` absorbs the
+    // write instead. `stty` has to run before the write, so wait for READY.
+    let res = manager.start_session(
+        session_id,
+        &cwd,
+        "/bin/sh",
+        &["-c".to_string(), "stty raw -echo; echo READY; sleep 2".to_string()],
+    );
+    assert!(res.is_ok(), "Failed to start session: {:?}", res.err());
+
+    let mut accumulated = String::new();
+    let ready_start = std::time::Instant::now();
+    while ready_start.elapsed() < Duration::from_secs(5) && !accumulated.contains("READY") {
+        if let Ok(PtyEvent::Output {
+            session_id: sid,
+            data,
+        }) = rx.recv_timeout(Duration::from_millis(100))
+        {
+            if sid == session_id {
+                accumulated.push_str(&data);
+            }
+        }
+    }
+    assert!(
+        accumulated.contains("READY"),
+        "Child never entered raw mode, got: {:?}",
+        accumulated
+    );
+
+    let payload = "a".repeat(1024 * 1024);
+    let start = std::time::Instant::now();
+    let write_res = manager.write_stdin(session_id, &payload);
+    let elapsed = start.elapsed();
+
+    assert!(
+        write_res.is_ok(),
+        "Failed to write stdin: {:?}",
+        write_res.err()
+    );
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "write_stdin blocked for {:?}, expected under 1s",
+        elapsed
+    );
+
+    // A blocked write only returns once the child exits, and the reader thread
+    // then reaps the session, so cleanup is best-effort rather than asserted.
+    let _ = manager.kill_session(session_id);
 }

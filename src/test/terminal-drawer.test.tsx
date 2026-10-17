@@ -187,6 +187,51 @@ describe("TerminalDrawer", () => {
     expect(onSendInput).toHaveBeenCalledWith("git status\r");
   });
 
+  it("keeps the same terminal and listener when the parent re-renders with new callback identities", () => {
+    // App re-renders on every parsed PTY chunk and passes fresh inline callbacks.
+    // That must not dispose the terminal (wiping its scrollback) or re-subscribe.
+    mockListen.mockClear();
+    const firstSendInput = vi.fn();
+    const latestSendInput = vi.fn();
+
+    const { rerender } = render(
+      <TerminalDrawer
+        isOpen={true}
+        sessionId="s-1"
+        onSendInput={firstSendInput}
+        onResize={() => {}}
+        onClose={() => {}}
+      />
+    );
+
+    const container = screen.getByTestId("xterm-terminal-container") as HTMLElement & {
+      _xterm?: { input: (data: string) => void };
+    };
+    const originalTerminal = container._xterm;
+
+    rerender(
+      <TerminalDrawer
+        isOpen={true}
+        sessionId="s-1"
+        onSendInput={latestSendInput}
+        onResize={() => {}}
+        onClose={() => {}}
+      />
+    );
+
+    // Compare identity as a boolean: a failing toBe() would pretty-print the
+    // whole circular xterm instance and exhaust memory.
+    expect(container._xterm === originalTerminal).toBe(true);
+    expect(mockListen).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      container._xterm?.input("ls\r");
+    });
+
+    expect(latestSendInput).toHaveBeenCalledWith("ls\r");
+    expect(firstSendInput).not.toHaveBeenCalled();
+  });
+
   it("forwards terminal keystrokes directly to Tauri send_input when onSendInput is not provided", () => {
     render(
       <TerminalDrawer
