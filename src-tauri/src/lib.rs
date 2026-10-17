@@ -1,4 +1,5 @@
 pub mod acp;
+pub mod changes;
 pub mod env_resolver;
 pub mod files;
 pub mod fork_handoff;
@@ -278,6 +279,9 @@ pub fn run() {
             files::open_path,
             files::remember_workspace,
             git_info::workspace_details,
+            changes::session_changes,
+            changes::session_file_diff,
+            changes::commit_session_changes,
             worktrees::create_session_worktree,
             worktrees::remove_session_worktree,
             user_profile::get_user_profile,

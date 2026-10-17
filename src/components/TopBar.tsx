@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Folder,
   GitBranch,
+  GitCompare,
   ExternalLink,
   MoreHorizontal,
   Terminal
@@ -38,6 +39,11 @@ export interface TopBarProps {
   /** Shows or hides the workspace's files; the button is hidden when absent. */
   onToggleFiles?: () => void;
   isFilesOpen?: boolean;
+  /** Shows or hides the session's uncommitted changes; the button is hidden when absent. */
+  onToggleChanges?: () => void;
+  isChangesOpen?: boolean;
+  /** How many files changed, shown on the button once known. */
+  changeCount?: number;
   onOpenSettings?: () => void;
 }
 
@@ -55,6 +61,9 @@ export function TopBar({
   onPopout,
   onToggleFiles,
   isFilesOpen = false,
+  onToggleChanges,
+  isChangesOpen = false,
+  changeCount,
   onOpenSettings,
 }: TopBarProps) {
   return (
@@ -155,6 +164,22 @@ export function TopBar({
               aria-hidden="true"
               className={isTerminalOpen ? "text-amber-400" : "text-neutral-400"}
             />
+          </button>
+        )}
+
+        {onToggleChanges && (
+          <button
+            type="button"
+            onClick={onToggleChanges}
+            className="flex items-center gap-1 rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            aria-label="Toggle changes panel"
+            aria-pressed={isChangesOpen}
+            title="Changes"
+          >
+            <GitCompare size={14} className={isChangesOpen ? "text-amber-400" : undefined} />
+            {changeCount !== undefined && changeCount > 0 && (
+              <span className="rounded bg-neutral-800 px-1 text-[10px] leading-4 text-neutral-300">{changeCount}</span>
+            )}
           </button>
         )}
 
