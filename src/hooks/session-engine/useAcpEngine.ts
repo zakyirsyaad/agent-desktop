@@ -36,8 +36,14 @@ function sessionTitleOf(update: unknown): string | undefined {
   return title.trim() || undefined;
 }
 
+/** The message a session starts (or resumes) with. */
+export interface FirstMessage {
+  text: string;
+  attachments?: readonly string[];
+}
+
 interface LaunchOptions {
-  firstPrompt?: string;
+  first?: FirstMessage;
   /** What the user picked in the composer before the agent ran. */
   choices: AcpChoices;
   /** False for a fork: it keeps the mode the user chose in the source session. */
@@ -124,7 +130,7 @@ export function useAcpEngine({
   /** Prompts the agent with a message already shown in the chat; removes it if the prompt is refused. */
   const prompt = async (sessionId: string, message: ChatMessage): Promise<boolean> => {
     try {
-      await acp.prompt(sessionId, message.content);
+      await acp.prompt(sessionId, message.content, message.attachments);
       return true;
     } catch (error) {
       updateMessages(sessionId, (prev) => withoutMessage(prev, message.id));
@@ -134,9 +140,9 @@ export function useAcpEngine({
   };
 
   /** Resolves to whether the agent took the message. */
-  const send = async (sessionId: string, text: string): Promise<boolean> => {
+  const send = async (sessionId: string, text: string, attachments: readonly string[] = []): Promise<boolean> => {
     // Shown before the prompt goes out, so the agent's reply always lands after it.
-    const message = userMessage(text);
+    const message = userMessage(text, attachments);
     updateMessages(sessionId, (prev) => [...prev, message]);
     return prompt(sessionId, message);
   };
@@ -160,7 +166,7 @@ export function useAcpEngine({
   const launch = async (session: Session, open: () => Promise<AcpSessionInfo>, options: LaunchOptions) => {
     // A session ended earlier and now resumed must hear from its agent again.
     stoppedRef.current.delete(session.id);
-    const message = options.firstPrompt ? userMessage(options.firstPrompt) : null;
+    const message = options.first ? userMessage(options.first.text, options.first.attachments) : null;
     if (message) updateMessages(session.id, (prev) => [...prev, message]);
     markStarting(session.id, true);
     let info: AcpSessionInfo;
@@ -192,18 +198,18 @@ export function useAcpEngine({
     if (message && !isStopped(session.id)) await prompt(session.id, message);
   };
 
-  const start = (session: Session, firstPrompt?: string, choices: AcpChoices = NO_CHOICES) =>
+  const start = (session: Session, first?: FirstMessage, choices: AcpChoices = NO_CHOICES) =>
     launch(session, () => acp.start(session.id, session.cwd, session.profileId), {
-      firstPrompt,
+      first,
       choices,
       applySafeMode: true,
       action: 'start',
     });
 
   /** Continues an ended session in a fresh agent process through the agent's own session/load. */
-  const resume = (session: Session, acpSessionId: string, firstPrompt?: string, choices: AcpChoices = NO_CHOICES) =>
+  const resume = (session: Session, acpSessionId: string, first?: FirstMessage, choices: AcpChoices = NO_CHOICES) =>
     launch(session, () => acp.load(session.id, session.cwd, session.profileId, acpSessionId), {
-      firstPrompt,
+      first,
       choices,
       applySafeMode: true,
       action: 'resume',

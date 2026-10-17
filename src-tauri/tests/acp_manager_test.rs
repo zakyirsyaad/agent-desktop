@@ -63,7 +63,7 @@ fn streams_agent_messages_and_ends_the_turn() {
     let (manager, rx) = manager();
     manager.start("s-1", &cwd(), &fake_agent()).unwrap();
 
-    manager.prompt("s-1", "hi").unwrap();
+    manager.prompt("s-1", "hi", &[]).unwrap();
 
     let chunk = wait_for(&rx, |e| agent_text(e).is_some());
     assert!(matches!(&chunk, AcpEvent::Update { session_id, .. } if session_id == "s-1"));
@@ -77,7 +77,7 @@ fn streams_agent_messages_and_ends_the_turn() {
 fn round_trips_a_permission_request() {
     let (manager, rx) = manager();
     manager.start("s-1", &cwd(), &fake_agent()).unwrap();
-    manager.prompt("s-1", "permission").unwrap();
+    manager.prompt("s-1", "permission", &[]).unwrap();
 
     let request = wait_for(&rx, |e| matches!(e, AcpEvent::PermissionRequest { .. }));
     let AcpEvent::PermissionRequest { session_id, request_id, params } = request else { unreachable!() };
@@ -96,7 +96,7 @@ fn round_trips_a_permission_request() {
 fn cancelling_a_turn_ends_it_as_cancelled() {
     let (manager, rx) = manager();
     manager.start("s-1", &cwd(), &fake_agent()).unwrap();
-    manager.prompt("s-1", "slow").unwrap();
+    manager.prompt("s-1", "slow", &[]).unwrap();
 
     manager.cancel("s-1").unwrap();
 
@@ -113,7 +113,7 @@ fn forks_into_a_new_app_session_on_the_same_agent() {
     let forked = manager.fork("s-1", "s-2", &cwd()).expect("fork");
     assert_eq!(forked.acp_session_id, "fake-2");
 
-    manager.prompt("s-2", "from the fork").unwrap();
+    manager.prompt("s-2", "from the fork", &[]).unwrap();
     let chunk = wait_for(&rx, |e| agent_text(e).is_some());
     assert!(matches!(&chunk, AcpEvent::Update { session_id, .. } if session_id == "s-2"));
     manager.stop("s-1");
@@ -125,7 +125,7 @@ fn reports_an_agent_that_exits_mid_turn() {
     let (manager, rx) = manager();
     manager.start("s-1", &cwd(), &fake_agent()).unwrap();
 
-    manager.prompt("s-1", "crash").unwrap();
+    manager.prompt("s-1", "crash", &[]).unwrap();
 
     let ended = wait_for(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
     assert!(matches!(ended, AcpEvent::TurnEnded { stop_reason: Err(_), .. }));
@@ -155,7 +155,7 @@ fn rejects_bad_starts_and_unknown_sessions() {
     assert!(manager.start("s-1", "relative/dir", &fake_agent()).is_err());
     let missing = AcpLaunch { program: "/nonexistent/agent".into(), args: vec![], env: vec![] };
     assert!(manager.start("s-2", &cwd(), &missing).is_err());
-    assert!(manager.prompt("nope", "hi").is_err());
+    assert!(manager.prompt("nope", "hi", &[]).is_err());
 }
 
 #[test]
@@ -165,7 +165,7 @@ fn stopping_a_session_forgets_it() {
 
     manager.stop("s-1");
 
-    let err = manager.prompt("s-1", "hi").unwrap_err();
+    let err = manager.prompt("s-1", "hi", &[]).unwrap_err();
     assert!(err.contains("not found"), "unexpected error: {err}");
 }
 
@@ -180,7 +180,7 @@ fn loads_an_earlier_session_without_replaying_its_history_to_the_app() {
     assert_eq!(loaded.acp_session_id, "fake-earlier");
     assert_eq!(loaded.modes["currentModeId"], "default");
     // The agent replays the old conversation while loading; the app already has it.
-    manager.prompt("s-resumed", "hi again").unwrap();
+    manager.prompt("s-resumed", "hi again", &[]).unwrap();
     let first_text = wait_for(&rx, |e| agent_text(e).is_some());
     assert_eq!(agent_text(&first_text).as_deref(), Some("echo: hi again"));
     assert!(matches!(first_text, AcpEvent::Update { ref session_id, .. } if session_id == "s-resumed"));
@@ -221,4 +221,17 @@ fn signs_in_with_one_of_the_agent_methods() {
     let error = manager.authenticate(&cwd(), &fake_agent(), "nope").unwrap_err();
 
     assert!(error.contains("nope"), "unexpected error: {error}");
+}
+
+#[test]
+fn refuses_a_prompt_whose_attachment_is_missing_before_sending_it() {
+    let (manager, _rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    let error = manager
+        .prompt("s-1", "look", &["/definitely/not/here.png".to_string()])
+        .unwrap_err();
+
+    assert!(error.contains("Cannot attach"), "unexpected error: {error}");
+    manager.stop("s-1");
 }

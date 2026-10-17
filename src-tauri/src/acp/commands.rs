@@ -101,8 +101,13 @@ pub fn acp_fork_session(
 }
 
 #[tauri::command(async)]
-pub fn acp_prompt(manager: State<'_, AcpManager>, session_id: String, text: String) -> Result<(), String> {
-    manager.prompt(&session_id, &text)
+pub fn acp_prompt(
+    manager: State<'_, AcpManager>,
+    session_id: String,
+    text: String,
+    attachments: Option<Vec<String>>,
+) -> Result<(), String> {
+    manager.prompt(&session_id, &text, &attachments.unwrap_or_default())
 }
 
 #[tauri::command(async)]

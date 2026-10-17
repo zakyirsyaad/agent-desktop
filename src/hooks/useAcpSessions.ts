@@ -212,10 +212,10 @@ export function useAcpSessions(handlers: AcpHandlers) {
   );
 
   const prompt = useCallback(
-    async (sessionId: string, text: string) => {
+    async (sessionId: string, text: string, attachments: readonly string[] = []) => {
       setBusy(sessionId, true);
       try {
-        await invoke('acp_prompt', { sessionId, text });
+        await invoke('acp_prompt', { sessionId, text, attachments });
       } catch (error) {
         setBusy(sessionId, false);
         throw error;

@@ -190,6 +190,8 @@ export interface ChatMessage {
   plan?: PlanEntry[];
   /** Set when the agent's turn ended; the next reply starts a new message. */
   isComplete?: boolean;
+  /** Files the user sent with the message (ACP agents). */
+  attachments?: string[];
 }
 
 export interface PtyOutputPayload {

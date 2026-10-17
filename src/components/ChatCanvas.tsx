@@ -3,6 +3,7 @@ import { Sparkles, User } from "lucide-react";
 import { ActionCard } from "./ActionCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { MessageActionBar } from "./MessageActionBar";
+import { AttachmentChips } from "./composer/AttachmentChips";
 import { ToolCallList } from "./chat/ToolCallList";
 import { PlanList, ThinkingBlock } from "./chat/ReplyExtras";
 import { useReadAloud } from "../hooks/useReadAloud";
@@ -134,7 +135,12 @@ export function ChatCanvas({
               {msg.tools && msg.tools.length > 0 && <ToolCallList tools={msg.tools} />}
 
               {/* Message Markdown Body */}
-              <MarkdownRenderer content={msg.content} />
+              {msg.content && <MarkdownRenderer content={msg.content} />}
+              {msg.attachments && msg.attachments.length > 0 && (
+                <div className={msg.content ? "mt-2" : undefined}>
+                  <AttachmentChips paths={msg.attachments} />
+                </div>
+              )}
 
               {/* Interactive Action Card if approval request */}
               {msg.actionCard && (

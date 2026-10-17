@@ -1,7 +1,8 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square } from "lucide-react";
 import { OptionDropdown } from "./composer/OptionDropdown";
-import { appendAttachments } from "../lib/attachments";
+import { appendAttachments, withAttachments } from "../lib/attachments";
+import { AttachmentChips } from "./composer/AttachmentChips";
 import { isRiskyMode, type ComposerControl, type ComposerControls } from "../lib/composer-controls";
 import { matchingCommands, pendingHint, slashQuery } from "../lib/slash-commands";
 import { SlashCommandMenu } from "./composer/SlashCommandMenu";
@@ -31,12 +32,19 @@ export interface ComposerDockProps {
   onStop?: () => void;
   placeholder?: string;
   disabled?: boolean;
-  onSendMessage: (message: string) => void;
+  /** `attachments` are file paths, given only when `attachAsFiles` is set. */
+  onSendMessage: (message: string, attachments?: string[]) => void;
   /** Opens a file picker and resolves with the chosen paths; hidden when absent. */
   onAttach?: () => Promise<string[]>;
   handleRef?: Ref<ComposerHandle>;
   /** The agent's slash commands; typing `/` lists them. */
   commands?: SlashCommand[];
+  /**
+   * True when the agent takes files with the message (ACP): attached files
+   * show as chips and are sent apart from the text. Otherwise their paths
+   * are typed into the prompt.
+   */
+  attachAsFiles?: boolean;
 }
 
 export function ComposerDock({
@@ -50,8 +58,10 @@ export function ComposerDock({
   onAttach,
   handleRef,
   commands = [],
+  attachAsFiles = false,
 }: ComposerDockProps) {
   const [text, setText] = useState("");
+  const [attachments, setAttachments] = useState<string[]>([]);
   const [highlighted, setHighlighted] = useState(0);
   const [isMenuDismissed, setIsMenuDismissed] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null);
@@ -89,9 +99,11 @@ export function ComposerDock({
 
   const handleSend = () => {
     const trimmed = text.trim();
-    if (!trimmed || !canSend) return;
-    onSendMessage(trimmed);
+    if ((!trimmed && attachments.length === 0) || !canSend) return;
+    if (attachAsFiles) onSendMessage(trimmed, attachments);
+    else onSendMessage(trimmed);
     setText("");
+    setAttachments([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
@@ -134,7 +146,8 @@ export function ComposerDock({
   };
 
   const insertPaths = (paths: readonly string[]) => {
-    setText((current) => appendAttachments(current, paths));
+    if (attachAsFiles) setAttachments((current) => withAttachments(current, paths));
+    else setText((current) => appendAttachments(current, paths));
     textareaRef.current?.focus();
   };
 
@@ -154,6 +167,14 @@ export function ComposerDock({
         className="relative w-full rounded-xl border border-[#262626] bg-[#121212] p-3 shadow-2xl transition-all focus-within:border-neutral-700 focus-within:ring-1 focus-within:ring-amber-500/20"
         style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }}
       >
+        {attachments.length > 0 && (
+          <div className="mb-2">
+            <AttachmentChips
+              paths={attachments}
+              onRemove={(path) => setAttachments((current) => current.filter((p) => p !== path))}
+            />
+          </div>
+        )}
         {menuCommands.length > 0 && (
           <SlashCommandMenu commands={menuCommands} highlighted={highlighted} onPick={pickCommand} />
         )}
@@ -241,7 +262,7 @@ export function ComposerDock({
                 type="button"
                 aria-label="Send message"
                 onClick={handleSend}
-                disabled={!text.trim() || disabled}
+                disabled={(!text.trim() && attachments.length === 0) || disabled}
                 className="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-200 text-neutral-900 hover:bg-white disabled:opacity-30 disabled:hover:bg-neutral-200 transition-all font-medium cursor-pointer"
               >
                 <CornerDownLeft size={14} />

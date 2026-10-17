@@ -32,9 +32,10 @@ import { useUserProfile } from "./hooks/useUserProfile";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
-import { useAcpEngine } from "./hooks/session-engine/useAcpEngine";
+import { useAcpEngine, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
 import { buildForkHandoff, buildForkPrompt } from "./lib/fork-handoff";
 import { pickFiles } from "./lib/file-picker";
+import { fileNameOf } from "./lib/attachments";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerStateFor } from "./lib/composer-state";
@@ -73,6 +74,11 @@ function spawnOptionsFor(agent: AgentProfile, draft: SessionDraft): SpawnOptions
 }
 
 const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
+
+/** A session title from a message, or from its first file when it has no text. */
+function titleFor({ text, attachments }: FirstMessage): string {
+  return titleFromPrompt(text || fileNameOf(attachments?.[0] ?? ""));
+}
 
 export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
@@ -202,13 +208,14 @@ export default function App() {
     return session;
   };
 
-  const startSession = (spec: SessionSpec, firstPrompt?: string) => {
+  /** A terminal agent gets only the text: its files are already typed into it. */
+  const startSession = (spec: SessionSpec, first?: FirstMessage) => {
     const session = recordSession(spec);
-    if (isAcp(session)) void acp.start(session, firstPrompt, acpChoices);
-    else pty.start(session, spec.options ?? spawnOptionsFor(spec.agent, draft), firstPrompt);
+    if (isAcp(session)) void acp.start(session, first, acpChoices);
+    else pty.start(session, spec.options ?? spawnOptionsFor(spec.agent, draft), first?.text);
   };
 
-  const handleNewSession = (firstPrompt?: string) => {
+  const handleNewSession = (first?: FirstMessage) => {
     // The backend rejects relative and missing cwds, so never spawn without a path.
     if (!activeWorkspace || !activeWorkspacePath) {
       setNotice(NO_FOLDER_NOTICE);
@@ -223,9 +230,9 @@ export default function App() {
       {
         agent: newSessionAgent,
         cwd: activeWorkspacePath,
-        name: firstPrompt ? titleFromPrompt(firstPrompt) : nextSessionName(sessions),
+        name: first ? titleFor(first) : nextSessionName(sessions),
       },
-      firstPrompt,
+      first,
     );
   };
 
@@ -278,7 +285,7 @@ export default function App() {
         createdAt: Date.now(),
       });
       const handoffPath = await invoke<string>("write_fork_handoff", { handoffId: spec.id, content });
-      startSession({ ...spec, options: spawnOptionsFor(agent, baseOptions) }, buildForkPrompt(handoffPath));
+      startSession({ ...spec, options: spawnOptionsFor(agent, baseOptions) }, { text: buildForkPrompt(handoffPath) });
     } catch (error) {
       setNotice(`Could not fork the session: ${String(error)}`);
     }
@@ -342,29 +349,31 @@ export default function App() {
     }
   };
 
-  const sendTo = async (sessionId: string, text: string) => {
+  const sendTo = async (sessionId: string, message: FirstMessage) => {
     const session = sessionById(sessionId);
     // A numbered session takes its title from the first thing the user asks.
     const isFirstMessage = !(transcripts[sessionId]?.some((m) => m.role === "user") ?? false);
-    const sent = await (isAcp(session) ? acp.send(sessionId, text) : pty.send(sessionId, text));
+    const sent = await (isAcp(session)
+      ? acp.send(sessionId, message.text, message.attachments)
+      : pty.send(sessionId, message.text));
     if (sent && session && isFirstMessage && isAutoName(session.name)) {
-      patchSession(sessionId, { name: titleFromPrompt(text) });
+      patchSession(sessionId, { name: titleFor(message) });
     }
   };
 
-  /** Sends to the active session, or starts a new one with the message as its first prompt. */
   /** Continues an ended ACP session: a fresh agent process loads it, then gets the message. */
-  const resumeSession = (session: Session, text: string) => {
+  const resumeSession = (session: Session, message: FirstMessage) => {
     if (!session.acpSessionId) return;
     patchSession(session.id, { status: "running", endedAt: null, exitCode: null });
-    void acp.resume(session, session.acpSessionId, text, acpChoices);
+    void acp.resume(session, session.acpSessionId, message, acpChoices);
   };
 
   /** Sends to the active session, continues it when it can be resumed, or starts a new one. */
-  const handleSendMessage = (text: string) => {
-    if (activeSession && isActiveRunning) void sendTo(activeSession.id, text);
-    else if (activeSession && isResumable) resumeSession(activeSession, text);
-    else handleNewSession(text);
+  const handleSendMessage = (text: string, attachments?: string[]) => {
+    const message = { text, attachments };
+    if (activeSession && isActiveRunning) void sendTo(activeSession.id, message);
+    else if (activeSession && isResumable) resumeSession(activeSession, message);
+    else handleNewSession(message);
   };
 
   const chooseOption = (sessionId: string, cardId: string, optionId: string) =>
@@ -375,7 +384,7 @@ export default function App() {
     transcripts,
     ensureLoaded,
     onAction: (sessionId: string, action: PopoutAction) => {
-      if (action.kind === "send") void sendTo(sessionId, action.text);
+      if (action.kind === "send") void sendTo(sessionId, { text: action.text });
       else if (action.kind === "choose-option") chooseOption(sessionId, action.cardId, action.optionId);
       else pty.resolveCard(sessionId, action.key, action.cardId, action.status);
     },
@@ -513,6 +522,7 @@ export default function App() {
                       : NO_WORKSPACE_PLACEHOLDER
               }
               onSendMessage={handleSendMessage}
+              attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}
               onAttach={pickFiles}
               handleRef={composerRef}
               commands={composerCommands}

@@ -11,3 +11,18 @@ export function appendAttachments(text: string, paths: readonly string[]): strin
   const prefix = text.length === 0 || text.endsWith(" ") ? text : `${text} `;
   return `${prefix}${paths.map(formatAttachmentPath).join(" ")} `;
 }
+
+const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp)$/i;
+
+export function isImagePath(path: string): boolean {
+  return IMAGE_EXTENSION.test(path);
+}
+
+export function fileNameOf(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+/** Adds paths not attached yet, keeping their order. */
+export function withAttachments(current: readonly string[], paths: readonly string[]): string[] {
+  return [...current, ...paths.filter((p, i) => !current.includes(p) && paths.indexOf(p) === i)];
+}

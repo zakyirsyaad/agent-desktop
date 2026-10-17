@@ -536,5 +536,25 @@ describe("ACP sessions in the app", () => {
     expect(await screen.findByText(/Signed in to Qwen Code/)).toBeDefined();
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  it("sends attached files with the message and shows them in the chat", async () => {
+    const spy = await renderWithQwen();
+    await startQwenSession(spy);
+    spy.mockImplementation((cmd, args) =>
+      cmd === "plugin:dialog|open" ? Promise.resolve(["/Users/test/shot.png"]) : realInvoke(cmd, args)
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add attachment" }));
+    });
+    await send("what is wrong here?");
+
+    expect(callsTo(spy, "acp_prompt")[0][1]).toMatchObject({
+      text: "what is wrong here?",
+      attachments: ["/Users/test/shot.png"],
+    });
+    const chat = within(screen.getByTestId("chat-canvas-container"));
+    expect(chat.getByText("shot.png")).toBeDefined();
+  });
 });
 

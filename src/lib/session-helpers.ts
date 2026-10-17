@@ -96,9 +96,10 @@ export function setCardStatus(
   });
 }
 
-/** A chat message the user typed. */
-export function userMessage(content: string): ChatMessage {
-  return { id: createId('msg'), role: 'user', content, timestamp: Date.now() };
+/** A chat message the user typed, with the files they attached. */
+export function userMessage(content: string, attachments: readonly string[] = []): ChatMessage {
+  const message: ChatMessage = { id: createId('msg'), role: 'user', content, timestamp: Date.now() };
+  return attachments.length > 0 ? { ...message, attachments: [...attachments] } : message;
 }
 
 /** Drops one message by id, e.g. a user message whose send failed. */

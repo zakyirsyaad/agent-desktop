@@ -8,3 +8,4 @@ pub mod commands;
 pub mod connection;
 pub mod jsonrpc;
 pub mod manager;
+pub mod prompt_blocks;

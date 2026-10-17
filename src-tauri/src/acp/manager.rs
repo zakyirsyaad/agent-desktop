@@ -12,6 +12,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use super::connection::{error_message, AcpConnection, ConnectionEvent, EventSink};
+use super::prompt_blocks::prompt_blocks;
 use crate::pty_session::validate_cwd;
 
 /// ACP protocol version this client speaks.
@@ -197,13 +198,17 @@ impl AcpManager {
     }
 
     /// Sends a user prompt. Returns once sent; the turn ends with `TurnEnded`.
-    pub fn prompt(&self, app_session_id: &str, text: &str) -> Result<(), String> {
-        let (connection, acp_id) = self.connection_for(app_session_id)?;
+    pub fn prompt(&self, app_session_id: &str, text: &str, attachments: &[String]) -> Result<(), String> {
+        let (connection, acp_id, capabilities) = self.with_entry(app_session_id, |e| {
+            (Arc::clone(&e.connection), e.acp_session_id.clone(), e.agent_capabilities.clone())
+        })?;
+        let supports_images = capabilities["promptCapabilities"]["image"] == Value::Bool(true);
+        let prompt = prompt_blocks(text, attachments, supports_images)?;
         let sink = Arc::clone(&self.sink);
         let session_id = app_session_id.to_string();
         connection.send_request(
             "session/prompt",
-            json!({ "sessionId": acp_id, "prompt": [{ "type": "text", "text": text }] }),
+            json!({ "sessionId": acp_id, "prompt": prompt }),
             Box::new(move |result| {
                 let stop_reason = result
                     .map(|r| r["stopReason"].as_str().unwrap_or("end_turn").to_string())
