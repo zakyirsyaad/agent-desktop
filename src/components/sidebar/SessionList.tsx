@@ -3,6 +3,7 @@ import { Archive, ArchiveRestore, GitBranch, MoreHorizontal, Pencil, Pin, PinOff
 import type { Session } from "../../types";
 import type { SessionNode } from "../../lib/session-helpers";
 import { useDismiss } from "../../hooks/useDismiss";
+import { AgentLogo } from "../AgentLogo";
 
 const ROW_ACTION =
   "mr-1 rounded p-1 text-neutral-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-300 focus:outline-none focus:ring-1 focus:ring-neutral-600";
@@ -199,6 +200,7 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
         className="flex-1 min-w-0 flex items-center justify-between px-2 py-1.5 text-left"
       >
         <span className="flex min-w-0 items-center gap-1.5">
+          <AgentLogo profileId={session.profileId} name={agentName ?? session.profileId} size={12} />
           {session.worktree && (
             <GitBranch size={11} aria-label="In its own worktree" className="shrink-0 text-amber-500/80" />
           )}
