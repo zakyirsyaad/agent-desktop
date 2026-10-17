@@ -1,5 +1,6 @@
 import { acpControls, ptyDraftControls, ptySessionControls, type ComposerControls, type SessionDraft } from './composer-controls';
 import { draftInfo, type AcpChoices, type AgentOptions } from './acp-draft';
+import type { AcpConfigOption } from '../hooks/useAcpSessions';
 import type { AcpEngine } from '../hooks/session-engine/useAcpEngine';
 import { TRANSPORT_ACP, type AgentProfile, type Session } from '../types';
 
@@ -19,8 +20,11 @@ export interface ComposerInputs {
   setAcpChoices: (choices: AcpChoices) => void;
   agentOptions: Readonly<Record<string, AgentOptions>> | undefined;
   acp: AcpEngine;
-  /** Called for every setting the user picks, before or during a session, with the agent it is for. */
-  onPick?: (profileId: string, configId: string, value: string) => void;
+  /**
+   * Called for every setting the user picks, with the agent it is for: before
+   * a session at once, during one once the agent took it, with what it reports.
+   */
+  onPick?: (profileId: string, configId: string, value: string, reported?: AcpConfigOption[]) => void;
 }
 
 /**
@@ -38,8 +42,9 @@ export function composerStateFor(inputs: ComposerInputs): ComposerState {
         ? acpControls(info, {
             setMode: (modeId) => acp.setMode(session.id, modeId),
             setConfigOption: (configId, value) => {
-              acp.setConfigOption(session.id, configId, value);
-              inputs.onPick?.(session.profileId, configId, value);
+              void acp.setConfigOption(session.id, configId, value).then((reported) => {
+                if (reported) inputs.onPick?.(session.profileId, configId, value, reported);
+              });
             },
           })
         : {};

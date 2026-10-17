@@ -42,6 +42,7 @@ import { useUnreadMarks } from "./hooks/useUnreadMarks";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
 import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
+import type { AcpConfigOption } from "./hooks/useAcpSessions";
 import { attentionBody, notifyIfAway } from "./lib/notify";
 import { buildForkHandoff, buildForkPrompt } from "./lib/fork-handoff";
 import { pickFiles } from "./lib/file-picker";
@@ -167,10 +168,12 @@ export default function App() {
 
   // What a new or resumed session starts with: the picks made for it, else the model picked last.
   const startChoices = draftAgent ? withPreferred(acpChoices, state.agentOptions?.[draftAgent.id]) : acpChoices;
-  /** Keeps a model pick, so the agent's next session starts with it too. */
-  const rememberPick = (profileId: string, configId: string, value: string) => {
-    const preferredConfig = rememberedChoice(state.agentOptions?.[profileId], configId, value);
-    if (preferredConfig) rememberAgentOptions(profileId, { preferredConfig });
+  /** Keeps a model or effort pick (as the agent settled it), so the agent's next session starts with it too. */
+  const rememberPick = (profileId: string, configId: string, value: string, reported?: AcpConfigOption[]) => {
+    const preferredConfig = rememberedChoice(state.agentOptions?.[profileId], configId, value, reported);
+    if (!preferredConfig) return;
+    // The lists on offer follow too (an effort list depends on its model), so the next draft offers the same.
+    rememberAgentOptions(profileId, { preferredConfig, ...(reported?.length ? { configOptions: reported } : {}) });
   };
 
   const engineDeps = { sessions, agents, updateMessages, patchSession, reportError };

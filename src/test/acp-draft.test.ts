@@ -108,6 +108,18 @@ describe("the model picked last", () => {
     expect(rememberedChoice(withEffort, "mode", "yolo")).toBeNull();
   });
 
+  it("keeps what the agent settled on after a change, such as an effort a model change reset", () => {
+    const remembered = { ...withEffort, preferredConfig: { reasoning_effort: "high" } };
+    const reported = withEffort.configOptions.map((o) =>
+      o.id === "model" ? { ...o, currentValue: "qwen3-max" } : o.id === "reasoning_effort" ? { ...o, currentValue: "low" } : o,
+    );
+
+    expect(rememberedChoice(remembered, "model", "qwen3-max", reported)).toEqual({
+      model: "qwen3-max",
+      reasoning_effort: "low",
+    });
+  });
+
   it("applies the model before the effort, whose choices depend on it", () => {
     const choices = { config: { reasoning_effort: "high", model: "qwen3-max" } };
 

@@ -42,15 +42,25 @@ export function withPreferred(choices: AcpChoices, options: AgentOptions | undef
   return { ...choices, config: { ...Object.fromEntries(preferred), ...choices.config } };
 }
 
-/** The remembered picks after the user picked `value` for `configId`, or null when that setting is not kept. */
+/**
+ * The remembered picks after the user picked `value` for `configId`, or null
+ * when that setting is not kept. With what the agent reported after the
+ * change, its settled values are kept instead: a model change can reset the
+ * effort, and the next session should start as this one ended.
+ */
 export function rememberedChoice(
   options: AgentOptions | undefined,
   configId: string,
   value: string,
+  reported: readonly AcpConfigOption[] = [],
 ): Record<string, string> | null {
-  const category = options?.configOptions.find((o) => o.id === configId)?.category;
-  if (!category || !REMEMBERED_CATEGORIES.has(category)) return null;
-  return { ...options?.preferredConfig, [configId]: value };
+  const known = reported.length > 0 ? reported : (options?.configOptions ?? []);
+  const isKept = (option: AcpConfigOption | undefined) =>
+    option?.category !== undefined && REMEMBERED_CATEGORIES.has(option.category);
+  if (!isKept(known.find((o) => o.id === configId))) return null;
+  if (reported.length === 0) return { ...options?.preferredConfig, [configId]: value };
+  const settled = reported.filter(isKept).map((o): [string, string] => [o.id, o.currentValue]);
+  return { ...options?.preferredConfig, ...Object.fromEntries(settled) };
 }
 
 export function draftInfo(options: AgentOptions, choices: AcpChoices): Pick<AcpSessionInfo, 'modes' | 'configOptions'> {

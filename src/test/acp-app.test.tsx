@@ -784,41 +784,113 @@ describe("ACP sessions in the app", () => {
         { value: "qwen3-max(openai)", name: "Qwen3 Max" },
       ],
     });
-    const effortOption = (currentValue: string) => ({
+    // As in Qwen, the efforts on offer depend on the model.
+    const EFFORTS: Record<string, { value: string; name: string }[]> = {
+      "coder-model(qwen-oauth)": [
+        { value: "low", name: "Low" },
+        { value: "high", name: "High" },
+      ],
+      "qwen3-max(openai)": [
+        { value: "low", name: "Low" },
+        { value: "max", name: "Max" },
+      ],
+    };
+    const effortOption = (model: string, currentValue: string) => ({
       id: "reasoning_effort",
       name: "Reasoning effort",
       category: "thought_level",
       type: "select",
       currentValue,
-      options: [
-        { value: "low", name: "Low" },
-        { value: "high", name: "High" },
-      ],
+      options: EFFORTS[model],
     });
-    // What the fake agent holds now, as Qwen would after each change.
+    // What the fake agent holds now; every new session starts on its defaults, as Qwen's do.
     const current = { model: "coder-model(qwen-oauth)", effort: "low" };
+    const reported = () => [modelOption(current.model), effortOption(current.model, current.effort)];
     function withModels() {
-      current.model = "coder-model(qwen-oauth)";
-      current.effort = "low";
       return vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
-        const a = args as { sessionId?: string; value?: string } | undefined;
+        const a = args as { sessionId?: string; value?: string; configId?: string } | undefined;
         if (cmd === "acp_start_session") {
+          current.model = "coder-model(qwen-oauth)";
+          current.effort = "low";
           return Promise.resolve({
             acpSessionId: `acp-${a?.sessionId}`,
             agentCapabilities: {},
             modes: null,
             models: null,
-            configOptions: [modelOption("coder-model(qwen-oauth)"), effortOption("low")],
+            configOptions: reported(),
           });
         }
         if (cmd === "acp_set_config_option") {
-          const { configId } = args as { configId?: string };
-          current[configId === "model" ? "model" : "effort"] = String(a?.value);
-          return Promise.resolve([modelOption(current.model), effortOption(current.effort)]);
+          const value = String(a?.value);
+          if (a?.configId === "model") {
+            current.model = value;
+            // A model without the current effort falls back to its lowest one.
+            if (!EFFORTS[value].some((e) => e.value === current.effort)) current.effort = "low";
+          } else if (EFFORTS[current.model].some((e) => e.value === value)) {
+            current.effort = value;
+          } else {
+            return Promise.reject(`Reasoning selection was not applied: ${value}`);
+          }
+          return Promise.resolve(reported());
         }
         return realInvoke(cmd, args);
       });
     }
+
+    async function pick(control: string, option: string) {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${control}:`) }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("option", { name: option }));
+      });
+    }
+
+    /** Opens a new session, sends a message and returns the calls made from then on. */
+    async function nextSessionCalls(spy: ReturnType<typeof withModels>) {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+      });
+      const before = (spy.mock.calls as unknown as InvokeCall[]).length;
+      await send("next task");
+      await waitFor(() => expect(callsTo(spy, "acp_prompt").length).toBeGreaterThan(1));
+      return (spy.mock.calls as unknown as InvokeCall[])
+        .slice(before)
+        .map(([cmd, a]) => `${cmd}${(a as { value?: string })?.value ? `:${(a as { value?: string }).value}` : ""}`);
+    }
+
+    it("remembers the effort Qwen settles on when a model change resets it", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+      await pick("Effort", "High");
+      await pick("Model", "Qwen3 Max");
+      expect(screen.getByRole("button", { name: "Effort: Low" })).toBeDefined();
+
+      const calls = await nextSessionCalls(spy);
+
+      expect(calls).toContain("acp_set_config_option:qwen3-max(openai)");
+      expect(calls).not.toContain("acp_set_config_option:high");
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("applies a remembered effort that only the remembered model offers, after switching to it", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+      await pick("Model", "Qwen3 Max");
+      await pick("Effort", "Max");
+
+      const calls = await nextSessionCalls(spy);
+
+      const model = calls.indexOf("acp_set_config_option:qwen3-max(openai)");
+      const effort = calls.indexOf("acp_set_config_option:max");
+      const prompt = calls.findIndex((c) => c.startsWith("acp_prompt"));
+      expect(model).toBeGreaterThanOrEqual(0);
+      expect(effort).toBeGreaterThan(model);
+      expect(prompt).toBeGreaterThan(effort);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
 
     it("switches the model of a running session and shows the new one", async () => {
       await renderWithQwen();
@@ -860,8 +932,10 @@ describe("ACP sessions in the app", () => {
       expect(setIndex).toBeGreaterThanOrEqual(0);
       expect(setIndex).toBeLessThan(later.findIndex(([cmd]) => cmd === "acp_prompt"));
       await waitFor(() =>
+        // As Qwen settled it: the model picked, and the effort it kept.
         expect((fakeStore().state as { agentOptions?: Record<string, { preferredConfig?: unknown }> }).agentOptions?.qwen?.preferredConfig).toEqual({
           model: "qwen3-max(openai)",
+          reasoning_effort: "low",
         })
       );
     });
