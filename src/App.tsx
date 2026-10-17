@@ -9,6 +9,7 @@ import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
 import { AuthPanel } from "./components/AuthPanel";
 import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
+import { WorkspaceSummary } from "./components/workspace/WorkspaceSummary";
 import { ChangesPanel } from "./components/changes/ChangesPanel";
 import { useSidePanel } from "./hooks/useSidePanel";
 import { useTurnsEnded } from "./hooks/useTurnsEnded";
@@ -345,6 +346,23 @@ export default function App() {
     onNotice: setNotice,
   });
 
+  /**
+   * Starts again from before one of the user's messages, with it back in the
+   * composer to edit. An agent cannot forget part of a conversation, so this
+   * opens a new branch: a fork from the message before, or a new session for
+   * the first message. The session itself is kept.
+   */
+  const rewindTo = async (messageId: string) => {
+    if (!activeSession) return;
+    const messages = transcripts[activeSession.id] ?? [];
+    const index = messages.findIndex((m) => m.id === messageId);
+    const message = messages[index];
+    if (!message) return;
+    if (index === 0) openNewSession(workspacePathOf(activeSession), activeSession.profileId);
+    else await forkSession(messages[index - 1].id);
+    composerRef.current?.restore(message.content, message.attachments);
+  };
+
   const handleSelectSession = (sessionId: string) => {
     setActiveSessionId(sessionId);
     // An agent picked for a new session that was never started is forgotten.
@@ -590,6 +608,16 @@ export default function App() {
               messages={currentMessages}
               agentName={activeAgent?.name}
               onForkBranch={(messageId) => void forkSession(messageId)}
+              onRewind={(messageId) => void rewindTo(messageId)}
+              header={
+                <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 px-4 py-3">
+                  <WorkspaceSummary
+                    name={folderNameOf(workspacePathOf(activeSession))}
+                    path={shownFolderPath ?? activeSession.cwd}
+                    details={workspaceDetails}
+                  />
+                </div>
+              }
               onSendPtyInput={(input) => void pty.sendRaw(activeSessionId, input)}
               onApproveAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "approved")}
               onRejectAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "rejected")}

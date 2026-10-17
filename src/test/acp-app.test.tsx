@@ -677,6 +677,49 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_fork_session")).toHaveLength(0);
   });
 
+  it("rewinds to a later message: a new branch from before it, with the message back in the composer", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    const yours = screen.getByText("plan the parser").closest("[data-testid^='chat-message-']") as HTMLElement;
+
+    await act(async () => {
+      fireEvent.click(within(yours).getByRole("button", { name: "Rewind to here" }));
+    });
+
+    await waitFor(() => expect(callsTo(spy, "write_fork_handoff")).toHaveLength(1));
+    // The handoff carries the conversation up to the message before the one rewound to.
+    const handoff = String(callsTo(spy, "write_fork_handoff")[0][1]?.content);
+    expect(handoff).toContain(FIRST_MESSAGE);
+    expect(handoff).not.toContain("plan the parser");
+    expect(prompt().value).toBe("plan the parser");
+    expect(within(screen.getByRole("complementary")).getByText(`${FIRST_MESSAGE} (fork)`)).toBeDefined();
+  });
+
+  it("rewinds to the first message as a new session in the same folder, with the message ready", async () => {
+    const spy = await renderWithQwen();
+    await startQwenSession(spy);
+    const first = screen.getByText(FIRST_MESSAGE, { selector: "p" }).closest("[data-testid^='chat-message-']") as HTMLElement;
+
+    await act(async () => {
+      fireEvent.click(within(first).getByRole("button", { name: "Rewind to here" }));
+    });
+
+    expect(screen.getByRole("heading", { name: "New session" })).toBeDefined();
+    expect(prompt().value).toBe(FIRST_MESSAGE);
+    expect(screen.getByRole("button", { name: "Agent: Qwen Code" })).toBeDefined();
+  });
+
+  it("shows the session's folder and branch above its conversation", async () => {
+    const spy = await renderWithQwen();
+    await startQwenSession(spy);
+
+    const workspace = within(within(screen.getByTestId("chat-canvas-container")).getByRole("group", { name: "Workspace" }));
+    expect(workspace.getByText("ai-perpetual-trading")).toBeDefined();
+    expect(await workspace.findByLabelText("Branch main")).toBeDefined();
+  });
+
   it("stays busy until the first prompt is out, so a second message cannot slip in", async () => {
     const spy = await renderWithQwen();
     let finishSetMode: () => void = () => {};
