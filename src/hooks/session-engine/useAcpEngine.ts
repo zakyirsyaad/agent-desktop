@@ -162,7 +162,12 @@ export function useAcpEngine({
    * Applies the user's picks, or the safe mode. A failed change leaves the
    * agent as it started, which the composer shows; the session stays usable.
    */
-  const applyChanges = async (sessionId: string, info: AcpSessionInfo, options: LaunchOptions) => {
+  /** Resolves with the agent's options once the changes are made, as it last reported them. */
+  const applyChanges = async (
+    sessionId: string,
+    info: AcpSessionInfo,
+    options: LaunchOptions,
+  ): Promise<Pick<AcpSessionInfo, 'modes' | 'configOptions'>> => {
     let current: Pick<AcpSessionInfo, 'modes' | 'configOptions'> = info;
     const done = new Set<string>();
     const keyOf = (change: AcpChange) => (change.kind === 'mode' ? 'mode' : `config:${change.configId}`);
@@ -170,7 +175,7 @@ export function useAcpEngine({
     // is on offer can depend on what was just set (an effort on its model).
     for (;;) {
       const change = changesToApply(current, options.choices, options.applySafeMode).find((c) => !done.has(keyOf(c)));
-      if (!change || isStopped(sessionId)) return;
+      if (!change || isStopped(sessionId)) return current;
       done.add(keyOf(change));
       try {
         if (change.kind === 'mode') await acp.setMode(sessionId, change.modeId);
@@ -217,7 +222,12 @@ export function useAcpEngine({
       }
       rememberOptions(session.profileId, { modes: info.modes, configOptions: info.configOptions });
       if (info.acpSessionId) patchSession(session.id, { acpSessionId: info.acpSessionId });
-      await applyChanges(session.id, info, options);
+      const settled = await applyChanges(session.id, info, options);
+      // What the agent offers now, after the picks: an effort list follows its model,
+      // and the next draft should offer what this session ended up with.
+      if (settled.configOptions !== info.configOptions) {
+        rememberOptions(session.profileId, { configOptions: settled.configOptions });
+      }
       if (message && !isStopped(session.id)) await prompt(session.id, message);
     } finally {
       markStarting(session.id, false);

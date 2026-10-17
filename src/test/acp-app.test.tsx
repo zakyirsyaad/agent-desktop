@@ -965,6 +965,47 @@ describe("ACP sessions in the app", () => {
       expect(setIndex).toBeLessThan(later.findIndex(([cmd]) => cmd === "acp_prompt"));
     });
 
+    it("keeps the remembered effort for every later session, not only the next one", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+      await pick("Model", "Qwen3 Max");
+      await pick("Effort", "Max");
+
+      await nextSessionCalls(spy);
+      const third = await nextSessionCalls(spy);
+
+      expect(third).toContain("acp_set_config_option:qwen3-max(openai)");
+      expect(third).toContain("acp_set_config_option:max");
+    });
+
+    it("starts a new session with the model switched to last, not one picked before an earlier session", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+      });
+      await send("get started");
+      await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
+      const sessionId = String(callsTo(spy, "acp_start_session")[0][1]?.sessionId);
+      await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+      // A model picked in the draft before the second session, then switched back during it.
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+      });
+      await pick("Model", "Qwen3 Max");
+      await send("second");
+      await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(2));
+      const second = String(callsTo(spy, "acp_start_session")[1][1]?.sessionId);
+      await acpEvent({ sessionId: second, kind: "turn-end", stopReason: "end_turn" });
+      await pick("Model", "Coder Model");
+
+      const calls = await nextSessionCalls(spy);
+
+      expect(screen.getByRole("button", { name: "Model: Coder Model" })).toBeDefined();
+      expect(calls).not.toContain("acp_set_config_option:qwen3-max(openai)");
+    });
+
     it("applies a model picked before the session starts, before its first prompt", async () => {
       await renderWithQwen();
       const spy = withModels();

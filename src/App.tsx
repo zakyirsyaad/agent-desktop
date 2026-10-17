@@ -279,6 +279,8 @@ export default function App() {
     const session = recordSession(spec);
     if (isAcp(session)) void acp.start(session, first, startChoices);
     else pty.start(session, spec.options ?? spawnOptionsFor(spec.agent, draft), first?.text);
+    // The picks went with the session; a later draft starts from the model picked last.
+    setAcpChoices(NO_CHOICES);
   };
 
   /**
@@ -331,6 +333,8 @@ export default function App() {
   const openNewSession = (path?: string, agentId?: string) => {
     if (path) chooseFolder(path);
     setPickedAgentId(agentId ?? null);
+    // A fresh draft: picks left from an earlier one would override the model picked last.
+    setAcpChoices(NO_CHOICES);
     setActiveSessionId("");
   };
 
@@ -478,6 +482,7 @@ export default function App() {
     // Continuing an archived session brings it back into the list.
     patchSession(session.id, { status: "running", endedAt: null, exitCode: null, archivedAt: null });
     void acp.resume(session, session.acpSessionId, message, startChoices);
+    setAcpChoices(NO_CHOICES);
   };
 
   /** Sends to the active session, continues it when it can be resumed, or starts a new one. */
