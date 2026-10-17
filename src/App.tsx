@@ -78,6 +78,8 @@ export default function App() {
   /** Whether the next new session runs in its own worktree (a git repository only). */
   const [isWorktreeOn, setIsWorktreeOn] = useState(false);
   const [isCreatingWorktree, setIsCreatingWorktree] = useState(false);
+  /** Bumped after each of the active agent's turns, so its folder's branch is read again. */
+  const [branchCheck, setBranchCheck] = useState(0);
   const [acpChoices, setAcpChoices] = useState<AcpChoices>(NO_CHOICES);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const composerRef = useRef<ComposerHandle>(null);
@@ -113,7 +115,7 @@ export default function App() {
   const isNewSessionDraft = !activeSession;
   // A session shows the folder it runs in, even one no longer in the recents.
   const shownFolderPath = activeSession?.cwd ?? activeWorkspacePath;
-  const workspaceDetails = useWorkspaceDetails(shownFolderPath, reportError);
+  const workspaceDetails = useWorkspaceDetails(shownFolderPath, reportError, branchCheck);
   // Files and Reveal act on the folder the top bar names. The backend browses
   // every saved session's folder, so one gone from the recents keeps them.
   const isRepository = Boolean(workspaceDetails?.branch);
@@ -223,12 +225,9 @@ export default function App() {
 
   const turnsEnded = useTurnsEnded(Boolean(activeSessionId) && isSessionBusy(activeSessionId));
   const sidePanel = useSidePanel(filesFolder?.path, isRepository, turnsEnded, reportError);
-  const pullRequest = usePullRequest(
-    isRepository ? shownFolderPath : undefined,
-    workspaceDetails?.branch ?? undefined,
-    turnsEnded,
-    reportError,
-  );
+  const pullRequest = usePullRequest(isRepository ? shownFolderPath : undefined, turnsEnded, reportError);
+  // The agent may have checked out another branch: the top bar reads it again after each turn.
+  useEffect(() => setBranchCheck(turnsEnded), [turnsEnded]);
   /**
    * Whether a session's agent waits for the user's answer. An ACP agent stays
    * busy while it asks; a terminal agent goes quiet on its y/n prompt, so for

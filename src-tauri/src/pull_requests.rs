@@ -11,6 +11,7 @@ use tauri::State;
 
 use crate::env_resolver;
 use crate::files::ensure_known_workspace;
+use crate::git_info::branch_of;
 use crate::store::AppStore;
 
 /// How a pull request's checks stand, counted.
@@ -141,15 +142,19 @@ pub fn branch_pull_request(
     parse_pull_request(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// The pull request for a session's branch, read with the user's GitHub CLI.
+/// The pull request for the branch checked out in a session's folder right
+/// now, read with the user's GitHub CLI. The branch is read here, not passed
+/// in, so one the agent just created or switched to counts at once.
 #[tauri::command(async)]
 pub fn session_pull_request(
     store: State<'_, AppStore>,
     path: String,
-    branch: String,
 ) -> Result<Option<PullRequestStatus>, String> {
     ensure_known_workspace(&path, |p| store.is_known_workspace(p))?;
     let Some(gh) = env_resolver::find_binary_in_user_path("gh") else {
+        return Ok(None);
+    };
+    let Some(branch) = branch_of(Path::new(&path)) else {
         return Ok(None);
     };
     branch_pull_request(&gh, Path::new(&path), &branch)

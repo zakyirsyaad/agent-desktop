@@ -157,7 +157,7 @@ describe("Window chrome wiring", () => {
     const chip = await header().findByRole("button", { name: "Pull request #7, open, checks passing" });
     expect(spy).toHaveBeenCalledWith(
       "session_pull_request",
-      { path: "/Users/test/developer/agent-desktop", branch: "main" },
+      { path: "/Users/test/developer/agent-desktop" },
       undefined,
     );
     await click(chip);

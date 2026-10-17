@@ -1032,6 +1032,18 @@ describe("ACP sessions in the app", () => {
     });
   });
 
+  it("reads the branch again when the agent's turn ends, as it may have checked out another", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("make a branch");
+    const reads = () => callsTo(spy, "workspace_details").length;
+    const before = reads();
+
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
   it("shows the context the agent has used, as it reports it", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);

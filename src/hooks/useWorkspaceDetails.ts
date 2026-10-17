@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useLatest } from './useLatest';
 
@@ -17,22 +17,25 @@ export interface WorkspaceDetails {
 export function useWorkspaceDetails(
   path: string | undefined,
   onError: (message: string) => void,
+  /** Changing it reads the details again (the branch may have changed). */
+  refreshKey = 0,
 ): WorkspaceDetails | null {
   const [details, setDetails] = useState<{ path: string; value: WorkspaceDetails } | null>(null);
   const onErrorRef = useLatest(onError);
+  // Kept across refreshes, so a folder that cannot be read is reported once, not after every turn.
+  const reportedRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (!path) return;
     let isCancelled = false;
-    let hasReported = false;
     const load = () =>
       invoke<WorkspaceDetails>('workspace_details', { path })
         .then((value) => {
           if (!isCancelled && value) setDetails({ path, value });
         })
         .catch((error) => {
-          if (isCancelled || hasReported) return;
-          hasReported = true;
+          if (isCancelled || reportedRef.current.has(path)) return;
+          reportedRef.current.add(path);
           onErrorRef.current(`Could not read the folder ${path}: ${String(error)}`);
         });
     load();
@@ -41,7 +44,7 @@ export function useWorkspaceDetails(
       isCancelled = true;
       window.removeEventListener('focus', load);
     };
-  }, [path, onErrorRef]);
+  }, [path, refreshKey, onErrorRef]);
 
   // Never show one folder's branch under another's name while it loads.
   return details && details.path === path ? details.value : null;
