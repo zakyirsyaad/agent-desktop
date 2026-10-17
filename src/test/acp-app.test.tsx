@@ -1044,6 +1044,22 @@ describe("ACP sessions in the app", () => {
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
   });
 
+  it("shows the session's cost in the context details when the agent reports it", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+
+    await acpEvent({
+      sessionId,
+      kind: "update",
+      update: { sessionUpdate: "usage_update", used: 1_000, size: 10_000, cost: { amount: 1.5, currency: "USD" } },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Context details" }));
+    });
+
+    expect(within(screen.getByRole("dialog", { name: "Context usage" })).getByText("$1.50")).toBeDefined();
+  });
+
   it("shows the context the agent has used, as it reports it", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);

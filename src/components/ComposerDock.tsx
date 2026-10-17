@@ -309,7 +309,7 @@ export function ComposerDock({
           </div>
 
           <div className="flex items-center gap-2">
-            {contextUsage && <ContextMeter used={contextUsage.used} size={contextUsage.size} />}
+            {contextUsage && <ContextMeter {...contextUsage} />}
 
             {model && (
               <OptionDropdown

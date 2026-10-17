@@ -153,8 +153,13 @@ export function useAcpSessions(handlers: AcpHandlers) {
             else earlyCommandsRef.current.set(sessionId, commands);
           }
           if (isObject(update) && update.sessionUpdate === 'usage_update') {
-            const { used, size } = update;
-            if (typeof used === 'number' && typeof size === 'number') patch(sessionId, (c) => ({ ...c, usage: { used, size } }));
+            const { used, size, cost } = update;
+            const amount = isObject(cost) && typeof cost.amount === 'number' ? cost.amount : undefined;
+            const currency = isObject(cost) && isString(cost.currency) ? cost.currency : undefined;
+            if (typeof used === 'number' && typeof size === 'number') {
+              const usage = { used, size, ...(amount !== undefined && currency ? { cost: { amount, currency } } : {}) };
+              patch(sessionId, (c) => ({ ...c, usage }));
+            }
           }
           if (isObject(update) && update.sessionUpdate === 'config_option_update') {
             const options = toConfigOptions(update.configOptions);
