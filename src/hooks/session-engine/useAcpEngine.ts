@@ -3,7 +3,7 @@ import {
   applyAcpUpdate,
   applyPermissionRequest,
   closeTurn,
-  pendingPermissionCards,
+  pendingCardsInTurn,
   reopenPermissionCard,
   resolvePermissionCard,
   type PermissionRequestPayload,
@@ -261,7 +261,7 @@ export function useAcpEngine({
       patchSession(sessionId, { status: 'terminated', endedAt: Date.now() });
       return;
     }
-    for (const card of pendingPermissionCards(messages ?? [])) {
+    for (const card of pendingCardsInTurn(messages ?? [])) {
       if (card.requestId === undefined) continue;
       acp.respondPermission(sessionId, card.requestId, null).catch(reportFailure('Could not answer the agent'));
     }

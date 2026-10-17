@@ -37,6 +37,14 @@ pub struct AcpLaunch {
     pub env: Vec<(String, String)>,
 }
 
+/// Why opening a session failed: the agent answered with an error (its
+/// message says it all), or the process or transport failed (the agent's
+/// stderr helps explain that).
+enum OpenError {
+    Agent(String),
+    Transport(String),
+}
+
 /// What the agent reported when a session started (or was forked).
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -94,7 +102,7 @@ impl AcpManager {
     pub fn start(&self, app_session_id: &str, cwd: &str, launch: &AcpLaunch) -> Result<StartedSession, String> {
         self.open(app_session_id, cwd, launch, |connection, init| {
             let session = open_request(connection, init, "session/new", json!({ "cwd": cwd, "mcpServers": [] }))?;
-            started_session(session, init["agentCapabilities"].clone())
+            started_session(session, init["agentCapabilities"].clone()).map_err(OpenError::Agent)
         })
     }
 
@@ -113,7 +121,7 @@ impl AcpManager {
         self.open(app_session_id, cwd, launch, |connection, init| {
             let capabilities = init["agentCapabilities"].clone();
             if capabilities["loadSession"] != Value::Bool(true) {
-                return Err("This agent cannot resume earlier sessions".to_string());
+                return Err(OpenError::Agent("This agent cannot resume earlier sessions".to_string()));
             }
             let response = open_request(
                 connection,
@@ -139,7 +147,7 @@ impl AcpManager {
         app_session_id: &str,
         cwd: &str,
         launch: &AcpLaunch,
-        open_session: impl FnOnce(&AcpConnection, &Value) -> Result<StartedSession, String>,
+        open_session: impl FnOnce(&AcpConnection, &Value) -> Result<StartedSession, OpenError>,
     ) -> Result<StartedSession, String> {
         validate_cwd(cwd)?;
         let connection_key = self.next_connection_key.fetch_add(1, Ordering::SeqCst);
@@ -152,15 +160,16 @@ impl AcpManager {
         )?;
 
         let started = initialize(&connection)
+            .map_err(OpenError::Transport)
             .and_then(|init| open_session(&connection, &init))
-            .map_err(|e| {
+            .map_err(|error| {
                 let stderr = connection.stderr_tail();
                 connection.kill();
-                // A sign-in error carries JSON the UI parses; stderr would break it.
-                if stderr.is_empty() || e.starts_with(AUTH_REQUIRED_PREFIX) {
-                    e
-                } else {
-                    format!("{}\n{}", e, stderr)
+                match error {
+                    // Includes sign-in errors, whose JSON the UI parses.
+                    OpenError::Agent(message) => message,
+                    OpenError::Transport(message) if stderr.is_empty() => message,
+                    OpenError::Transport(message) => format!("{}\n{}", message, stderr),
                 }
             })?;
         self.register(app_session_id, connection, connection_key, &started);
@@ -268,6 +277,17 @@ impl AcpManager {
             SESSION_REQUEST_TIMEOUT,
         )?;
         Ok(response["configOptions"].clone())
+    }
+
+    /// Stops every session; returns how many there were.
+    pub fn stop_all(&self) -> usize {
+        let ids: Vec<String> = self
+            .routes
+            .lock()
+            .map(|routes| routes.sessions.keys().cloned().collect())
+            .unwrap_or_default();
+        ids.iter().for_each(|id| self.stop(id));
+        ids.len()
     }
 
     /// Forgets the session; kills the agent once no other session uses it.
@@ -389,17 +409,17 @@ fn is_auth_required(error: &Value) -> bool {
 
 /// Opens a session; an "authentication required" answer becomes an error
 /// carrying [`AUTH_REQUIRED_PREFIX`] and the agent's auth methods.
-fn open_request(connection: &AcpConnection, init: &Value, method: &str, params: Value) -> Result<Value, String> {
-    match connection.request_raw(method, params, HANDSHAKE_TIMEOUT)? {
+fn open_request(connection: &AcpConnection, init: &Value, method: &str, params: Value) -> Result<Value, OpenError> {
+    match connection.request_raw(method, params, HANDSHAKE_TIMEOUT).map_err(OpenError::Transport)? {
         Ok(result) => Ok(result),
         Err(error) if is_auth_required(&error) => {
             let methods = match &init["authMethods"] {
                 Value::Array(methods) => Value::Array(methods.clone()),
                 _ => Value::Array(Vec::new()),
             };
-            Err(format!("{}{}", AUTH_REQUIRED_PREFIX, methods))
+            Err(OpenError::Agent(format!("{}{}", AUTH_REQUIRED_PREFIX, methods)))
         }
-        Err(error) => Err(format!("{} failed: {}", method, error_message(&error))),
+        Err(error) => Err(OpenError::Agent(format!("{} failed: {}", method, error_message(&error)))),
     }
 }
 

@@ -69,6 +69,13 @@ export interface Workspace {
   path: string;
 }
 
+/** How much of an agent's context window is in use, in tokens. */
+export interface ContextUsage {
+  used: number;
+  /** The window's size; 0 when the agent does not know it. */
+  size: number;
+}
+
 export interface Session {
   id: string;
   name: string;

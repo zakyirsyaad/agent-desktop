@@ -103,7 +103,7 @@ describe("ACP sessions in the app", () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);
     await send("hi");
-    expect(screen.getByTestId("thinking-indicator-ring")).toBeDefined();
+    expect(screen.getByTestId("agent-working")).toBeDefined();
 
     await acpEvent({
       sessionId,
@@ -113,7 +113,7 @@ describe("ACP sessions in the app", () => {
     await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
 
     expect(screen.getByText("Hello from Qwen")).toBeDefined();
-    expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
+    expect(screen.queryByTestId("agent-working")).toBeNull();
   });
 
   it("answers a permission request with the option the user picks", async () => {
@@ -202,7 +202,7 @@ describe("ACP sessions in the app", () => {
     await acpEvent({ sessionId, kind: "turn-end", error: "model overloaded" });
 
     expect(screen.getByRole("alert").textContent).toContain("model overloaded");
-    expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
+    expect(screen.queryByTestId("agent-working")).toBeNull();
   });
 
   it("forks a live ACP session natively from its latest reply", async () => {
@@ -627,6 +627,96 @@ describe("ACP sessions in the app", () => {
     });
     await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
     expect(callsTo(spy, "acp_prompt")[0][1]).toMatchObject({ text: "first" });
+  });
+
+  it("shows the context the agent has used, as it reports it", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+
+    await acpEvent({ sessionId, kind: "update", update: { sessionUpdate: "usage_update", used: 250_000, size: 1_000_000 } });
+
+    expect(screen.getByRole("meter", { name: "Context used" }).getAttribute("aria-valuenow")).toBe("25");
+  });
+
+  it("shows the agent working while a session starts, before it has any message", async () => {
+    const spy = await renderWithQwen();
+    spy.mockImplementation((cmd, args) =>
+      cmd === "acp_start_session" ? new Promise(() => {}) : realInvoke(cmd, args)
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+
+    expect(screen.getByTestId("agent-working")).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "No session yet" })).toBeNull();
+  });
+
+  it("stops showing 'Working' while the agent waits for a permission answer", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("clean up");
+    expect(screen.getByTestId("agent-working")).toBeDefined();
+
+    await acpEvent({
+      sessionId,
+      kind: "permission",
+      requestId: 21,
+      toolCall: { title: "Delete build" },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+
+    expect(screen.queryByTestId("agent-working")).toBeNull();
+  });
+
+  it("marks a session waiting for the user's answer instead of working", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("clean up");
+    const row = () => within(screen.getByRole("list", { name: /^Sessions in/ })).getAllByRole("listitem")[0];
+
+    await acpEvent({
+      sessionId,
+      kind: "permission",
+      requestId: 31,
+      toolCall: { title: "Delete build" },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+
+    expect(within(row()).queryByLabelText("Agent working")).toBeNull();
+    expect(within(row()).getByLabelText("Waiting for your answer")).toBeDefined();
+  });
+
+  it("opens another session at its latest messages after scrolling up in this one", async () => {
+    fakeStore().state.sessions = [
+      { id: "s-a", name: "Alpha", profileId: "qwen", cwd: "/Users/test/developer/ai-perpetual-trading", status: "terminated", createdAt: 2, transport: "acp" },
+      { id: "s-b", name: "Beta", profileId: "qwen", cwd: "/Users/test/developer/ai-perpetual-trading", status: "terminated", createdAt: 1, transport: "acp" },
+    ];
+    fakeStore().transcripts["s-a"] = [{ id: "m-a", role: "user", content: "alpha question", timestamp: 1 }];
+    fakeStore().transcripts["s-b"] = [{ id: "m-b", role: "user", content: "beta question", timestamp: 1 }];
+    await renderWithQwen();
+    const open = async (name: string) => {
+      await act(async () => {
+        fireEvent.click(within(screen.getByRole("complementary")).getByText(name));
+      });
+    };
+    // Load both transcripts, so switching shows no empty state in between.
+    await open("Beta");
+    await screen.findByText("beta question");
+    await open("Alpha");
+    await screen.findByText("alpha question");
+    const view = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(view, "scrollHeight", { configurable: true, value: 2000 });
+    Object.defineProperty(view, "clientHeight", { configurable: true, value: 400 });
+    view.scrollTop = 100;
+    fireEvent.scroll(view);
+
+    await open("Beta");
+
+    // The other session opens at its newest output, in the same view (so Read aloud keeps playing).
+    expect(await screen.findByText("beta question")).toBeDefined();
+    expect(screen.getByTestId("chat-canvas-container")).toBe(view);
+    expect(view.scrollTop).toBe(2000);
   });
 });
 

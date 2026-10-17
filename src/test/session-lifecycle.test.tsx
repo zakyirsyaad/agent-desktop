@@ -82,6 +82,14 @@ describe("Session lifecycle", () => {
     expect(await screen.findByText("hello from disk")).toBeDefined();
   });
 
+  it("ends agents a previous UI left running when it loads (e.g. after a webview reload)", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+
+    await renderApp();
+
+    expect(spy.mock.calls.some(([cmd]) => cmd === "end_orphaned_sessions")).toBe(true);
+  });
+
   it("persists a newly started session", async () => {
     await renderApp();
     await startNewSession();
@@ -164,6 +172,17 @@ describe("Session lifecycle", () => {
     const composer = screen.getByRole("textbox", { name: "Prompt" });
     expect(composer.closest(".hidden")).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "No session yet" })).toBeNull();
+  });
+
+  it("marks a terminal agent waiting on a y/n prompt as waiting for the user", async () => {
+    await renderApp();
+    const sessionId = await startNewSession();
+
+    await act(async () => {
+      listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Allow this action? [y/n]: " } });
+    });
+
+    expect(within(sessionRow("Session #1")).getByLabelText("Waiting for your answer")).toBeDefined();
   });
 
   it("deletes an ended session and its transcript", async () => {

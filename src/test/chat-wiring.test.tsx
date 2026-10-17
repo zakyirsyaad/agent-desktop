@@ -140,17 +140,18 @@ describe("Chat wiring", () => {
     expect(prompt.value).toContain("/Users/test/developer/agent-desktop/src/App.tsx");
   });
 
-  it("shows the thinking indicator only while the agent is producing output", async () => {
+  it("marks a terminal session as working only while the agent is producing output", async () => {
     await renderApp();
     const spy = vi.spyOn(tauriInternals(), "invoke");
     await click(screen.getByRole("button", { name: "+ New session" }));
     const [, spawnArgs] = callsTo(spy, "spawn_session")[0];
-    expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
+    const sidebar = within(screen.getByRole("complementary"));
+    expect(sidebar.queryByLabelText("Agent working")).toBeNull();
 
     await act(async () => {
       listeners.get("pty-output")?.({ payload: { session_id: spawnArgs?.sessionId, data: "working...\n" } });
     });
 
-    expect(screen.getByTestId("thinking-indicator-ring")).toBeDefined();
+    expect(sidebar.getByLabelText("Agent working")).toBeDefined();
   });
 });

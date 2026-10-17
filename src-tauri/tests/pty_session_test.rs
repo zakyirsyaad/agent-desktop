@@ -373,3 +373,19 @@ fn test_start_session_extra_env_overrides_the_user_environment() {
 
     let _ = manager.kill_session(session_id);
 }
+
+#[test]
+fn kill_all_ends_every_running_session() {
+    let (tx, _rx) = mpsc::channel();
+    let manager = PtySessionManager::new(Box::new(move |event| {
+        let _ = tx.send(event);
+    }));
+    let cwd = std::env::current_dir().unwrap().to_string_lossy().to_string();
+    manager.start_session("orphan-1", &cwd, "/bin/cat", &[], &[]).expect("start first");
+    manager.start_session("orphan-2", &cwd, "/bin/cat", &[], &[]).expect("start second");
+
+    assert_eq!(manager.kill_all(), 2);
+
+    assert!(manager.write_stdin("orphan-1", "x").is_err());
+    assert!(manager.write_stdin("orphan-2", "x").is_err());
+}

@@ -10,6 +10,7 @@ import { AuthPanel, type AuthStatus } from "./components/AuthPanel";
 import type { AuthMethod } from "./lib/acp-auth";
 import { TerminalView } from "./components/TerminalView";
 import { createPtyOutputStore } from "./lib/pty-output-store";
+import { isAwaitingPermission } from "./lib/acp-events";
 import {
   isAutoName,
   mostRecentSessionId,
@@ -124,6 +125,15 @@ export default function App() {
   useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
   useEffect(() => setAcpChoices(NO_CHOICES), [draftAgent?.id]);
 
+  // Agents a previous UI left running (a webview reload keeps the backend
+  // alive) are unknown to this one, which shows their sessions as ended;
+  // end them so a resume does not collide with a still-open session.
+  useEffect(() => {
+    invoke("end_orphaned_sessions").catch((error) => {
+      setNotice(`Could not stop agents left from before: ${String(error)}`);
+    });
+  }, []);
+
   // Once saved sessions are loaded, show the most recent one.
   useEffect(() => {
     if (isLoaded) setActiveSessionId((current) => current || mostRecentSessionId(state.sessions));
@@ -173,6 +183,19 @@ export default function App() {
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
   const isSessionBusy = (sessionId: string) =>
     isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) : pty.isBusy(sessionId);
+  /**
+   * Whether a session's agent waits for the user's answer. An ACP agent stays
+   * busy while it asks; a terminal agent goes quiet on its y/n prompt, so for
+   * it a running session with an unanswered approval card is enough.
+   */
+  const isSessionWaiting = (sessionId: string) => {
+    const session = sessionById(sessionId);
+    if (session?.status !== "running") return false;
+    const messages = transcripts[sessionId] ?? [];
+    return isAcp(session)
+      ? isSessionBusy(sessionId) && isAwaitingPermission(messages)
+      : isAwaitingPermission(messages, { includeTerminal: true });
+  };
 
   interface SessionSpec {
     id?: string;
@@ -456,6 +479,7 @@ export default function App() {
           onSelectWorkspace={selectWorkspace}
           onOpenFolder={() => void openFolder()}
           isSessionBusy={isSessionBusy}
+          isSessionWaiting={isSessionWaiting}
           onStopSession={handleInterrupt}
           onDeleteSession={handleDeleteSession}
           footer={
@@ -488,8 +512,9 @@ export default function App() {
               onInput={(data) => void pty.sendRaw(activeSessionId, data)}
               onResize={(cols, rows) => pty.resize(activeSessionId, cols, rows)}
             />
-          ) : activeSession && currentMessages.length > 0 ? (
+          ) : activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId)) ? (
             <ChatCanvas
+              conversationId={activeSessionId}
               messages={currentMessages}
               agentName={activeAgent?.name}
               onForkBranch={(messageId) => void handleFork(messageId)}
@@ -497,6 +522,7 @@ export default function App() {
               onApproveAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "approved")}
               onRejectAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "rejected")}
               onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
+              isWorking={isSessionBusy(activeSessionId) && !isAwaitingPermission(currentMessages)}
             />
           ) : (
             <EmptySessionState />
@@ -524,6 +550,7 @@ export default function App() {
               onAttach={pickFiles}
               handleRef={composerRef}
               commands={composerCommands}
+              contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
             />
           </div>
 

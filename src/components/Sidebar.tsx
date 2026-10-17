@@ -16,6 +16,8 @@ export interface SidebarProps {
   onOpenFolder?: () => void;
   /** True while a session's agent is working on a turn. */
   isSessionBusy?: (sessionId: string) => boolean;
+  /** True while a session's agent waits for the user to answer a permission request. */
+  isSessionWaiting?: (sessionId: string) => boolean;
   /** Stops the agent's current turn; offered only while it works. */
   onStopSession?: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string) => void;
@@ -36,12 +38,13 @@ interface SessionRowProps {
   session: Session;
   isActive: boolean;
   isBusy: boolean;
+  isWaiting: boolean;
   onSelect: () => void;
   onStop?: () => void;
   onDelete?: () => void;
 }
 
-function SessionRow({ session, isActive, isBusy, onSelect, onStop, onDelete }: SessionRowProps) {
+function SessionRow({ session, isActive, isBusy, isWaiting, onSelect, onStop, onDelete }: SessionRowProps) {
   return (
     <li
       className={`group flex items-center rounded-md transition-colors ${
@@ -63,7 +66,14 @@ function SessionRow({ session, isActive, isBusy, onSelect, onStop, onDelete }: S
           )}
           <span className="truncate">{session.name}</span>
         </div>
-        {isBusy && (
+        {isWaiting ? (
+          <span
+            role="status"
+            aria-label="Waiting for your answer"
+            title="The agent waits for your answer"
+            className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 ml-1"
+          />
+        ) : isBusy && (
           <span
             role="status"
             aria-label="Agent working"
@@ -141,6 +151,7 @@ export function Sidebar({
   onSelectWorkspace,
   onOpenFolder,
   isSessionBusy = () => false,
+  isSessionWaiting = () => false,
   onStopSession,
   onDeleteSession,
   footer,
@@ -250,6 +261,7 @@ export function Sidebar({
                     session={s}
                     isActive={s.id === activeSessionId}
                     isBusy={isSessionBusy(s.id)}
+                    isWaiting={isSessionWaiting(s.id)}
                     onSelect={() => onSelectSession(s.id)}
                     onStop={onStopSession ? () => onStopSession(s.id) : undefined}
                     onDelete={onDeleteSession ? () => onDeleteSession(s.id) : undefined}

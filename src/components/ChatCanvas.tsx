@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Sparkles, User } from "lucide-react";
 import { ActionCard } from "./ActionCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { MessageActionBar } from "./MessageActionBar";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ToolCallList } from "./chat/ToolCallList";
-import { PlanList, ThinkingBlock } from "./chat/ReplyExtras";
+import { PlanList, ThinkingBlock, WorkingIndicator } from "./chat/ReplyExtras";
 import { useReadAloud } from "../hooks/useReadAloud";
 import type { ChatMessage } from "../types";
 
@@ -14,6 +14,9 @@ export type { ChatMessage, ToolExecution } from "../types";
 /** Header label for agent messages when the host does not name the agent. */
 const DEFAULT_AGENT_NAME = "Agent";
 const COPIED_FEEDBACK_MS = 2000;
+
+/** How close to the bottom still counts as "following" new output. */
+const STICK_TO_BOTTOM_PX = 80;
 
 /** An agent reply with no text, reasoning, plan, tools or card is noise, not a message. */
 function hasSomethingToShow(msg: ChatMessage): boolean {
@@ -33,6 +36,10 @@ export interface ChatCanvasProps {
   onForkBranch?: (messageId: string) => void;
   /** Answers an ACP permission card with one of the agent's options. */
   onChooseOption?: (cardId: string, optionId: string) => void;
+  /** True while the agent works on its turn: shown under the last message. */
+  isWorking?: boolean;
+  /** Which conversation is shown; switching starts at its newest output. */
+  conversationId?: string;
 }
 
 /**
@@ -57,9 +64,38 @@ export function ChatCanvas({
   onRejectAction,
   onForkBranch,
   onChooseOption,
+  isWorking = false,
+  conversationId,
 }: ChatCanvasProps) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const readAloud = useReadAloud();
+  const visibleMessages = messages.filter(hasSomethingToShow);
+  const lastMessage = visibleMessages[visibleMessages.length - 1];
+
+  // Follow new output to the bottom while the user is there; once they scroll
+  // up to read, leave the view alone.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
+  const handleScroll = () => {
+    const el = containerRef.current;
+    if (el) isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_PX;
+  };
+  // A message the user just sent, or another conversation opened, always
+  // brings the view down to the newest output. The view itself stays mounted,
+  // so switching conversations does not stop Read aloud.
+  const lastIdRef = useRef(lastMessage?.id);
+  const conversationRef = useRef(conversationId);
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    const isNewUserMessage = lastMessage?.role === "user" && lastMessage.id !== lastIdRef.current;
+    const isOtherConversation = conversationId !== conversationRef.current;
+    lastIdRef.current = lastMessage?.id;
+    conversationRef.current = conversationId;
+    if (isNewUserMessage || isOtherConversation) isAtBottomRef.current = true;
+    if (el && isAtBottomRef.current) el.scrollTop = el.scrollHeight;
+    // lastMessage derives from messages, so messages is the dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, isWorking, conversationId]);
 
   const handleCopyMessage = (id: string, content: string) => {
     if (navigator?.clipboard?.writeText) {
@@ -87,10 +123,12 @@ export function ChatCanvas({
 
   return (
     <div
+      ref={containerRef}
+      onScroll={handleScroll}
       data-testid="chat-canvas-container"
       className="flex-1 overflow-y-auto px-6 py-6 space-y-6"
     >
-      {messages.filter(hasSomethingToShow).map((msg) => {
+      {visibleMessages.map((msg) => {
         const isUser = msg.role === "user";
 
         return (
@@ -130,7 +168,10 @@ export function ChatCanvas({
                   : "px-1 text-neutral-200"
               }`}
             >
-              {msg.thinking && <ThinkingBlock text={msg.thinking} />}
+              {msg.thinking && (
+                // A reply is done once its turn ended or anything came after it.
+                <ThinkingBlock text={msg.thinking} isDone={Boolean(msg.isComplete) || msg !== lastMessage} />
+              )}
               {msg.plan && msg.plan.length > 0 && <PlanList entries={msg.plan} />}
               {msg.tools && msg.tools.length > 0 && <ToolCallList tools={msg.tools} />}
 
@@ -175,6 +216,7 @@ export function ChatCanvas({
           </div>
         );
       })}
+      {isWorking && <WorkingIndicator />}
     </div>
   );
 }

@@ -279,3 +279,28 @@ fn recognizes_a_sign_in_request_however_the_agent_phrases_it() {
         );
     }
 }
+
+#[test]
+fn stop_all_ends_every_session_a_previous_ui_left_running() {
+    let (manager, _rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+    manager.start("s-2", &cwd(), &fake_agent()).unwrap();
+
+    assert_eq!(manager.stop_all(), 2);
+
+    assert!(manager.prompt("s-1", "hi", &[]).is_err());
+    assert!(manager.prompt("s-2", "hi", &[]).is_err());
+}
+
+#[test]
+fn reports_an_agent_error_without_its_stderr_noise() {
+    let (manager, _rx) = manager();
+    let mut launch = fake_agent();
+    launch.env.push(("FAKE_ACP_SERVER_ERROR".to_string(), "1".to_string()));
+    launch.env.push(("FAKE_ACP_STDERR".to_string(), "1".to_string()));
+
+    let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
+
+    assert!(error.contains("disk full"), "unexpected error: {error}");
+    assert!(!error.contains("warming up"), "stderr leaked into: {error}");
+}

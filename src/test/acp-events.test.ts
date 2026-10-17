@@ -3,7 +3,8 @@ import {
   applyAcpUpdate,
   applyPermissionRequest,
   closeTurn,
-  pendingPermissionCards,
+  isAwaitingPermission,
+  pendingCardsInTurn,
   resolvePermissionCard,
   type AcpReducerContext,
 } from "../lib/acp-events";
@@ -267,7 +268,7 @@ describe("permission requests", () => {
     const both = applyPermissionRequest(first, { ...request, requestId: "perm-2" }, c);
 
     expect(both.map((m) => m.actionCard?.requestId)).toEqual(["perm-1", "perm-2"]);
-    expect(pendingPermissionCards(both).map((card) => card.requestId)).toEqual(["perm-1", "perm-2"]);
+    expect(pendingCardsInTurn(both).map((card) => card.requestId)).toEqual(["perm-1", "perm-2"]);
   });
 
   it("closing a turn closes every unanswered request, not only the last one", () => {
@@ -277,7 +278,26 @@ describe("permission requests", () => {
     const closed = closeTurn(both);
 
     expect(closed.map((m) => m.actionCard?.status)).toEqual(["rejected", "rejected"]);
-    expect(pendingPermissionCards(closed)).toEqual([]);
+    expect(pendingCardsInTurn(closed)).toEqual([]);
+  });
+
+  it("finds only the current turn's unanswered cards, terminal ones on request", () => {
+    const c = ctx();
+    const earlier = applyPermissionRequest([], request, c);
+    const user: ChatMessage = { id: "u-2", role: "user", content: "next", timestamp: 2 };
+    const terminalCard = {
+      id: "card-t", sessionId: "s-1", title: "Approval", prompt: "Allow this action? [y/n]",
+      status: "pending" as const, approvalKey: "y\n", rejectKey: "n\n", timestamp: 3,
+    };
+    const messages: ChatMessage[] = [
+      ...earlier,
+      user,
+      { id: "a-3", role: "agent", content: "", timestamp: 3, actionCard: terminalCard },
+    ];
+
+    expect(pendingCardsInTurn(messages)).toEqual([]);
+    expect(pendingCardsInTurn(messages, { includeTerminal: true }).map((card) => card.id)).toEqual(["card-t"]);
+    expect(isAwaitingPermission(messages, { includeTerminal: true })).toBe(true);
   });
 });
 
