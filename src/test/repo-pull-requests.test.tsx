@@ -130,6 +130,24 @@ describe("PullRequestList", () => {
     expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
+  it("places its menu on screen, opening upward from a row near the bottom, so the list cannot clip it", () => {
+    render(<PullRequestList pullRequests={[pr(9)]} onOpen={() => {}} />);
+    const button = screen.getByRole("button", { name: "More actions for #9" });
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(
+      { top: window.innerHeight - 30, bottom: window.innerHeight - 10, left: 0, right: window.innerWidth - 20 } as DOMRect,
+    );
+
+    fireEvent.click(button);
+
+    const menu = screen.getByRole("menu");
+    expect(menu.className).toContain("fixed");
+    expect(menu.style.bottom).toBe("34px");
+    expect(menu.style.top).toBe("");
+    expect(menu.style.right).toBe("20px");
+    fireEvent.scroll(window);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("folds away and back", () => {
     render(<PullRequestList pullRequests={[pr(1)]} onOpen={() => {}} />);
 

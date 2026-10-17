@@ -202,8 +202,23 @@ export default function App() {
   };
 
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
+  const { rewind, restart, isRestarting } = useSessionRewind({
+    agents,
+    transcripts,
+    acp,
+    patchSession,
+    updateMessages,
+    // The user may have opened another session meanwhile: the message goes back
+    // into the session it was written for, not that one's composer.
+    onRestore: (sessionId, text, attachments) => {
+      setActiveSessionId(sessionId);
+      composerRef.current?.restore(text, attachments);
+    },
+    onNotice: setNotice,
+  });
+
   const isSessionBusy = (sessionId: string) =>
-    isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) : pty.isBusy(sessionId);
+    isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) || isRestarting(sessionId) : pty.isBusy(sessionId);
 
   /**
    * Dropped files: typed into a live terminal agent, otherwise added to the
@@ -352,16 +367,6 @@ export default function App() {
     acp,
     recordSession,
     startSession,
-    onNotice: setNotice,
-  });
-
-  const { rewind, restart } = useSessionRewind({
-    agents,
-    transcripts,
-    acp,
-    patchSession,
-    updateMessages,
-    onRestore: (text, attachments) => composerRef.current?.restore(text, attachments),
     onNotice: setNotice,
   });
 

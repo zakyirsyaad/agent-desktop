@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AcpChoices } from '../lib/acp-draft';
 import type { AcpEngine, FirstMessage } from './session-engine/useAcpEngine';
@@ -11,16 +12,18 @@ export interface SessionRewindDeps {
   acp: Pick<AcpEngine, 'start' | 'stop'>;
   patchSession: (sessionId: string, patch: Partial<Session>) => void;
   updateMessages: (sessionId: string, updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
-  /** Puts a message back in the composer to edit. */
-  onRestore: (text: string, attachments?: readonly string[]) => void;
+  /** Puts a message back in the composer of the session it was written for. */
+  onRestore: (sessionId: string, text: string, attachments?: readonly string[]) => void;
   onNotice: (message: string) => void;
 }
 
 export interface SessionRewind {
   /** Takes an ACP session back to before one of the user's messages, which returns to the composer. */
-  rewind: (session: Session, messageId: string) => Promise<void>;
+  rewind: (session: Session, messageId: string) => void;
   /** Continues a rewound session: a fresh agent is handed the conversation left, then gets the message. */
   restart: (session: Session, message: FirstMessage, choices: AcpChoices) => Promise<void>;
+  /** True while a restart writes its handoff, before the agent starts: the session takes no other message. */
+  isRestarting: (sessionId: string) => boolean;
 }
 
 /** Messages before the one with `messageId`; all of them when it is gone. */
@@ -37,41 +40,66 @@ const before = (messages: readonly ChatMessage[], messageId: string): ChatMessag
  */
 export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
   const { agents, transcripts, acp, patchSession, updateMessages, onRestore, onNotice } = deps;
+  // A fresh agent for a session waits until its old one is gone: a late stop would end the new one.
+  const stopsRef = useRef(new Map<string, Promise<boolean>>());
+  // Read and written at once, so a second send cannot start a second agent.
+  const restartingRef = useRef(new Set<string>());
+  const [restarting, setRestarting] = useState<ReadonlySet<string>>(() => new Set());
 
-  const rewind = async (session: Session, messageId: string) => {
+  const markRestarting = (sessionId: string, isRestarting: boolean) => {
+    if (isRestarting) restartingRef.current.add(sessionId);
+    else restartingRef.current.delete(sessionId);
+    setRestarting(new Set(restartingRef.current));
+  };
+
+  const rewind = (session: Session, messageId: string) => {
     const message = transcripts[session.id]?.find((m) => m.id === messageId);
     if (message?.role !== 'user') return;
-    // A failed stop was reported; the conversation is left as it was.
-    if (session.status === 'running' && !(await acp.stop(session.id))) return;
+    // Done at once, while this session is still the one shown: its message goes
+    // back into its own composer. The old agent's late events are ignored.
+    if (session.status === 'running') stopsRef.current.set(session.id, acp.stop(session.id));
     // No agent session to resume: the next message starts a fresh agent.
     patchSession(session.id, { status: 'terminated', endedAt: Date.now(), acpSessionId: null });
     updateMessages(session.id, (prev) => before(prev, messageId));
-    onRestore(message.content, message.attachments);
+    onRestore(session.id, message.content, message.attachments);
+  };
+
+  /** The handoff a fresh agent reads first; undefined when nothing is left of the conversation. */
+  const handoffFor = async (session: Session): Promise<string | undefined> => {
+    const messages = transcripts[session.id] ?? [];
+    if (messages.length === 0) return undefined;
+    const content = buildForkHandoff(messages, messages[messages.length - 1].id, {
+      sourceSessionName: session.name,
+      agentName: agents.find((a) => a.id === session.profileId)?.name ?? session.profileId,
+      cwd: session.cwd,
+      createdAt: Date.now(),
+    });
+    const handoffPath = await invoke<string>('write_fork_handoff', { handoffId: createId('rewind'), content });
+    return buildRewindContext(handoffPath);
   };
 
   const restart = async (session: Session, message: FirstMessage, choices: AcpChoices) => {
-    const messages = transcripts[session.id] ?? [];
-    let context: string | undefined;
-    if (messages.length > 0) {
+    if (restartingRef.current.has(session.id)) return;
+    markRestarting(session.id, true);
+    try {
+      let context: string | undefined;
       try {
-        const content = buildForkHandoff(messages, messages[messages.length - 1].id, {
-          sourceSessionName: session.name,
-          agentName: agents.find((a) => a.id === session.profileId)?.name ?? session.profileId,
-          cwd: session.cwd,
-          createdAt: Date.now(),
-        });
-        const handoffPath = await invoke<string>('write_fork_handoff', { handoffId: createId('rewind'), content });
-        context = buildRewindContext(handoffPath);
+        context = await handoffFor(session);
       } catch (error) {
         onNotice(`Could not continue the session: ${String(error)}`);
-        onRestore(message.text, message.attachments);
+        onRestore(session.id, message.text, message.attachments);
         return;
       }
+      await stopsRef.current.get(session.id);
+      stopsRef.current.delete(session.id);
+      // Continuing an archived session brings it back into the list.
+      patchSession(session.id, { status: 'running', endedAt: null, exitCode: null, archivedAt: null });
+      // The engine marks the session as starting before this returns, so it stays busy throughout.
+      void acp.start(session, { ...message, context }, choices);
+    } finally {
+      markRestarting(session.id, false);
     }
-    // Continuing an archived session brings it back into the list.
-    patchSession(session.id, { status: 'running', endedAt: null, exitCode: null, archivedAt: null });
-    void acp.start(session, { ...message, context }, choices);
   };
 
-  return { rewind, restart };
+  return { rewind, restart, isRestarting: (sessionId) => restarting.has(sessionId) };
 }

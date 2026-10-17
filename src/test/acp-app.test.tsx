@@ -760,6 +760,60 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_start_session")).toHaveLength(1);
   });
 
+  it("takes no second message while a rewound session's fresh agent is being handed the conversation", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await rewindTo("plan the parser");
+    let finishHandoff: (path: string) => void = () => {};
+    spy.mockImplementation((cmd, args) =>
+      cmd === "write_fork_handoff"
+        ? new Promise((resolve) => {
+            finishHandoff = resolve;
+          })
+        : realInvoke(cmd, args),
+    );
+
+    await send("plan the lexer");
+    await send("and the tokens");
+
+    expect(callsTo(spy, "write_fork_handoff")).toHaveLength(1);
+    expect(prompt().value).toBe("and the tokens");
+    await act(async () => {
+      finishHandoff("/fake/app-data/handoffs/rewind.md");
+    });
+    await waitFor(() => expect(callsTo(spy, "acp_start_session")).toHaveLength(2));
+  });
+
+  it("puts an unsent message back in its own session when the handoff fails after the user moved on", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await rewindTo("plan the parser");
+    let failHandoff: (error: string) => void = () => {};
+    spy.mockImplementation((cmd, args) =>
+      cmd === "write_fork_handoff"
+        ? new Promise((_, reject) => {
+            failHandoff = reject;
+          })
+        : realInvoke(cmd, args),
+    );
+    await send("plan the lexer");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    await act(async () => {
+      failHandoff("disk full");
+    });
+
+    expect(screen.queryByRole("heading", { name: "New session" })).toBeNull();
+    expect(within(screen.getByTestId("chat-canvas-container")).getByText(FIRST_MESSAGE, { selector: "p" })).toBeDefined();
+    expect(prompt().value).toBe("plan the lexer");
+  });
+
   it("rewinds to the first message to an empty session, which starts afresh without a handoff", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);

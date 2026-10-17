@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronRight,
   EllipsisVertical,
@@ -32,13 +32,43 @@ export function repoLabelOf({ number, url }: PullRequestSummary): string {
   return repo ? `${repo} #${number}` : `#${number}`;
 }
 
+/** Room the menu needs below its button before it opens upward instead. */
+const MENU_HEIGHT_PX = 76;
+const MENU_GAP_PX = 4;
+
+/** Where the menu sits on screen: fixed, so the panel's scrolling list cannot clip it. */
+type MenuPlace = { right: number } & ({ top: number } | { bottom: number });
+
+function menuPlaceFor(button: HTMLElement): MenuPlace {
+  const rect = button.getBoundingClientRect();
+  const right = window.innerWidth - rect.right;
+  const hasRoomBelow = rect.bottom + MENU_GAP_PX + MENU_HEIGHT_PX <= window.innerHeight;
+  return hasRoomBelow
+    ? { right, top: rect.bottom + MENU_GAP_PX }
+    : { right, bottom: window.innerHeight - rect.top + MENU_GAP_PX };
+}
+
 /** A pull request's ⋮ menu: open it in the browser, or copy its link. */
 function RowMenu({ pullRequest, onOpen }: { pullRequest: PullRequestSummary; onOpen: (url: string) => void }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [place, setPlace] = useState<MenuPlace | null>(null);
+  const isOpen = place !== null;
   const containerRef = useRef<HTMLDivElement>(null);
-  useDismiss(containerRef, isOpen, () => setIsOpen(false));
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const close = () => setPlace(null);
+  useDismiss(containerRef, isOpen, close);
+  // A fixed menu would drift from its row as the list scrolls.
+  useEffect(() => {
+    if (!isOpen) return;
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [isOpen]);
+  const toggle = () => setPlace((current) => (current || !buttonRef.current ? null : menuPlaceFor(buttonRef.current)));
   const pick = (action: () => void) => () => {
-    setIsOpen(false);
+    close();
     action();
   };
   const copyLink = () => {
@@ -46,22 +76,24 @@ function RowMenu({ pullRequest, onOpen }: { pullRequest: PullRequestSummary; onO
   };
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef}>
       <button
+        ref={buttonRef}
         type="button"
         aria-label={`More actions for #${pullRequest.number}`}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={toggle}
         className={`rounded p-1 text-neutral-500 opacity-0 hover:text-neutral-200 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-neutral-600 group-hover:opacity-100 ${isOpen ? "opacity-100" : ""}`}
       >
         <EllipsisVertical size={12} />
       </button>
-      {isOpen && (
+      {place && (
         <div
           role="menu"
           aria-label={`Actions for #${pullRequest.number}`}
-          className="absolute right-0 top-full z-50 mt-1 w-40 rounded-lg border border-neutral-800 bg-[#181818] p-1 shadow-2xl"
+          style={place}
+          className="fixed z-50 w-40 rounded-lg border border-neutral-800 bg-[#181818] p-1 shadow-2xl"
         >
           <button type="button" role="menuitem" onClick={pick(() => onOpen(pullRequest.url))} className={MENU_ITEM}>
             <ExternalLink size={12} aria-hidden="true" /> Open in browser

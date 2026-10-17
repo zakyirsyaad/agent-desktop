@@ -187,6 +187,17 @@ describe("buildForkHandoff sections", () => {
 
     expect(messages).toEqual(snapshot);
   });
+
+  it("lists the paths of the files a message attached, so the new agent can read them again", () => {
+    const attached: ChatMessage[] = [
+      { ...messages[0], attachments: ["/repo/design.png", "/repo/my notes.md"] },
+    ];
+
+    const document = buildForkHandoff(attached, "msg-1", meta);
+
+    expect(document).toContain("- Attached: /repo/design.png");
+    expect(document).toContain("- Attached: /repo/my notes.md");
+  });
 });
 
 describe("buildForkHandoff unknown ids", () => {

@@ -41,7 +41,9 @@ function buildActivityLines(message: ChatMessage): string[] {
   const cardLines = card
     ? [`- Approval requested: ${card.prompt} (${card.status})`]
     : [];
-  return [...toolLines, ...cardLines];
+  // The files themselves are not copied: their paths let the new agent read them again.
+  const attachmentLines = (message.attachments ?? []).map((path) => `- Attached: ${path}`);
+  return [...attachmentLines, ...toolLines, ...cardLines];
 }
 
 function buildSection(message: ChatMessage): string {
