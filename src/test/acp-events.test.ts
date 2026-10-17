@@ -17,6 +17,15 @@ function ctx(): AcpReducerContext {
 const text = (t: string) => ({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: t } });
 
 describe("applyAcpUpdate", () => {
+  it("ignores empty chunks, so a stray one after the turn does not start a blank reply", () => {
+    const done = closeTurn(applyAcpUpdate([], text("ok"), ctx()));
+
+    expect(applyAcpUpdate(done, text(""), ctx())).toBe(done);
+    expect(
+      applyAcpUpdate(done, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "" } }, ctx())
+    ).toBe(done);
+  });
+
   it("streams agent text chunks into one reply", () => {
     const c = ctx();
     const afterFirst = applyAcpUpdate([], text("Hello "), c);

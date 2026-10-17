@@ -110,6 +110,11 @@ pub struct SessionRecord {
     pub forked_from: Option<String>,
     /// The agent's own session identifier, when it reported one.
     pub agent_session_id: Option<String>,
+    /// How the app talks to the agent: `acp` or `pty`. Missing on sessions
+    /// saved before ACP existed, which ran in a terminal.
+    pub transport: Option<String>,
+    /// The session id the agent assigned over ACP.
+    pub acp_session_id: Option<String>,
 }
 
 /// A repository over the app's state directory.

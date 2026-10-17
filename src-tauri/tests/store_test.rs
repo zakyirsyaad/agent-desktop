@@ -63,6 +63,8 @@ fn session(id: &str, status: &str) -> SessionRecord {
         permission_mode: Some("default".to_string()),
         forked_from: None,
         agent_session_id: None,
+        transport: None,
+        acp_session_id: None,
     }
 }
 
@@ -377,6 +379,34 @@ fn transcript_calls_reject_session_ids_that_would_escape_the_transcripts_dir() {
         vec![transcripts.join(format!("{}.json", max_id))],
         "only the legal 64-char transcript may exist"
     );
+
+    fs::remove_dir_all(&root).expect("remove temp root");
+}
+
+#[test]
+fn acp_sessions_keep_their_transport_and_agent_session_id() {
+    let root = unique_temp_root("acp-session");
+    let store = AppStore::new(root.clone());
+    // Shaped like what the frontend saves for a Qwen Code session.
+    let record: SessionRecord = serde_json::from_value(json!({
+        "id": "s-acp",
+        "name": "Session #4",
+        "profileId": "qwen",
+        "cwd": "/tmp/project",
+        "status": "terminated",
+        "createdAt": 1_700_000_000_000_i64,
+        "transport": "acp",
+        "acpSessionId": "qwen-session-123"
+    }))
+    .expect("deserialize session");
+    let state = PersistedState { sessions: vec![record], ..populated_state() };
+
+    store.save_state(&state).expect("save state");
+    let loaded = store.load_state().expect("load state");
+    let saved = serde_json::to_value(&loaded.sessions[0]).expect("serialize session");
+
+    assert_eq!(saved["transport"], "acp");
+    assert_eq!(saved["acpSessionId"], "qwen-session-123");
 
     fs::remove_dir_all(&root).expect("remove temp root");
 }

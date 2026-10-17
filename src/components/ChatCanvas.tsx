@@ -14,6 +14,14 @@ export type { ChatMessage, ToolExecution } from "../types";
 const DEFAULT_AGENT_NAME = "Agent";
 const COPIED_FEEDBACK_MS = 2000;
 
+/** An agent reply with no text, reasoning, plan, tools or card is noise, not a message. */
+function hasSomethingToShow(msg: ChatMessage): boolean {
+  if (msg.role === "user") return true;
+  return Boolean(
+    msg.content.trim() || msg.thinking || msg.plan?.length || msg.tools?.length || msg.actionCard,
+  );
+}
+
 export interface ChatCanvasProps {
   messages: ChatMessage[];
   /** Display name of the agent behind this conversation, e.g. "Aider". */
@@ -81,7 +89,7 @@ export function ChatCanvas({
       data-testid="chat-canvas-container"
       className="flex-1 overflow-y-auto px-6 py-6 space-y-6"
     >
-      {messages.map((msg) => {
+      {messages.filter(hasSomethingToShow).map((msg) => {
         const isUser = msg.role === "user";
 
         return (
@@ -113,12 +121,12 @@ export function ChatCanvas({
               )}
             </div>
 
-            {/* Bubble content */}
+            {/* The user's message sits in a bubble; the agent's reply sits on the background. */}
             <div
-              className={`w-full rounded-2xl p-4 text-left transition-colors ${
+              className={`w-full text-left ${
                 isUser
-                  ? "bg-[#18181b] border border-neutral-800 text-neutral-100 max-w-xl"
-                  : "bg-[#080808] border border-neutral-800/80 text-neutral-200"
+                  ? "rounded-2xl p-4 bg-[#18181b] border border-neutral-800 text-neutral-100 max-w-xl"
+                  : "px-1 text-neutral-200"
               }`}
             >
               {msg.thinking && <ThinkingBlock text={msg.thinking} />}

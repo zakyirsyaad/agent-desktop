@@ -116,13 +116,14 @@ export function applyAcpUpdate(
   if (!isObject(update)) return messages;
   switch (update.sessionUpdate) {
     case 'agent_message_chunk': {
+      // Agents send stray empty chunks (Qwen Code does after a turn); they must not open a blank reply.
       const chunk = textOf(update.content);
-      if (chunk === undefined) return messages;
+      if (!chunk) return messages;
       return withOpenReply(messages, ctx, (reply) => ({ ...reply, content: reply.content + chunk }));
     }
     case 'agent_thought_chunk': {
       const chunk = textOf(update.content);
-      if (chunk === undefined) return messages;
+      if (!chunk) return messages;
       return withOpenReply(messages, ctx, (reply) => ({ ...reply, thinking: (reply.thinking ?? '') + chunk }));
     }
     case 'tool_call':

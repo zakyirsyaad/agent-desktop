@@ -636,4 +636,21 @@ describe("ACP chat content", () => {
     expect(screen.getByText("Read src/App.tsx")).toBeDefined();
     expect(screen.queryByText(/\(\)/)).toBeNull();
   });
+
+  it("does not show an agent reply that has nothing in it", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          { id: "u-1", role: "user", content: "say ok", timestamp: 1 },
+          { id: "a-1", role: "agent", content: "ok", timestamp: 2 },
+          { id: "a-2", role: "agent", content: "", timestamp: 3 },
+        ]}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    expect(screen.getByTestId("chat-message-a-1")).toBeDefined();
+    expect(screen.queryByTestId("chat-message-a-2")).toBeNull();
+  });
 });
+
