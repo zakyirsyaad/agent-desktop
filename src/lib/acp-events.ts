@@ -236,21 +236,31 @@ export function applyPermissionRequest(
 const isPendingRequest = (card: ActionCard | undefined): card is ActionCard =>
   card?.status === 'pending' && card.requestId !== undefined;
 
-/**
- * Whether the agent waits on the user to answer a permission request. Only
- * the current turn (after the last user message) can hold one, so the scan
- * stops there instead of walking the whole transcript.
- */
-export function isAwaitingPermission(messages: readonly ChatMessage[]): boolean {
-  for (let i = messages.length - 1; i >= 0 && messages[i].role !== 'user'; i--) {
-    if (isPendingRequest(messages[i].actionCard)) return true;
-  }
-  return false;
+export interface PendingCardOptions {
+  /** Also count a terminal agent's approval prompts (cards without a request id). */
+  includeTerminal?: boolean;
 }
 
-/** Permission requests the agent is still waiting on. */
-export function pendingPermissionCards(messages: readonly ChatMessage[]): ActionCard[] {
-  return messages.map((m) => m.actionCard).filter(isPendingRequest);
+/**
+ * The unanswered cards of the current turn (after the last user message),
+ * oldest first: only that turn can hold one, so the walk stops there instead
+ * of scanning the whole transcript.
+ */
+export function pendingCardsInTurn(
+  messages: readonly ChatMessage[],
+  { includeTerminal = false }: PendingCardOptions = {},
+): ActionCard[] {
+  const cards: ActionCard[] = [];
+  for (let i = messages.length - 1; i >= 0 && messages[i].role !== 'user'; i--) {
+    const card = messages[i].actionCard;
+    if (card?.status === 'pending' && (includeTerminal || card.requestId !== undefined)) cards.unshift(card);
+  }
+  return cards;
+}
+
+/** Whether the agent waits on the user to answer a request in the current turn. */
+export function isAwaitingPermission(messages: readonly ChatMessage[], options?: PendingCardOptions): boolean {
+  return pendingCardsInTurn(messages, options).length > 0;
 }
 
 /** Records the option the user picked on a permission card. */

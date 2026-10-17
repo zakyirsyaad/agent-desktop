@@ -18,9 +18,10 @@ export function ContextMeter({ used, size }: ContextUsage) {
   // Without the window's size there is no percentage: show the tokens in use.
   if (size <= 0) {
     return (
+      // A named image, not a live region: each usage update is not announced.
       <span
-        role="status"
-        aria-label="Context used"
+        role="img"
+        aria-label={`Context used: ${COMPACT_NUMBER.format(used)} tokens`}
         title={`Context: ${format(used)} tokens`}
         className="px-1 text-[11px] text-neutral-400"
       >

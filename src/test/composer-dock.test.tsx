@@ -162,7 +162,9 @@ describe("ComposerDock", () => {
 
       rerender(<ComposerDock onSendMessage={() => {}} contextUsage={{ used: 180_000, size: 0 }} />);
       expect(screen.queryByRole("meter", { name: "Context used" })).toBeNull();
-      expect(screen.getByRole("status", { name: "Context used" }).textContent).toBe("180K tokens");
+      // Named, but not a live region: usage updates are not announced one by one.
+      const fallback = screen.getByRole("img", { name: "Context used: 180K tokens" });
+      expect(fallback.textContent).toBe("180K tokens");
     });
 
     it("hides the meter until the agent reports usage", () => {

@@ -174,6 +174,19 @@ export default function App() {
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
   const isSessionBusy = (sessionId: string) =>
     isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) : pty.isBusy(sessionId);
+  /**
+   * Whether a session's agent waits for the user's answer. An ACP agent stays
+   * busy while it asks; a terminal agent goes quiet on its y/n prompt, so for
+   * it a running session with an unanswered approval card is enough.
+   */
+  const isSessionWaiting = (sessionId: string) => {
+    const session = sessionById(sessionId);
+    if (session?.status !== "running") return false;
+    const messages = transcripts[sessionId] ?? [];
+    return isAcp(session)
+      ? isSessionBusy(sessionId) && isAwaitingPermission(messages)
+      : isAwaitingPermission(messages, { includeTerminal: true });
+  };
 
   interface SessionSpec {
     id?: string;
@@ -457,7 +470,7 @@ export default function App() {
           onSelectWorkspace={selectWorkspace}
           onOpenFolder={() => void openFolder()}
           isSessionBusy={isSessionBusy}
-          isSessionWaiting={(sessionId) => isSessionBusy(sessionId) && isAwaitingPermission(transcripts[sessionId] ?? [])}
+          isSessionWaiting={isSessionWaiting}
           onStopSession={handleInterrupt}
           onDeleteSession={handleDeleteSession}
           footer={
@@ -492,8 +505,7 @@ export default function App() {
             />
           ) : activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId)) ? (
             <ChatCanvas
-              // A fresh view per session: scroll position and following start over.
-              key={activeSessionId}
+              conversationId={activeSessionId}
               messages={currentMessages}
               agentName={activeAgent?.name}
               onForkBranch={(messageId) => void handleFork(messageId)}

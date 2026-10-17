@@ -38,6 +38,8 @@ export interface ChatCanvasProps {
   onChooseOption?: (cardId: string, optionId: string) => void;
   /** True while the agent works on its turn: shown under the last message. */
   isWorking?: boolean;
+  /** Which conversation is shown; switching starts at its newest output. */
+  conversationId?: string;
 }
 
 /**
@@ -63,6 +65,7 @@ export function ChatCanvas({
   onForkBranch,
   onChooseOption,
   isWorking = false,
+  conversationId,
 }: ChatCanvasProps) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const readAloud = useReadAloud();
@@ -77,15 +80,22 @@ export function ChatCanvas({
     const el = containerRef.current;
     if (el) isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_PX;
   };
-  // A message the user just sent always brings the view down to it.
+  // A message the user just sent, or another conversation opened, always
+  // brings the view down to the newest output. The view itself stays mounted,
+  // so switching conversations does not stop Read aloud.
   const lastIdRef = useRef(lastMessage?.id);
+  const conversationRef = useRef(conversationId);
   useLayoutEffect(() => {
     const el = containerRef.current;
     const isNewUserMessage = lastMessage?.role === "user" && lastMessage.id !== lastIdRef.current;
+    const isOtherConversation = conversationId !== conversationRef.current;
     lastIdRef.current = lastMessage?.id;
-    if (isNewUserMessage) isAtBottomRef.current = true;
+    conversationRef.current = conversationId;
+    if (isNewUserMessage || isOtherConversation) isAtBottomRef.current = true;
     if (el && isAtBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [messages, isWorking, lastMessage]);
+    // lastMessage derives from messages, so messages is the dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, isWorking, conversationId]);
 
   const handleCopyMessage = (id: string, content: string) => {
     if (navigator?.clipboard?.writeText) {

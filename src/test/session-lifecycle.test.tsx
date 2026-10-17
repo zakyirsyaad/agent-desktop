@@ -166,6 +166,17 @@ describe("Session lifecycle", () => {
     expect(screen.queryByRole("heading", { name: "No session yet" })).toBeNull();
   });
 
+  it("marks a terminal agent waiting on a y/n prompt as waiting for the user", async () => {
+    await renderApp();
+    const sessionId = await startNewSession();
+
+    await act(async () => {
+      listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Allow this action? [y/n]: " } });
+    });
+
+    expect(within(sessionRow("Session #1")).getByLabelText("Waiting for your answer")).toBeDefined();
+  });
+
   it("deletes an ended session and its transcript", async () => {
     fakeStore().state.sessions = [seedSession("s-old", "Refactor parser", 1000)];
     fakeStore().transcripts["s-old"] = [];

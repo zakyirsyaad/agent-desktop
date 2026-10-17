@@ -705,15 +705,18 @@ describe("ACP sessions in the app", () => {
     await screen.findByText("beta question");
     await open("Alpha");
     await screen.findByText("alpha question");
-    const first = screen.getByTestId("chat-canvas-container");
-    first.scrollTop = 0;
-    fireEvent.scroll(first);
+    const view = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(view, "scrollHeight", { configurable: true, value: 2000 });
+    Object.defineProperty(view, "clientHeight", { configurable: true, value: 400 });
+    view.scrollTop = 100;
+    fireEvent.scroll(view);
 
     await open("Beta");
 
-    // A fresh view for the other session, which starts out following its newest output.
+    // The other session opens at its newest output, in the same view (so Read aloud keeps playing).
     expect(await screen.findByText("beta question")).toBeDefined();
-    expect(screen.getByTestId("chat-canvas-container")).not.toBe(first);
+    expect(screen.getByTestId("chat-canvas-container")).toBe(view);
+    expect(view.scrollTop).toBe(2000);
   });
 });
 
