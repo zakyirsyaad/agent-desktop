@@ -1,6 +1,4 @@
-/// <reference types="vitest" />
 import { defineConfig } from "vite";
-import { configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -17,12 +15,5 @@ export default defineConfig({
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
     minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
-  },
-  test: {
-    globals: true,
-    environment: "jsdom",
-    setupFiles: ["./src/test/setup.ts"],
-    // Agent worktrees under .claude/ hold copies of the tests; run only this checkout's.
-    exclude: [...configDefaults.exclude, ".claude/**"],
   },
 });

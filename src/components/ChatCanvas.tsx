@@ -77,10 +77,15 @@ export function ChatCanvas({
     const el = containerRef.current;
     if (el) isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_PX;
   };
+  // A message the user just sent always brings the view down to it.
+  const lastIdRef = useRef(lastMessage?.id);
   useLayoutEffect(() => {
     const el = containerRef.current;
+    const isNewUserMessage = lastMessage?.role === "user" && lastMessage.id !== lastIdRef.current;
+    lastIdRef.current = lastMessage?.id;
+    if (isNewUserMessage) isAtBottomRef.current = true;
     if (el && isAtBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [messages, isWorking]);
+  }, [messages, isWorking, lastMessage]);
 
   const handleCopyMessage = (id: string, content: string) => {
     if (navigator?.clipboard?.writeText) {

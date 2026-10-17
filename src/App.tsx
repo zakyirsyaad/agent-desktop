@@ -10,7 +10,7 @@ import { AuthPanel, type AuthStatus } from "./components/AuthPanel";
 import type { AuthMethod } from "./lib/acp-auth";
 import { TerminalView } from "./components/TerminalView";
 import { createPtyOutputStore } from "./lib/pty-output-store";
-import { pendingPermissionCards } from "./lib/acp-events";
+import { isAwaitingPermission } from "./lib/acp-events";
 import {
   isAutoName,
   mostRecentSessionId,
@@ -457,6 +457,7 @@ export default function App() {
           onSelectWorkspace={selectWorkspace}
           onOpenFolder={() => void openFolder()}
           isSessionBusy={isSessionBusy}
+          isSessionWaiting={(sessionId) => isSessionBusy(sessionId) && isAwaitingPermission(transcripts[sessionId] ?? [])}
           onStopSession={handleInterrupt}
           onDeleteSession={handleDeleteSession}
           footer={
@@ -491,6 +492,8 @@ export default function App() {
             />
           ) : activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId)) ? (
             <ChatCanvas
+              // A fresh view per session: scroll position and following start over.
+              key={activeSessionId}
               messages={currentMessages}
               agentName={activeAgent?.name}
               onForkBranch={(messageId) => void handleFork(messageId)}
@@ -498,7 +501,7 @@ export default function App() {
               onApproveAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "approved")}
               onRejectAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "rejected")}
               onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
-              isWorking={isSessionBusy(activeSessionId) && pendingPermissionCards(currentMessages).length === 0}
+              isWorking={isSessionBusy(activeSessionId) && !isAwaitingPermission(currentMessages)}
             />
           ) : (
             <EmptySessionState />

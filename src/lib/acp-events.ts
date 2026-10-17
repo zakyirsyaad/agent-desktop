@@ -236,6 +236,18 @@ export function applyPermissionRequest(
 const isPendingRequest = (card: ActionCard | undefined): card is ActionCard =>
   card?.status === 'pending' && card.requestId !== undefined;
 
+/**
+ * Whether the agent waits on the user to answer a permission request. Only
+ * the current turn (after the last user message) can hold one, so the scan
+ * stops there instead of walking the whole transcript.
+ */
+export function isAwaitingPermission(messages: readonly ChatMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0 && messages[i].role !== 'user'; i--) {
+    if (isPendingRequest(messages[i].actionCard)) return true;
+  }
+  return false;
+}
+
 /** Permission requests the agent is still waiting on. */
 export function pendingPermissionCards(messages: readonly ChatMessage[]): ActionCard[] {
   return messages.map((m) => m.actionCard).filter(isPendingRequest);

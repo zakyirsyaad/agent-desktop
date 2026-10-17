@@ -704,5 +704,21 @@ describe("ACP chat content", () => {
     rerender(<ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "hi", timestamp: 2 }]} onSendPtyInput={() => {}} isWorking />);
     expect(container.scrollTop).toBe(100);
   });
+
+  it("jumps to the bottom when the user sends, even if they had scrolled up", () => {
+    const first = [{ id: "a-0", role: "agent" as const, content: "earlier answer", timestamp: 1 }];
+    const { rerender } = render(<ChatCanvas messages={first} onSendPtyInput={() => {}} />);
+    const container = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 2000 });
+    Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
+    container.scrollTop = 100;
+    fireEvent.scroll(container);
+
+    rerender(
+      <ChatCanvas messages={[...first, { id: "u-1", role: "user", content: "follow-up", timestamp: 2 }]} onSendPtyInput={() => {}} />
+    );
+
+    expect(container.scrollTop).toBe(2000);
+  });
 });
 

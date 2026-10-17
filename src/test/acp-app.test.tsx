@@ -668,5 +668,52 @@ describe("ACP sessions in the app", () => {
 
     expect(screen.queryByTestId("agent-working")).toBeNull();
   });
+
+  it("marks a session waiting for the user's answer instead of working", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("clean up");
+    const row = () => within(screen.getByRole("list", { name: /^Sessions in/ })).getAllByRole("listitem")[0];
+
+    await acpEvent({
+      sessionId,
+      kind: "permission",
+      requestId: 31,
+      toolCall: { title: "Delete build" },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+
+    expect(within(row()).queryByLabelText("Agent working")).toBeNull();
+    expect(within(row()).getByLabelText("Waiting for your answer")).toBeDefined();
+  });
+
+  it("opens another session at its latest messages after scrolling up in this one", async () => {
+    fakeStore().state.sessions = [
+      { id: "s-a", name: "Alpha", profileId: "qwen", cwd: "/Users/test/developer/ai-perpetual-trading", status: "terminated", createdAt: 2, transport: "acp" },
+      { id: "s-b", name: "Beta", profileId: "qwen", cwd: "/Users/test/developer/ai-perpetual-trading", status: "terminated", createdAt: 1, transport: "acp" },
+    ];
+    fakeStore().transcripts["s-a"] = [{ id: "m-a", role: "user", content: "alpha question", timestamp: 1 }];
+    fakeStore().transcripts["s-b"] = [{ id: "m-b", role: "user", content: "beta question", timestamp: 1 }];
+    await renderWithQwen();
+    const open = async (name: string) => {
+      await act(async () => {
+        fireEvent.click(within(screen.getByRole("complementary")).getByText(name));
+      });
+    };
+    // Load both transcripts, so switching shows no empty state in between.
+    await open("Beta");
+    await screen.findByText("beta question");
+    await open("Alpha");
+    await screen.findByText("alpha question");
+    const first = screen.getByTestId("chat-canvas-container");
+    first.scrollTop = 0;
+    fireEvent.scroll(first);
+
+    await open("Beta");
+
+    // A fresh view for the other session, which starts out following its newest output.
+    expect(await screen.findByText("beta question")).toBeDefined();
+    expect(screen.getByTestId("chat-canvas-container")).not.toBe(first);
+  });
 });
 

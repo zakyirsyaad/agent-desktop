@@ -1,5 +1,6 @@
 import type { ContextUsage } from "../../types";
 
+const COMPACT_NUMBER = new Intl.NumberFormat("en-US", { notation: "compact" });
 const RADIUS = 6;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const WARN_AT = 80;
@@ -17,8 +18,13 @@ export function ContextMeter({ used, size }: ContextUsage) {
   // Without the window's size there is no percentage: show the tokens in use.
   if (size <= 0) {
     return (
-      <span aria-label="Context used" title={`Context: ${format(used)} tokens`} className="px-1 text-[11px] text-neutral-400">
-        {new Intl.NumberFormat("en-US", { notation: "compact" }).format(used)} tokens
+      <span
+        role="status"
+        aria-label="Context used"
+        title={`Context: ${format(used)} tokens`}
+        className="px-1 text-[11px] text-neutral-400"
+      >
+        {COMPACT_NUMBER.format(used)} tokens
       </span>
     );
   }
