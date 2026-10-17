@@ -163,9 +163,105 @@ pub fn session_pull_request(
     branch_pull_request(&gh, Path::new(&path), &branch)
 }
 
+/// One of the user's pull requests in a repository, as its list shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestSummary {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    /// `open`, `merged` or `closed`.
+    pub state: String,
+    pub is_draft: bool,
+}
+
+/// How many of the user's pull requests the list reads, newest first.
+const LISTED_PULL_REQUESTS: &str = "30";
+
+/// Every pull request in `gh pr list --json number,title,url,state,isDraft`
+/// output, in the order gh gave them (newest first).
+pub fn parse_pull_request_list(listed: &str) -> Result<Vec<PullRequestSummary>, String> {
+    let parsed: Value =
+        serde_json::from_str(listed).map_err(|e| format!("Unexpected answer from gh: {e}"))?;
+    let Some(list) = parsed.as_array() else {
+        return Err("Unexpected answer from gh: not a list".to_string());
+    };
+    Ok(list
+        .iter()
+        .map(|pr| {
+            let text = |name: &str| {
+                pr.get(name)
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string()
+            };
+            PullRequestSummary {
+                number: pr.get("number").and_then(Value::as_u64).unwrap_or(0),
+                title: text("title"),
+                url: text("url"),
+                state: text("state").to_ascii_lowercase(),
+                is_draft: pr.get("isDraft").and_then(Value::as_bool).unwrap_or(false),
+            }
+        })
+        .collect())
+}
+
+/// The pull requests the signed-in user opened in the repository at a
+/// session's folder, newest first, merged and closed ones included. None
+/// when the GitHub CLI is not installed or the repository is not on GitHub
+/// (the list is then not shown at all).
+#[tauri::command(async)]
+pub fn repo_pull_requests(
+    store: State<'_, AppStore>,
+    path: String,
+) -> Result<Option<Vec<PullRequestSummary>>, String> {
+    ensure_known_workspace(&path, |p| store.is_known_workspace(p))?;
+    let Some(gh) = env_resolver::find_binary_in_user_path("gh") else {
+        return Ok(None);
+    };
+    let output = Command::new(gh)
+        .current_dir(&path)
+        .args(["pr", "list", "--state", "all", "--author", "@me"])
+        .args(["--limit", LISTED_PULL_REQUESTS])
+        .args(["--json", "number,title,url,state,isDraft"])
+        .output()
+        .map_err(|e| format!("Could not run gh: {e}"))?;
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return if is_not_on_github(&error) {
+            Ok(None)
+        } else {
+            Err(error)
+        };
+    }
+    parse_pull_request_list(&String::from_utf8_lossy(&output.stdout)).map(Some)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_every_pull_request_in_a_list() {
+        let listed = r#"[
+            {"number":14,"title":"PR status","url":"https://github.com/o/r/pull/14","state":"MERGED","isDraft":false},
+            {"number":15,"title":"Draft","url":"https://github.com/o/r/pull/15","state":"OPEN","isDraft":true}]"#;
+
+        let list = parse_pull_request_list(listed).expect("parse");
+
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].number, 14);
+        assert_eq!(list[0].state, "merged");
+        assert_eq!(list[1].title, "Draft");
+        assert!(list[1].is_draft);
+    }
+
+    #[test]
+    fn reads_an_empty_list_and_rejects_an_answer_that_is_not_one() {
+        assert_eq!(parse_pull_request_list("[]").expect("parse"), vec![]);
+        assert!(parse_pull_request_list("{}").is_err());
+        assert!(parse_pull_request_list("not json").is_err());
+    }
 
     #[test]
     fn reads_a_pull_request_and_counts_its_checks() {

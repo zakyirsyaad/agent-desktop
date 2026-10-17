@@ -283,6 +283,7 @@ pub fn run() {
             workspace_files::workspace_files,
             git_info::workspace_details,
             pull_requests::session_pull_request,
+            pull_requests::repo_pull_requests,
             changes::session_changes,
             changes::session_file_diff,
             changes::commit_session_changes,

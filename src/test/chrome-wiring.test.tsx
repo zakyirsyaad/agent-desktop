@@ -125,6 +125,36 @@ describe("Window chrome wiring", () => {
     expect(screen.getByRole("complementary", { name: "Files panel" })).toBeDefined();
   });
 
+  it("lists the user's pull requests in the changes panel, read only while it is open, and opens one", async () => {
+    seedSessions();
+    const original = tauriInternals().invoke;
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "session_changes") return Promise.resolve([]);
+      if (cmd === "repo_pull_requests") {
+        return Promise.resolve([
+          { number: 14, title: "Show PR status", url: "https://github.com/o/agent-desktop/pull/14", state: "merged", isDraft: false },
+        ]);
+      }
+      if (cmd === "open_external_url") return Promise.resolve(undefined);
+      return original(cmd, args);
+    });
+    await renderApp();
+    expect(spy.mock.calls.some(([cmd]) => cmd === "repo_pull_requests")).toBe(false);
+
+    await click(await header().findByRole("button", { name: "Toggle changes panel" }));
+    const panel = within(screen.getByRole("complementary", { name: "Changes panel" }));
+    const list = within(await panel.findByRole("list", { name: "Pull requests" }));
+    expect(spy).toHaveBeenCalledWith("repo_pull_requests", { path: "/Users/test/developer/agent-desktop" }, undefined);
+    expect(list.getByText("agent-desktop #14")).toBeDefined();
+    await click(list.getByRole("button", { name: /Show PR status/ }));
+
+    expect(spy).toHaveBeenCalledWith(
+      "open_external_url",
+      { url: "https://github.com/o/agent-desktop/pull/14" },
+      undefined,
+    );
+  });
+
   it("offers no changes panel for a folder that is not a git repository", async () => {
     seedSessions();
     const original = tauriInternals().invoke;

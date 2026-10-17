@@ -14,6 +14,7 @@ import { ChangesPanel } from "./components/changes/ChangesPanel";
 import { useSidePanel } from "./hooks/useSidePanel";
 import { useTurnsEnded } from "./hooks/useTurnsEnded";
 import { usePullRequest } from "./hooks/usePullRequest";
+import { useRepoPullRequests } from "./hooks/useRepoPullRequests";
 import { useAgentAuth } from "./hooks/useAgentAuth";
 import { createSessionWorktree } from "./lib/session-worktree";
 import { EMPTY_DRAFT, spawnOptionsFor, titleFor, type SessionSpec } from "./lib/session-start";
@@ -232,6 +233,15 @@ export default function App() {
     turnsEnded,
     reportError,
   );
+  // Read only while the Changes panel shows them.
+  const repoPullRequests = useRepoPullRequests(
+    sidePanel.open === "changes" && isRepository ? filesFolder?.path : undefined,
+    turnsEnded,
+    reportError,
+  );
+  const openPullRequest = (url: string) => {
+    invoke("open_external_url", { url }).catch((error) => setNotice(`Could not open the pull request: ${String(error)}`));
+  };
   // The agent may have checked out another branch: the top bar reads it again after each turn.
   useEffect(() => setBranchCheck(turnsEnded), [turnsEnded]);
   /**
@@ -532,9 +542,7 @@ export default function App() {
         workspacePath={shownFolderPath}
         branch={workspaceDetails?.branch ?? undefined}
         pullRequest={pullRequest}
-        onOpenPullRequest={(url) => {
-          invoke("open_external_url", { url }).catch((error) => setNotice(`Could not open the pull request: ${String(error)}`));
-        }}
+        onOpenPullRequest={openPullRequest}
         canGoBack={canGoBack}
         canGoForward={navigation.canGoForward}
         onBack={() => navigateTo(isNewSessionDraft ? lastViewedSessionId : navigation.back())}
@@ -694,6 +702,8 @@ export default function App() {
             version={sidePanel.changes.version}
             onReload={sidePanel.changes.reload}
             onClose={sidePanel.close}
+            pullRequests={repoPullRequests}
+            onOpenPullRequest={openPullRequest}
           />
         )}
         {sidePanel.open === "files" && filesFolder && (
