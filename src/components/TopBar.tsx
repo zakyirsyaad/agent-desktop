@@ -8,6 +8,8 @@ import {
   MoreHorizontal,
   Terminal
 } from "lucide-react";
+import { PullRequestChip } from "./topbar/PullRequestChip";
+import type { PullRequestStatus } from "../hooks/usePullRequest";
 
 /**
  * Left inset reserved for the native macOS traffic lights.
@@ -27,6 +29,9 @@ export interface TopBarProps {
   workspacePath?: string;
   /** The workspace's git branch, shown next to it when it is a repository. */
   branch?: string;
+  /** The branch's pull request, with a chip that opens it; none when absent. */
+  pullRequest?: PullRequestStatus | null;
+  onOpenPullRequest?: (url: string) => void;
   isTerminalOpen?: boolean;
   /** Shows or hides the terminal drawer; the button is hidden when absent. */
   onToggleTerminal?: () => void;
@@ -52,6 +57,8 @@ export function TopBar({
   workspaceName,
   workspacePath,
   branch,
+  pullRequest,
+  onOpenPullRequest,
   isTerminalOpen = false,
   onToggleTerminal,
   canGoBack = false,
@@ -137,6 +144,9 @@ export function TopBar({
             <GitBranch size={11} aria-hidden="true" />
             <span className="max-w-[140px] truncate">{branch}</span>
           </span>
+        )}
+        {workspaceName && branch && pullRequest && onOpenPullRequest && (
+          <PullRequestChip pullRequest={pullRequest} onOpen={onOpenPullRequest} />
         )}
         {!sessionName && !workspaceName && (
           <span data-tauri-drag-region className="font-medium text-neutral-400">

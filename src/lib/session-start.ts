@@ -2,7 +2,7 @@ import { titleFromPrompt } from './session-helpers';
 import { fileNameOf } from './attachments';
 import type { SessionDraft } from './composer-controls';
 import type { FirstMessage } from '../hooks/session-engine/useAcpEngine';
-import { DEFAULT_PERMISSION_MODE, type AgentProfile, type SpawnOptions } from '../types';
+import { DEFAULT_PERMISSION_MODE, type AgentProfile, type ChatMessage, type SessionWorktree, type SpawnOptions } from '../types';
 
 /** The choices for a new terminal session before the user changes any. */
 export const EMPTY_DRAFT: SessionDraft = { permissionMode: DEFAULT_PERMISSION_MODE };
@@ -21,4 +21,17 @@ export function spawnOptionsFor(agent: AgentProfile, draft: SessionDraft): Spawn
 /** A session title from a message, or from its first file when it has no text. */
 export function titleFor({ text, attachments }: FirstMessage): string {
   return titleFromPrompt(text || fileNameOf(attachments?.[0] ?? ''));
+}
+
+/** What a new session is recorded and started with. */
+export interface SessionSpec {
+  id?: string;
+  agent: AgentProfile;
+  cwd: string;
+  name: string;
+  /** Terminal agents only: the CLI flags to start with. */
+  options?: SpawnOptions;
+  forkedFrom?: string;
+  initialMessages?: ChatMessage[];
+  worktree?: SessionWorktree | null;
 }

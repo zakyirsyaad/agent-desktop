@@ -137,6 +137,35 @@ describe("Window chrome wiring", () => {
     expect(spy.mock.calls.some(([cmd]) => cmd === "session_changes")).toBe(false);
   });
 
+  it("shows the pull request for the session's branch and opens it", async () => {
+    seedSessions();
+    const original = tauriInternals().invoke;
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "session_pull_request"
+        ? Promise.resolve({
+            branch: "main",
+            number: 7,
+            title: "Changes panel",
+            url: "https://github.com/o/r/pull/7",
+            state: "open",
+            isDraft: false,
+            checks: { passing: 3, failing: 0, pending: 0 },
+          })
+        : original(cmd, args)
+    );
+    await renderApp();
+
+    const chip = await header().findByRole("button", { name: "Pull request #7, open, checks passing" });
+    expect(spy).toHaveBeenCalledWith(
+      "session_pull_request",
+      { path: "/Users/test/developer/agent-desktop" },
+      undefined,
+    );
+    await click(chip);
+
+    expect(spy).toHaveBeenCalledWith("open_external_url", { url: "https://github.com/o/r/pull/7" }, undefined);
+  });
+
   it("goes back from a new session to the session viewed last", async () => {
     seedSessions();
     await renderApp();
