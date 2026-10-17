@@ -47,6 +47,8 @@ export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
   // Read and written at once, so a second send cannot start a second agent.
   const restartingRef = useRef(new Set<string>());
   const cancelledRef = useRef(new Set<string>());
+  // The message each pending restart carries, put back in the composer the moment Stop is pressed.
+  const pendingRef = useRef(new Map<string, FirstMessage>());
   const [restarting, setRestarting] = useState<ReadonlySet<string>>(() => new Set());
 
   const markRestarting = (sessionId: string, isRestarting: boolean) => {
@@ -84,33 +86,37 @@ export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
   const restart = async (session: Session, message: FirstMessage, choices: AcpChoices) => {
     if (restartingRef.current.has(session.id)) return;
     markRestarting(session.id, true);
+    pendingRef.current.set(session.id, message);
     try {
       let context: string | undefined;
       try {
         context = await handoffFor(session);
       } catch (error) {
-        // Stopped meanwhile, the failure is moot; the message goes back either way.
-        if (!cancelledRef.current.delete(session.id)) onNotice(`Could not continue the session: ${String(error)}`);
+        // Stopped meanwhile: the message is back already, and the failure is moot.
+        if (cancelledRef.current.delete(session.id)) return;
+        onNotice(`Could not continue the session: ${String(error)}`);
         onRestore(session.id, message.text, message.attachments);
         return;
       }
       await stopsRef.current.get(session.id);
       stopsRef.current.delete(session.id);
-      if (cancelledRef.current.delete(session.id)) {
-        onRestore(session.id, message.text, message.attachments);
-        return;
-      }
+      if (cancelledRef.current.delete(session.id)) return;
       // Continuing an archived session brings it back into the list.
       patchSession(session.id, { status: 'running', endedAt: null, exitCode: null, archivedAt: null });
       // The engine marks the session as starting before this returns, so it stays busy throughout.
       void acp.start(session, { ...message, context }, choices);
     } finally {
+      pendingRef.current.delete(session.id);
       markRestarting(session.id, false);
     }
   };
 
+  /** Restored at once, not when the wait ends: a draft typed meanwhile is never overwritten. */
   const cancelRestart = (sessionId: string) => {
-    if (restartingRef.current.has(sessionId)) cancelledRef.current.add(sessionId);
+    const message = pendingRef.current.get(sessionId);
+    if (!message || cancelledRef.current.has(sessionId)) return;
+    cancelledRef.current.add(sessionId);
+    onRestore(sessionId, message.text, message.attachments);
   };
 
   return { rewind, restart, isRestarting: (sessionId) => restarting.has(sessionId), cancelRestart };

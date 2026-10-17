@@ -805,13 +805,19 @@ describe("ACP sessions in the app", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
     });
+    // Back at once, so it is there to edit while the wait goes on.
+    expect(prompt().value).toBe("plan the lexer");
+    await act(async () => {
+      fireEvent.change(prompt(), { target: { value: "a newer draft" } });
+    });
     await act(async () => {
       finishHandoff("/fake/app-data/handoffs/rewind.md");
     });
 
     expect(callsTo(spy, "acp_start_session")).toHaveLength(1);
     expect(callsTo(spy, "acp_cancel")).toHaveLength(0);
-    expect(prompt().value).toBe("plan the lexer");
+    // The end of the wait leaves the draft typed meanwhile alone.
+    expect(prompt().value).toBe("a newer draft");
     expect(screen.queryByRole("button", { name: "Stop agent" })).toBeNull();
   });
 
