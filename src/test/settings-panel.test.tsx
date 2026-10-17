@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, within, fireEvent, act } from "@testing-library/react";
 import { SettingsPanel } from "../components/SettingsPanel";
-import { RECHECK_ERROR } from "../components/onboarding/AgentsStep";
+import { RECHECK_ERROR } from "../lib/agent-readiness";
 import type { AgentProfile } from "../types";
 import { makeProfile } from "./fixtures/agents";
 
@@ -187,22 +187,31 @@ describe("SettingsPanel — agents", () => {
     const onRecheckAgents = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
     renderSettings({ onRecheckAgents });
 
-    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check again for installed agents" }));
 
     expect(onRecheckAgents).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Check again" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Check again for installed agents" })).toBeDisabled();
     await act(async () => finish());
-    expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Check again for installed agents" })).toBeEnabled();
+  });
+
+  it("offers the check after the default agent field, not inside it", () => {
+    renderSettings({ onRecheckAgents: () => Promise.resolve() });
+
+    const field = defaultAgentSelect();
+    const check = screen.getByRole("button", { name: "Check again for installed agents" });
+    expect(check.textContent).toContain("Check again");
+    expect(field.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("says in the dialog when a check failed, and stays usable", async () => {
     renderSettings({ onRecheckAgents: () => Promise.reject(new Error("no shell")) });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+      fireEvent.click(screen.getByRole("button", { name: "Check again for installed agents" }));
     });
 
     expect(screen.getByRole("alert")).toHaveTextContent(RECHECK_ERROR);
-    expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Check again for installed agents" })).toBeEnabled();
   });
 });
