@@ -15,7 +15,7 @@ import { useTurnsEnded } from "./hooks/useTurnsEnded";
 import { usePullRequest } from "./hooks/usePullRequest";
 import { useAgentAuth } from "./hooks/useAgentAuth";
 import { createSessionWorktree } from "./lib/session-worktree";
-import { EMPTY_DRAFT, spawnOptionsFor, titleFor } from "./lib/session-start";
+import { EMPTY_DRAFT, spawnOptionsFor, titleFor, type SessionSpec } from "./lib/session-start";
 import { createPtyOutputStore } from "./lib/pty-output-store";
 import { isAwaitingPermission } from "./lib/acp-events";
 import {
@@ -40,13 +40,13 @@ import { useUserProfile } from "./hooks/useUserProfile";
 import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
+import { useSessionFork } from "./hooks/useSessionFork";
 import { useUnreadMarks } from "./hooks/useUnreadMarks";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
 import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
 import type { AcpConfigOption } from "./hooks/useAcpSessions";
 import { attentionBody, notifyIfAway } from "./lib/notify";
-import { buildForkHandoff, buildForkPrompt } from "./lib/fork-handoff";
 import { pickFiles } from "./lib/file-picker";
 import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
@@ -54,8 +54,8 @@ import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerStateFor } from "./lib/composer-state";
 import { NO_CHOICES, rememberedChoice, withPreferred, type AcpChoices, type AgentOptions } from "./lib/acp-draft";
-import type { AgentProfile, ChatMessage, Session, SessionWorktree, Settings, SpawnOptions } from "./types";
-import { DEFAULT_PERMISSION_MODE, TRANSPORT_ACP } from "./types";
+import type { Session, SessionWorktree, Settings } from "./types";
+import { TRANSPORT_ACP } from "./types";
 
 const NO_WORKSPACE_PLACEHOLDER = "Open a folder and install an agent to start";
 const NEW_SESSION_PLACEHOLDER = "Message the agent to start a new session...";
@@ -243,17 +243,6 @@ export default function App() {
       : isAwaitingPermission(messages, { includeTerminal: true });
   };
 
-  interface SessionSpec {
-    id?: string;
-    agent: AgentProfile;
-    cwd: string;
-    name: string;
-    /** Terminal agents only: the CLI flags to start with. */
-    options?: SpawnOptions;
-    forkedFrom?: string;
-    initialMessages?: ChatMessage[];
-    worktree?: SessionWorktree | null;
-  }
 
   /** Records a new session and shows it; the agent is started by its engine. */
   const recordSession = ({ id, agent, cwd, name, options, forkedFrom, initialMessages, worktree }: SessionSpec): Session => {
@@ -342,63 +331,15 @@ export default function App() {
     setActiveSessionId("");
   };
 
-  /**
-   * Forks the active session at `messageId`. From the latest message, an ACP
-   * agent that supports it forks its own live session, and Claude Code in a
-   * terminal resumes and forks its session natively. Otherwise the
-   * conversation is written to a handoff file and the new agent is asked, in
-   * one line, to read it.
-   */
-  const handleFork = async (messageId: string) => {
-    const source = activeSession;
-    const agent = agents.find((a) => a.id === source?.profileId);
-    if (!source || !agent?.detected) {
-      setNotice("The agent for this session is not installed, so it cannot be forked.");
-      return;
-    }
-    const messages = transcripts[source.id] ?? [];
-    const index = messages.findIndex((m) => m.id === messageId);
-    if (index < 0) return;
-
-    const isLatest = index === messages.length - 1;
-    const baseOptions: SessionDraft = {
-      model: source.model,
-      effort: source.effort,
-      permissionMode: source.permissionMode ?? DEFAULT_PERMISSION_MODE,
-    };
-    const spec: SessionSpec = {
-      id: createId("s"),
-      agent,
-      cwd: source.cwd,
-      name: `${source.name} (fork)`,
-      forkedFrom: source.id,
-      // A fork works in the same checkout as its source.
-      worktree: source.worktree,
-      initialMessages: messages.slice(0, index + 1),
-    };
-    // A native fork needs the source agent alive; after it exited, fall back to a handoff.
-    if (isAcp(source) && source.status === "running" && isLatest && acp.canFork(source.id)) {
-      void acp.fork(source.id, recordSession(spec));
-      return;
-    }
-    if (!isAcp(source) && agent.fork_support === "native" && isLatest && source.agentSessionId) {
-      startSession({ ...spec, options: { ...baseOptions, forkFromAgentSessionId: source.agentSessionId } });
-      return;
-    }
-
-    try {
-      const content = buildForkHandoff(messages, messageId, {
-        sourceSessionName: source.name,
-        agentName: agent.name,
-        cwd: source.cwd,
-        createdAt: Date.now(),
-      });
-      const handoffPath = await invoke<string>("write_fork_handoff", { handoffId: spec.id, content });
-      startSession({ ...spec, options: spawnOptionsFor(agent, baseOptions) }, { text: buildForkPrompt(handoffPath) });
-    } catch (error) {
-      setNotice(`Could not fork the session: ${String(error)}`);
-    }
-  };
+  const forkSession = useSessionFork({
+    source: activeSession,
+    agents,
+    transcripts,
+    acp,
+    recordSession,
+    startSession,
+    onNotice: setNotice,
+  });
 
   const handleSelectSession = (sessionId: string) => {
     setActiveSessionId(sessionId);
@@ -644,7 +585,7 @@ export default function App() {
               conversationId={activeSessionId}
               messages={currentMessages}
               agentName={activeAgent?.name}
-              onForkBranch={(messageId) => void handleFork(messageId)}
+              onForkBranch={(messageId) => void forkSession(messageId)}
               onSendPtyInput={(input) => void pty.sendRaw(activeSessionId, input)}
               onApproveAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "approved")}
               onRejectAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "rejected")}
