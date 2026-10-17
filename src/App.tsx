@@ -12,19 +12,18 @@ import { NewSessionView } from "./components/workspace/NewSessionView";
 import { ChangesPanel } from "./components/changes/ChangesPanel";
 import { useSidePanel } from "./hooks/useSidePanel";
 import { useAgentAuth } from "./hooks/useAgentAuth";
-import { createSessionWorktree, removeSessionWorktree } from "./lib/session-worktree";
+import { createSessionWorktree } from "./lib/session-worktree";
 import { EMPTY_DRAFT, spawnOptionsFor, titleFor } from "./lib/session-start";
 import { createPtyOutputStore } from "./lib/pty-output-store";
-import { closeTurn, isAwaitingPermission } from "./lib/acp-events";
+import { isAwaitingPermission } from "./lib/acp-events";
 import {
   folderNameOf,
-  isArchived,
+  isListed,
   isAutoName,
   workspacePathOf,
   mostRecentSessionId,
   nextSessionName,
   patchSessionIn,
-  removeSessionFrom,
 } from "./lib/session-helpers";
 import { createId } from "./lib/ids";
 import { usePersistedState } from "./hooks/usePersistedState";
@@ -38,7 +37,7 @@ import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useUserProfile } from "./hooks/useUserProfile";
 import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { usePopoutHost } from "./hooks/usePopoutHost";
-import { useLatest } from "./hooks/useLatest";
+import { useSessionActions } from "./hooks/useSessionActions";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
 import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
@@ -65,8 +64,6 @@ const NO_AGENT_NOTICE =
 const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
 // eslint-disable-next-line no-control-regex -- matching control characters is the point.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
-/** Shown in the session list: not archived. */
-const isListed = (session: Session) => !isArchived(session);
 
 export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
@@ -101,7 +98,6 @@ export default function App() {
   } = useWorkspaceSelection(state, isLoaded, updateState, reportError);
 
   const sessions = state.sessions;
-  const sessionsRef = useLatest(sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
@@ -437,64 +433,18 @@ export default function App() {
     else pty.interrupt(sessionId);
   };
 
-  /** Ends a session's agent when it runs; resolves with whether it is stopped. */
-  const stopAgent = (session: Session | undefined): Promise<boolean> => {
-    if (session?.status !== "running") return Promise.resolve(true);
-    return isAcp(session) ? acp.stop(session.id) : pty.stop(session.id);
-  };
-
-  /**
-   * After a session leaves the list, the most recent listed one is shown if it
-   * was. Read from the latest sessions: an archive may have waited for its
-   * agent while other sessions were archived or deleted.
-   */
-  const selectNextAfter = (sessionId: string) =>
-    setActiveSessionId((current) =>
-      current === sessionId
-        ? mostRecentSessionId(sessionsRef.current.filter((s) => s.id !== sessionId && isListed(s)))
-        : current,
-    );
-
-  const handleDeleteSession = (sessionId: string) => {
-    const session = sessionById(sessionId);
-    const stopped = stopAgent(session);
-    pty.forget(sessionId);
-    navigation.remove(sessionId);
-    updateState((prev) => removeSessionFrom(prev, sessionId));
-    removeTranscript(sessionId);
-    if (session) {
-      void removeSessionWorktree(session, sessions, stopped).then((kept) => kept && setNotice(kept));
-    }
-    selectNextAfter(sessionId);
-  };
-
-  const handleRenameSession = (sessionId: string, name: string) =>
-    patchSession(sessionId, { name, namedByUser: true });
-
-  const handlePinSession = (sessionId: string, isPinned: boolean) => patchSession(sessionId, { pinned: isPinned });
-
-  /**
-   * Archiving hides a session and ends its agent; its conversation and pin
-   * stay, and an ACP session can be continued after unarchiving it. A session
-   * whose agent cannot be stopped stays listed, so nothing runs out of sight.
-   */
-  const handleArchiveSession = async (sessionId: string, isArchived: boolean) => {
-    if (!isArchived) {
-      patchSession(sessionId, { archivedAt: null });
-      return;
-    }
-    const session = sessionById(sessionId);
-    const isRunning = session?.status === "running";
-    if (!(await stopAgent(session))) {
-      setNotice(`Did not archive "${session?.name ?? "the session"}": its agent could not be stopped.`);
-      return;
-    }
-    // A stopped agent ends no turn itself: requests it was waiting on are answered as closed.
-    if (isRunning) updateMessages(sessionId, closeTurn);
-    const now = Date.now();
-    patchSession(sessionId, { archivedAt: now, ...(isRunning ? { status: "terminated", endedAt: now } : {}) });
-    selectNextAfter(sessionId);
-  };
+  const sessionActions = useSessionActions({
+    sessions,
+    setActiveSessionId,
+    patchSession,
+    updateState,
+    updateMessages,
+    removeTranscript,
+    navigation,
+    acp,
+    pty,
+    onNotice: setNotice,
+  });
 
   const sendTo = async (sessionId: string, message: FirstMessage) => {
     const session = sessionById(sessionId);
@@ -622,10 +572,10 @@ export default function App() {
           isSessionBusy={isSessionBusy}
           isSessionWaiting={isSessionWaiting}
           onStopSession={handleInterrupt}
-          onDeleteSession={handleDeleteSession}
-          onRenameSession={handleRenameSession}
-          onPinSession={handlePinSession}
-          onArchiveSession={(sessionId, isArchived) => void handleArchiveSession(sessionId, isArchived)}
+          onDeleteSession={sessionActions.deleteSession}
+          onRenameSession={sessionActions.renameSession}
+          onPinSession={sessionActions.pinSession}
+          onArchiveSession={(sessionId, isArchived) => void sessionActions.archiveSession(sessionId, isArchived)}
           footer={
             <ProfileFooter
               name={userProfile.name}

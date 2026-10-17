@@ -74,6 +74,11 @@ export function isArchived(session: Session): boolean {
   return Boolean(session.archivedAt);
 }
 
+/** Shown in the session list (pinned or in its workspace): not archived. */
+export function isListed(session: Session): boolean {
+  return !isArchived(session);
+}
+
 /** Shown in the Pinned section: pinned and not archived. An archived session keeps its pin for later. */
 export function isShownPinned(session: Session): boolean {
   return Boolean(session.pinned) && !isArchived(session);
