@@ -78,6 +78,16 @@ export function ComposerDock({
   const [highlighted, setHighlighted] = useState(0);
   const [isMenuDismissed, setIsMenuDismissed] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null);
+  const [wasAttachingAsFiles, setWasAttachingAsFiles] = useState(attachAsFiles);
+  // A terminal agent only takes text, so files attached for an ACP agent move
+  // into the prompt as paths when the agent changes to a terminal one.
+  if (wasAttachingAsFiles !== attachAsFiles) {
+    setWasAttachingAsFiles(attachAsFiles);
+    if (!attachAsFiles && attachments.length > 0) {
+      setText((current) => appendAttachments(current, attachments));
+      setAttachments([]);
+    }
+  }
   const containerRef = useRef<HTMLElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 

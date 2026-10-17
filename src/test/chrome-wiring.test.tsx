@@ -54,6 +54,19 @@ describe("Window chrome wiring", () => {
     expect(header().getByText("Alpha work")).toBeDefined();
   });
 
+  it("goes back from a new session to the session viewed last", async () => {
+    seedSessions();
+    await renderApp();
+    const sessions = within(screen.getByRole("complementary"));
+    await click(sessions.getByText("Alpha work"));
+
+    await click(screen.getByRole("button", { name: "+ New session" }));
+    expect(screen.getByRole("heading", { name: "New session" })).toBeDefined();
+    await click(header().getByRole("button", { name: "Back" }));
+
+    expect(header().getByText("Alpha work")).toBeDefined();
+  });
+
   it("opens the workspace's files from the folder button, reveals it in Finder, and pops the session out", async () => {
     seedSessions();
     const spy = vi.spyOn(tauriInternals(), "invoke");

@@ -463,6 +463,10 @@ export default function App() {
     },
   });
 
+  // A new session is not in the history: Back from it returns to the session viewed last.
+  const lastViewedSessionId = navigation.current && sessionById(navigation.current) ? navigation.current : null;
+  const canGoBack = isNewSessionDraft ? lastViewedSessionId !== null : navigation.canGoBack;
+
   const currentMessages = transcripts[activeSessionId] ?? [];
   const canStartSession = Boolean(activeWorkspacePath && newSessionAgent);
   const composer = composerStateFor({
@@ -509,9 +513,9 @@ export default function App() {
         workspaceName={activeWorkspace?.name}
         workspacePath={activeWorkspacePath}
         branch={workspaceDetails?.branch ?? undefined}
-        canGoBack={navigation.canGoBack}
+        canGoBack={canGoBack}
         canGoForward={navigation.canGoForward}
-        onBack={() => navigateTo(navigation.back())}
+        onBack={() => navigateTo(isNewSessionDraft ? lastViewedSessionId : navigation.back())}
         onForward={() => navigateTo(navigation.forward())}
         onToggleFiles={activeWorkspacePath ? () => setIsFilesOpen((prev) => !prev) : undefined}
         isFilesOpen={isFilesOpen && Boolean(activeWorkspacePath)}
