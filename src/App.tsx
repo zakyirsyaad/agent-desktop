@@ -202,7 +202,7 @@ export default function App() {
   };
 
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
-  const { rewind, restart, isRestarting } = useSessionRewind({
+  const { rewind, restart, isRestarting, cancelRestart } = useSessionRewind({
     agents,
     transcripts,
     acp,
@@ -419,7 +419,9 @@ export default function App() {
 
   /** Stops the agent's current turn; the session stays open for the next message. */
   const handleInterrupt = (sessionId: string) => {
-    if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
+    // A rewound session's fresh agent has not started yet: only its start is called off.
+    if (isRestarting(sessionId)) cancelRestart(sessionId);
+    else if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
     else pty.interrupt(sessionId);
   };
 

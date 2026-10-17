@@ -786,6 +786,35 @@ describe("ACP sessions in the app", () => {
     await waitFor(() => expect(callsTo(spy, "acp_start_session")).toHaveLength(2));
   });
 
+  it("starts no agent when Stop is pressed while a rewound session's restart is pending, and keeps the message", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await rewindTo("plan the parser");
+    let finishHandoff: (path: string) => void = () => {};
+    spy.mockImplementation((cmd, args) =>
+      cmd === "write_fork_handoff"
+        ? new Promise((resolve) => {
+            finishHandoff = resolve;
+          })
+        : realInvoke(cmd, args),
+    );
+    await send("plan the lexer");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    });
+    await act(async () => {
+      finishHandoff("/fake/app-data/handoffs/rewind.md");
+    });
+
+    expect(callsTo(spy, "acp_start_session")).toHaveLength(1);
+    expect(callsTo(spy, "acp_cancel")).toHaveLength(0);
+    expect(prompt().value).toBe("plan the lexer");
+    expect(screen.queryByRole("button", { name: "Stop agent" })).toBeNull();
+  });
+
   it("puts an unsent message back in its own session when the handoff fails after the user moved on", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);

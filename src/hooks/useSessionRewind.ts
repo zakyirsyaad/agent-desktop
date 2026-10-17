@@ -24,6 +24,8 @@ export interface SessionRewind {
   restart: (session: Session, message: FirstMessage, choices: AcpChoices) => Promise<void>;
   /** True while a restart writes its handoff, before the agent starts: the session takes no other message. */
   isRestarting: (sessionId: string) => boolean;
+  /** Stop pressed before the fresh agent started: none starts, and the message goes back to the composer. */
+  cancelRestart: (sessionId: string) => void;
 }
 
 /** Messages before the one with `messageId`; all of them when it is gone. */
@@ -44,6 +46,7 @@ export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
   const stopsRef = useRef(new Map<string, Promise<boolean>>());
   // Read and written at once, so a second send cannot start a second agent.
   const restartingRef = useRef(new Set<string>());
+  const cancelledRef = useRef(new Set<string>());
   const [restarting, setRestarting] = useState<ReadonlySet<string>>(() => new Set());
 
   const markRestarting = (sessionId: string, isRestarting: boolean) => {
@@ -86,12 +89,17 @@ export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
       try {
         context = await handoffFor(session);
       } catch (error) {
-        onNotice(`Could not continue the session: ${String(error)}`);
+        // Stopped meanwhile, the failure is moot; the message goes back either way.
+        if (!cancelledRef.current.delete(session.id)) onNotice(`Could not continue the session: ${String(error)}`);
         onRestore(session.id, message.text, message.attachments);
         return;
       }
       await stopsRef.current.get(session.id);
       stopsRef.current.delete(session.id);
+      if (cancelledRef.current.delete(session.id)) {
+        onRestore(session.id, message.text, message.attachments);
+        return;
+      }
       // Continuing an archived session brings it back into the list.
       patchSession(session.id, { status: 'running', endedAt: null, exitCode: null, archivedAt: null });
       // The engine marks the session as starting before this returns, so it stays busy throughout.
@@ -101,5 +109,9 @@ export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
     }
   };
 
-  return { rewind, restart, isRestarting: (sessionId) => restarting.has(sessionId) };
+  const cancelRestart = (sessionId: string) => {
+    if (restartingRef.current.has(sessionId)) cancelledRef.current.add(sessionId);
+  };
+
+  return { rewind, restart, isRestarting: (sessionId) => restarting.has(sessionId), cancelRestart };
 }
