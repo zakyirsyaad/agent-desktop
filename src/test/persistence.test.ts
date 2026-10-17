@@ -18,4 +18,15 @@ describe("normalizePersistedState", () => {
     expect(state.sessions).toHaveLength(1);
     expect(state.sessions[0].worktree).toBeUndefined();
   });
+
+  it("drops malformed pin, archive and naming fields but keeps the session", () => {
+    const state = normalizePersistedState({
+      sessions: [{ ...base, pinned: "yes", archivedAt: "2026-10-17", namedByUser: 1 }],
+    });
+
+    expect(state.sessions).toHaveLength(1);
+    expect(state.sessions[0]).not.toHaveProperty("pinned");
+    expect(state.sessions[0]).not.toHaveProperty("archivedAt");
+    expect(state.sessions[0]).not.toHaveProperty("namedByUser");
+  });
 });

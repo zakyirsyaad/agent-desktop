@@ -429,6 +429,61 @@ describe("ACP sessions in the app", () => {
     expect(within(screen.getByRole("complementary")).queryByText("Session #5")).toBeNull();
   });
 
+  it("unarchives an archived ACP session when the user continues it", async () => {
+    fakeStore().state.sessions = [
+      {
+        id: "s-old",
+        name: "Old parser work",
+        profileId: "qwen",
+        cwd: "/Users/test/developer/ai-perpetual-trading",
+        status: "terminated",
+        createdAt: 1,
+        transport: "acp",
+        acpSessionId: "qwen-old",
+        archivedAt: 5,
+      },
+    ];
+    const spy = await renderWithQwen();
+    const sidebar = within(screen.getByRole("complementary"));
+    await act(async () => {
+      fireEvent.click(sidebar.getByRole("button", { name: "Archived (1)" }));
+    });
+    await act(async () => {
+      fireEvent.click(sidebar.getByText("Old parser work"));
+    });
+
+    await send("next step");
+
+    await waitFor(() => expect(callsTo(spy, "acp_load_session")).toHaveLength(1));
+    expect(within(sidebar.getByRole("list", { name: /^Sessions in/ })).getByText("Old parser work")).toBeDefined();
+    expect(sidebar.queryByRole("button", { name: /^Archived/ })).toBeNull();
+  });
+
+  it("offers no Archive while the agent waits for a permission answer", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("clean up");
+    await acpEvent({
+      sessionId,
+      kind: "permission",
+      requestId: "perm-9",
+      toolCall: { title: "Run rm -rf build", kind: "execute" },
+      options: [
+        { optionId: "proceed_once", name: "Allow", kind: "allow_once" },
+        { optionId: "cancel", name: "Reject", kind: "reject_once" },
+      ],
+    });
+    const row = within(screen.getByRole("complementary")).getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
+
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: `More actions for ${FIRST_MESSAGE}` }));
+    });
+
+    // Its open request would outlive a stopped agent: Stop (which closes it) comes first.
+    expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
+  });
+
   it("reports a session that cannot be resumed and leaves it ended", async () => {
     fakeStore().state.sessions = [
       {
@@ -656,6 +711,34 @@ describe("ACP sessions in the app", () => {
     await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
 
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
+  it("keeps a name the user gave when the agent later reports its own title", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    const sidebar = within(screen.getByRole("complementary"));
+    const row = sidebar.getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: `More actions for ${FIRST_MESSAGE}` }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: `Rename ${FIRST_MESSAGE}` }), { target: { value: "Parser work" } });
+      fireEvent.keyDown(screen.getByRole("textbox", { name: `Rename ${FIRST_MESSAGE}` }), { key: "Enter" });
+    });
+
+    await acpEvent({ sessionId, kind: "update", update: { sessionUpdate: "session_info_update", title: "Agent's summary" } });
+
+    expect(sidebar.getByText("Parser work")).toBeDefined();
+    expect(sidebar.queryByText("Agent's summary")).toBeNull();
+    await waitFor(() =>
+      expect(fakeStore().state.sessions.find((s) => (s as { id: string }).id === sessionId)).toMatchObject({
+        name: "Parser work",
+        namedByUser: true,
+      })
+    );
   });
 
   it("shows the context the agent has used, as it reports it", async () => {

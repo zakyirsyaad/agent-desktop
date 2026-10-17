@@ -310,4 +310,138 @@ describe("Session lifecycle", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("uncommitted changes");
   });
+
+  async function chooseFromMenu(sessionName: string, action: string) {
+    await act(async () => {
+      fireEvent.click(within(sessionRow(sessionName)).getByRole("button", { name: `More actions for ${sessionName}` }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: action }));
+    });
+  }
+
+  it("archives a running session: stops its agent, keeps its conversation, and lists it under Archived", async () => {
+    await renderApp();
+    const sessionId = await startNewSession();
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+
+    await chooseFromMenu(FIRST_MESSAGE, "Archive");
+
+    expect(spy).toHaveBeenCalledWith("terminate_session", { sessionId }, undefined);
+    expect(spy.mock.calls.some(([cmd]) => cmd === "delete_transcript")).toBe(false);
+    await waitFor(() => {
+      const [saved] = fakeStore().state.sessions as { archivedAt?: number; status: string }[];
+      expect(saved.archivedAt).toEqual(expect.any(Number));
+      expect(saved.status).toBe("terminated");
+    });
+    await act(async () => {
+      fireEvent.click(sidebar().getByRole("button", { name: "Archived (1)" }));
+    });
+    expect(within(sidebar().getByRole("list", { name: "Archived sessions" })).getByText(FIRST_MESSAGE)).toBeDefined();
+  });
+
+  it("pins a session to the top of the sidebar", async () => {
+    fakeStore().state.sessions = [seedSession("s-old", "Refactor parser", 1000), seedSession("s-new", "Fix login", 2000)];
+    await renderApp();
+
+    await chooseFromMenu("Refactor parser", "Pin");
+
+    expect(within(sidebar().getByRole("list", { name: "Pinned sessions" })).getByText("Refactor parser")).toBeDefined();
+    await waitFor(() =>
+      expect((fakeStore().state.sessions as { id: string; pinned?: boolean }[]).find((s) => s.id === "s-old")?.pinned).toBe(true)
+    );
+  });
+
+  it("keeps a numbered name the user chose when the first message is sent", async () => {
+    fakeStore().state.sessions = [
+      { ...seedSession("s-mine", "Session #42", 1000), status: "running", namedByUser: true },
+      { ...seedSession("s-auto", "Session #7", 2000), status: "running" },
+    ];
+    await renderApp();
+    const sendFrom = async (name: string, text: string) => {
+      await act(async () => {
+        fireEvent.click(sidebar().getByText(name));
+      });
+      const composer = screen.getByRole("textbox", { name: "Prompt" });
+      await act(async () => {
+        fireEvent.change(composer, { target: { value: text } });
+        fireEvent.keyDown(composer, { key: "Enter" });
+      });
+    };
+
+    await sendFrom("Session #42", "first question");
+    await sendFrom("Session #7", "second question");
+
+    expect(sidebar().getByText("Session #42")).toBeDefined();
+    // A numbered name the app gave still takes its title from the first message.
+    expect(sidebar().getByText("second question")).toBeDefined();
+  });
+
+  it("keeps a session listed when its agent cannot be stopped for archiving", async () => {
+    await renderApp();
+    await startNewSession();
+    const original = tauriInternals().invoke;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "terminate_session" ? Promise.reject("no such session") : original(cmd, args)
+    );
+
+    await chooseFromMenu(FIRST_MESSAGE, "Archive");
+
+    expect(sidebar().queryByRole("button", { name: /^Archived/ })).toBeNull();
+    expect(within(sidebar().getByRole("list", { name: /^Sessions in/ })).getByText(FIRST_MESSAGE)).toBeDefined();
+    expect(screen.getAllByRole("alert").map((a) => a.textContent).join(" ")).toContain("could not be stopped");
+    await waitFor(() => {
+      const [saved] = fakeStore().state.sessions as { archivedAt?: number | null }[];
+      expect(saved).toBeDefined();
+      expect(saved.archivedAt ?? null).toBeNull();
+    });
+  });
+
+  it("brings an unarchived session back where it was, pinned if it was pinned", async () => {
+    fakeStore().state.sessions = [
+      { ...seedSession("s-pin", "Release notes", 1000), pinned: true },
+      seedSession("s-plain", "Fix login", 2000),
+    ];
+    await renderApp();
+
+    await chooseFromMenu("Release notes", "Archive");
+    await chooseFromMenu("Fix login", "Archive");
+    await act(async () => {
+      fireEvent.click(sidebar().getByRole("button", { name: "Archived (2)" }));
+    });
+    await chooseFromMenu("Release notes", "Unarchive");
+    await chooseFromMenu("Fix login", "Unarchive");
+
+    expect(within(sidebar().getByRole("list", { name: "Pinned sessions" })).getByText("Release notes")).toBeDefined();
+    expect(within(sidebar().getByRole("list", { name: /^Sessions in/ })).getByText("Fix login")).toBeDefined();
+    expect(sidebar().queryByRole("button", { name: /^Archived/ })).toBeNull();
+  });
+
+  it("after an archive that waited for its agent, shows a session that is still listed", async () => {
+    fakeStore().state.sessions = [
+      { ...seedSession("s-a", "Alpha", 3000), status: "running" },
+      seedSession("s-b", "Beta", 2000),
+      seedSession("s-c", "Gamma", 1000),
+    ];
+    await renderApp();
+    const original = tauriInternals().invoke;
+    let finishStopping: () => void = () => {};
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "terminate_session"
+        ? new Promise((resolve) => {
+            finishStopping = () => resolve(undefined);
+          })
+        : original(cmd, args)
+    );
+    expect(screen.getByRole("banner").textContent).toContain("Alpha");
+
+    await chooseFromMenu("Alpha", "Archive");
+    await chooseFromMenu("Beta", "Archive");
+    await act(async () => {
+      finishStopping();
+    });
+
+    // Beta was archived while Alpha's agent stopped, so Gamma is the one left to show.
+    expect(screen.getByRole("banner").textContent).toContain("Gamma");
+  });
 });

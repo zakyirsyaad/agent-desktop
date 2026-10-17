@@ -15,9 +15,10 @@ import { useAgentAuth } from "./hooks/useAgentAuth";
 import { createSessionWorktree, removeSessionWorktree } from "./lib/session-worktree";
 import { EMPTY_DRAFT, spawnOptionsFor, titleFor } from "./lib/session-start";
 import { createPtyOutputStore } from "./lib/pty-output-store";
-import { isAwaitingPermission } from "./lib/acp-events";
+import { closeTurn, isAwaitingPermission } from "./lib/acp-events";
 import {
   folderNameOf,
+  isArchived,
   isAutoName,
   workspacePathOf,
   mostRecentSessionId,
@@ -37,6 +38,7 @@ import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useUserProfile } from "./hooks/useUserProfile";
 import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { usePopoutHost } from "./hooks/usePopoutHost";
+import { useLatest } from "./hooks/useLatest";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
 import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
@@ -59,6 +61,8 @@ const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
 const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
+/** Shown in the session list: not archived. */
+const isListed = (session: Session) => !isArchived(session);
 
 export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
@@ -93,6 +97,7 @@ export default function App() {
   } = useWorkspaceSelection(state, isLoaded, updateState, reportError);
 
   const sessions = state.sessions;
+  const sessionsRef = useLatest(sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
@@ -136,7 +141,7 @@ export default function App() {
 
   // Once saved sessions are loaded, show the most recent one.
   useEffect(() => {
-    if (isLoaded) setActiveSessionId((current) => current || mostRecentSessionId(state.sessions));
+    if (isLoaded) setActiveSessionId((current) => current || mostRecentSessionId(state.sessions.filter(isListed)));
     // Only on the load transition; later session changes must not move the selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded]);
@@ -402,10 +407,27 @@ export default function App() {
     else pty.interrupt(sessionId);
   };
 
+  /** Ends a session's agent when it runs; resolves with whether it is stopped. */
+  const stopAgent = (session: Session | undefined): Promise<boolean> => {
+    if (session?.status !== "running") return Promise.resolve(true);
+    return isAcp(session) ? acp.stop(session.id) : pty.stop(session.id);
+  };
+
+  /**
+   * After a session leaves the list, the most recent listed one is shown if it
+   * was. Read from the latest sessions: an archive may have waited for its
+   * agent while other sessions were archived or deleted.
+   */
+  const selectNextAfter = (sessionId: string) =>
+    setActiveSessionId((current) =>
+      current === sessionId
+        ? mostRecentSessionId(sessionsRef.current.filter((s) => s.id !== sessionId && isListed(s)))
+        : current,
+    );
+
   const handleDeleteSession = (sessionId: string) => {
     const session = sessionById(sessionId);
-    const isRunning = session?.status === "running";
-    const stopped = !isRunning ? Promise.resolve(true) : isAcp(session) ? acp.stop(sessionId) : pty.stop(sessionId);
+    const stopped = stopAgent(session);
     pty.forget(sessionId);
     navigation.remove(sessionId);
     updateState((prev) => removeSessionFrom(prev, sessionId));
@@ -413,9 +435,35 @@ export default function App() {
     if (session) {
       void removeSessionWorktree(session, sessions, stopped).then((kept) => kept && setNotice(kept));
     }
-    if (sessionId === activeSessionId) {
-      setActiveSessionId(mostRecentSessionId(sessions.filter((s) => s.id !== sessionId)));
+    selectNextAfter(sessionId);
+  };
+
+  const handleRenameSession = (sessionId: string, name: string) =>
+    patchSession(sessionId, { name, namedByUser: true });
+
+  const handlePinSession = (sessionId: string, isPinned: boolean) => patchSession(sessionId, { pinned: isPinned });
+
+  /**
+   * Archiving hides a session and ends its agent; its conversation and pin
+   * stay, and an ACP session can be continued after unarchiving it. A session
+   * whose agent cannot be stopped stays listed, so nothing runs out of sight.
+   */
+  const handleArchiveSession = async (sessionId: string, isArchived: boolean) => {
+    if (!isArchived) {
+      patchSession(sessionId, { archivedAt: null });
+      return;
     }
+    const session = sessionById(sessionId);
+    const isRunning = session?.status === "running";
+    if (!(await stopAgent(session))) {
+      setNotice(`Did not archive "${session?.name ?? "the session"}": its agent could not be stopped.`);
+      return;
+    }
+    // A stopped agent ends no turn itself: requests it was waiting on are answered as closed.
+    if (isRunning) updateMessages(sessionId, closeTurn);
+    const now = Date.now();
+    patchSession(sessionId, { archivedAt: now, ...(isRunning ? { status: "terminated", endedAt: now } : {}) });
+    selectNextAfter(sessionId);
   };
 
   const sendTo = async (sessionId: string, message: FirstMessage) => {
@@ -425,7 +473,7 @@ export default function App() {
     const sent = await (isAcp(session)
       ? acp.send(sessionId, message.text, message.attachments)
       : pty.send(sessionId, message.text));
-    if (sent && session && isFirstMessage && isAutoName(session.name)) {
+    if (sent && session && isFirstMessage && isAutoName(session.name) && !session.namedByUser) {
       patchSession(sessionId, { name: titleFor(message) });
     }
   };
@@ -433,7 +481,8 @@ export default function App() {
   /** Continues an ended ACP session: a fresh agent process loads it, then gets the message. */
   const resumeSession = (session: Session, message: FirstMessage) => {
     if (!session.acpSessionId) return;
-    patchSession(session.id, { status: "running", endedAt: null, exitCode: null });
+    // Continuing an archived session brings it back into the list.
+    patchSession(session.id, { status: "running", endedAt: null, exitCode: null, archivedAt: null });
     void acp.resume(session, session.acpSessionId, message, acpChoices);
   };
 
@@ -544,6 +593,9 @@ export default function App() {
           isSessionWaiting={isSessionWaiting}
           onStopSession={handleInterrupt}
           onDeleteSession={handleDeleteSession}
+          onRenameSession={handleRenameSession}
+          onPinSession={handlePinSession}
+          onArchiveSession={(sessionId, isArchived) => void handleArchiveSession(sessionId, isArchived)}
           footer={
             <ProfileFooter
               name={userProfile.name}

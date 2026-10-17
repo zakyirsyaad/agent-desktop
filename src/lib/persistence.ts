@@ -39,11 +39,16 @@ function isWorktree(value: unknown): value is SessionWorktree {
   );
 }
 
-/** A session with a malformed worktree keeps everything else. */
-function withValidWorktree(session: Session): Session {
-  if (session.worktree == null || isWorktree(session.worktree)) return session;
-  const { worktree: _dropped, ...rest } = session;
-  return rest;
+/** A session keeps everything else when one of its optional fields is malformed. */
+function withValidFields(session: Session): Session {
+  const { worktree, pinned, archivedAt, namedByUser, ...rest } = session;
+  return {
+    ...rest,
+    ...(worktree == null || isWorktree(worktree) ? { worktree } : {}),
+    ...(typeof pinned === 'boolean' ? { pinned } : {}),
+    ...(archivedAt == null || typeof archivedAt === 'number' ? { archivedAt } : {}),
+    ...(typeof namedByUser === 'boolean' ? { namedByUser } : {}),
+  };
 }
 
 function toAgentOptions(raw: unknown): Record<string, AgentOptions> {
@@ -83,7 +88,7 @@ export function normalizePersistedState(raw: unknown): PersistedState {
             isObject(f) && typeof f.name === 'string' && typeof f.path === 'string',
         )
       : [],
-    sessions: Array.isArray(raw.sessions) ? raw.sessions.filter(isSession).map(withValidWorktree) : [],
+    sessions: Array.isArray(raw.sessions) ? raw.sessions.filter(isSession).map(withValidFields) : [],
     agentOptions: toAgentOptions(raw.agentOptions),
   };
 }
