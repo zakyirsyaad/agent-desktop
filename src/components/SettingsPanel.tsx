@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef } from "react";
-import { Folder, RotateCcw, Trash2, X } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Folder, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
 import { readyAgents, type AgentSummary } from "../lib/agent-readiness";
 import type { FolderOption } from "./onboarding/types";
 
@@ -10,6 +10,8 @@ export interface SettingsPanelProps {
   onChangeDefaultAgent: (agentId: string) => void;
   onRemoveRecentFolder: (path: string) => void;
   onRunOnboarding: () => void;
+  /** Detects the agents again, after one was installed while the app runs; a failure is reported by the app. */
+  onRecheckAgents?: () => Promise<void>;
   onClose: () => void;
 }
 
@@ -69,8 +71,10 @@ export function SettingsPanel({
   onChangeDefaultAgent,
   onRemoveRecentFolder,
   onRunOnboarding,
+  onRecheckAgents,
   onClose,
 }: SettingsPanelProps) {
+  const [isChecking, setIsChecking] = useState(false);
   const titleId = useId();
   const selectId = useId();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -109,6 +113,22 @@ export function SettingsPanel({
           <label htmlFor={selectId} className={`block ${SECTION_HEADING}`}>
             Default agent
           </label>
+          {onRecheckAgents && (
+            <button
+              type="button"
+              disabled={isChecking}
+              onClick={() => {
+                setIsChecking(true);
+                onRecheckAgents()
+                  .catch(() => {})
+                  .finally(() => setIsChecking(false));
+              }}
+              className="mb-2 flex items-center gap-1.5 rounded-lg border border-neutral-800/60 px-2.5 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-amber-500/40"
+            >
+              <RefreshCw size={12} className={isChecking ? "animate-spin" : undefined} aria-hidden="true" />
+              Check again
+            </button>
+          )}
           {ready.length === 0 ? (
             <p className="text-xs text-neutral-500">No agents are installed yet.</p>
           ) : (

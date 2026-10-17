@@ -93,7 +93,8 @@ the new agent is asked to read it.
   `gh auth login`, for pull request status. Without it, that part is hidden.
 
 The app reads your login shell's environment, so anything your terminal finds,
-it finds too. If you install an agent while the app runs, click **Check again**.
+it finds too. If you install an agent while the app runs, click **Check again**
+in Settings.
 
 ## Install
 
@@ -150,8 +151,8 @@ or runs commands.
 
 | Problem | What to try |
 |---|---|
-| An agent shows as not installed | Check that `which qwen` (or `claude`, `codex`) works in a new terminal, then click **Check again**. The app reads your login shell's `PATH`. |
-| "Sign in required" | Use the sign-in panel the app shows, or sign in once in a terminal (see [Requirements](#requirements)). |
+| An agent shows as not installed | Check that `which qwen` (or `claude`, `codex`) works in a new terminal, then click **Check again** in Settings. The app reads your login shell's `PATH`. |
+| "Sign in to *agent*": the agent needs you to sign in before it can start | Use a sign-in method the panel offers, or sign in once in a terminal (see [Requirements](#requirements)), then send your message again. |
 | Claude Code or Codex does not start | They need `npx` (Node.js 22+). The first start downloads the ACP adapter, so it can take a moment. |
 | No pull request status | Install `gh` and run `gh auth login`. A repository without a GitHub remote has none to show. |
 | "is not in the last commit, so a worktree would not have it" | A worktree checks out the last commit. Commit the folder first, or start the session without Worktree. |
@@ -212,8 +213,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to propose a change,
 ## Releasing
 
 1. Bump the version in `package.json`, `src-tauri/Cargo.toml` and
-   `src-tauri/tauri.conf.json`, and move the `Unreleased` notes in
-   `CHANGELOG.md` under the new version.
+   `src-tauri/tauri.conf.json`. In `CHANGELOG.md`, rename `Unreleased` to the
+   new version with its release date, add its compare link, and start a new
+   empty `Unreleased` section.
 2. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 3. The **Release** workflow builds a universal macOS app and attaches it to a
    draft GitHub release. Publish the draft when it looks right.
