@@ -11,6 +11,8 @@ import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
 import { ChangesPanel } from "./components/changes/ChangesPanel";
 import { useSidePanel } from "./hooks/useSidePanel";
+import { useTurnsEnded } from "./hooks/useTurnsEnded";
+import { usePullRequest } from "./hooks/usePullRequest";
 import { useAgentAuth } from "./hooks/useAgentAuth";
 import { createSessionWorktree } from "./lib/session-worktree";
 import { EMPTY_DRAFT, spawnOptionsFor, titleFor } from "./lib/session-start";
@@ -219,10 +221,12 @@ export default function App() {
   };
   const isDraggingFiles = useFileDrop(handleDroppedFiles, reportError);
 
-  const sidePanel = useSidePanel(
-    filesFolder?.path,
-    isRepository,
-    Boolean(activeSessionId) && isSessionBusy(activeSessionId),
+  const turnsEnded = useTurnsEnded(Boolean(activeSessionId) && isSessionBusy(activeSessionId));
+  const sidePanel = useSidePanel(filesFolder?.path, isRepository, turnsEnded, reportError);
+  const pullRequest = usePullRequest(
+    isRepository ? shownFolderPath : undefined,
+    workspaceDetails?.branch ?? undefined,
+    turnsEnded,
     reportError,
   );
   /**
@@ -564,6 +568,10 @@ export default function App() {
         workspaceName={activeSession ? folderNameOf(workspacePathOf(activeSession)) : activeWorkspace?.name}
         workspacePath={shownFolderPath}
         branch={workspaceDetails?.branch ?? undefined}
+        pullRequest={pullRequest}
+        onOpenPullRequest={(url) => {
+          invoke("open_external_url", { url }).catch((error) => setNotice(`Could not open the pull request: ${String(error)}`));
+        }}
         canGoBack={canGoBack}
         canGoForward={navigation.canGoForward}
         onBack={() => navigateTo(isNewSessionDraft ? lastViewedSessionId : navigation.back())}

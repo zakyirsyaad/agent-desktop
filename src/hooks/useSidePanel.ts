@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useSessionChanges, type SessionChanges } from './useSessionChanges';
 
 export type SidePanel = 'files' | 'changes';
@@ -14,22 +14,15 @@ export interface SidePanelState {
 
 /**
  * The panel beside the chat (the session's files or its uncommitted changes)
- * and the changes it shows, read again whenever the active agent stops working.
+ * and the changes it shows, read again whenever `turnsEnded` changes.
  */
 export function useSidePanel(
   folderPath: string | undefined,
   isRepository: boolean,
-  isActiveBusy: boolean,
+  turnsEnded: number,
   onError: (message: string) => void,
 ): SidePanelState {
   const [open, setOpen] = useState<SidePanel | null>(null);
-  // Counts the active agent's finished turns, so the changes are read again after each.
-  const [turnsEnded, setTurnsEnded] = useState(0);
-  const wasBusyRef = useRef(false);
-  useEffect(() => {
-    if (wasBusyRef.current && !isActiveBusy) setTurnsEnded((n) => n + 1);
-    wasBusyRef.current = isActiveBusy;
-  }, [isActiveBusy]);
   const changes = useSessionChanges(folderPath, isRepository, turnsEnded, onError);
 
   const toggle = (panel: SidePanel) => {

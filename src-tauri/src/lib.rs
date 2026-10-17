@@ -6,6 +6,7 @@ pub mod fork_handoff;
 pub mod git_info;
 pub mod profiles;
 pub mod pty_session;
+pub mod pull_requests;
 pub mod spawn_plan;
 pub mod store;
 pub mod user_profile;
@@ -281,6 +282,7 @@ pub fn run() {
             files::remember_workspace,
             workspace_files::workspace_files,
             git_info::workspace_details,
+            pull_requests::session_pull_request,
             changes::session_changes,
             changes::session_file_diff,
             changes::commit_session_changes,
