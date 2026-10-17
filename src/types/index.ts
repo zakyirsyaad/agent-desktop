@@ -160,7 +160,16 @@ export interface ToolExecution {
   status: 'running' | 'completed' | 'failed';
   /** ACP tool kind, e.g. "read", "edit", "execute". */
   kind?: string;
+  /** What the tool produced: diffs of files it changed and text output. */
+  details?: ToolDetail[];
+  /** Files it touched, as "path" or "path:line". */
+  locations?: string[];
 }
+
+export type ToolDetail =
+  | { kind: 'text'; text: string }
+  /** `oldText` is null for a file the tool created. */
+  | { kind: 'diff'; path: string; oldText: string | null; newText: string };
 
 /** One step of an agent's plan, as reported over ACP. */
 export interface PlanEntry {

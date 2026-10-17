@@ -1,5 +1,6 @@
 import { Check, Clock, Wrench } from "lucide-react";
 import type { ToolExecution } from "../../types";
+import { ToolDetails } from "./ToolDetails";
 
 /** Terminal agents report `Name(args)`; ACP agents give a ready-made title. */
 function toolLabel(tool: ToolExecution): string {
@@ -30,23 +31,52 @@ function ToolStatus({ status }: { status: ToolExecution["status"] }) {
   );
 }
 
+const ROW =
+  "flex items-center justify-between gap-2 px-3 py-1.5 font-mono text-xs text-neutral-300";
+const CARD = "rounded-lg border border-neutral-800/80 bg-neutral-950/60";
+
+function ToolRow({ tool }: { tool: ToolExecution }) {
+  return (
+    <>
+      <div className="flex items-center gap-2 overflow-hidden">
+        <Wrench className="h-3.5 w-3.5 text-neutral-500 shrink-0" />
+        <span className="truncate" title={tool.locations?.join("\n")}>
+          {toolLabel(tool)}
+        </span>
+      </div>
+      <div className="shrink-0">
+        <ToolStatus status={tool.status} />
+      </div>
+    </>
+  );
+}
+
+/**
+ * The agent's tool calls. One that produced something can be expanded: file
+ * changes start open, so edits are visible without a click; text output
+ * starts closed.
+ */
 export function ToolCallList({ tools }: { tools: ToolExecution[] }) {
   return (
     <div className="mb-4 space-y-2">
-      {tools.map((tool) => (
-        <div
-          key={tool.id}
-          className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800/80 bg-neutral-950/60 px-3 py-1.5 font-mono text-xs text-neutral-300"
-        >
-          <div className="flex items-center gap-2 overflow-hidden">
-            <Wrench className="h-3.5 w-3.5 text-neutral-500 shrink-0" />
-            <span className="truncate">{toolLabel(tool)}</span>
-          </div>
-          <div className="shrink-0">
-            <ToolStatus status={tool.status} />
-          </div>
-        </div>
-      ))}
+      {tools.map((tool) => {
+        if (!tool.details?.length) {
+          return (
+            <div key={tool.id} className={`${CARD} ${ROW}`}>
+              <ToolRow tool={tool} />
+            </div>
+          );
+        }
+        const hasDiff = tool.details.some((d) => d.kind === "diff");
+        return (
+          <details key={tool.id} open={hasDiff} className={CARD}>
+            <summary className={`${ROW} cursor-pointer list-none`}>
+              <ToolRow tool={tool} />
+            </summary>
+            <ToolDetails details={tool.details} />
+          </details>
+        );
+      })}
     </div>
   );
 }

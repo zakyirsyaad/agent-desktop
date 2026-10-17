@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   PermissionChoice,
   PlanEntry,
+  ToolDetail,
   ToolExecution,
 } from '../types';
 
@@ -69,6 +70,33 @@ function withOpenReply(
   return [...messages, change(fresh)];
 }
 
+/** Diffs and text output from a tool's `content`; terminals (not offered by this client) are skipped. */
+function toDetails(content: unknown): ToolDetail[] | undefined {
+  if (!Array.isArray(content)) return undefined;
+  return content.filter(isObject).flatMap((item): ToolDetail[] => {
+    if (item.type === 'diff') {
+      const path = str(item.path);
+      const newText = str(item.newText);
+      if (!path || newText === undefined) return [];
+      return [{ kind: 'diff', path, oldText: str(item.oldText) ?? null, newText }];
+    }
+    if (item.type === 'content') {
+      const text = textOf(item.content);
+      return text ? [{ kind: 'text', text }] : [];
+    }
+    return [];
+  });
+}
+
+function toLocations(locations: unknown): string[] | undefined {
+  if (!Array.isArray(locations)) return undefined;
+  return locations.filter(isObject).flatMap((location) => {
+    const path = str(location.path);
+    if (!path) return [];
+    return [typeof location.line === 'number' ? `${path}:${location.line}` : path];
+  });
+}
+
 function addToolCall(messages: readonly ChatMessage[], update: Json, ctx: AcpReducerContext): ChatMessage[] {
   const id = str(update.toolCallId);
   if (!id) return [...messages];
@@ -78,20 +106,33 @@ function addToolCall(messages: readonly ChatMessage[], update: Json, ctx: AcpRed
     args: '',
     status: toToolStatus(update.status) ?? 'running',
     kind: str(update.kind),
+    details: toDetails(update.content),
+    locations: toLocations(update.locations),
   };
   return withOpenReply(messages, ctx, (reply) => ({ ...reply, tools: [...(reply.tools ?? []), tool] }));
 }
 
+/** Applies a tool_call_update: fields it carries replace the old ones (content as a whole), the rest stay. */
 function updateToolCall(messages: readonly ChatMessage[], update: Json): ChatMessage[] {
   const id = str(update.toolCallId);
   const status = toToolStatus(update.status);
   const title = str(update.title);
+  const details = toDetails(update.content);
+  const locations = toLocations(update.locations);
   return messages.map((message) => {
     if (!message.tools?.some((t) => t.id === id)) return message;
     return {
       ...message,
       tools: message.tools.map((tool) =>
-        tool.id === id ? { ...tool, status: status ?? tool.status, name: title ?? tool.name } : tool,
+        tool.id === id
+          ? {
+              ...tool,
+              status: status ?? tool.status,
+              name: title ?? tool.name,
+              details: details ?? tool.details,
+              locations: locations ?? tool.locations,
+            }
+          : tool,
       ),
     };
   });

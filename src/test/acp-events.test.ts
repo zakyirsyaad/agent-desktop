@@ -124,6 +124,69 @@ describe("applyAcpUpdate", () => {
   });
 });
 
+describe("tool call details", () => {
+  const edit = {
+    sessionUpdate: "tool_call",
+    toolCallId: "t-7",
+    title: "Edit src/app.ts",
+    kind: "edit",
+    status: "pending",
+    locations: [{ path: "/repo/src/app.ts", line: 12 }],
+    content: [{ type: "diff", path: "/repo/src/app.ts", oldText: "const a = 1;", newText: "const a = 2;" }],
+  };
+
+  it("keeps a tool's diffs, text output and file locations", () => {
+    const result = applyAcpUpdate(
+      [],
+      {
+        ...edit,
+        content: [
+          ...edit.content,
+          { type: "content", content: { type: "text", text: "1 file changed" } },
+          { type: "terminal", terminalId: "term-1" },
+        ],
+      },
+      ctx()
+    );
+
+    expect(result[0].tools?.[0]).toMatchObject({
+      details: [
+        { kind: "diff", path: "/repo/src/app.ts", oldText: "const a = 1;", newText: "const a = 2;" },
+        { kind: "text", text: "1 file changed" },
+      ],
+      locations: ["/repo/src/app.ts:12"],
+    });
+  });
+
+  it("replaces the details when an update brings new content, and keeps them otherwise", () => {
+    const c = ctx();
+    const started = applyAcpUpdate([], edit, c);
+    const withOutput = applyAcpUpdate(
+      started,
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "t-7",
+        content: [{ type: "content", content: { type: "text", text: "done" } }],
+      },
+      c
+    );
+    const finished = applyAcpUpdate(withOutput, { sessionUpdate: "tool_call_update", toolCallId: "t-7", status: "completed" }, c);
+
+    expect(finished[0].tools?.[0].details).toEqual([{ kind: "text", text: "done" }]);
+    expect(finished[0].tools?.[0].status).toBe("completed");
+  });
+
+  it("treats a missing oldText as a new file", () => {
+    const result = applyAcpUpdate(
+      [],
+      { ...edit, content: [{ type: "diff", path: "/repo/new.ts", oldText: null, newText: "export {};" }] },
+      ctx()
+    );
+
+    expect(result[0].tools?.[0].details).toEqual([{ kind: "diff", path: "/repo/new.ts", oldText: null, newText: "export {};" }]);
+  });
+});
+
 describe("permission requests", () => {
   const request = {
     requestId: "perm-1",
