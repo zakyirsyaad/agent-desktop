@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, within, fireEvent, act } from "@testing-library/react";
 import { SettingsPanel } from "../components/SettingsPanel";
+import { RECHECK_ERROR } from "../components/onboarding/AgentsStep";
 import type { AgentProfile } from "../types";
 import { makeProfile } from "./fixtures/agents";
 
@@ -194,13 +195,14 @@ describe("SettingsPanel — agents", () => {
     expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled();
   });
 
-  it("stays usable after a check that failed (the app reports why)", async () => {
+  it("says in the dialog when a check failed, and stays usable", async () => {
     renderSettings({ onRecheckAgents: () => Promise.reject(new Error("no shell")) });
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     });
 
+    expect(screen.getByRole("alert")).toHaveTextContent(RECHECK_ERROR);
     expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled();
   });
 });
