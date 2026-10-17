@@ -38,6 +38,7 @@ import { useUserProfile } from "./hooks/useUserProfile";
 import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
+import { useUnreadMarks } from "./hooks/useUnreadMarks";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
 import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
@@ -432,6 +433,8 @@ export default function App() {
     if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
     else pty.interrupt(sessionId);
   };
+
+  useUnreadMarks(sessions, activeSessionId, isSessionBusy, patchSession);
 
   const sessionActions = useSessionActions({
     sessions,

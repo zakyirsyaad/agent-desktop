@@ -741,6 +741,36 @@ describe("ACP sessions in the app", () => {
     );
   });
 
+  it("marks a session unread when its agent finishes while another is open, until it is opened", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("long task");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    const sidebar = within(screen.getByRole("complementary"));
+    const row = () => sidebar.getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
+
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+
+    expect(within(row()).getByLabelText("New activity")).toBeDefined();
+    await act(async () => {
+      fireEvent.click(sidebar.getByText(FIRST_MESSAGE));
+    });
+    expect(within(row()).queryByLabelText("New activity")).toBeNull();
+  });
+
+  it("does not mark the open session unread when its agent finishes", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("short task");
+
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+
+    const row = within(screen.getByRole("complementary")).getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
+    expect(within(row).queryByLabelText("New activity")).toBeNull();
+  });
+
   it("shows the context the agent has used, as it reports it", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);
