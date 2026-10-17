@@ -36,8 +36,12 @@ async function acpEvent(payload: Record<string, unknown>) {
   });
 }
 
+/** The fake backend itself, for mocks that change one command and pass the rest through. */
+let realInvoke: TauriInternals["invoke"] = () => Promise.resolve();
+
 async function renderWithQwen() {
   fakeStore().state.settings.defaultAgentId = "qwen";
+  realInvoke = tauriInternals().invoke;
   const spy = vi.spyOn(tauriInternals(), "invoke");
   await act(async () => {
     render(<App />);
@@ -236,6 +240,109 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toContainEqual({ sessionId });
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(callsTo(spy, "save_transcript").filter(([, a]) => a?.sessionId === sessionId)).toHaveLength(0);
+  });
+
+  it("answers the agent's open permission requests as cancelled when the user stops the turn", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("clean up");
+    await acpEvent({
+      sessionId,
+      kind: "permission",
+      requestId: 11,
+      toolCall: { title: "Delete build" },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    });
+
+    expect(callsTo(spy, "acp_respond_permission").map(([, a]) => a)).toContainEqual({
+      sessionId,
+      requestId: 11,
+      optionId: null,
+    });
+    expect(callsTo(spy, "acp_cancel")).toHaveLength(1);
+  });
+
+  it("keeps the card open when answering the agent fails", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("clean up");
+    await acpEvent({
+      sessionId,
+      kind: "permission",
+      requestId: 12,
+      toolCall: { title: "Delete build" },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+    const original = realInvoke;
+    spy.mockImplementation((cmd, args) =>
+      cmd === "acp_respond_permission" ? Promise.reject("request expired") : original(cmd, args)
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    });
+
+    expect(screen.getByRole("alert").textContent).toContain("request expired");
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
+  });
+
+  it("keeps a session running and sends the first prompt when the safe-mode switch fails", async () => {
+    const spy = await renderWithQwen();
+    const original = realInvoke;
+    spy.mockImplementation((cmd, args) =>
+      cmd === "acp_set_mode" ? Promise.reject("mode switch timed out") : original(cmd, args)
+    );
+
+    await send("explain the parser");
+
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
+    expect(screen.getByRole("alert").textContent).toContain("mode switch timed out");
+    const row = within(screen.getByRole("complementary")).getByText("Session #1").closest("li") as HTMLElement;
+    expect(within(row).queryByRole("button", { name: "Delete session" })).toBeNull();
+  });
+
+  it("stopping a session while its agent starts ends that agent once it is up", async () => {
+    const spy = await renderWithQwen();
+    const original = realInvoke;
+    let finishStart: () => void = () => {};
+    spy.mockImplementation((cmd, args) =>
+      cmd === "acp_start_session"
+        ? new Promise((resolve) => {
+            finishStart = () => resolve(original(cmd, args));
+          })
+        : original(cmd, args)
+    );
+    await send("explain the parser");
+    const [, startArgs] = callsTo(spy, "acp_start_session")[0];
+    const sessionId = String(startArgs?.sessionId);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    });
+    await act(async () => {
+      finishStart();
+    });
+
+    await waitFor(() =>
+      expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toContainEqual({ sessionId })
+    );
+    expect(callsTo(spy, "acp_prompt")).toHaveLength(0);
+    expect(callsTo(spy, "acp_set_mode")).toHaveLength(0);
+  });
+
+  it("does not send another prompt while the agent is still working", async () => {
+    const spy = await renderWithQwen();
+    await startQwenSession(spy);
+    await send("first");
+
+    await send("second");
+
+    expect(callsTo(spy, "acp_prompt")).toHaveLength(1);
+    expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("second");
   });
 });
 

@@ -45,6 +45,8 @@ export interface AcpHandlers {
   onPermission: (sessionId: string, request: PermissionRequestPayload) => void;
   onTurnEnd: (sessionId: string, result: TurnResult) => void;
   onExit: (sessionId: string, code: number | null) => void;
+  /** Failures that would otherwise go unnoticed, e.g. not being able to listen for agent events. */
+  onError?: (message: string) => void;
 }
 
 type Json = Record<string, unknown>;
@@ -133,7 +135,12 @@ export function useAcpSessions(handlers: AcpHandlers) {
           break;
         case 'turn-end':
           setBusy(sessionId, false);
-          h.onTurnEnd(sessionId, isString(payload.error) ? { error: payload.error } : { stopReason: String(payload.stopReason) });
+          h.onTurnEnd(
+            sessionId,
+            isString(payload.error)
+              ? { error: payload.error }
+              : { stopReason: isString(payload.stopReason) ? payload.stopReason : undefined },
+          );
           break;
         case 'exit':
           setBusy(sessionId, false);
@@ -145,7 +152,9 @@ export function useAcpSessions(handlers: AcpHandlers) {
         if (isCancelled) stop();
         else unlisten = stop;
       })
-      .catch(() => {});
+      .catch((error) => {
+        handlersRef.current.onError?.(`Cannot receive agent events: ${String(error)}`);
+      });
     return () => {
       isCancelled = true;
       unlisten?.();
@@ -212,7 +221,7 @@ export function useAcpSessions(handlers: AcpHandlers) {
       const { [sessionId]: _removed, ...rest } = prev;
       return rest;
     });
-    return invoke<void>('acp_stop_session', { sessionId }).catch(() => {});
+    return invoke<void>('acp_stop_session', { sessionId });
   }, []);
 
   const isBusy = useCallback((sessionId: string) => info[sessionId]?.isBusy ?? false, [info]);

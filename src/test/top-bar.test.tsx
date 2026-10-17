@@ -140,12 +140,14 @@ describe("TopBar", () => {
       expect(onPopout).toHaveBeenCalledTimes(1);
     });
 
-    it("shows and calls the folder button when onOpenFolder is given", () => {
-      const onOpenFolder = vi.fn();
-      renderTopBar({ onOpenFolder });
+    it("shows the files toggle when onToggleFiles is given, pressed while the panel is open", () => {
+      const onToggleFiles = vi.fn();
+      renderTopBar({ onToggleFiles, isFilesOpen: true });
 
-      fireEvent.click(screen.getByRole("button", { name: /workspace directory/i }));
-      expect(onOpenFolder).toHaveBeenCalledTimes(1);
+      const toggle = screen.getByRole("button", { name: "Toggle files panel" });
+      expect(toggle.getAttribute("aria-pressed")).toBe("true");
+      fireEvent.click(toggle);
+      expect(onToggleFiles).toHaveBeenCalledTimes(1);
     });
 
     it("shows and calls more options when onOpenSettings is given", () => {

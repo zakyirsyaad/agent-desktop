@@ -140,6 +140,22 @@ describe("Session lifecycle", () => {
     expect(sidebar().queryByText("Session #1")).toBeNull();
   });
 
+  it("does not bring back a deleted terminal session's transcript from its last output", async () => {
+    await renderApp();
+    const sessionId = await startNewSession();
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+
+    await act(async () => {
+      fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Delete session" }));
+    });
+    await act(async () => {
+      listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Goodbye\r\n" } });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(spy.mock.calls.filter(([cmd, args]) => cmd === "save_transcript" && (args as { sessionId?: string })?.sessionId === sessionId)).toHaveLength(0);
+  });
+
   it("deletes an ended session and its transcript", async () => {
     fakeStore().state.sessions = [seedSession("s-old", "Refactor parser", 1000)];
     fakeStore().transcripts["s-old"] = [];
@@ -167,7 +183,7 @@ describe("Session lifecycle", () => {
     });
 
     expect(spy.mock.calls.some(([cmd]) => cmd === "spawn_session")).toBe(true);
-    expect(sidebar().getByText("Session #2")).toBeDefined();
+    expect(sidebar().getByText("Session #1")).toBeDefined();
   });
 
   it("shows an alert and does not append the message when sending fails", async () => {

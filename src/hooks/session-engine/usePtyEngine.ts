@@ -26,6 +26,8 @@ export interface EngineDeps {
  */
 export function usePtyEngine({ sessions, agents, updateMessages, patchSession, reportError }: EngineDeps) {
   const parsersRef = useRef(new Map<string, StreamParser>());
+  // Deleted sessions: their last output must not write a transcript back.
+  const forgottenRef = useRef(new Set<string>());
   const activity = useAgentActivity();
 
   const sendRaw = useCallback(
@@ -55,6 +57,7 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
 
   usePtyEvents({
     onOutput: (sessionId, data) => {
+      if (forgottenRef.current.has(sessionId)) return;
       activity.markOutput(sessionId);
       firstPrompts.noteOutput(sessionId);
       const profile = agents.find((a) => a.id === sessions.find((s) => s.id === sessionId)?.profileId);
@@ -71,6 +74,7 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
     },
     onExit: (sessionId, exitCode) => {
       parsersRef.current.delete(sessionId);
+      if (forgottenRef.current.has(sessionId)) return;
       patchSession(sessionId, { status: 'terminated', endedAt: Date.now(), exitCode });
     },
   });
@@ -103,7 +107,9 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
 
   const interrupt = (sessionId: string) => void sendRaw(sessionId, INTERRUPT_KEY);
 
+  /** Drops a deleted session; anything it still prints is ignored. */
   const forget = (sessionId: string) => {
+    forgottenRef.current.add(sessionId);
     parsersRef.current.delete(sessionId);
     firstPrompts.cancel(sessionId);
   };

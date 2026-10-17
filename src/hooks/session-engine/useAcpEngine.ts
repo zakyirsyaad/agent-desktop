@@ -1,10 +1,17 @@
 import { useCallback, useRef, useState } from 'react';
-import { applyAcpUpdate, applyPermissionRequest, closeTurn, resolvePermissionCard } from '../../lib/acp-events';
+import {
+  applyAcpUpdate,
+  applyPermissionRequest,
+  closeTurn,
+  pendingPermissionCards,
+  reopenPermissionCard,
+  resolvePermissionCard,
+  type PermissionRequestPayload,
+} from '../../lib/acp-events';
 import { safeModeToApply } from '../../lib/acp-modes';
 import { findCard, userMessage, withoutMessage } from '../../lib/session-helpers';
 import { createId } from '../../lib/ids';
 import { useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
-import type { PermissionRequestPayload } from '../../lib/acp-events';
 import type { ChatMessage, Session } from '../../types';
 import type { EngineDeps } from './usePtyEngine';
 
@@ -16,6 +23,12 @@ function turnEndNotice(stopReason: string | undefined, error: string | undefined
   return null;
 }
 
+interface LaunchOptions {
+  firstPrompt?: string;
+  /** False for a fork: it keeps the mode the user chose in the source session. */
+  applySafeMode: boolean;
+}
+
 /**
  * Sessions whose agent speaks the Agent Client Protocol: structured updates
  * become chat messages, permission requests become cards with the agent's own
@@ -23,13 +36,16 @@ function turnEndNotice(stopReason: string | undefined, error: string | undefined
  */
 export function useAcpEngine({ agents, updateMessages, patchSession, reportError }: Omit<EngineDeps, 'sessions'>) {
   const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
-  // Sessions the app stopped (deleted): their late events must not write a transcript back.
+  // Sessions the app stopped (deleted, or stopped while starting): their late
+  // events must not write a transcript back, and a start still in flight must
+  // end the agent as soon as it is up.
   const stoppedRef = useRef(new Set<string>());
   const ctx = (sessionId: string) => ({ sessionId, now: Date.now(), createId });
+  const isStopped = (sessionId: string) => stoppedRef.current.has(sessionId);
   const unlessStopped =
     <A extends unknown[]>(handle: (sessionId: string, ...args: A) => void) =>
     (sessionId: string, ...args: A) => {
-      if (!stoppedRef.current.has(sessionId)) handle(sessionId, ...args);
+      if (!isStopped(sessionId)) handle(sessionId, ...args);
     };
 
   const acp = useAcpSessions({
@@ -48,6 +64,7 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
       updateMessages(sessionId, closeTurn);
       patchSession(sessionId, { status: 'terminated', endedAt: Date.now(), exitCode: code });
     }),
+    onError: reportError,
   });
 
   const markStarting = useCallback((sessionId: string, isStarting: boolean) => {
@@ -58,6 +75,8 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
       return next;
     });
   }, []);
+
+  const reportFailure = (what: string) => (error: unknown) => reportError(`${what}: ${String(error)}`);
 
   /** Prompts the agent with a message already shown in the chat; removes it if the prompt is refused. */
   const prompt = async (sessionId: string, message: ChatMessage) => {
@@ -76,17 +95,28 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
     await prompt(sessionId, message);
   };
 
+  /** A failed switch leaves the agent in its starting mode, which the composer shows; the session stays usable. */
+  const applySafeMode = async (sessionId: string, info: AcpSessionInfo) => {
+    const change = safeModeToApply(info);
+    if (!change) return;
+    try {
+      if (change.kind === 'mode') await acp.setMode(sessionId, change.modeId);
+      else await acp.setConfigOption(sessionId, change.configId, change.value);
+    } catch (error) {
+      reportError(`Could not switch the agent to ask before acting: ${String(error)}`);
+    }
+  };
+
   /** Starts (or forks into) an already recorded session, then applies the safe mode and the first prompt. */
-  const launch = async (session: Session, open: () => Promise<AcpSessionInfo>, firstPrompt?: string) => {
-    const message = firstPrompt ? userMessage(firstPrompt) : null;
+  const launch = async (session: Session, open: () => Promise<AcpSessionInfo>, options: LaunchOptions) => {
+    const message = options.firstPrompt ? userMessage(options.firstPrompt) : null;
     if (message) updateMessages(session.id, (prev) => [...prev, message]);
     markStarting(session.id, true);
+    let info: AcpSessionInfo;
     try {
-      const info = await open();
-      patchSession(session.id, { acpSessionId: info.acpSessionId });
-      const safeMode = safeModeToApply(info.modes);
-      if (safeMode) await acp.setMode(session.id, safeMode);
+      info = await open();
     } catch (error) {
+      if (isStopped(session.id)) return;
       patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
       const name = agents.find((a) => a.id === session.profileId)?.name ?? session.profileId;
       reportError(`Failed to start ${name}: ${String(error)}`);
@@ -94,27 +124,62 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
     } finally {
       markStarting(session.id, false);
     }
-    if (message) await prompt(session.id, message);
+    if (isStopped(session.id)) {
+      // Stopped while starting: the backend could not end an agent it did not know yet.
+      acp.stop(session.id).catch(reportFailure('Failed to stop the agent'));
+      return;
+    }
+    if (info.acpSessionId) patchSession(session.id, { acpSessionId: info.acpSessionId });
+    if (options.applySafeMode) await applySafeMode(session.id, info);
+    if (message && !isStopped(session.id)) await prompt(session.id, message);
   };
 
   const start = (session: Session, firstPrompt?: string) =>
-    launch(session, () => acp.start(session.id, session.cwd, session.profileId), firstPrompt);
+    launch(session, () => acp.start(session.id, session.cwd, session.profileId), {
+      firstPrompt,
+      applySafeMode: true,
+    });
 
   const fork = (sourceSessionId: string, session: Session) =>
-    launch(session, () => acp.fork(sourceSessionId, session.id, session.cwd));
+    launch(session, () => acp.fork(sourceSessionId, session.id, session.cwd), { applySafeMode: false });
 
   const chooseOption = (sessionId: string, messages: ChatMessage[] | undefined, cardId: string, optionId: string) => {
     const card = findCard(messages, cardId);
-    if (card?.requestId === undefined) return;
+    if (card?.status !== 'pending') return;
+    if (card.requestId === undefined) {
+      reportError('This request can no longer be answered.');
+      return;
+    }
     updateMessages(sessionId, (prev) => resolvePermissionCard(prev, cardId, optionId));
     acp.respondPermission(sessionId, card.requestId, optionId).catch((error) => {
+      // The agent is still waiting, so the card must stay answerable.
+      updateMessages(sessionId, (prev) => reopenPermissionCard(prev, cardId));
       reportError(`Could not answer the agent: ${String(error)}`);
     });
   };
 
-  const reportFailure = (what: string) => (error: unknown) => reportError(`${what}: ${String(error)}`);
+  /** Ends the agent process (deleted session, or a start the user stopped); later events from it are ignored. */
+  const stop = (sessionId: string) => {
+    stoppedRef.current.add(sessionId);
+    acp.stop(sessionId).catch(reportFailure('Failed to stop the agent'));
+  };
 
-  const interrupt = (sessionId: string) => {
+  /**
+   * Stops the agent's current turn. ACP asks the client to answer the
+   * permission requests it is still waiting on as cancelled; an agent blocked
+   * on one would otherwise never end the turn. While the agent is still
+   * starting, stopping ends the session instead.
+   */
+  const interrupt = (sessionId: string, messages: ChatMessage[] | undefined) => {
+    if (starting.has(sessionId)) {
+      stop(sessionId);
+      patchSession(sessionId, { status: 'terminated', endedAt: Date.now() });
+      return;
+    }
+    for (const card of pendingPermissionCards(messages ?? [])) {
+      if (card.requestId === undefined) continue;
+      acp.respondPermission(sessionId, card.requestId, null).catch(reportFailure('Could not answer the agent'));
+    }
     acp.cancel(sessionId).catch(reportFailure('Failed to stop the agent'));
   };
 
@@ -126,14 +191,7 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
     acp.setConfigOption(sessionId, configId, value).catch(reportFailure('Could not change the setting'));
   };
 
-  /** Ends the agent process of a session that is being deleted; later events from it are ignored. */
-  const stop = (sessionId: string) => {
-    stoppedRef.current.add(sessionId);
-    void acp.stop(sessionId);
-  };
-
   const isBusy = (sessionId: string) => starting.has(sessionId) || acp.isBusy(sessionId);
-  const isLive = (sessionId: string) => acp.info[sessionId] !== undefined;
 
   return {
     info: acp.info,
@@ -146,7 +204,6 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
     setConfigOption,
     stop,
     isBusy,
-    isLive,
     canFork: acp.canFork,
   };
 }

@@ -168,7 +168,21 @@ export function applyPermissionRequest(
     options: toChoices(payload.options),
     requestId: payload.requestId,
   };
-  return withOpenReply(messages, ctx, (reply) => ({ ...reply, actionCard: card }));
+  const withCard = (reply: ChatMessage) => ({ ...reply, actionCard: card });
+  // A reply holds one card: a second request while the first waits gets its own message.
+  const open = messages[openReplyIndex(messages)];
+  if (open?.actionCard) {
+    return [...messages, withCard({ id: ctx.createId('msg'), role: 'agent', content: '', timestamp: ctx.now })];
+  }
+  return withOpenReply(messages, ctx, withCard);
+}
+
+const isPendingRequest = (card: ActionCard | undefined): card is ActionCard =>
+  card?.status === 'pending' && card.requestId !== undefined;
+
+/** Permission requests the agent is still waiting on. */
+export function pendingPermissionCards(messages: readonly ChatMessage[]): ActionCard[] {
+  return messages.map((m) => m.actionCard).filter(isPendingRequest);
 }
 
 /** Records the option the user picked on a permission card. */
@@ -186,15 +200,27 @@ export function resolvePermissionCard(
   });
 }
 
+/** Puts an answered card back to pending, e.g. when the answer never reached the agent. */
+export function reopenPermissionCard(messages: ChatMessage[], cardId: string): ChatMessage[] {
+  return messages.map((message) => {
+    const card = message.actionCard;
+    if (card?.id !== cardId) return message;
+    return { ...message, actionCard: { ...card, status: 'pending', chosenOptionId: undefined } };
+  });
+}
+
 /**
- * Ends the agent's turn: the last reply is complete, and a permission card
- * that was never answered can no longer be (the agent stopped waiting).
+ * Ends the agent's turn: the last reply is complete, and permission requests
+ * that were never answered can no longer be (the agent stopped waiting).
  */
 export function closeTurn(messages: ChatMessage[]): ChatMessage[] {
-  const index = messages.length - 1;
-  const last = messages[index];
-  if (last?.role !== 'agent') return messages;
-  const card =
-    last.actionCard?.status === 'pending' ? { ...last.actionCard, status: 'rejected' as const } : last.actionCard;
-  return messages.map((m, i) => (i === index ? { ...m, isComplete: true, actionCard: card } : m));
+  const lastIndex = messages.length - 1;
+  return messages.map((message, index) => {
+    const card = isPendingRequest(message.actionCard)
+      ? { ...message.actionCard, status: 'rejected' as const }
+      : message.actionCard;
+    const isLastReply = index === lastIndex && message.role === 'agent';
+    if (card === message.actionCard && !isLastReply) return message;
+    return { ...message, actionCard: card, ...(isLastReply ? { isComplete: true } : {}) };
+  });
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square } from "lucide-react";
 import { OptionDropdown } from "./composer/OptionDropdown";
 import { appendAttachments } from "../lib/attachments";
@@ -8,6 +8,12 @@ const MAX_PROMPT_HEIGHT_PX = 180;
 const LOCKED_OPTIONS_TITLE = "Applies to the next new session: CLI flags are set when an agent starts.";
 
 type OpenDropdown = "permission" | "model" | "effort" | null;
+
+/** What other parts of the window can do to the composer. */
+export interface ComposerHandle {
+  /** Adds paths to the prompt (quoted when needed) and focuses it. */
+  insertPaths: (paths: readonly string[]) => void;
+}
 
 export interface ComposerDockProps {
   /** Dropdowns to show; each is omitted when the agent offers no real choice. */
@@ -23,6 +29,7 @@ export interface ComposerDockProps {
   onSendMessage: (message: string) => void;
   /** Opens a file picker and resolves with the chosen paths; hidden when absent. */
   onAttach?: () => Promise<string[]>;
+  handleRef?: Ref<ComposerHandle>;
 }
 
 export function ComposerDock({
@@ -34,6 +41,7 @@ export function ComposerDock({
   disabled = false,
   onSendMessage,
   onAttach,
+  handleRef,
 }: ComposerDockProps) {
   const [text, setText] = useState("");
   const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null);
@@ -66,9 +74,12 @@ export function ComposerDock({
     disabledTitle: LOCKED_OPTIONS_TITLE,
   });
 
+  // While the agent works, Stop takes Send's place; the draft waits for the turn to end.
+  const canSend = !disabled && !(isThinking && onStop);
+
   const handleSend = () => {
     const trimmed = text.trim();
-    if (!trimmed || disabled) return;
+    if (!trimmed || !canSend) return;
     onSendMessage(trimmed);
     setText("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -87,11 +98,16 @@ export function ComposerDock({
     e.target.style.height = `${Math.min(e.target.scrollHeight, MAX_PROMPT_HEIGHT_PX)}px`;
   };
 
-  const handleAttach = async () => {
-    if (!onAttach) return;
-    const paths = await onAttach();
+  const insertPaths = (paths: readonly string[]) => {
     setText((current) => appendAttachments(current, paths));
     textareaRef.current?.focus();
+  };
+
+  useImperativeHandle(handleRef, () => ({ insertPaths }));
+
+  const handleAttach = async () => {
+    if (!onAttach) return;
+    insertPaths(await onAttach());
   };
 
   const { permission, model, effort } = controls;

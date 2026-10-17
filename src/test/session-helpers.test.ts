@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { folderNameOf, groupSessionsByFolder, mostRecentSessionId } from "../lib/session-helpers";
+import { folderNameOf, groupSessionsByFolder, mostRecentSessionId, nextSessionName } from "../lib/session-helpers";
 import type { Session } from "../types";
 
 function session(id: string, cwd: string, createdAt: number): Session {
@@ -33,3 +33,14 @@ describe("session helpers", () => {
     expect(groups.map((g) => g.name)).toEqual(["b", "a"]);
   });
 });
+
+describe("nextSessionName", () => {
+  const named = (name: string) => ({ name }) as Session;
+
+  it("numbers sessions after the highest existing number, so names never repeat after a delete", () => {
+    expect(nextSessionName([])).toBe("Session #1");
+    expect(nextSessionName([named("Session #1"), named("Session #3")])).toBe("Session #4");
+    expect(nextSessionName([named("Fix login"), named("Session #2 (fork)")])).toBe("Session #3");
+  });
+});
+

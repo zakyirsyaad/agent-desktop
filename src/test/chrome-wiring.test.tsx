@@ -54,16 +54,42 @@ describe("Window chrome wiring", () => {
     expect(header().getByText("Alpha work")).toBeDefined();
   });
 
-  it("reveals the active folder in Finder and pops the session out", async () => {
+  it("opens the workspace's files from the folder button, reveals it in Finder, and pops the session out", async () => {
     seedSessions();
     const spy = vi.spyOn(tauriInternals(), "invoke");
     await renderApp();
 
-    await click(header().getByRole("button", { name: "Open workspace directory" }));
+    await click(header().getByRole("button", { name: "Toggle files panel" }));
+    const panel = within(screen.getByRole("complementary", { name: "Files panel" }));
+    expect(spy).toHaveBeenCalledWith(
+      "list_directory",
+      expect.objectContaining({ root: "/Users/test/developer/ai-perpetual-trading" }),
+      undefined,
+    );
+    await click(panel.getByRole("button", { name: "Reveal in Finder" }));
     expect(spy).toHaveBeenCalledWith("reveal_in_finder", { path: "/Users/test/developer/ai-perpetual-trading" }, undefined);
+
+    await click(header().getByRole("button", { name: "Toggle files panel" }));
+    expect(screen.queryByRole("complementary", { name: "Files panel" })).toBeNull();
 
     await click(header().getByRole("button", { name: "Popout window" }));
     expect(spy).toHaveBeenCalledWith("open_session_window", { sessionId: "s-b" }, undefined);
+  });
+
+  it("adds a file from the files panel to the prompt", async () => {
+    const original = tauriInternals().invoke;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "list_directory"
+        ? Promise.resolve([{ name: "README.md", relativePath: "README.md", isDir: false }])
+        : original(cmd, args)
+    );
+    await renderApp();
+
+    await click(header().getByRole("button", { name: "Toggle files panel" }));
+    await click(await screen.findByRole("button", { name: "Add README.md to prompt" }));
+
+    const prompt = screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
+    expect(prompt.value).toContain("/Users/test/developer/ai-perpetual-trading/README.md");
   });
 
   it("shows the user's git identity and app version, and opens settings from the profile", async () => {

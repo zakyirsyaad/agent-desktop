@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas } from "./components/ChatCanvas";
-import { ComposerDock } from "./components/ComposerDock";
+import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
+import { FilesPanel } from "./components/FilesPanel";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
-import { mostRecentSessionId, patchSessionIn, removeSessionFrom } from "./lib/session-helpers";
+import { mostRecentSessionId, nextSessionName, patchSessionIn, removeSessionFrom } from "./lib/session-helpers";
 import { createId } from "./lib/ids";
 import { usePersistedState } from "./hooks/usePersistedState";
 import { useTranscripts } from "./hooks/useTranscripts";
@@ -96,6 +97,8 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState("");
   const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isFilesOpen, setIsFilesOpen] = useState(false);
+  const composerRef = useRef<ComposerHandle>(null);
 
   const reportError = useCallback((message: string) => setNotice(message), []);
   const { state, isLoaded, updateState } = usePersistedState(reportError);
@@ -202,7 +205,7 @@ export default function App() {
     }
     rememberFolder(activeWorkspace);
     startSession(
-      { agent: newSessionAgent, cwd: activeWorkspacePath, name: `Session #${sessions.length + 1}` },
+      { agent: newSessionAgent, cwd: activeWorkspacePath, name: nextSessionName(sessions) },
       firstPrompt,
     );
   };
@@ -301,7 +304,7 @@ export default function App() {
 
   /** Stops the agent's current turn; the session stays open for the next message. */
   const handleInterrupt = (sessionId: string) => {
-    if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId);
+    if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
     else pty.interrupt(sessionId);
   };
 
@@ -372,7 +375,8 @@ export default function App() {
         canGoForward={navigation.canGoForward}
         onBack={() => navigateTo(navigation.back())}
         onForward={() => navigateTo(navigation.forward())}
-        onOpenFolder={activeWorkspacePath ? handleRevealFolder : undefined}
+        onToggleFiles={activeWorkspacePath ? () => setIsFilesOpen((prev) => !prev) : undefined}
+        isFilesOpen={isFilesOpen && Boolean(activeWorkspacePath)}
         onPopout={activeSession ? handlePopout : undefined}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -429,6 +433,7 @@ export default function App() {
               }
               onSendMessage={handleSendMessage}
               onAttach={pickFiles}
+              handleRef={composerRef}
             />
           </div>
 
@@ -441,6 +446,16 @@ export default function App() {
             onSendInput={(input) => void pty.sendRaw(activeSessionId, input)}
           />
         </article>
+        {isFilesOpen && activeWorkspace && activeWorkspacePath && (
+          <FilesPanel
+            key={activeWorkspacePath}
+            rootPath={activeWorkspacePath}
+            rootName={activeWorkspace.name}
+            onClose={() => setIsFilesOpen(false)}
+            onInsertPath={(path) => composerRef.current?.insertPaths([path])}
+            onRevealRoot={handleRevealFolder}
+          />
+        )}
       </section>
       {isSettingsOpen && (
         <SettingsPanel

@@ -3,6 +3,7 @@ import {
   applyAcpUpdate,
   applyPermissionRequest,
   closeTurn,
+  pendingPermissionCards,
   resolvePermissionCard,
   type AcpReducerContext,
 } from "../lib/acp-events";
@@ -165,4 +166,24 @@ describe("permission requests", () => {
 
     expect(closeTurn(withCard)[0].actionCard?.status).toBe("rejected");
   });
+
+  it("keeps an earlier unanswered request when the agent asks again", () => {
+    const c = ctx();
+    const first = applyPermissionRequest([], request, c);
+    const both = applyPermissionRequest(first, { ...request, requestId: "perm-2" }, c);
+
+    expect(both.map((m) => m.actionCard?.requestId)).toEqual(["perm-1", "perm-2"]);
+    expect(pendingPermissionCards(both).map((card) => card.requestId)).toEqual(["perm-1", "perm-2"]);
+  });
+
+  it("closing a turn closes every unanswered request, not only the last one", () => {
+    const c = ctx();
+    const both = applyPermissionRequest(applyPermissionRequest([], request, c), { ...request, requestId: "perm-2" }, c);
+
+    const closed = closeTurn(both);
+
+    expect(closed.map((m) => m.actionCard?.status)).toEqual(["rejected", "rejected"]);
+    expect(pendingPermissionCards(closed)).toEqual([]);
+  });
 });
+

@@ -29,7 +29,9 @@ export interface TopBarProps {
   onForward?: () => void;
   /** Opens this session in its own window; the button is hidden when absent. */
   onPopout?: () => void;
-  onOpenFolder?: () => void;
+  /** Shows or hides the workspace's files; the button is hidden when absent. */
+  onToggleFiles?: () => void;
+  isFilesOpen?: boolean;
   onOpenSettings?: () => void;
 }
 
@@ -43,7 +45,8 @@ export function TopBar({
   onBack,
   onForward,
   onPopout,
-  onOpenFolder,
+  onToggleFiles,
+  isFilesOpen = false,
   onOpenSettings,
 }: TopBarProps) {
   return (
@@ -134,14 +137,16 @@ export function TopBar({
           />
         </button>
 
-        {onOpenFolder && (
+        {onToggleFiles && (
           <button
             type="button"
-            onClick={onOpenFolder}
+            onClick={onToggleFiles}
             className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-            aria-label="Open workspace directory"
+            aria-label="Toggle files panel"
+            aria-pressed={isFilesOpen}
+            title="Files"
           >
-            <Folder size={14} />
+            <Folder size={14} className={isFilesOpen ? "text-amber-400" : undefined} />
           </button>
         )}
 

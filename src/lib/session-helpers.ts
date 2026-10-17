@@ -9,6 +9,14 @@ export function mostRecentSessionId(sessions: readonly Session[]): string {
   )?.id ?? '';
 }
 
+const SESSION_NUMBER = /^Session #(\d+)/;
+
+/** "Session #N" with N above every number in use, so a name never repeats after a delete. */
+export function nextSessionName(sessions: readonly Pick<Session, 'name'>[]): string {
+  const highest = sessions.reduce((max, s) => Math.max(max, Number(SESSION_NUMBER.exec(s.name)?.[1] ?? 0)), 0);
+  return `Session #${highest + 1}`;
+}
+
 export function patchSessionIn(
   state: PersistedState,
   sessionId: string,
