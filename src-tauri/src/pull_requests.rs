@@ -104,6 +104,13 @@ pub fn parse_pull_request(listed: &str) -> Result<Option<PullRequestStatus>, Str
     }))
 }
 
+/// True for gh's answer about a repository that is not on GitHub: no remote
+/// at all, or remotes on other hosts.
+fn is_not_on_github(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("no git remotes found") || error.contains("point to a known github host")
+}
+
 /// The pull request whose head is `branch` in the repository at `dir`, newest
 /// first, merged and closed ones included; None when there is none, or when
 /// the GitHub CLI is not installed (the status is then not shown at all).
@@ -123,7 +130,13 @@ pub fn branch_pull_request(
         .output()
         .map_err(|e| format!("Could not run gh: {e}"))?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        // A repository with no GitHub remote has no pull requests: nothing to show, not a failure.
+        return if is_not_on_github(&error) {
+            Ok(None)
+        } else {
+            Err(error)
+        };
     }
     parse_pull_request(&String::from_utf8_lossy(&output.stdout))
 }
@@ -171,6 +184,17 @@ mod tests {
                 pending: 2
             }
         );
+    }
+
+    #[test]
+    fn treats_a_repository_off_github_as_having_no_pull_requests() {
+        assert!(is_not_on_github("no git remotes found"));
+        assert!(is_not_on_github(
+            "none of the git remotes configured for this repository point to a known GitHub host"
+        ));
+        assert!(!is_not_on_github(
+            "To get started with GitHub CLI, please run:  gh auth login"
+        ));
     }
 
     #[test]
