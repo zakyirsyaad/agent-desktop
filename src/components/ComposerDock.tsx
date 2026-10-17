@@ -3,11 +3,11 @@ import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square } from "l
 import { OptionDropdown } from "./composer/OptionDropdown";
 import { appendAttachments, withAttachments } from "../lib/attachments";
 import { AttachmentChips } from "./composer/AttachmentChips";
-import { ContextMeter, type ContextUsage } from "./composer/ContextMeter";
+import { ContextMeter } from "./composer/ContextMeter";
 import { isRiskyMode, type ComposerControl, type ComposerControls } from "../lib/composer-controls";
 import { matchingCommands, pendingHint, slashQuery } from "../lib/slash-commands";
 import { SlashCommandMenu } from "./composer/SlashCommandMenu";
-import type { SlashCommand } from "../types";
+import type { ContextUsage, SlashCommand } from "../types";
 
 const MAX_PROMPT_HEIGHT_PX = 180;
 const PLACEHOLDER = "Prompt the agent...";

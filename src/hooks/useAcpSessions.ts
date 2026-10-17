@@ -3,8 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useLatest } from './useLatest';
 import type { PermissionRequestPayload } from '../lib/acp-events';
-import type { SlashCommand } from '../types';
-import type { ContextUsage } from '../components/composer/ContextMeter';
+import type { ContextUsage, SlashCommand } from '../types';
 
 /** The one event channel the backend emits ACP traffic on. */
 export const ACP_EVENT = 'acp-event';

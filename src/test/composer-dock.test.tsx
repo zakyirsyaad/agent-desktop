@@ -154,6 +154,17 @@ describe("ComposerDock", () => {
       expect(meter.getAttribute("title")).toContain("74,485 of 1,000,000 tokens");
     });
 
+    it("draws no arc at 0%, and shows just the token count when the window size is unknown", () => {
+      const { container, rerender } = render(
+        <ComposerDock onSendMessage={() => {}} contextUsage={{ used: 2_000, size: 1_000_000 }} />
+      );
+      expect(container.querySelectorAll("svg circle")).toHaveLength(1);
+
+      rerender(<ComposerDock onSendMessage={() => {}} contextUsage={{ used: 180_000, size: 0 }} />);
+      expect(screen.queryByRole("meter", { name: "Context used" })).toBeNull();
+      expect(screen.getByLabelText("Context used").textContent).toBe("180K tokens");
+    });
+
     it("hides the meter until the agent reports usage", () => {
       render(<ComposerDock onSendMessage={() => {}} />);
 

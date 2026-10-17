@@ -10,6 +10,7 @@ import { AuthPanel, type AuthStatus } from "./components/AuthPanel";
 import type { AuthMethod } from "./lib/acp-auth";
 import { TerminalView } from "./components/TerminalView";
 import { createPtyOutputStore } from "./lib/pty-output-store";
+import { pendingPermissionCards } from "./lib/acp-events";
 import {
   isAutoName,
   mostRecentSessionId,
@@ -488,7 +489,7 @@ export default function App() {
               onInput={(data) => void pty.sendRaw(activeSessionId, data)}
               onResize={(cols, rows) => pty.resize(activeSessionId, cols, rows)}
             />
-          ) : activeSession && currentMessages.length > 0 ? (
+          ) : activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId)) ? (
             <ChatCanvas
               messages={currentMessages}
               agentName={activeAgent?.name}
@@ -497,7 +498,7 @@ export default function App() {
               onApproveAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "approved")}
               onRejectAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "rejected")}
               onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
-              isWorking={isSessionBusy(activeSessionId)}
+              isWorking={isSessionBusy(activeSessionId) && pendingPermissionCards(currentMessages).length === 0}
             />
           ) : (
             <EmptySessionState />

@@ -1,5 +1,6 @@
 /// <reference types="vitest" />
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -22,6 +23,6 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     // Agent worktrees under .claude/ hold copies of the tests; run only this checkout's.
-    exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
+    exclude: [...configDefaults.exclude, ".claude/**"],
   },
 });

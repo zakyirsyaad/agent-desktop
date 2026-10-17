@@ -637,5 +637,36 @@ describe("ACP sessions in the app", () => {
 
     expect(screen.getByRole("meter", { name: "Context used" }).getAttribute("aria-valuenow")).toBe("25");
   });
+
+  it("shows the agent working while a session starts, before it has any message", async () => {
+    const spy = await renderWithQwen();
+    spy.mockImplementation((cmd, args) =>
+      cmd === "acp_start_session" ? new Promise(() => {}) : realInvoke(cmd, args)
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+
+    expect(screen.getByTestId("agent-working")).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "No session yet" })).toBeNull();
+  });
+
+  it("stops showing 'Working' while the agent waits for a permission answer", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("clean up");
+    expect(screen.getByTestId("agent-working")).toBeDefined();
+
+    await acpEvent({
+      sessionId,
+      kind: "permission",
+      requestId: 21,
+      toolCall: { title: "Delete build" },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+
+    expect(screen.queryByTestId("agent-working")).toBeNull();
+  });
 });
 

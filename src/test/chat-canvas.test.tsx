@@ -673,5 +673,36 @@ describe("ACP chat content", () => {
     rerender(<ChatCanvas messages={messages} onSendPtyInput={() => {}} />);
     expect(screen.queryByTestId("agent-working")).toBeNull();
   });
+
+  it("marks reasoning done once a later message follows, even without isComplete", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          { id: "a-1", role: "agent", content: "first part", timestamp: 1, thinking: "plan" },
+          { id: "a-2", role: "agent", content: "second part", timestamp: 2, thinking: "more" },
+        ]}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    expect(screen.getByText("Thought")).toBeDefined();
+    expect(screen.getByText("Thinking")).toBeDefined();
+  });
+
+  it("follows new output to the bottom, unless the user scrolled up to read", () => {
+    const first = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
+    const { rerender } = render(<ChatCanvas messages={first} onSendPtyInput={() => {}} />);
+    const container = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
+
+    rerender(<ChatCanvas messages={first} onSendPtyInput={() => {}} isWorking />);
+    expect(container.scrollTop).toBe(1000);
+
+    container.scrollTop = 100;
+    fireEvent.scroll(container);
+    rerender(<ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "hi", timestamp: 2 }]} onSendPtyInput={() => {}} isWorking />);
+    expect(container.scrollTop).toBe(100);
+  });
 });
 
