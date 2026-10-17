@@ -1,8 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Folder, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
-import { readyAgents, type AgentSummary } from "../lib/agent-readiness";
+import { RECHECK_ERROR, readyAgents, type AgentSummary } from "../lib/agent-readiness";
 import type { FolderOption } from "./onboarding/types";
-import { RECHECK_ERROR } from "./onboarding/AgentsStep";
 
 export interface SettingsPanelProps {
   agents: readonly AgentSummary[];
@@ -116,28 +115,6 @@ export function SettingsPanel({
           <label htmlFor={selectId} className={`block ${SECTION_HEADING}`}>
             Default agent
           </label>
-          {onRecheckAgents && (
-            <button
-              type="button"
-              disabled={isChecking}
-              onClick={() => {
-                setIsChecking(true);
-                setCheckError(null);
-                onRecheckAgents()
-                  .catch(() => setCheckError(RECHECK_ERROR))
-                  .finally(() => setIsChecking(false));
-              }}
-              className="mb-2 flex items-center gap-1.5 rounded-lg border border-neutral-800/60 px-2.5 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-amber-500/40"
-            >
-              <RefreshCw size={12} className={isChecking ? "animate-spin" : undefined} aria-hidden="true" />
-              Check again
-            </button>
-          )}
-          {checkError && (
-            <p role="alert" className="mb-2 text-[11px] text-red-400">
-              {checkError}
-            </p>
-          )}
           {ready.length === 0 ? (
             <p className="text-xs text-neutral-500">No agents are installed yet.</p>
           ) : (
@@ -158,6 +135,29 @@ export function SettingsPanel({
                 </option>
               ))}
             </select>
+          )}
+          {onRecheckAgents && (
+            <button
+              type="button"
+              aria-label="Check again for installed agents"
+              disabled={isChecking}
+              onClick={() => {
+                setIsChecking(true);
+                setCheckError(null);
+                onRecheckAgents()
+                  .catch(() => setCheckError(RECHECK_ERROR))
+                  .finally(() => setIsChecking(false));
+              }}
+              className="mt-2 flex items-center gap-1.5 rounded-lg border border-neutral-800/60 px-2.5 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-amber-500/40"
+            >
+              <RefreshCw size={12} className={isChecking ? "animate-spin" : undefined} aria-hidden="true" />
+              Check again
+            </button>
+          )}
+          {checkError && (
+            <p role="alert" className="mt-1.5 text-[11px] text-red-400">
+              {checkError}
+            </p>
           )}
         </section>
 

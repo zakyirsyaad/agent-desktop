@@ -1,5 +1,8 @@
 import type { AgentProfile } from "../types";
 
+/** Shown where agents are checked again (onboarding, Settings) when the check failed. */
+export const RECHECK_ERROR = "Couldn't check your agents. Try again.";
+
 /** The subset of `AgentProfile` the setup screens read. */
 export type AgentSummary = Pick<AgentProfile, "id" | "name" | "detected" | "detected_path">;
 
