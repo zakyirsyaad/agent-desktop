@@ -123,8 +123,59 @@ fn reveal_directory(_dir: &Path) -> Result<(), String> {
     Err("not supported".to_string())
 }
 
+/// Schemes a link in an agent's reply may open: web pages and mail, never
+/// `file:`, `javascript:` or app-specific schemes that could run something.
+const EXTERNAL_URL_SCHEMES: [&str; 3] = ["https://", "http://", "mailto:"];
+
+/// Accepts `url` when it uses one of [`EXTERNAL_URL_SCHEMES`] and has no
+/// whitespace or control characters (so it stays one argument to `open`).
+pub fn validated_external_url(url: &str) -> Result<&str, String> {
+    let lower = url.to_ascii_lowercase();
+    let has_allowed_scheme = EXTERNAL_URL_SCHEMES.iter().any(|scheme| lower.starts_with(scheme));
+    let is_clean = !url.is_empty() && !url.chars().any(|c| c.is_whitespace() || c.is_control());
+    if has_allowed_scheme && is_clean {
+        Ok(url)
+    } else {
+        Err(format!("Not opening {url:?}: only http, https and mailto links are opened"))
+    }
+}
+
+/// Opens a link from an agent's reply in the user's default browser or mail app.
+#[tauri::command]
+pub fn open_external_url(url: String) -> Result<(), String> {
+    open_url(validated_external_url(&url)?)
+}
+
+#[cfg(target_os = "macos")]
+fn open_url(url: &str) -> Result<(), String> {
+    let status = Command::new("open")
+        .arg(url)
+        .status()
+        .map_err(|e| format!("Failed to open {url}: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("`open {url}` exited with {status}"))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_url(_url: &str) -> Result<(), String> {
+    Err("not supported".to_string())
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn opens_only_web_and_mail_links() {
+        assert!(super::validated_external_url("https://example.com/docs?a=1").is_ok());
+        assert!(super::validated_external_url("HTTP://example.com").is_ok());
+        assert!(super::validated_external_url("mailto:me@example.com").is_ok());
+        for bad in ["file:///etc/passwd", "javascript:alert(1)", "vscode://x", "/Applications/Calculator.app", "https://a b", ""] {
+            assert!(super::validated_external_url(bad).is_err(), "{bad:?} must be refused");
+        }
+    }
+
     use super::*;
 
     #[test]

@@ -267,6 +267,7 @@ pub fn run() {
             delete_transcript,
             windows::open_session_window,
             windows::reveal_in_finder,
+            windows::open_external_url,
             files::list_directory,
             files::open_path,
             files::remember_workspace,

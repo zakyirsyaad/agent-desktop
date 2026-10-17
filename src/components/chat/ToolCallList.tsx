@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Check, Clock, Wrench } from "lucide-react";
 import type { ToolExecution } from "../../types";
 import { ToolDetails } from "./ToolDetails";
@@ -56,7 +57,7 @@ function ToolRow({ tool }: { tool: ToolExecution }) {
  * changes start open, so edits are visible without a click; text output
  * starts closed.
  */
-export function ToolCallList({ tools }: { tools: ToolExecution[] }) {
+export const ToolCallList = memo(function ToolCallList({ tools }: { tools: ToolExecution[] }) {
   return (
     <div className="mb-4 space-y-2">
       {tools.map((tool) => {
@@ -79,4 +80,4 @@ export function ToolCallList({ tools }: { tools: ToolExecution[] }) {
       })}
     </div>
   );
-}
+});
