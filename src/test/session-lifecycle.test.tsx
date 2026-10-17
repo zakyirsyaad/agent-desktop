@@ -156,6 +156,16 @@ describe("Session lifecycle", () => {
     expect(spy.mock.calls.filter(([cmd, args]) => cmd === "save_transcript" && (args as { sessionId?: string })?.sessionId === sessionId)).toHaveLength(0);
   });
 
+  it("shows a terminal agent's real screen instead of a chat, and takes input there", async () => {
+    await renderApp();
+    await startNewSession();
+
+    expect(screen.getByTestId("terminal-view")).toBeDefined();
+    const composer = screen.getByRole("textbox", { name: "Prompt" });
+    expect(composer.closest(".hidden")).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "No session yet" })).toBeNull();
+  });
+
   it("deletes an ended session and its transcript", async () => {
     fakeStore().state.sessions = [seedSession("s-old", "Refactor parser", 1000)];
     fakeStore().transcripts["s-old"] = [];

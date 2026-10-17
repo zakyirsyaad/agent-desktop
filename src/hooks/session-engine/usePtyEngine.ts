@@ -12,6 +12,8 @@ import type { ActionCard, AgentProfile, ChatMessage, Session, SpawnOptions } fro
 /** Ctrl+C: what a terminal agent reads as "stop what you are doing". */
 const INTERRUPT_KEY = '\x03';
 
+import type { PtyOutputStore } from '../../lib/pty-output-store';
+
 export interface EngineDeps {
   sessions: readonly Session[];
   agents: readonly AgentProfile[];
@@ -24,7 +26,12 @@ export interface EngineDeps {
  * Sessions whose agent runs as a TUI in a pseudo-terminal: its output is
  * parsed into chat messages, and the user's messages are typed into it.
  */
-export function usePtyEngine({ sessions, agents, updateMessages, patchSession, reportError }: EngineDeps) {
+export interface PtyEngineDeps extends EngineDeps {
+  /** Where raw output is kept for the session's terminal view. */
+  output: PtyOutputStore;
+}
+
+export function usePtyEngine({ sessions, agents, updateMessages, patchSession, reportError, output }: PtyEngineDeps) {
   const parsersRef = useRef(new Map<string, StreamParser>());
   // Deleted sessions: their last output must not write a transcript back.
   const forgottenRef = useRef(new Set<string>());
@@ -60,6 +67,7 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
   usePtyEvents({
     onOutput: (sessionId, data) => {
       if (forgottenRef.current.has(sessionId)) return;
+      output.append(sessionId, data);
       activity.markOutput(sessionId);
       firstPrompts.noteOutput(sessionId);
       const profile = agents.find((a) => a.id === sessions.find((s) => s.id === sessionId)?.profileId);
@@ -109,14 +117,22 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
 
   const interrupt = (sessionId: string) => void sendRaw(sessionId, INTERRUPT_KEY);
 
+  /** Tells the agent its terminal's size, so its TUI lays out for the view. */
+  const resize = (sessionId: string, cols: number, rows: number) => {
+    invoke('resize_session', { sessionId, cols, rows }).catch((error) => {
+      reportError(`Failed to resize the terminal: ${String(error)}`);
+    });
+  };
+
   /** Drops a deleted session; anything it still prints is ignored. */
   const forget = (sessionId: string) => {
     forgottenRef.current.add(sessionId);
     parsersRef.current.delete(sessionId);
+    output.forget(sessionId);
     firstPrompts.cancel(sessionId);
   };
 
-  return { start, send, sendRaw, resolveCard, stop, interrupt, forget, isBusy: activity.isBusy };
+  return { start, send, sendRaw, resolveCard, stop, interrupt, resize, forget, isBusy: activity.isBusy };
 }
 
 export type PtyEngine = ReturnType<typeof usePtyEngine>;

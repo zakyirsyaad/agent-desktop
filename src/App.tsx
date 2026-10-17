@@ -7,6 +7,8 @@ import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { FilesPanel } from "./components/FilesPanel";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
+import { TerminalView } from "./components/TerminalView";
+import { createPtyOutputStore } from "./lib/pty-output-store";
 import {
   isAutoName,
   mostRecentSessionId,
@@ -39,6 +41,7 @@ import type { AgentProfile, ChatMessage, Session, Settings, SpawnOptions } from 
 import { DEFAULT_PERMISSION_MODE, TRANSPORT_ACP } from "./types";
 
 const ACP_NO_TERMINAL_MESSAGE = "This agent talks to the app directly over ACP, so it has no terminal.";
+const TERMINAL_IS_MAIN_MESSAGE = "This agent's terminal is the main view.";
 const NO_WORKSPACE_PLACEHOLDER = "Open a folder and install an agent to start";
 const NEW_SESSION_PLACEHOLDER = "Message the agent to start a new session...";
 const RESUME_PLACEHOLDER = "Message the agent to continue this session...";
@@ -69,6 +72,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isFilesOpen, setIsFilesOpen] = useState(false);
   const composerRef = useRef<ComposerHandle>(null);
+  const [ptyOutput] = useState(createPtyOutputStore);
 
   const reportError = useCallback((message: string) => setNotice(message), []);
   const { state, isLoaded, updateState } = usePersistedState(reportError);
@@ -132,7 +136,7 @@ export default function App() {
     });
 
   const engineDeps = { sessions, agents, updateMessages, patchSession, reportError };
-  const pty = usePtyEngine(engineDeps);
+  const pty = usePtyEngine({ ...engineDeps, output: ptyOutput });
   const acp = useAcpEngine({ ...engineDeps, rememberOptions: rememberAgentOptions });
 
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
@@ -365,6 +369,9 @@ export default function App() {
     acp,
   });
   const isActiveTerminal = isActiveRunning && !isAcp(activeSession);
+  // A terminal agent shows its real screen: live, or the last one while it is still in memory.
+  const showsTerminal =
+    Boolean(activeSession) && !isAcp(activeSession) && (isActiveRunning || ptyOutput.has(activeSessionId));
   // A live ACP session's own commands; before it runs, the ones its agent offered last time.
   const composerCommands = isActiveRunning
     ? isAcp(activeSession)
@@ -430,7 +437,15 @@ export default function App() {
 
         <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
-          {activeSession && currentMessages.length > 0 ? (
+          {showsTerminal ? (
+            <TerminalView
+              sessionId={activeSessionId}
+              output={ptyOutput}
+              isLive={isActiveTerminal}
+              onInput={(data) => void pty.sendRaw(activeSessionId, data)}
+              onResize={(cols, rows) => pty.resize(activeSessionId, cols, rows)}
+            />
+          ) : activeSession && currentMessages.length > 0 ? (
             <ChatCanvas
               messages={currentMessages}
               agentName={activeAgent?.name}
@@ -444,7 +459,8 @@ export default function App() {
             <EmptySessionState />
           )}
 
-          <div className="p-4 flex justify-center">
+          {/* A live terminal agent takes input in its own screen. */}
+          <div className={isActiveTerminal ? "hidden" : "p-4 flex justify-center"}>
             <ComposerDock
               controls={composer.controls}
               optionsLocked={composer.locked}
@@ -471,8 +487,10 @@ export default function App() {
             isOpen={isTerminalOpen}
             sessionId={activeSessionId}
             sessionName={activeSession?.name}
-            isLive={isActiveTerminal}
-            emptyMessage={isActiveRunning && isAcp(activeSession) ? ACP_NO_TERMINAL_MESSAGE : undefined}
+            isLive={false}
+            emptyMessage={
+              !isActiveRunning ? undefined : isAcp(activeSession) ? ACP_NO_TERMINAL_MESSAGE : TERMINAL_IS_MAIN_MESSAGE
+            }
             onClose={() => setIsTerminalOpen(false)}
             onSendInput={(input) => void pty.sendRaw(activeSessionId, input)}
           />
