@@ -88,6 +88,30 @@ describe("First run and project folders", () => {
     expect(args.cwd).toBe("/Users/test/code/new-project");
   });
 
+  it("reads a newly opened folder only once the backend has registered it", async () => {
+    openDialog.mockResolvedValue("/Users/test/code/new-project");
+    await renderApp();
+    const original = tauriInternals().invoke;
+    let finishRegistering: () => void = () => {};
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "remember_workspace"
+        ? new Promise((resolve) => {
+            finishRegistering = () => resolve(undefined);
+          })
+        : original(cmd, args)
+    );
+    const detailsReads = () =>
+      spy.mock.calls.filter(([cmd, a]) => cmd === "workspace_details" && (a as { path?: string })?.path === "/Users/test/code/new-project");
+
+    await click(sidebar().getByRole("button", { name: "Open folder" }));
+    expect(detailsReads()).toHaveLength(0);
+
+    await act(async () => {
+      finishRegistering();
+    });
+    await waitFor(() => expect(detailsReads()).toHaveLength(1));
+  });
+
   it("opens settings, saves a new default agent, and can rerun setup", async () => {
     await renderApp();
 

@@ -124,7 +124,7 @@ export default function App() {
   const isNewSessionDraft = !activeSession;
   // A session shows the folder it runs in, even one no longer in the recents.
   const shownFolderPath = activeSession?.cwd ?? activeWorkspacePath;
-  const workspaceDetails = useWorkspaceDetails(shownFolderPath);
+  const workspaceDetails = useWorkspaceDetails(shownFolderPath, reportError);
   // Files and Reveal act on the folder the top bar names. The backend browses
   // every saved session's folder, so one gone from the recents keeps them.
   const filesFolder =

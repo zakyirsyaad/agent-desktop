@@ -44,16 +44,18 @@ export function useWorkspaceSelection(
 
   const rememberFolder = useCallback(
     (folder: Workspace) => {
-      // The Files panel only browses known workspaces; tell the backend now,
-      // since the state save that also records it is debounced.
-      invoke('remember_workspace', { path: folder.path }).catch((error) => {
-        onErrorRef.current(`Could not register the folder: ${String(error)}`);
-      });
       updateState((prev) => ({
         ...prev,
         recentFolders: addRecentFolder(prev.recentFolders, folder, Date.now()),
       }));
-      setActiveWorkspacePath(folder.path);
+      // The backend only reads known workspaces (files, branch), and the state
+      // save that also records this one is debounced: register it first, so
+      // nothing reads it before the backend knows it.
+      invoke('remember_workspace', { path: folder.path })
+        .catch((error) => {
+          onErrorRef.current(`Could not register the folder: ${String(error)}`);
+        })
+        .finally(() => setActiveWorkspacePath(folder.path));
     },
     [updateState, onErrorRef],
   );
