@@ -1,256 +1,146 @@
-import { useState } from "react";
+import { memo, useState, type ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { invoke } from "@tauri-apps/api/core";
 import { Copy, Check } from "lucide-react";
 
-/**
- * Custom lightweight Markdown renderer to support headings, code blocks with
- * copy button, inline code, ordered lists, and paragraphs with zero external runtime deps.
- */
-export function MarkdownRenderer({ content }: { content: string }) {
-  const [copiedCodeIndex, setCopiedCodeIndex] = useState<number | null>(null);
+const COPIED_FEEDBACK_MS = 2000;
+const LANGUAGE_CLASS = /language-([\w-]+)/;
 
-  const handleCopyCode = (code: string, index: number) => {
-    if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(code);
-      setCopiedCodeIndex(index);
-      setTimeout(() => setCopiedCodeIndex(null), 2000);
-    }
+/** Fenced code with its language and a Copy button. */
+function CodeBlock({ language, code }: { language?: string; code: string }) {
+  const [isCopied, setIsCopied] = useState(false);
+  const handleCopy = () => {
+    if (!navigator?.clipboard?.writeText) return;
+    navigator.clipboard.writeText(code);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), COPIED_FEEDBACK_MS);
   };
-
-  // Parse lines into tokens: codeblocks, headings, list items, paragraphs
-  const lines = content.split("\n");
-  const blocks: Array<
-    | { type: "code"; code: string; language?: string }
-    | { type: "h1" | "h2" | "h3"; text: string }
-    | { type: "ol"; items: string[] }
-    | { type: "ul"; items: string[] }
-    | { type: "p"; text: string }
-  > = [];
-
-  let inCodeBlock = false;
-  let codeBuffer: string[] = [];
-  let codeLang = "";
-  let currentOlItems: string[] = [];
-  let currentUlItems: string[] = [];
-
-  const flushLists = () => {
-    if (currentOlItems.length > 0) {
-      blocks.push({ type: "ol", items: [...currentOlItems] });
-      currentOlItems = [];
-    }
-    if (currentUlItems.length > 0) {
-      blocks.push({ type: "ul", items: [...currentUlItems] });
-      currentUlItems = [];
-    }
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Fenced code block check
-    if (line.trim().startsWith("```")) {
-      if (inCodeBlock) {
-        // End code block
-        blocks.push({
-          type: "code",
-          code: codeBuffer.join("\n"),
-          language: codeLang || undefined,
-        });
-        codeBuffer = [];
-        codeLang = "";
-        inCodeBlock = false;
-      } else {
-        // Start code block
-        flushLists();
-        inCodeBlock = true;
-        codeLang = line.trim().slice(3).trim();
-      }
-      continue;
-    }
-
-    if (inCodeBlock) {
-      codeBuffer.push(line);
-      continue;
-    }
-
-    // Ordered list item: "1. item text"
-    const olMatch = line.match(/^\s*(\d+)\.\s+(.*)$/);
-    if (olMatch) {
-      if (currentUlItems.length > 0) {
-        blocks.push({ type: "ul", items: [...currentUlItems] });
-        currentUlItems = [];
-      }
-      currentOlItems.push(olMatch[2]);
-      continue;
-    }
-
-    // Unordered list item: "- item" or "* item"
-    const ulMatch = line.match(/^\s*[-*]\s+(.*)$/);
-    if (ulMatch) {
-      if (currentOlItems.length > 0) {
-        blocks.push({ type: "ol", items: [...currentOlItems] });
-        currentOlItems = [];
-      }
-      currentUlItems.push(ulMatch[1]);
-      continue;
-    }
-
-    // If non-list line, flush pending lists
-    flushLists();
-
-    // Headings
-    if (line.startsWith("# ")) {
-      blocks.push({ type: "h1", text: line.slice(2).trim() });
-    } else if (line.startsWith("## ")) {
-      blocks.push({ type: "h2", text: line.slice(3).trim() });
-    } else if (line.startsWith("### ")) {
-      blocks.push({ type: "h3", text: line.slice(4).trim() });
-    } else if (line.trim().length > 0) {
-      blocks.push({ type: "p", text: line });
-    }
-  }
-
-  // Handle any remaining blocks
-  if (inCodeBlock && codeBuffer.length > 0) {
-    blocks.push({
-      type: "code",
-      code: codeBuffer.join("\n"),
-      language: codeLang || undefined,
-    });
-  }
-  flushLists();
-
-  /**
-   * Helper to render inline code like `package.json` and bold text **bold**
-   */
-  const renderInlineFormatted = (text: string) => {
-    const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
-    return parts.map((part, index) => {
-      if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
-        return (
-          <code
-            key={index}
-            className="rounded bg-neutral-900 border border-neutral-800 px-1.5 py-0.5 font-mono text-xs text-amber-300"
-          >
-            {part.slice(1, -1)}
-          </code>
-        );
-      }
-      if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
-        return (
-          <strong key={index} className="font-semibold text-neutral-100">
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-      return part;
-    });
-  };
-
   return (
-    <div className="space-y-3 text-neutral-200">
-      {blocks.map((block, idx) => {
-        if (block.type === "code") {
-          return (
-            <div
-              key={idx}
-              className="my-3 overflow-hidden rounded-xl border border-neutral-800 bg-[#0c0c0c]"
-            >
-              <div className="flex items-center justify-between border-b border-neutral-800/80 bg-neutral-900/60 px-3 py-1.5 text-[11px] font-mono text-neutral-400">
-                <span>{block.language || "text"}</span>
-                <button
-                  type="button"
-                  onClick={() => handleCopyCode(block.code, idx)}
-                  aria-label="Copy code"
-                  className="flex items-center gap-1 text-neutral-400 hover:text-neutral-200 transition-colors"
-                >
-                  {copiedCodeIndex === idx ? (
-                    <>
-                      <Check className="h-3 w-3 text-emerald-400" />
-                      <span className="text-emerald-400">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3 w-3" />
-                      <span>Copy</span>
-                    </>
-                  )}
-                </button>
-              </div>
-              <pre className="p-3 font-mono text-xs text-neutral-300 overflow-x-auto">
-                <code>{block.code}</code>
-              </pre>
-            </div>
-          );
-        }
-
-        if (block.type === "h1") {
-          return (
-            <h1
-              key={idx}
-              className="text-lg font-semibold tracking-tight text-neutral-100 pt-2"
-            >
-              {renderInlineFormatted(block.text)}
-            </h1>
-          );
-        }
-
-        if (block.type === "h2") {
-          return (
-            <h2
-              key={idx}
-              className="text-base font-semibold tracking-tight text-neutral-100 pt-1"
-            >
-              {renderInlineFormatted(block.text)}
-            </h2>
-          );
-        }
-
-        if (block.type === "h3") {
-          return (
-            <h3
-              key={idx}
-              className="text-sm font-semibold tracking-tight text-neutral-200"
-            >
-              {renderInlineFormatted(block.text)}
-            </h3>
-          );
-        }
-
-        if (block.type === "ol") {
-          return (
-            <ol
-              key={idx}
-              className="my-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-neutral-300"
-            >
-              {block.items.map((item, itemIdx) => (
-                <li key={itemIdx}>{renderInlineFormatted(item)}</li>
-              ))}
-            </ol>
-          );
-        }
-
-        if (block.type === "ul") {
-          return (
-            <ul
-              key={idx}
-              className="my-2 list-disc space-y-1 pl-5 text-sm leading-relaxed text-neutral-300"
-            >
-              {block.items.map((item, itemIdx) => (
-                <li key={itemIdx}>{renderInlineFormatted(item)}</li>
-              ))}
-            </ul>
-          );
-        }
-
-        return (
-          <p
-            key={idx}
-            className="text-sm leading-relaxed text-neutral-300 break-words"
-          >
-            {renderInlineFormatted(block.text)}
-          </p>
-        );
-      })}
+    <div className="my-3 overflow-hidden rounded-xl border border-neutral-800 bg-[#0c0c0c]">
+      <div className="flex items-center justify-between border-b border-neutral-800/80 bg-neutral-900/60 px-3 py-1.5 text-[11px] font-mono text-neutral-400">
+        <span>{language || "text"}</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label="Copy code"
+          className="flex items-center gap-1 text-neutral-400 hover:text-neutral-200 transition-colors"
+        >
+          {isCopied ? (
+            <>
+              <Check className="h-3 w-3 text-emerald-400" />
+              <span className="text-emerald-400">Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" />
+              <span>Copy</span>
+            </>
+          )}
+        </button>
+      </div>
+      <pre className="p-3 font-mono text-xs text-neutral-300 overflow-x-auto">
+        <code>{code}</code>
+      </pre>
     </div>
   );
 }
+
+/** The text of a node's children, e.g. a code block's source. */
+function textOf(children: ReactNode): string {
+  if (typeof children === "string") return children;
+  if (Array.isArray(children)) return children.map(textOf).join("");
+  return "";
+}
+
+/** What the app can open for a link: web pages and mail, in the user's apps. */
+const OPENABLE_URL = /^(https?:|mailto:)/i;
+
+/**
+ * Links open in the user's browser; a click must never navigate the app's
+ * webview away. Anything else (a file path an agent mentions, say) is shown
+ * as text with its target on hover instead of a link that does nothing.
+ */
+function ExternalLink({ href, children }: { href?: string; children?: ReactNode }) {
+  if (!href || !OPENABLE_URL.test(href)) {
+    return (
+      <span title={href} className="text-neutral-200 underline decoration-dotted decoration-neutral-600 underline-offset-2">
+        {children}
+      </span>
+    );
+  }
+  return (
+    <a
+      href={href}
+      title={href}
+      onClick={(event) => {
+        event.preventDefault();
+        // The backend only refuses what OPENABLE_URL already excludes.
+        invoke("open_external_url", { url: href }).catch(() => {});
+      }}
+      className="text-amber-400 underline decoration-amber-400/40 underline-offset-2 hover:decoration-amber-400"
+    >
+      {children}
+    </a>
+  );
+}
+
+/** The app loads no remote images (see the CSP), so an image becomes a link to it. */
+function ImageLink({ src, alt }: { src?: string; alt?: string }) {
+  const label = `Image: ${alt || src || "untitled"}`;
+  return <ExternalLink href={typeof src === "string" ? src : undefined}>{label}</ExternalLink>;
+}
+
+const COMPONENTS: Components = {
+  h1: ({ children }) => <h1 className="text-lg font-semibold tracking-tight text-neutral-100 pt-2">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-base font-semibold tracking-tight text-neutral-100 pt-1">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold tracking-tight text-neutral-200">{children}</h3>,
+  h4: ({ children }) => <h4 className="text-sm font-semibold text-neutral-200">{children}</h4>,
+  p: ({ children }) => <p className="text-sm leading-relaxed text-neutral-300 break-words">{children}</p>,
+  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5 text-sm leading-relaxed text-neutral-300">{children}</ul>,
+  ol: ({ children }) => (
+    <ol className="my-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-neutral-300">{children}</ol>
+  ),
+  strong: ({ children }) => <strong className="font-semibold text-neutral-100">{children}</strong>,
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-2 border-neutral-700 pl-3 text-neutral-400">{children}</blockquote>
+  ),
+  a: ({ href, children }) => <ExternalLink href={href}>{children}</ExternalLink>,
+  img: ({ src, alt }) => <ImageLink src={typeof src === "string" ? src : undefined} alt={alt} />,
+  table: ({ children }) => (
+    <div className="my-3 overflow-x-auto">
+      <table className="w-full border-collapse text-left text-xs text-neutral-300">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => <th className="border-b border-neutral-700 px-2.5 py-1.5 font-semibold text-neutral-200">{children}</th>,
+  td: ({ children }) => <td className="border-b border-neutral-800/70 px-2.5 py-1.5 align-top">{children}</td>,
+  // Fenced code gets the code block; its <pre> wrapper is replaced, so it is unwrapped here.
+  pre: ({ children }) => <>{children}</>,
+  code: ({ className, children }) => {
+    const language = LANGUAGE_CLASS.exec(className ?? "")?.[1];
+    const text = textOf(children);
+    if (language || text.includes("\n")) return <CodeBlock language={language} code={text.replace(/\n$/, "")} />;
+    return (
+      <code className="rounded bg-neutral-900 border border-neutral-800 px-1.5 py-0.5 font-mono text-xs text-amber-300">
+        {children}
+      </code>
+    );
+  },
+};
+
+const REMARK_PLUGINS = [remarkGfm];
+
+/**
+ * Agent replies as GitHub-flavored Markdown (tables, task lists, links,
+ * strikethrough). Raw HTML is not rendered. Memoized on `content`, so a
+ * message that did not change is not parsed again while another one streams.
+ */
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content }: { content: string }) {
+  return (
+    <div className="space-y-3 text-neutral-200">
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={COMPONENTS}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+});

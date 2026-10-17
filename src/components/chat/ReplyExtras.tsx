@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { CheckCircle2, ChevronRight, Circle, CircleDot, Sparkles } from "lucide-react";
 import type { PlanEntry } from "../../types";
 
@@ -6,7 +7,7 @@ import type { PlanEntry } from "../../types";
  * default so the answer stays in focus. "Thinking" while the reply streams,
  * "Thought" once it is done.
  */
-export function ThinkingBlock({ text, isDone = false }: { text: string; isDone?: boolean }) {
+export const ThinkingBlock = memo(function ThinkingBlock({ text, isDone = false }: { text: string; isDone?: boolean }) {
   return (
     <details className="group mb-2 text-xs">
       <summary className="flex w-fit cursor-pointer select-none list-none items-center gap-1 text-neutral-500 hover:text-neutral-300 [&::-webkit-details-marker]:hidden">
@@ -18,7 +19,7 @@ export function ThinkingBlock({ text, isDone = false }: { text: string; isDone?:
       </p>
     </details>
   );
-}
+});
 
 /** Shown under the last message while the agent works on its turn. */
 export function WorkingIndicator() {

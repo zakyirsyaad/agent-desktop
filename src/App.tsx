@@ -32,7 +32,8 @@ import { useUserProfile } from "./hooks/useUserProfile";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
-import { useAcpEngine, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
+import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
+import { notifyIfAway } from "./lib/notify";
 import { buildForkHandoff, buildForkPrompt } from "./lib/fork-handoff";
 import { pickFiles } from "./lib/file-picker";
 import { fileNameOf } from "./lib/attachments";
@@ -164,11 +165,25 @@ export default function App() {
   const acp = useAcpEngine({
     ...engineDeps,
     rememberOptions: rememberAgentOptions,
+    onAttention: (sessionId, reason) => notifyAttention(sessionId, reason),
     onAuthRequired: (profileId, cwd, methods, unsent) => {
       setAuthRequest({ profileId, cwd, methods, status: "idle" });
       if (unsent) composerRef.current?.restore(unsent.text, unsent.attachments);
     },
   });
+
+  /** Tells a user who is away that a session needs them or is done. */
+  const notifyAttention = (sessionId: string, reason: AttentionReason) => {
+    const session = sessionById(sessionId);
+    const agentName = agents.find((a) => a.id === session?.profileId)?.name ?? "The agent";
+    const body = {
+      "needs-answer": `${agentName} needs your answer.`,
+      finished: `${agentName} finished.`,
+      failed: `${agentName} stopped with an error.`,
+    }[reason];
+    // A notification that cannot be shown is not worth an error banner: the chat has it all.
+    notifyIfAway({ title: session?.name ?? agentName, body }).catch(() => {});
+  };
 
   /** Signs in in the agent itself (e.g. it opens a browser); the user then sends again. */
   const handleSignIn = (methodId: string) => {
@@ -406,8 +421,14 @@ export default function App() {
     sessions,
     transcripts,
     ensureLoaded,
+    statusOf: (sessionId) => ({
+      isBusy: isSessionBusy(sessionId),
+      isWaiting: isSessionWaiting(sessionId),
+      contextUsage: isAcp(sessionById(sessionId)) ? acp.info[sessionId]?.usage : undefined,
+    }),
     onAction: (sessionId: string, action: PopoutAction) => {
       if (action.kind === "send") void sendTo(sessionId, { text: action.text });
+      else if (action.kind === "stop") handleInterrupt(sessionId);
       else if (action.kind === "choose-option") chooseOption(sessionId, action.cardId, action.optionId);
       else pty.resolveCard(sessionId, action.key, action.cardId, action.status);
     },

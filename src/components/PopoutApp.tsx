@@ -9,7 +9,9 @@ import {
   POPOUT_READY_EVENT,
   SESSION_SNAPSHOT_EVENT,
   type PopoutAction,
+  type SessionLiveStatus,
   type SessionSnapshotPayload,
+  IDLE_STATUS,
 } from "../lib/popout-bridge";
 import { folderNameOf } from "../lib/session-helpers";
 import { useAgentProfiles } from "../hooks/useDiscovery";
@@ -30,6 +32,7 @@ export interface PopoutAppProps {
 export function PopoutApp({ sessionId }: PopoutAppProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [status, setStatus] = useState<SessionLiveStatus>(IDLE_STATUS);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const { agents } = useAgentProfiles(() => {});
 
@@ -40,6 +43,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
       if (payload.sessionId !== sessionId) return;
       setSession(payload.session);
       setMessages(payload.messages);
+      setStatus(payload.status ?? IDLE_STATUS);
     })
       .then((stop) => {
         if (isCancelled) stop();
@@ -95,6 +99,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
             onApproveAction={(key, cardId) => forward({ kind: "resolve-card", cardId, key, status: "approved" })}
             onRejectAction={(key, cardId) => forward({ kind: "resolve-card", cardId, key, status: "rejected" })}
             onChooseOption={(cardId, optionId) => forward({ kind: "choose-option", cardId, optionId })}
+            isWorking={status.isBusy && !status.isWaiting}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-neutral-500">
@@ -108,6 +113,9 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
             disabled={!isRunning}
             placeholder={isRunning ? undefined : "This session is not running"}
             onSendMessage={(text) => forward({ kind: "send", text })}
+            isThinking={status.isBusy}
+            onStop={() => forward({ kind: "stop" })}
+            contextUsage={status.contextUsage}
           />
         </div>
         <TerminalDrawer

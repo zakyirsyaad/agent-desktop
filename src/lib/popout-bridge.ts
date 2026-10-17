@@ -1,4 +1,4 @@
-import type { ActionCard, ChatMessage, Session } from '../types';
+import type { ActionCard, ChatMessage, ContextUsage, Session } from '../types';
 
 /**
  * Events between the main window and session popouts.
@@ -17,16 +17,27 @@ export interface PopoutReadyPayload {
   sessionId: string;
 }
 
+/** What the main window knows live about a session's agent, beyond its saved state. */
+export interface SessionLiveStatus {
+  isBusy: boolean;
+  isWaiting: boolean;
+  contextUsage?: ContextUsage;
+}
+
+export const IDLE_STATUS: SessionLiveStatus = { isBusy: false, isWaiting: false };
+
 export interface SessionSnapshotPayload {
   sessionId: string;
   session: Session | null;
   messages: ChatMessage[];
+  status: SessionLiveStatus;
 }
 
 export type PopoutAction =
   | { kind: 'send'; text: string }
   | { kind: 'resolve-card'; cardId?: string; key: string; status: ActionCard['status'] }
-  | { kind: 'choose-option'; cardId: string; optionId: string };
+  | { kind: 'choose-option'; cardId: string; optionId: string }
+  | { kind: 'stop' };
 
 export interface PopoutActionPayload {
   sessionId: string;
@@ -37,10 +48,12 @@ export function buildSessionSnapshot(
   sessionId: string,
   sessions: readonly Session[],
   transcripts: Record<string, ChatMessage[]>,
+  status: SessionLiveStatus = IDLE_STATUS,
 ): SessionSnapshotPayload {
   return {
     sessionId,
     session: sessions.find((s) => s.id === sessionId) ?? null,
     messages: transcripts[sessionId] ?? [],
+    status,
   };
 }

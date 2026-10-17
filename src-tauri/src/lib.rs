@@ -83,8 +83,14 @@ fn resize_session(
     state.resize(&session_id, cols, rows)
 }
 
+/// Detects the installed agents. With `refresh`, the login shell's PATH is read
+/// afresh first, so an agent installed while the app runs is found.
 #[tauri::command(async)]
-fn get_agent_profiles() -> Result<Vec<AgentProfile>, String> {
+fn get_agent_profiles(refresh: Option<bool>) -> Result<Vec<AgentProfile>, String> {
+    if refresh.unwrap_or(false) {
+        // A failed re-read leaves detection on the process PATH; it is not fatal.
+        let _ = env_resolver::refresh_user_env();
+    }
     Ok(get_available_agent_profiles())
 }
 
@@ -222,6 +228,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(manager)
         .manage(acp_manager)
         .setup(move |app| {
@@ -261,6 +268,7 @@ pub fn run() {
             delete_transcript,
             windows::open_session_window,
             windows::reveal_in_finder,
+            windows::open_external_url,
             files::list_directory,
             files::open_path,
             files::remember_workspace,

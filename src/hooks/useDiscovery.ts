@@ -14,21 +14,28 @@ export function useAgentProfiles(onError: (message: string) => void): AgentProfi
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const onErrorRef = useLatest(onError);
 
-  const refresh = useCallback(async () => {
-    try {
-      const profiles = await invoke<AgentProfile[]>('get_agent_profiles');
-      setAgents(Array.isArray(profiles) ? profiles : []);
-    } catch (error) {
-      onErrorRef.current(`Failed to detect agents: ${String(error)}`);
-      throw error;
-    }
-  }, [onErrorRef]);
+  /** With `refresh`, the backend re-reads the login shell's PATH first (an agent may just have been installed). */
+  const detect = useCallback(
+    async (refresh: boolean) => {
+      try {
+        const profiles = await invoke<AgentProfile[]>('get_agent_profiles', { refresh });
+        setAgents(Array.isArray(profiles) ? profiles : []);
+      } catch (error) {
+        onErrorRef.current(`Failed to detect agents: ${String(error)}`);
+        throw error;
+      }
+    },
+    [onErrorRef],
+  );
 
   useEffect(() => {
-    refresh().catch(() => {
+    detect(false).catch(() => {
       // Already reported through onError.
     });
-  }, [refresh]);
+  }, [detect]);
+
+  /** "Check again": detects with a fresh PATH. */
+  const refresh = useCallback(() => detect(true), [detect]);
 
   return { agents, refresh };
 }

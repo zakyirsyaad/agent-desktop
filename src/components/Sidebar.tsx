@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Search, Plus, Folder, FolderPlus, GitBranch, GitFork, Bot, Square, Trash2 } from "lucide-react";
 import type { AgentProfile, Session, Workspace } from "../types";
 import { groupSessionsByFolder } from "../lib/session-helpers";
@@ -93,18 +93,49 @@ function SessionRow({ session, isActive, isBusy, isWaiting, onSelect, onStop, on
           <Square size={11} />
         </button>
       )}
-      {!isBusy && onDelete && (
-        <button
-          type="button"
-          aria-label="Delete session"
-          title="Delete session"
-          onClick={onDelete}
-          className={ROW_ACTION}
-        >
-          <Trash2 size={12} />
-        </button>
-      )}
+      {!isBusy && onDelete && <DeleteButton onDelete={onDelete} />}
     </li>
+  );
+}
+
+/** How long the delete button waits for its confirming second click. */
+const CONFIRM_DELETE_MS = 4000;
+
+/**
+ * Deleting erases the conversation for good, so it takes two clicks: the
+ * trash icon turns into "Delete?", which deletes; it turns back by itself.
+ */
+function DeleteButton({ onDelete }: { onDelete: () => void }) {
+  const [isConfirming, setIsConfirming] = useState(false);
+  useEffect(() => {
+    if (!isConfirming) return;
+    const timer = setTimeout(() => setIsConfirming(false), CONFIRM_DELETE_MS);
+    return () => clearTimeout(timer);
+  }, [isConfirming]);
+
+  if (isConfirming) {
+    return (
+      <button
+        type="button"
+        aria-label="Confirm delete"
+        title="Delete this session and its conversation for good"
+        onClick={onDelete}
+        className="mr-1 rounded bg-rose-950/70 px-1.5 py-0.5 text-[10px] font-medium text-rose-300 hover:bg-rose-900 focus:outline-none focus:ring-1 focus:ring-rose-700"
+      >
+        Delete?
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      aria-label="Delete session"
+      title="Delete session"
+      onClick={() => setIsConfirming(true)}
+      className={ROW_ACTION}
+    >
+      <Trash2 size={12} />
+    </button>
   );
 }
 

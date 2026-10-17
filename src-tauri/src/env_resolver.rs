@@ -3,7 +3,7 @@ use std::env;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, OnceLock};
+use std::sync::{mpsc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -20,7 +20,7 @@ const MAX_STDERR_IN_ERROR: usize = 500;
 /// Outcome of a single login shell environment resolve, cached as-is.
 type EnvResult = Result<HashMap<String, String>, String>;
 
-static USER_ENV: OnceLock<EnvResult> = OnceLock::new();
+static USER_ENV: Mutex<Option<EnvResult>> = Mutex::new(None);
 
 /// Resolves the user's authentic login shell environment variables.
 ///
@@ -51,22 +51,54 @@ pub fn resolve_user_env() -> Result<HashMap<String, String>, String> {
     }
 }
 
-/// Returns the user environment, resolved at most once per app run.
+/// Returns the user environment, resolved once and then reused.
 ///
 /// Spawning a login shell can take seconds with heavy dotfiles, so every session spawn
-/// and profile scan shares one result. The outcome — success or failure — is resolved
-/// once and cached, so changes to the user's dotfiles need an app restart to take
-/// effect. Callers already fall back to the process environment when this returns `Err`.
+/// and profile scan shares one result. The outcome — success or failure — is cached
+/// until [`refresh_user_env`] runs, e.g. when the user installed an agent and asks the
+/// app to check again. Callers already fall back to the process environment when this
+/// returns `Err`.
 pub fn cached_user_env() -> EnvResult {
     resolve_once(&USER_ENV, resolve_user_env)
 }
 
-/// Runs `resolve` for `cell` exactly once and returns the stored outcome.
+/// Resolves the user environment afresh and caches it for later callers.
+pub fn refresh_user_env() -> EnvResult {
+    re_resolve(&USER_ENV, resolve_user_env)
+}
+
+fn lock(cell: &Mutex<Option<EnvResult>>) -> std::sync::MutexGuard<'_, Option<EnvResult>> {
+    // A panic while resolving leaves no half-written value, so a poisoned lock is usable.
+    cell.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Runs `resolve` for `cell` unless it already holds an outcome, and returns it.
 ///
 /// Concurrent callers block on the single in-flight resolve instead of spawning extra
 /// login shells, and a failed resolve is kept rather than retried on the next call.
-fn resolve_once(cell: &OnceLock<EnvResult>, resolve: impl FnOnce() -> EnvResult) -> EnvResult {
-    cell.get_or_init(resolve).clone()
+fn resolve_once(cell: &Mutex<Option<EnvResult>>, resolve: impl FnOnce() -> EnvResult) -> EnvResult {
+    let mut slot = lock(cell);
+    if let Some(result) = slot.as_ref() {
+        return result.clone();
+    }
+    let result = resolve();
+    *slot = Some(result.clone());
+    result
+}
+
+/// Runs `resolve` and caches its outcome. A failed re-read keeps an earlier
+/// good environment: agents launched later still need the user's PATH.
+///
+/// The login shell runs before the lock is taken, so callers reading the
+/// cached environment meanwhile (e.g. a session spawning on the main thread)
+/// get the current value instead of waiting for the shell.
+fn re_resolve(cell: &Mutex<Option<EnvResult>>, resolve: impl FnOnce() -> EnvResult) -> EnvResult {
+    let result = resolve();
+    let mut slot = lock(cell);
+    if result.is_ok() || !matches!(slot.as_ref(), Some(Ok(_))) {
+        *slot = Some(result.clone());
+    }
+    slot.clone().unwrap_or(result)
 }
 
 /// Runs `program` with stdin closed and returns its stdout, killing it after `timeout`.
@@ -295,7 +327,7 @@ mod tests {
 
     #[test]
     fn resolve_once_runs_a_single_resolve_for_concurrent_callers() {
-        let cell = OnceLock::new();
+        let cell = Mutex::new(None);
         let calls = AtomicUsize::new(0);
 
         thread::scope(|scope| {
@@ -315,7 +347,7 @@ mod tests {
 
     #[test]
     fn resolve_once_keeps_a_failed_resolve_instead_of_retrying() {
-        let cell = OnceLock::new();
+        let cell = Mutex::new(None);
         let calls = AtomicUsize::new(0);
         let failing = || {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -328,6 +360,49 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(first, second);
         assert!(first.is_err());
+    }
+
+    #[test]
+    fn re_resolve_replaces_the_cached_result_for_later_callers() {
+        let cell = Mutex::new(None);
+        let stale = resolve_once(&cell, || Ok(HashMap::from([("PATH".to_string(), "/old".to_string())])));
+
+        let fresh = re_resolve(&cell, || Ok(HashMap::from([("PATH".to_string(), "/old:/new".to_string())])));
+        let later = resolve_once(&cell, || Err("must not resolve again".to_string()));
+
+        assert_eq!(stale.unwrap()["PATH"], "/old");
+        assert_eq!(fresh.unwrap()["PATH"], "/old:/new");
+        assert_eq!(later.unwrap()["PATH"], "/old:/new");
+    }
+
+    #[test]
+    fn re_resolve_does_not_block_readers_while_the_shell_runs() {
+        let cell = Mutex::new(Some(Ok(HashMap::from([("PATH".to_string(), "/old".to_string())]))));
+
+        thread::scope(|scope| {
+            let refresh = scope.spawn(|| {
+                re_resolve(&cell, || {
+                    thread::sleep(Duration::from_millis(300));
+                    Ok(HashMap::from([("PATH".to_string(), "/new".to_string())]))
+                })
+            });
+            thread::sleep(Duration::from_millis(50));
+            let started = Instant::now();
+            let during = resolve_once(&cell, || Err("must not resolve".to_string()));
+            assert!(started.elapsed() < Duration::from_millis(150), "a reader waited for the shell");
+            assert_eq!(during.unwrap()["PATH"], "/old");
+            refresh.join().unwrap().unwrap();
+        });
+    }
+
+    #[test]
+    fn re_resolve_keeps_a_good_environment_when_the_re_read_fails() {
+        let cell = Mutex::new(None);
+        resolve_once(&cell, || Ok(HashMap::from([("PATH".to_string(), "/good".to_string())]))).unwrap();
+
+        let after = re_resolve(&cell, || Err("login shell timed out".to_string()));
+
+        assert_eq!(after.unwrap()["PATH"], "/good");
     }
 
     #[test]

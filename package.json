@@ -14,6 +14,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.12.3",
     "@tauri-apps/plugin-dialog": "2.8.1",
+    "@tauri-apps/plugin-notification": "2.5.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
@@ -21,7 +22,9 @@
     "diff": "9.0.0",
     "lucide-react": "^1.57.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",
