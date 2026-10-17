@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { PersistedState, Workspace } from '../types';
 import { addRecentFolder, removeRecentFolder } from '../lib/recent-folders';
@@ -29,6 +29,14 @@ export function useWorkspaceSelection(
 ): WorkspaceSelection {
   const [activeWorkspacePath, setActiveWorkspacePath] = useState<string | undefined>();
   const onErrorRef = useLatest(onError);
+  // The folder the user chose last: a folder still being registered becomes
+  // active only if nothing was chosen after it.
+  const latestChoiceRef = useRef<string | undefined>(undefined);
+
+  const selectWorkspace = useCallback((path: string) => {
+    latestChoiceRef.current = path;
+    setActiveWorkspacePath(path);
+  }, []);
 
   const workspaces = [...state.recentFolders]
     .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)
@@ -44,6 +52,7 @@ export function useWorkspaceSelection(
 
   const rememberFolder = useCallback(
     (folder: Workspace) => {
+      latestChoiceRef.current = folder.path;
       updateState((prev) => ({
         ...prev,
         recentFolders: addRecentFolder(prev.recentFolders, folder, Date.now()),
@@ -55,7 +64,9 @@ export function useWorkspaceSelection(
         .catch((error) => {
           onErrorRef.current(`Could not register the folder: ${String(error)}`);
         })
-        .finally(() => setActiveWorkspacePath(folder.path));
+        .finally(() => {
+          if (latestChoiceRef.current === folder.path) setActiveWorkspacePath(folder.path);
+        });
     },
     [updateState, onErrorRef],
   );
@@ -83,7 +94,7 @@ export function useWorkspaceSelection(
     workspaces,
     activeWorkspacePath,
     activeWorkspace: workspaces.find((ws) => ws.path === activeWorkspacePath),
-    selectWorkspace: setActiveWorkspacePath,
+    selectWorkspace,
     rememberFolder,
     openFolder,
     removeFolder,
