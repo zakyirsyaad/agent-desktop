@@ -154,11 +154,13 @@ export function useAcpEngine({
    */
   const applyChanges = async (sessionId: string, info: AcpSessionInfo, options: LaunchOptions) => {
     for (const change of changesToApply(info, options.choices, options.applySafeMode)) {
+      if (isStopped(sessionId)) return;
       try {
         if (change.kind === 'mode') await acp.setMode(sessionId, change.modeId);
         else await acp.setConfigOption(sessionId, change.configId, change.value);
       } catch (error) {
-        reportError(`Could not apply the session settings: ${String(error)}`);
+        // Stopped meanwhile (the user pressed Stop): the failure is expected.
+        if (!isStopped(sessionId)) reportError(`Could not apply the session settings: ${String(error)}`);
       }
     }
   };

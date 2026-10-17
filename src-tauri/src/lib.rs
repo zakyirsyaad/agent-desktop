@@ -253,6 +253,7 @@ pub fn run() {
             windows::reveal_in_finder,
             files::list_directory,
             files::open_path,
+            files::remember_workspace,
             user_profile::get_user_profile,
             write_fork_handoff,
             acp::commands::acp_start_session,

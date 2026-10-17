@@ -10,6 +10,8 @@ import type { ActionCard, ChatMessage, Session } from '../types';
 export const POPOUT_READY_EVENT = 'popout-ready';
 export const SESSION_SNAPSHOT_EVENT = 'session-snapshot';
 export const POPOUT_ACTION_EVENT = 'popout-action';
+/** A popout window is going away; the main window stops syncing it. */
+export const POPOUT_CLOSED_EVENT = 'popout-closed';
 
 export interface PopoutReadyPayload {
   sessionId: string;

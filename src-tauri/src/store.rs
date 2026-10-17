@@ -5,8 +5,10 @@
 //! through a temporary file and a rename so an interrupted write cannot leave a
 //! half-written `state.json` behind to break the next launch.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::ErrorKind;
+use std::sync::Mutex;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -128,13 +130,57 @@ pub struct SessionRecord {
 /// managed state; every method is `&self` so concurrent commands are fine.
 pub struct AppStore {
     root: PathBuf,
+    /// Canonical workspace folders (recent folders and session folders),
+    /// loaded on first use and kept current by `save_state` and
+    /// `remember_workspace`, so the Files panel never re-reads the state file.
+    known_workspaces: Mutex<Option<HashSet<PathBuf>>>,
+}
+
+/// The canonical folders a state refers to, deduplicated.
+fn workspaces_in(state: &PersistedState) -> HashSet<PathBuf> {
+    state
+        .recent_folders
+        .iter()
+        .map(|f| f.path.as_str())
+        .chain(state.sessions.iter().map(|s| s.cwd.as_str()))
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .filter_map(|path| Path::new(path).canonicalize().ok())
+        .collect()
 }
 
 impl AppStore {
     /// Creates a store rooted at `root`. The directory itself is created on the
     /// first write, so a read-only launch never touches the filesystem.
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self { root, known_workspaces: Mutex::new(None) }
+    }
+
+    /// Whether `canonical_root` is one of the user's workspaces.
+    pub fn is_known_workspace(&self, canonical_root: &Path) -> Result<bool, String> {
+        let mut known = self.known_workspaces.lock().map_err(|_| "Workspace lock poisoned".to_string())?;
+        if known.is_none() {
+            *known = Some(workspaces_in(&self.load_state()?));
+        }
+        Ok(known.as_ref().is_some_and(|set| set.contains(canonical_root)))
+    }
+
+    /// Records a folder the user just opened, before its debounced state save lands.
+    pub fn remember_workspace(&self, path: &str) -> Result<(), String> {
+        let canonical = Path::new(path)
+            .canonicalize()
+            .map_err(|e| format!("Folder {path:?} is not accessible: {e}"))?;
+        if !canonical.is_dir() {
+            return Err(format!("{path:?} is not a folder"));
+        }
+        let mut known = self.known_workspaces.lock().map_err(|_| "Workspace lock poisoned".to_string())?;
+        if known.is_none() {
+            *known = Some(workspaces_in(&self.load_state()?));
+        }
+        if let Some(set) = known.as_mut() {
+            set.insert(canonical);
+        }
+        Ok(())
     }
 
     /// Loads the persisted state, or the default when nothing has been saved yet.
@@ -175,7 +221,14 @@ impl AppStore {
             &self.root.join(STATE_FILE),
             &self.root.join(STATE_TMP_FILE),
             json.as_bytes(),
-        )
+        )?;
+        // Folders remembered this run stay known even if the save dropped them
+        // from the recents; the set only grows until the next launch.
+        let saved = workspaces_in(state);
+        if let Ok(mut known) = self.known_workspaces.lock() {
+            known.get_or_insert_with(HashSet::new).extend(saved);
+        }
+        Ok(())
     }
 
     /// Loads a session's transcript, or an empty vec when it has none yet.

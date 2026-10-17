@@ -5,6 +5,7 @@ import { TRANSPORT_ACP } from "../types";
 import { ptySessionControls } from "../lib/composer-controls";
 import {
   POPOUT_ACTION_EVENT,
+  POPOUT_CLOSED_EVENT,
   POPOUT_READY_EVENT,
   SESSION_SNAPSHOT_EVENT,
   type PopoutAction,
@@ -50,6 +51,18 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
     return () => {
       isCancelled = true;
       unlisten?.();
+    };
+  }, [sessionId]);
+
+  // Tell the main window to stop syncing this session once the window goes away.
+  useEffect(() => {
+    const announceClosed = () => {
+      emit(POPOUT_CLOSED_EVENT, { sessionId }).catch(() => {});
+    };
+    window.addEventListener('pagehide', announceClosed);
+    return () => {
+      window.removeEventListener('pagehide', announceClosed);
+      announceClosed();
     };
   }, [sessionId]);
 

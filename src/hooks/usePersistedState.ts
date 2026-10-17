@@ -57,6 +57,25 @@ export function usePersistedState(onError: (message: string) => void): Persisted
     return () => clearTimeout(timer);
   }, [state, onErrorRef]);
 
+  // A change made just before the window closes must not wait for the debounce.
+  const latestStateRef = useLatest(state);
+  useEffect(() => {
+    const flush = () => {
+      const current = latestStateRef.current;
+      if (!canSaveRef.current || current === lastSavedRef.current) return;
+      lastSavedRef.current = current;
+      saveAppState(current).catch((error) => {
+        onErrorRef.current(`Failed to save sessions: ${String(error)}`);
+      });
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
+    };
+  }, [latestStateRef, onErrorRef]);
+
   const updateState = useCallback(
     (updater: (prev: PersistedState) => PersistedState) => setState((prev) => updater(prev)),
     [],

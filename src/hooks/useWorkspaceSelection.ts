@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import type { PersistedState, Workspace } from '../types';
 import { addRecentFolder, removeRecentFolder } from '../lib/recent-folders';
 import { pickFolder } from '../lib/file-picker';
@@ -43,13 +44,18 @@ export function useWorkspaceSelection(
 
   const rememberFolder = useCallback(
     (folder: Workspace) => {
+      // The Files panel only browses known workspaces; tell the backend now,
+      // since the state save that also records it is debounced.
+      invoke('remember_workspace', { path: folder.path }).catch((error) => {
+        onErrorRef.current(`Could not register the folder: ${String(error)}`);
+      });
       updateState((prev) => ({
         ...prev,
         recentFolders: addRecentFolder(prev.recentFolders, folder, Date.now()),
       }));
       setActiveWorkspacePath(folder.path);
     },
-    [updateState],
+    [updateState, onErrorRef],
   );
 
   const openFolder = useCallback(async () => {

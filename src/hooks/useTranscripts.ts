@@ -29,6 +29,9 @@ export function useTranscripts(onError: (message: string) => void): TranscriptsH
   const requestedRef = useRef(new Set<string>());
   // Sessions whose file is being read: saving now would overwrite their history.
   const loadingRef = useRef(new Set<string>());
+  // Sessions whose file could not be read: it may still be recoverable, so
+  // this run never writes over it.
+  const unreadableRef = useRef(new Set<string>());
   const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
@@ -48,6 +51,7 @@ export function useTranscripts(onError: (message: string) => void): TranscriptsH
             scheduleSaveRef.current(sessionId);
             return;
           }
+          if (unreadableRef.current.has(sessionId)) return;
           saveTranscript(sessionId, transcriptsRef.current[sessionId] ?? []).catch((error) => {
             onErrorRef.current(`Failed to save the conversation: ${String(error)}`);
           });
@@ -73,7 +77,10 @@ export function useTranscripts(onError: (message: string) => void): TranscriptsH
           }),
         )
         .catch((error) => {
-          onErrorRef.current(`Failed to load the conversation: ${String(error)}`);
+          unreadableRef.current.add(sessionId);
+          onErrorRef.current(
+            `Failed to load the conversation; new messages will not be saved over it: ${String(error)}`,
+          );
         })
         .finally(() => loadingRef.current.delete(sessionId));
     },

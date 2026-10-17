@@ -427,3 +427,31 @@ fn keeps_the_options_each_acp_agent_reported_last() {
     assert_eq!(loaded.agent_options["qwen"]["modes"]["currentModeId"], "yolo");
     fs::remove_dir_all(&root).expect("remove temp root");
 }
+
+#[test]
+fn knows_saved_and_just_remembered_workspaces_without_rereading_the_file() {
+    let root = unique_temp_root("known-workspaces");
+    let store = AppStore::new(root.join("state"));
+    let saved = root.join("saved-folder");
+    let opened = root.join("opened-folder");
+    fs::create_dir_all(&saved).unwrap();
+    fs::create_dir_all(&opened).unwrap();
+    let state = PersistedState {
+        recent_folders: vec![RecentFolder {
+            name: "saved-folder".to_string(),
+            path: saved.to_string_lossy().to_string(),
+            last_opened_at: 1,
+        }],
+        ..PersistedState::default()
+    };
+    store.save_state(&state).expect("save state");
+
+    // A folder the user just opened is known before its state save lands.
+    store.remember_workspace(&opened.to_string_lossy()).expect("remember");
+
+    assert!(store.is_known_workspace(&saved.canonicalize().unwrap()).unwrap());
+    assert!(store.is_known_workspace(&opened.canonicalize().unwrap()).unwrap());
+    assert!(!store.is_known_workspace(Path::new("/")).unwrap());
+    assert!(store.remember_workspace("/definitely/not/here").is_err());
+    fs::remove_dir_all(&root).ok();
+}

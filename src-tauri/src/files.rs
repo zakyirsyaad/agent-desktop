@@ -104,43 +104,35 @@ fn compare_entries(a: &DirEntryInfo, b: &DirEntryInfo) -> std::cmp::Ordering {
         .then_with(|| a.name.cmp(&b.name))
 }
 
-/// Accepts `root` only when it is one of `workspaces` (compared canonically),
-/// so a caller cannot widen the browsable area to any folder it names.
-pub fn ensure_known_workspace(root: &str, workspaces: &[String]) -> Result<(), String> {
+/// Accepts `root` only when it is one of the user's workspaces (compared
+/// canonically), so a caller cannot widen the browsable area to any folder.
+pub fn ensure_known_workspace(root: &str, is_known: impl FnOnce(&Path) -> Result<bool, String>) -> Result<(), String> {
     let root = canonical_root(root)?;
-    let is_known = workspaces
-        .iter()
-        .filter_map(|w| Path::new(w).canonicalize().ok())
-        .any(|w| w == root);
-    if is_known {
+    if is_known(&root)? {
         Ok(())
     } else {
         Err(format!("{} is not one of your workspaces", root.display()))
     }
 }
 
-/// The folders the user opened and the folders their sessions ran in.
-fn workspaces_of(store: &AppStore) -> Result<Vec<String>, String> {
-    let state = store.load_state()?;
-    Ok(state
-        .recent_folders
-        .into_iter()
-        .map(|f| f.path)
-        .chain(state.sessions.into_iter().map(|s| s.cwd))
-        .collect())
+/// Records a folder the user just opened as a workspace. Synchronous on
+/// purpose: it runs before any async listing the webview sends after it.
+#[tauri::command]
+pub fn remember_workspace(store: State<'_, AppStore>, path: String) -> Result<(), String> {
+    store.remember_workspace(&path)
 }
 
 /// Lists the children of `relative` inside the workspace `root`.
 #[tauri::command(async)]
 pub fn list_directory(store: State<'_, AppStore>, root: String, relative: String) -> Result<Vec<DirEntryInfo>, String> {
-    ensure_known_workspace(&root, &workspaces_of(&store)?)?;
+    ensure_known_workspace(&root, |r| store.is_known_workspace(r))?;
     list_entries(&root, &relative)
 }
 
 /// Opens a workspace file with its default application.
 #[tauri::command(async)]
 pub fn open_path(store: State<'_, AppStore>, root: String, relative: String) -> Result<(), String> {
-    ensure_known_workspace(&root, &workspaces_of(&store)?)?;
+    ensure_known_workspace(&root, |r| store.is_known_workspace(r))?;
     let (_, target) = resolve_inside_root(&root, &relative)?;
     open_with_default_app(&target)
 }
@@ -325,14 +317,15 @@ mod tests {
     fn accepts_only_a_root_that_is_a_known_workspace() {
         let ws = TempWorkspace::new("known");
         ws.mkdir("inner");
-        let known = vec![ws.root().to_string()];
+        let known = canonical_root(ws.root()).expect("canonical root");
+        let is_known = |r: &Path| Ok(r == known);
 
-        assert!(ensure_known_workspace(ws.root(), &known).is_ok());
+        assert!(ensure_known_workspace(ws.root(), is_known).is_ok());
         // Another spelling of the same folder is the same workspace.
-        assert!(ensure_known_workspace(&format!("{}/inner/..", ws.root()), &known).is_ok());
-        let err = ensure_known_workspace("/", &known).expect_err("must reject");
+        assert!(ensure_known_workspace(&format!("{}/inner/..", ws.root()), is_known).is_ok());
+        let err = ensure_known_workspace("/", is_known).expect_err("must reject");
         assert!(err.contains("not one of your workspaces"), "unexpected error: {err}");
-        assert!(ensure_known_workspace(&format!("{}/inner", ws.root()), &known).is_err());
+        assert!(ensure_known_workspace(&format!("{}/inner", ws.root()), is_known).is_err());
     }
 
     #[test]

@@ -32,7 +32,8 @@ type ResponseHandler = Box<dyn FnOnce(Result<Value, Value>) + Send>;
 /// A spawned agent speaking newline-delimited JSON-RPC on stdin/stdout.
 pub struct AcpConnection {
     stdin: Mutex<ChildStdin>,
-    child: Mutex<Child>,
+    /// Shared with the reader thread, which reaps the process once it exits.
+    child: Arc<Mutex<Child>>,
     next_id: AtomicU64,
     pending: Arc<Mutex<HashMap<u64, ResponseHandler>>>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
@@ -64,7 +65,7 @@ impl AcpConnection {
 
         let connection = Arc::new(Self {
             stdin: Mutex::new(stdin),
-            child: Mutex::new(child),
+            child: Arc::new(Mutex::new(child)),
             next_id: AtomicU64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
             stderr_tail: Arc::new(Mutex::new(VecDeque::new())),
@@ -89,9 +90,9 @@ impl AcpConnection {
         });
     }
 
-    fn spawn_stdout_reader(self: &Arc<Self>, stdout: impl std::io::Read + Send + 'static, sink: EventSink) {
+    fn spawn_stdout_reader(&self, stdout: impl std::io::Read + Send + 'static, sink: EventSink) {
         let pending = Arc::clone(&self.pending);
-        let weak = Arc::downgrade(self);
+        let child = Arc::clone(&self.child);
         thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
                 if line.trim().is_empty() {
@@ -122,15 +123,15 @@ impl AcpConnection {
                 handler(Err(json!({ "message": "The agent exited before answering" })));
             }
             // Poll instead of a blocking `wait()`: the child lock must stay free
-            // for `kill()`, which may run while the process still lingers.
+            // for `kill()`, which may run while the process still lingers. The
+            // thread owns its own handle, so the process is reaped even after
+            // the connection was dropped (no zombie is left behind).
             let code = loop {
-                let Some(conn) = weak.upgrade() else { break None };
-                let status = conn.child.lock().ok().and_then(|mut c| c.try_wait().ok().flatten());
-                drop(conn);
-                if let Some(status) = status {
-                    break status.code();
+                match child.lock().map(|mut c| c.try_wait()) {
+                    Ok(Ok(Some(status))) => break status.code(),
+                    Ok(Ok(None)) => thread::sleep(EXIT_POLL_INTERVAL),
+                    _ => break None,
                 }
-                thread::sleep(EXIT_POLL_INTERVAL);
             };
             sink(ConnectionEvent::Exited { code });
         });

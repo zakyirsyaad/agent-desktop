@@ -91,6 +91,7 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
     case "list_directory":
       return Promise.resolve([]);
     case "open_path":
+    case "remember_workspace":
     case "open_session_window":
     case "reveal_in_finder":
     case "terminate_session":
