@@ -154,15 +154,19 @@ impl AcpConnection {
 
     /// Sends a request and blocks until the agent answers or `timeout` passes.
     pub fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
+        self.request_raw(method, params, timeout)?
+            .map_err(|error| format!("{} failed: {}", method, error_message(&error)))
+    }
+
+    /// Like [`request`](Self::request), but keeps the agent's JSON-RPC error
+    /// object (inner `Err`) apart from transport failures and timeouts.
+    pub fn request_raw(&self, method: &str, params: Value, timeout: Duration) -> Result<Result<Value, Value>, String> {
         let (tx, rx) = mpsc::channel();
         self.send_request(method, params, Box::new(move |result| {
             let _ = tx.send(result);
         }))?;
-        match rx.recv_timeout(timeout) {
-            Ok(Ok(result)) => Ok(result),
-            Ok(Err(error)) => Err(format!("{} failed: {}", method, error_message(&error))),
-            Err(_) => Err(format!("{} timed out after {:?}", method, timeout)),
-        }
+        rx.recv_timeout(timeout)
+            .map_err(|_| format!("{} timed out after {:?}", method, timeout))
     }
 
     pub fn notify(&self, method: &str, params: Value) -> Result<(), String> {

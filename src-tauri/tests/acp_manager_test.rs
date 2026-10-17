@@ -197,3 +197,28 @@ fn refuses_to_load_when_the_agent_cannot_resume_sessions() {
 
     assert!(error.contains("cannot resume"), "unexpected error: {error}");
 }
+
+#[test]
+fn reports_that_the_agent_needs_a_sign_in_with_its_methods() {
+    let (manager, _rx) = manager();
+    let mut launch = fake_agent();
+    launch.env.push(("FAKE_ACP_AUTH_REQUIRED".to_string(), "1".to_string()));
+
+    let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
+
+    let methods = error
+        .strip_prefix(agent_desktop_lib::acp::manager::AUTH_REQUIRED_PREFIX)
+        .expect("an auth-required error");
+    let methods: Value = serde_json::from_str(methods).expect("auth methods as JSON");
+    assert_eq!(methods[0]["id"], "browser");
+}
+
+#[test]
+fn signs_in_with_one_of_the_agent_methods() {
+    let (manager, _rx) = manager();
+
+    manager.authenticate(&cwd(), &fake_agent(), "browser").expect("authenticate");
+    let error = manager.authenticate(&cwd(), &fake_agent(), "nope").unwrap_err();
+
+    assert!(error.contains("nope"), "unexpected error: {error}");
+}

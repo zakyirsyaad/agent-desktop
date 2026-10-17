@@ -67,6 +67,17 @@ pub fn acp_start_session(
     manager.start(&session_id, &cwd, &launch_for(&profile_id)?)
 }
 
+/// Signs in to an agent with one of the auth methods it reported.
+#[tauri::command(async)]
+pub fn acp_authenticate(
+    manager: State<'_, AcpManager>,
+    profile_id: String,
+    cwd: String,
+    method_id: String,
+) -> Result<(), String> {
+    manager.authenticate(&cwd, &launch_for(&profile_id)?, &method_id)
+}
+
 /// Resumes the agent's earlier session `acp_session_id` as app session `session_id`.
 #[tauri::command(async)]
 pub fn acp_load_session(

@@ -504,5 +504,37 @@ describe("ACP sessions in the app", () => {
     expect(sidebar.queryByText("Session #1")).toBeNull();
     expect(sidebar.queryByText("second question")).toBeNull();
   });
+
+  it("asks the user to sign in when the agent needs it, and signs in with a method that needs no secret", async () => {
+    const spy = await renderWithQwen();
+    const methods = [
+      { id: "api-key", name: "API Key", description: "Use an API key to authenticate", _meta: { "api-key": {} } },
+      { id: "chat-gpt", name: "ChatGPT", description: "Use ChatGPT to authenticate" },
+    ];
+    spy.mockImplementation((cmd, args) =>
+      cmd === "acp_start_session"
+        ? Promise.reject(`ACP_AUTH_REQUIRED:${JSON.stringify(methods)}`)
+        : cmd === "acp_authenticate"
+          ? Promise.resolve(undefined)
+          : realInvoke(cmd, args)
+    );
+
+    await send("hello");
+
+    const panel = within(await screen.findByRole("region", { name: "Sign in to Qwen Code" }));
+    expect(panel.getByText("Use an API key to authenticate")).toBeDefined();
+    expect(panel.queryByRole("button", { name: /API Key/ })).toBeNull();
+    await act(async () => {
+      fireEvent.click(panel.getByRole("button", { name: "Sign in with ChatGPT" }));
+    });
+
+    expect(callsTo(spy, "acp_authenticate")[0][1]).toEqual({
+      profileId: "qwen",
+      cwd: "/Users/test/developer/ai-perpetual-trading",
+      methodId: "chat-gpt",
+    });
+    expect(await screen.findByText(/Signed in to Qwen Code/)).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });
 

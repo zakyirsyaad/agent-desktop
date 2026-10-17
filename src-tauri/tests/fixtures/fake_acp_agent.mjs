@@ -48,7 +48,15 @@ const handlers = {
     reply(id, {
       protocolVersion: 1,
       agentCapabilities: { loadSession: !process.env.FAKE_ACP_NO_LOAD, sessionCapabilities: { fork: {} } },
+      authMethods: [
+        { id: "browser", name: "Sign in with a browser" },
+        { id: "api-key", name: "API key", description: "Set FAKE_API_KEY" },
+      ],
     }),
+  authenticate: (id, params) =>
+    params.methodId === "browser"
+      ? reply(id, {})
+      : send({ id, error: { code: -32602, message: `Unknown auth method ${params.methodId}` } }),
   // Like real agents, replays the old conversation before answering.
   "session/load": (id, params) => {
     say(params.sessionId, "replayed history");
@@ -62,7 +70,11 @@ const handlers = {
       },
     });
   },
-  "session/new": (id) =>
+  "session/new": (id) => {
+    if (process.env.FAKE_ACP_AUTH_REQUIRED) {
+      send({ id, error: { code: -32000, message: "Authentication required" } });
+      return;
+    }
     reply(id, {
       sessionId: `fake-${nextSession++}`,
       modes: {
@@ -72,7 +84,8 @@ const handlers = {
           { id: "yolo", name: "YOLO" },
         ],
       },
-    }),
+    });
+  },
   "session/fork": (id) => reply(id, { sessionId: `fake-${nextSession++}` }),
   "session/prompt": handlePrompt,
   "session/set_mode": (id, params) => {

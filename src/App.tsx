@@ -7,6 +7,8 @@ import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { FilesPanel } from "./components/FilesPanel";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
+import { AuthPanel, type AuthStatus } from "./components/AuthPanel";
+import type { AuthMethod } from "./lib/acp-auth";
 import { TerminalView } from "./components/TerminalView";
 import { createPtyOutputStore } from "./lib/pty-output-store";
 import {
@@ -49,6 +51,15 @@ const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder butto
 const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
+/** An agent waiting for the user to sign in, and how far that got. */
+interface AuthRequest {
+  profileId: string;
+  cwd: string;
+  methods: AuthMethod[];
+  status: AuthStatus;
+  error?: string;
+}
+
 const EMPTY_DRAFT: SessionDraft = { permissionMode: DEFAULT_PERMISSION_MODE };
 
 function spawnOptionsFor(agent: AgentProfile, draft: SessionDraft): SpawnOptions {
@@ -73,6 +84,7 @@ export default function App() {
   const [isFilesOpen, setIsFilesOpen] = useState(false);
   const composerRef = useRef<ComposerHandle>(null);
   const [ptyOutput] = useState(createPtyOutputStore);
+  const [authRequest, setAuthRequest] = useState<AuthRequest | null>(null);
 
   const reportError = useCallback((message: string) => setNotice(message), []);
   const { state, isLoaded, updateState } = usePersistedState(reportError);
@@ -137,7 +149,21 @@ export default function App() {
 
   const engineDeps = { sessions, agents, updateMessages, patchSession, reportError };
   const pty = usePtyEngine({ ...engineDeps, output: ptyOutput });
-  const acp = useAcpEngine({ ...engineDeps, rememberOptions: rememberAgentOptions });
+  const acp = useAcpEngine({
+    ...engineDeps,
+    rememberOptions: rememberAgentOptions,
+    onAuthRequired: (profileId, cwd, methods) => setAuthRequest({ profileId, cwd, methods, status: "idle" }),
+  });
+
+  /** Signs in in the agent itself (e.g. it opens a browser); the user then sends again. */
+  const handleSignIn = (methodId: string) => {
+    if (!authRequest) return;
+    const { profileId, cwd } = authRequest;
+    setAuthRequest({ ...authRequest, status: "signing-in", error: undefined });
+    invoke("acp_authenticate", { profileId, cwd, methodId })
+      .then(() => setAuthRequest((prev) => prev && { ...prev, status: "signed-in" }))
+      .catch((error) => setAuthRequest((prev) => prev && { ...prev, status: "failed", error: String(error) }));
+  };
 
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
   const isSessionBusy = (sessionId: string) =>
@@ -437,6 +463,16 @@ export default function App() {
 
         <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
+          {authRequest && (
+            <AuthPanel
+              agentName={agents.find((a) => a.id === authRequest.profileId)?.name ?? authRequest.profileId}
+              methods={authRequest.methods}
+              status={authRequest.status}
+              error={authRequest.error}
+              onSignIn={handleSignIn}
+              onDismiss={() => setAuthRequest(null)}
+            />
+          )}
           {showsTerminal ? (
             <TerminalView
               sessionId={activeSessionId}

@@ -21,6 +21,12 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(180);
 const SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// JSON-RPC "method not found", returned for client methods we do not offer.
 const METHOD_NOT_FOUND: i64 = -32601;
+/// ACP's "authentication required" error code.
+const AUTH_REQUIRED: i64 = -32000;
+/// Signing in may wait for the user to finish in a browser.
+const AUTHENTICATE_TIMEOUT: Duration = Duration::from_secs(300);
+/// Starts the error of a session that needs a sign-in; the agent's auth methods follow as JSON.
+pub const AUTH_REQUIRED_PREFIX: &str = "ACP_AUTH_REQUIRED:";
 
 /// How to start an ACP agent.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,13 +91,9 @@ impl AcpManager {
 
     /// Starts an agent process, initializes ACP and opens a session in `cwd`.
     pub fn start(&self, app_session_id: &str, cwd: &str, launch: &AcpLaunch) -> Result<StartedSession, String> {
-        self.open(app_session_id, cwd, launch, |connection, capabilities| {
-            let session = connection.request(
-                "session/new",
-                json!({ "cwd": cwd, "mcpServers": [] }),
-                HANDSHAKE_TIMEOUT,
-            )?;
-            started_session(session, capabilities)
+        self.open(app_session_id, cwd, launch, |connection, init| {
+            let session = open_request(connection, init, "session/new", json!({ "cwd": cwd, "mcpServers": [] }))?;
+            started_session(session, init["agentCapabilities"].clone())
         })
     }
 
@@ -107,14 +109,16 @@ impl AcpManager {
         launch: &AcpLaunch,
         acp_session_id: &str,
     ) -> Result<StartedSession, String> {
-        self.open(app_session_id, cwd, launch, |connection, capabilities| {
+        self.open(app_session_id, cwd, launch, |connection, init| {
+            let capabilities = init["agentCapabilities"].clone();
             if capabilities["loadSession"] != Value::Bool(true) {
                 return Err("This agent cannot resume earlier sessions".to_string());
             }
-            let response = connection.request(
+            let response = open_request(
+                connection,
+                init,
                 "session/load",
                 json!({ "sessionId": acp_session_id, "cwd": cwd, "mcpServers": [] }),
-                HANDSHAKE_TIMEOUT,
             )?;
             Ok(StartedSession {
                 acp_session_id: acp_session_id.to_string(),
@@ -134,7 +138,7 @@ impl AcpManager {
         app_session_id: &str,
         cwd: &str,
         launch: &AcpLaunch,
-        open_session: impl FnOnce(&AcpConnection, Value) -> Result<StartedSession, String>,
+        open_session: impl FnOnce(&AcpConnection, &Value) -> Result<StartedSession, String>,
     ) -> Result<StartedSession, String> {
         validate_cwd(cwd)?;
         let connection_key = self.next_connection_key.fetch_add(1, Ordering::SeqCst);
@@ -147,7 +151,7 @@ impl AcpManager {
         )?;
 
         let started = initialize(&connection)
-            .and_then(|capabilities| open_session(&connection, capabilities))
+            .and_then(|init| open_session(&connection, &init))
             .map_err(|e| {
                 let stderr = connection.stderr_tail();
                 connection.kill();
@@ -155,6 +159,26 @@ impl AcpManager {
             })?;
         self.register(app_session_id, connection, connection_key, &started);
         Ok(started)
+    }
+
+    /// Signs in to the agent with one of the methods it reported, in a
+    /// short-lived process. Methods that need a secret (an API key in the
+    /// environment) are for the user to set up outside the app.
+    pub fn authenticate(&self, cwd: &str, launch: &AcpLaunch, method_id: &str) -> Result<(), String> {
+        validate_cwd(cwd)?;
+        let connection_key = self.next_connection_key.fetch_add(1, Ordering::SeqCst);
+        let connection = AcpConnection::spawn(
+            &launch.program,
+            &launch.args,
+            cwd,
+            &launch.env,
+            self.connection_sink(connection_key),
+        )?;
+        let result = initialize(&connection).and_then(|_| {
+            connection.request("authenticate", json!({ "methodId": method_id }), AUTHENTICATE_TIMEOUT)
+        });
+        connection.kill();
+        result.map(|_| ())
     }
 
     /// Forks `source` into a new app session hosted by the same agent process.
@@ -334,9 +358,25 @@ fn refuse(routes: &Arc<Mutex<Routes>>, connection_key: u64, id: &Value) {
     }
 }
 
-/// Initializes ACP and returns the agent's capabilities.
+/// Opens a session; an "authentication required" answer becomes an error
+/// carrying [`AUTH_REQUIRED_PREFIX`] and the agent's auth methods.
+fn open_request(connection: &AcpConnection, init: &Value, method: &str, params: Value) -> Result<Value, String> {
+    match connection.request_raw(method, params, HANDSHAKE_TIMEOUT)? {
+        Ok(result) => Ok(result),
+        Err(error) if error["code"].as_i64() == Some(AUTH_REQUIRED) => {
+            let methods = match &init["authMethods"] {
+                Value::Array(methods) => Value::Array(methods.clone()),
+                _ => Value::Array(Vec::new()),
+            };
+            Err(format!("{}{}", AUTH_REQUIRED_PREFIX, methods))
+        }
+        Err(error) => Err(format!("{} failed: {}", method, error_message(&error))),
+    }
+}
+
+/// Initializes ACP and returns the agent's answer: capabilities and auth methods.
 fn initialize(connection: &AcpConnection) -> Result<Value, String> {
-    let init = connection.request(
+    connection.request(
         "initialize",
         json!({
             "protocolVersion": PROTOCOL_VERSION,
@@ -344,8 +384,7 @@ fn initialize(connection: &AcpConnection) -> Result<Value, String> {
             "clientInfo": { "name": "agent-desktop", "version": env!("CARGO_PKG_VERSION") },
         }),
         HANDSHAKE_TIMEOUT,
-    )?;
-    Ok(init["agentCapabilities"].clone())
+    )
 }
 
 fn started_session(response: Value, agent_capabilities: Value) -> Result<StartedSession, String> {

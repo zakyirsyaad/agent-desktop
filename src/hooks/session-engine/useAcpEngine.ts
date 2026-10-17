@@ -14,6 +14,7 @@ import { createId } from '../../lib/ids';
 import { toCommands, useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
 import type { ChatMessage, Session } from '../../types';
 import type { EngineDeps } from './usePtyEngine';
+import { parseAuthRequired, type AuthMethod } from '../../lib/acp-auth';
 
 const NOT_ENDED_NORMALLY = new Set(['refusal', 'max_tokens', 'max_turn_requests']);
 
@@ -46,6 +47,8 @@ interface LaunchOptions {
 }
 
 export interface AcpEngineDeps extends EngineDeps {
+  /** The agent refused to start until the user signs in, with the ways it offers. */
+  onAuthRequired: (profileId: string, cwd: string, methods: AuthMethod[]) => void;
   /** Called with what an agent offers when one of its sessions opens or its commands change. */
   rememberOptions: (profileId: string, options: Partial<AgentOptions>) => void;
 }
@@ -62,6 +65,7 @@ export function useAcpEngine({
   patchSession,
   reportError,
   rememberOptions,
+  onAuthRequired,
 }: AcpEngineDeps) {
   const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
   // Sessions the app stopped (deleted, or stopped while starting): their late
@@ -166,6 +170,11 @@ export function useAcpEngine({
       if (isStopped(session.id)) return;
       if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
       patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
+      const authMethods = parseAuthRequired(error);
+      if (authMethods) {
+        onAuthRequired(session.profileId, session.cwd, authMethods);
+        return;
+      }
       const name = agents.find((a) => a.id === session.profileId)?.name ?? session.profileId;
       reportError(`Failed to ${options.action} ${name}: ${String(error)}`);
       return;
