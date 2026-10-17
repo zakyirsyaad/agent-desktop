@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ChatMessage, Session } from "../types";
-import { TRANSPORT_ACP } from "../types";
 import { ptySessionControls } from "../lib/composer-controls";
 import {
   POPOUT_ACTION_EVENT,
@@ -13,7 +12,7 @@ import {
   type SessionSnapshotPayload,
   IDLE_STATUS,
 } from "../lib/popout-bridge";
-import { folderNameOf } from "../lib/session-helpers";
+import { folderNameOf, isAcpSession } from "../lib/session-helpers";
 import { useAgentProfiles } from "../hooks/useDiscovery";
 import { TopBar } from "./TopBar";
 import { ChatCanvas } from "./ChatCanvas";
@@ -80,7 +79,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
   const agent = agents.find((a) => a.id === session?.profileId);
   const isRunning = session?.status === "running";
   // An ACP session's live modes belong to the main window; change them there.
-  const isAcp = session?.transport === TRANSPORT_ACP;
+  const isAcp = isAcpSession(session);
 
   return (
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">

@@ -4,9 +4,9 @@ import type { PtyEngine } from './session-engine/usePtyEngine';
 import type { NavigationHistory } from './useNavigationHistory';
 import { useLatest } from './useLatest';
 import { closeTurn } from '../lib/acp-events';
-import { isListed, mostRecentSessionId, removeSessionFrom } from '../lib/session-helpers';
+import { isAcpSession, isListed, mostRecentSessionId, removeSessionFrom } from '../lib/session-helpers';
 import { removeSessionWorktree } from '../lib/session-worktree';
-import { TRANSPORT_ACP, type ChatMessage, type PersistedState, type Session } from '../types';
+import type { ChatMessage, PersistedState, Session } from '../types';
 
 export interface SessionActionsDeps {
   sessions: Session[];
@@ -37,7 +37,7 @@ export function useSessionActions(deps: SessionActionsDeps): SessionActions {
   /** Ends a session's agent when it runs; resolves with whether it is stopped. */
   const stopAgent = (session: Session | undefined): Promise<boolean> => {
     if (session?.status !== 'running') return Promise.resolve(true);
-    return session.transport === TRANSPORT_ACP ? acp.stop(session.id) : pty.stop(session.id);
+    return isAcpSession(session) ? acp.stop(session.id) : pty.stop(session.id);
   };
 
   /**

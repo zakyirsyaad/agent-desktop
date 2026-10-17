@@ -1,4 +1,4 @@
-import type { ActionCard, ChatMessage, PersistedState, Session, Workspace } from '../types';
+import { TRANSPORT_ACP, type ActionCard, type ChatMessage, type PersistedState, type Session, type Workspace } from '../types';
 import { createId } from './ids';
 
 /** Id of the most recently created session, or "" when there is none. */
@@ -68,6 +68,11 @@ export function folderNameOf(path: string): string {
 }
 
 const newestFirst = (a: Session, b: Session) => b.createdAt - a.createdAt;
+
+/** A session its agent runs over ACP (a chat), rather than in a terminal. */
+export function isAcpSession(session: Session | null | undefined): boolean {
+  return session?.transport === TRANSPORT_ACP;
+}
 
 /** Archived: hidden from the list, shown only in its Archived section. */
 export function isArchived(session: Session): boolean {
