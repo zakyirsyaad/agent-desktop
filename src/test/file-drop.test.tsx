@@ -14,6 +14,7 @@ vi.mock("@tauri-apps/api/webview", () => ({
 }));
 
 import App from "../App";
+import { fakeTauriInvoke } from "./setup";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 
@@ -67,9 +68,8 @@ describe("Dropping files onto the window", () => {
   });
 
   it("lists the session folder's files after an @ in the prompt", async () => {
-    const original = tauriInternals().invoke;
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-      cmd === "workspace_files" ? Promise.resolve(["src/App.tsx", "README.md"]) : original(cmd, args)
+      cmd === "workspace_files" ? Promise.resolve(["src/App.tsx", "README.md"]) : fakeTauriInvoke(cmd, args)
     );
     await act(async () => {
       render(<App />);

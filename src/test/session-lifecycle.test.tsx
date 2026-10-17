@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
-import type { FakeTauriStore } from "./setup";
+import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
 
 type Listener = (event: { payload: unknown }) => void;
 const listeners = new Map<string, Listener>();
@@ -250,9 +250,8 @@ describe("Session lifecycle", () => {
   it("shows an alert and does not append the message when sending fails", async () => {
     await renderApp();
     await startNewSession();
-    const original = tauriInternals().invoke;
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-      cmd === "send_input" ? Promise.reject("Session 's-x' not found") : original(cmd, args)
+      cmd === "send_input" ? Promise.reject("Session 's-x' not found") : fakeTauriInvoke(cmd, args)
     );
 
     const composer = screen.getByRole("textbox", { name: /prompt/i });
@@ -294,11 +293,10 @@ describe("Session lifecycle", () => {
     const worktree = { repoPath: "/Users/test/developer/agent-desktop", path: "/data/worktrees/agent-desktop/fix", branch: "agent/fix" };
     fakeStore().state.sessions = [{ ...seedSession("s-src", "Fix login", 1000), cwd: worktree.path, worktree }];
     await renderApp();
-    const original = tauriInternals().invoke;
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "remove_session_worktree"
         ? Promise.reject("/data/worktrees/agent-desktop/fix has uncommitted changes, so it was kept")
-        : original(cmd, args)
+        : fakeTauriInvoke(cmd, args)
     );
 
     await act(async () => {
@@ -380,9 +378,8 @@ describe("Session lifecycle", () => {
   it("keeps a session listed when its agent cannot be stopped for archiving", async () => {
     await renderApp();
     await startNewSession();
-    const original = tauriInternals().invoke;
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-      cmd === "terminate_session" ? Promise.reject("no such session") : original(cmd, args)
+      cmd === "terminate_session" ? Promise.reject("no such session") : fakeTauriInvoke(cmd, args)
     );
 
     await chooseFromMenu(FIRST_MESSAGE, "Archive");
@@ -424,14 +421,13 @@ describe("Session lifecycle", () => {
       seedSession("s-c", "Gamma", 1000),
     ];
     await renderApp();
-    const original = tauriInternals().invoke;
     let finishStopping: () => void = () => {};
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "terminate_session"
         ? new Promise((resolve) => {
             finishStopping = () => resolve(undefined);
           })
-        : original(cmd, args)
+        : fakeTauriInvoke(cmd, args)
     );
     expect(screen.getByRole("banner").textContent).toContain("Alpha");
 
