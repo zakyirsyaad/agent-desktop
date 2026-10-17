@@ -85,6 +85,9 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
       return Promise.resolve({ name: "Test User", email: "test@example.com" });
     case "plugin:app|version":
       return Promise.resolve("0.1.0");
+    case "list_directory":
+      return Promise.resolve([]);
+    case "open_path":
     case "open_session_window":
     case "reveal_in_finder":
     case "terminate_session":

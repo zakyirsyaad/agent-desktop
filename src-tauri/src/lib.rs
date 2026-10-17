@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod env_resolver;
+pub mod files;
 pub mod fork_handoff;
 pub mod profiles;
 pub mod pty_session;
@@ -250,6 +251,8 @@ pub fn run() {
             delete_transcript,
             windows::open_session_window,
             windows::reveal_in_finder,
+            files::list_directory,
+            files::open_path,
             user_profile::get_user_profile,
             write_fork_handoff,
             acp::commands::acp_start_session,

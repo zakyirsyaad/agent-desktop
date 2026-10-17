@@ -333,6 +333,57 @@ describe("Onboarding — folder step", () => {
   });
 });
 
+function manyFolders(count: number, prefix: string): FolderFixture[] {
+  return Array.from({ length: count }, (_, index) => ({
+    name: `${prefix}-${index + 1}`,
+    path: `/Users/test/developer/${prefix}-${index + 1}`,
+  }));
+}
+
+describe("Onboarding — long folder lists", () => {
+  it("puts a suggested list with more than five folders in a scroll area", async () => {
+    renderOnboarding({ suggestedFolders: manyFolders(12, "project") });
+    await goToFolderStep();
+
+    const list = screen.getByRole("list", { name: "Suggested folders" });
+
+    expect(within(list).getAllByRole("listitem")).toHaveLength(12);
+    expect(list).toHaveClass("overflow-y-auto");
+    expect(list.className).toMatch(/max-h-/);
+  });
+
+  it("puts a recent list with more than five folders in a scroll area", async () => {
+    renderOnboarding({ recentFolders: manyFolders(6, "recent") });
+    await goToFolderStep();
+
+    expect(screen.getByRole("list", { name: "Recent folders" })).toHaveClass("overflow-y-auto");
+  });
+
+  it("renders a list of five or fewer folders without a scroll area", async () => {
+    renderOnboarding({ suggestedFolders: manyFolders(5, "project") });
+    await goToFolderStep();
+
+    const suggested = screen.getByRole("list", { name: "Suggested folders" });
+    const recent = screen.getByRole("list", { name: "Recent folders" });
+
+    expect(within(suggested).getAllByRole("listitem")).toHaveLength(5);
+    expect(suggested).not.toHaveClass("overflow-y-auto");
+    expect(suggested.className).not.toMatch(/max-h-/);
+    expect(recent).not.toHaveClass("overflow-y-auto");
+  });
+
+  it("keeps folders inside the scroll area selectable", async () => {
+    renderOnboarding({ suggestedFolders: manyFolders(12, "project") });
+    await goToFolderStep();
+
+    const last = folderButton("Suggested folders", /project-12/);
+    await click(last);
+
+    expect(last).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+  });
+});
+
 describe("Onboarding — default agent step", () => {
   it("offers only ready agents and preselects the first one", async () => {
     renderOnboarding();

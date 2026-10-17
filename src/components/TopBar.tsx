@@ -121,14 +121,17 @@ export function TopBar({
           onClick={onToggleTerminal}
           aria-label="Toggle terminal drawer"
           aria-pressed={isTerminalOpen}
-          className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-xs font-semibold transition-all focus:outline-none focus:ring-1 focus:ring-neutral-700 ${
+          className={`flex items-center rounded-md p-1.5 transition-all focus:outline-none focus:ring-1 focus:ring-neutral-700 ${
             isTerminalOpen
               ? "bg-amber-500/15 border border-amber-500/40 text-amber-300"
               : "bg-neutral-900 border border-neutral-800/80 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100"
           }`}
         >
-          <Terminal size={13} className={isTerminalOpen ? "text-amber-400" : "text-neutral-400"} />
-          <span>&gt;_</span>
+          <Terminal
+            size={14}
+            aria-hidden="true"
+            className={isTerminalOpen ? "text-amber-400" : "text-neutral-400"}
+          />
         </button>
 
         {onOpenFolder && (

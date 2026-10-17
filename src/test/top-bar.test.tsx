@@ -197,4 +197,15 @@ describe("TopBar", () => {
       expect(screen.queryByText("/")).toBeNull();
     });
   });
+
+  describe("terminal toggle", () => {
+    it("shows the terminal icon once, without a duplicate >_ text glyph", () => {
+      renderTopBar();
+
+      const toggle = screen.getByRole("button", { name: "Toggle terminal drawer" });
+
+      expect(toggle.textContent).not.toContain(">_");
+      expect(toggle.querySelectorAll("svg")).toHaveLength(1);
+    });
+  });
 });

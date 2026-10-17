@@ -7,6 +7,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { Terminal as TerminalIcon, X, Trash2, Copy, Check } from "lucide-react";
 import type { PtyOutputPayload } from "../types";
 
+export const NO_SESSION_MESSAGE = "No running session. Start one to see its terminal.";
+
 export interface TerminalDrawerProps {
   isOpen: boolean;
   sessionId: string;
@@ -31,6 +33,9 @@ export function TerminalDrawer({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [copied, setCopied] = useState(false);
+  // Without a running session there is nothing to attach to: xterm would still
+  // emit query replies as input, and those must not reach an unknown session.
+  const hasTerminal = isLive && sessionId !== "";
 
   // Parents pass fresh callback identities on every render (App re-renders per PTY chunk).
   // Read them through refs so a re-render never disposes the terminal and its scrollback.
@@ -42,7 +47,7 @@ export function TerminalDrawer({
   });
 
   useEffect(() => {
-    if (!isOpen || !containerRef.current) return;
+    if (!isOpen || !hasTerminal || !containerRef.current) return;
 
     // Initialize xterm instance with dark luxury palette
     const terminal = new Terminal({
@@ -155,7 +160,7 @@ export function TerminalDrawer({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [isOpen, sessionId]);
+  }, [isOpen, sessionId, hasTerminal]);
 
   if (!isOpen) return null;
 
@@ -206,7 +211,8 @@ export function TerminalDrawer({
           <button
             type="button"
             onClick={handleClear}
-            className="flex items-center gap-1 rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            disabled={!hasTerminal}
+            className="flex items-center gap-1 rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus:outline-none focus:ring-1 focus:ring-neutral-700"
             aria-label="Clear output"
             title="Clear terminal output"
           >
@@ -217,7 +223,8 @@ export function TerminalDrawer({
           <button
             type="button"
             onClick={handleCopy}
-            className="flex items-center gap-1 rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            disabled={!hasTerminal}
+            className="flex items-center gap-1 rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus:outline-none focus:ring-1 focus:ring-neutral-700"
             aria-label="Copy output"
             title="Copy terminal contents"
           >
@@ -240,11 +247,18 @@ export function TerminalDrawer({
       </div>
 
       {/* Terminal Viewport Container */}
-      <div
-        ref={containerRef}
-        data-testid="xterm-terminal-container"
-        className="flex-1 w-full overflow-hidden p-2 bg-[#000000]"
-      />
+      {hasTerminal ? (
+        <div
+          ref={containerRef}
+          data-testid="xterm-terminal-container"
+          className="flex-1 w-full overflow-hidden p-2 bg-[#000000]"
+        />
+      ) : (
+        <div className="flex flex-1 items-center justify-center gap-2 bg-[#000000] text-xs text-neutral-500">
+          <TerminalIcon size={14} className="text-neutral-600" aria-hidden="true" />
+          <span>{NO_SESSION_MESSAGE}</span>
+        </div>
+      )}
     </div>
   );
 }
