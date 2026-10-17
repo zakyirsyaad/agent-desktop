@@ -42,6 +42,8 @@ export interface FirstMessage {
   attachments?: readonly string[];
 }
 
+export type AttentionReason = 'needs-answer' | 'finished' | 'failed';
+
 interface LaunchOptions {
   first?: FirstMessage;
   /** What the user picked in the composer before the agent ran. */
@@ -53,6 +55,8 @@ interface LaunchOptions {
 }
 
 export interface AcpEngineDeps extends EngineDeps {
+  /** The agent needs the user's answer, or ended its turn: worth a notification when the user is away. */
+  onAttention?: (sessionId: string, reason: AttentionReason) => void;
   /** The agent refused to start until the user signs in, with the ways it offers and the unsent message. */
   onAuthRequired: (profileId: string, cwd: string, methods: AuthMethod[], unsent?: FirstMessage) => void;
   /** Called with what an agent offers when one of its sessions opens or its commands change. */
@@ -72,6 +76,7 @@ export function useAcpEngine({
   reportError,
   rememberOptions,
   onAuthRequired,
+  onAttention,
 }: AcpEngineDeps) {
   const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
   // Sessions the app stopped (deleted, or stopped while starting): their late
@@ -102,13 +107,16 @@ export function useAcpEngine({
       }
       updateMessages(sessionId, (prev) => applyAcpUpdate(prev, update, ctx(sessionId)));
     }),
-    onPermission: unlessStopped((sessionId, request: PermissionRequestPayload) =>
-      updateMessages(sessionId, (prev) => applyPermissionRequest(prev, request, ctx(sessionId))),
-    ),
+    onPermission: unlessStopped((sessionId, request: PermissionRequestPayload) => {
+      updateMessages(sessionId, (prev) => applyPermissionRequest(prev, request, ctx(sessionId)));
+      onAttention?.(sessionId, 'needs-answer');
+    }),
     onTurnEnd: unlessStopped((sessionId, { stopReason, error }: TurnResult) => {
       updateMessages(sessionId, closeTurn);
       const notice = turnEndNotice(stopReason, error);
       if (notice) reportError(notice);
+      // A turn the user cancelled needs no notification: they were there.
+      if (stopReason !== 'cancelled') onAttention?.(sessionId, notice ? 'failed' : 'finished');
     }),
     onExit: unlessStopped((sessionId, code: number | null) => {
       updateMessages(sessionId, closeTurn);
