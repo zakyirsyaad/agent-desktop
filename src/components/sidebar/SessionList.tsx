@@ -73,7 +73,9 @@ function SessionMenu({ session, onRename, context }: {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useDismiss(containerRef, isOpen, () => setIsOpen(false));
-  const { onPinSession, onArchiveSession } = context;
+  const { onPinSession } = context;
+  // Archiving ends the agent, so, like Delete, it waits until the agent is not working.
+  const onArchiveSession = context.isSessionBusy(session.id) ? undefined : context.onArchiveSession;
   if (!onRename && !onPinSession && !onArchiveSession) return null;
   const pick = (action: () => void) => () => {
     setIsOpen(false);

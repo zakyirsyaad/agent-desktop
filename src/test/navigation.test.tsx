@@ -273,6 +273,26 @@ describe("Navigation and Layout Components", () => {
         expect(within(screen.getByRole("list", { name: "Archived sessions" })).getByText("Old work")).toBeDefined();
       });
 
+      it("offers no Archive while the session's agent is working", () => {
+        renderOrganized({ isSessionBusy: (id) => id === "plain" });
+
+        const menu = openMenu("Plain work");
+        expect(menu.queryByRole("menuitem", { name: "Archive" })).toBeNull();
+        expect(menu.getByRole("menuitem", { name: "Rename" })).toBeDefined();
+      });
+
+      it("keeps the Archived section's own state while a search shows it", () => {
+        renderOrganized();
+        fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "work" } });
+
+        const toggle = screen.getByRole("button", { name: "Archived (1)" });
+        expect((toggle as HTMLButtonElement).disabled).toBe(true);
+        fireEvent.click(toggle);
+        fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "" } });
+
+        expect(screen.queryByRole("list", { name: "Archived sessions" })).toBeNull();
+      });
+
       it("finds pinned and archived sessions when searching", () => {
         renderOrganized();
 

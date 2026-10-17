@@ -6,6 +6,8 @@ import { SessionTree, type SessionListContext } from "./sidebar/SessionList";
 import {
   folderNameOf,
   groupSessionsByWorkspace,
+  isArchived,
+  isShownPinned,
   workspacePathOf,
   type SessionGroup,
   type SessionNode,
@@ -171,16 +173,16 @@ export function Sidebar({
   const query = searchQuery.trim().toLowerCase();
 
   // Pinned sessions sit on top and archived ones at the bottom, out of their workspace.
-  const listed = sessions.filter((s) => !s.pinned && !s.archivedAt);
+  const listed = sessions.filter((s) => !isArchived(s) && !isShownPinned(s));
   const groups = searchGroups(groupSessionsByWorkspace(workspaces, listed), query);
   const asNodes = (list: Session[]) => list.map((session) => ({ session, children: [] }));
   // Like a listed session, one is found by its own name or its project's.
   const isFound = (s: Session) => matches(query, s.name, folderNameOf(workspacePathOf(s)), workspacePathOf(s));
   const pinned = sessions
-    .filter((s) => s.pinned && !s.archivedAt && isFound(s))
+    .filter((s) => isShownPinned(s) && isFound(s))
     .sort((a, b) => b.createdAt - a.createdAt);
   const archived = sessions
-    .filter((s) => s.archivedAt && isFound(s))
+    .filter((s) => isArchived(s) && isFound(s))
     .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
   const detectedAgents = agents.filter((agent) => agent.detected);
   const toggle = (path: string) =>
@@ -288,6 +290,8 @@ export function Sidebar({
             <button
               type="button"
               onClick={() => setIsArchiveOpen((open) => !open)}
+              // A search shows its matches whether the section is folded or not.
+              disabled={query !== ""}
               aria-expanded={isArchiveOpen || query !== ""}
               className="flex w-full items-center gap-1 px-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 hover:text-neutral-300"
             >

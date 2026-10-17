@@ -569,3 +569,30 @@ fn keeps_a_sessions_pin_archive_and_user_given_name() {
     }
     fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn drops_malformed_organizing_fields_but_keeps_the_saved_sessions() {
+    let root = unique_temp_root("bad-organize");
+    fs::create_dir_all(&root).expect("create root");
+    fs::write(
+        root.join("state.json"),
+        r#"{"version":1,"settings":{"defaultAgentId":null,"onboardingCompleted":true},"recentFolders":[],
+            "sessions":[{"id":"s-1","name":"Fix login","profileId":"claude","cwd":"/tmp/project",
+                         "status":"terminated","createdAt":1,
+                         "pinned":"yes","archivedAt":"2026-10-17","namedByUser":1}]}"#,
+    )
+    .expect("write state file");
+    let store = AppStore::new(root.clone());
+
+    let state = store.load_state().expect("load state");
+
+    assert_eq!(
+        state.sessions.len(),
+        1,
+        "the session survives its bad fields"
+    );
+    assert!(!state.sessions[0].pinned);
+    assert_eq!(state.sessions[0].archived_at, None);
+    assert!(!state.sessions[0].named_by_user);
+    fs::remove_dir_all(&root).ok();
+}

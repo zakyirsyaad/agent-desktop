@@ -69,6 +69,16 @@ export function folderNameOf(path: string): string {
 
 const newestFirst = (a: Session, b: Session) => b.createdAt - a.createdAt;
 
+/** Archived: hidden from the list, shown only in its Archived section. */
+export function isArchived(session: Session): boolean {
+  return Boolean(session.archivedAt);
+}
+
+/** Shown in the Pinned section: pinned and not archived. An archived session keeps its pin for later. */
+export function isShownPinned(session: Session): boolean {
+  return Boolean(session.pinned) && !isArchived(session);
+}
+
 /** The workspace a session belongs to: the one its worktree was made from, or its folder. */
 export function workspacePathOf(session: Session): string {
   return session.worktree?.repoPath ?? session.cwd;

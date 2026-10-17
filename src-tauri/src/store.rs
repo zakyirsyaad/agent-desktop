@@ -126,10 +126,13 @@ pub struct SessionRecord {
     #[serde(deserialize_with = "lenient_worktree")]
     pub worktree: Option<SessionWorktreeRecord>,
     /// Shown in the sidebar's Pinned section.
+    #[serde(deserialize_with = "lenient_bool")]
     pub pinned: bool,
     /// When the session was archived: hidden from the session list until unarchived.
+    #[serde(deserialize_with = "lenient_time")]
     pub archived_at: Option<i64>,
     /// The user renamed the session, so the agent's own titles no longer replace its name.
+    #[serde(deserialize_with = "lenient_bool")]
     pub named_by_user: bool,
 }
 
@@ -161,6 +164,19 @@ fn lenient_worktree<'de, D: Deserializer<'de>>(
 ) -> Result<Option<SessionWorktreeRecord>, D::Error> {
     let value = Option::<serde_json::Value>::deserialize(deserializer)?;
     Ok(value.and_then(|value| serde_json::from_value(value).ok()))
+}
+
+/// A flag, or false when it is not a boolean; like a bad worktree, a bad
+/// flag must not make the whole state file unreadable.
+fn lenient_bool<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    Ok(serde_json::Value::deserialize(deserializer)?
+        .as_bool()
+        .unwrap_or(false))
+}
+
+/// A time in unix milliseconds, or none when it is not a whole number.
+fn lenient_time<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<i64>, D::Error> {
+    Ok(serde_json::Value::deserialize(deserializer)?.as_i64())
 }
 
 /// The canonical folders a state refers to, deduplicated: recent folders,

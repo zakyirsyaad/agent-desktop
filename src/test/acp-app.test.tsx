@@ -459,7 +459,7 @@ describe("ACP sessions in the app", () => {
     expect(sidebar.queryByRole("button", { name: /^Archived/ })).toBeNull();
   });
 
-  it("closes an open permission request when its session is archived", async () => {
+  it("offers no Archive while the agent waits for a permission answer", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);
     await send("clean up");
@@ -473,24 +473,15 @@ describe("ACP sessions in the app", () => {
         { optionId: "cancel", name: "Reject", kind: "reject_once" },
       ],
     });
-    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
     const row = within(screen.getByRole("complementary")).getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
 
     await act(async () => {
       fireEvent.click(within(row).getByRole("button", { name: `More actions for ${FIRST_MESSAGE}` }));
     });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
-    });
 
-    const sidebar = within(screen.getByRole("complementary"));
-    await act(async () => {
-      fireEvent.click(sidebar.getByRole("button", { name: "Archived (1)" }));
-    });
-    await act(async () => {
-      fireEvent.click(sidebar.getByText(FIRST_MESSAGE));
-    });
-    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    // Its open request would outlive a stopped agent: Stop (which closes it) comes first.
+    expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
   });
 
   it("reports a session that cannot be resumed and leaves it ended", async () => {

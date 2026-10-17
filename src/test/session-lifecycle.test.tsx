@@ -376,4 +376,44 @@ describe("Session lifecycle", () => {
     // A numbered name the app gave still takes its title from the first message.
     expect(sidebar().getByText("second question")).toBeDefined();
   });
+
+  it("keeps a session listed when its agent cannot be stopped for archiving", async () => {
+    await renderApp();
+    await startNewSession();
+    const original = tauriInternals().invoke;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "terminate_session" ? Promise.reject("no such session") : original(cmd, args)
+    );
+
+    await chooseFromMenu(FIRST_MESSAGE, "Archive");
+
+    expect(sidebar().queryByRole("button", { name: /^Archived/ })).toBeNull();
+    expect(within(sidebar().getByRole("list", { name: /^Sessions in/ })).getByText(FIRST_MESSAGE)).toBeDefined();
+    expect(screen.getAllByRole("alert").map((a) => a.textContent).join(" ")).toContain("could not be stopped");
+    await waitFor(() => {
+      const [saved] = fakeStore().state.sessions as { archivedAt?: number | null }[];
+      expect(saved).toBeDefined();
+      expect(saved.archivedAt ?? null).toBeNull();
+    });
+  });
+
+  it("brings an unarchived session back where it was, pinned if it was pinned", async () => {
+    fakeStore().state.sessions = [
+      { ...seedSession("s-pin", "Release notes", 1000), pinned: true },
+      seedSession("s-plain", "Fix login", 2000),
+    ];
+    await renderApp();
+
+    await chooseFromMenu("Release notes", "Archive");
+    await chooseFromMenu("Fix login", "Archive");
+    await act(async () => {
+      fireEvent.click(sidebar().getByRole("button", { name: "Archived (2)" }));
+    });
+    await chooseFromMenu("Release notes", "Unarchive");
+    await chooseFromMenu("Fix login", "Unarchive");
+
+    expect(within(sidebar().getByRole("list", { name: "Pinned sessions" })).getByText("Release notes")).toBeDefined();
+    expect(within(sidebar().getByRole("list", { name: /^Sessions in/ })).getByText("Fix login")).toBeDefined();
+    expect(sidebar().queryByRole("button", { name: /^Archived/ })).toBeNull();
+  });
 });
