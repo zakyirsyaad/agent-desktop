@@ -26,12 +26,20 @@ describe("PTY output store", () => {
     expect(listener.mock.calls).toEqual([["a"]]);
   });
 
-  it("drops the oldest output beyond the size limit", () => {
+  it("drops whole old chunks beyond the size limit, never cutting one in the middle", () => {
     const store = createPtyOutputStore({ maxChars: 10 });
-    store.append("s-1", "0123456789");
-    store.append("s-1", "abcd");
+    store.append("s-1", "0123");
+    store.append("s-1", "4567");
+    store.append("s-1", "89ab");
 
-    expect(store.snapshot("s-1")).toBe("456789abcd");
+    expect(store.snapshot("s-1")).toBe("456789ab");
+  });
+
+  it("keeps the end of a single chunk larger than the limit", () => {
+    const store = createPtyOutputStore({ maxChars: 4 });
+    store.append("s-1", "abcdefgh");
+
+    expect(store.snapshot("s-1")).toBe("efgh");
   });
 
   it("forgets a deleted session's output", () => {

@@ -523,6 +523,8 @@ describe("ACP sessions in the app", () => {
 
     const panel = within(await screen.findByRole("region", { name: "Sign in to Qwen Code" }));
     expect(panel.getByText("Use an API key to authenticate")).toBeDefined();
+    // The message waits in the composer, to be sent again after signing in.
+    expect(prompt().value).toBe("hello");
     expect(panel.queryByRole("button", { name: /API Key/ })).toBeNull();
     await act(async () => {
       fireEvent.click(panel.getByRole("button", { name: "Sign in with ChatGPT" }));
@@ -555,6 +557,36 @@ describe("ACP sessions in the app", () => {
     });
     const chat = within(screen.getByTestId("chat-canvas-container"));
     expect(chat.getByText("shot.png")).toBeDefined();
+  });
+
+  it("keeps slash commands the agent announced before its session finished starting", async () => {
+    const spy = await renderWithQwen();
+    let finishStart: () => void = () => {};
+    spy.mockImplementation((cmd, args) =>
+      cmd === "acp_start_session"
+        ? new Promise((resolve) => {
+            finishStart = () => resolve(realInvoke(cmd, args));
+          })
+        : realInvoke(cmd, args)
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    const sessionId = String(callsTo(spy, "acp_start_session")[0][1]?.sessionId);
+
+    await acpEvent({
+      sessionId,
+      kind: "update",
+      update: { sessionUpdate: "available_commands_update", availableCommands: [{ name: "init", description: "Set up" }] },
+    });
+    await act(async () => {
+      finishStart();
+    });
+    await act(async () => {
+      fireEvent.change(prompt(), { target: { value: "/" } });
+    });
+
+    expect(screen.getAllByRole("option").map((o) => o.getAttribute("data-command"))).toEqual(["init"]);
   });
 });
 

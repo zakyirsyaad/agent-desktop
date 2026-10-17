@@ -235,3 +235,30 @@ fn refuses_a_prompt_whose_attachment_is_missing_before_sending_it() {
     assert!(error.contains("Cannot attach"), "unexpected error: {error}");
     manager.stop("s-1");
 }
+
+#[test]
+fn keeps_the_sign_in_methods_parseable_when_the_agent_logs_to_stderr() {
+    let (manager, _rx) = manager();
+    let mut launch = fake_agent();
+    launch.env.push(("FAKE_ACP_AUTH_REQUIRED".to_string(), "1".to_string()));
+    launch.env.push(("FAKE_ACP_STDERR".to_string(), "1".to_string()));
+
+    let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
+
+    let methods = error
+        .strip_prefix(agent_desktop_lib::acp::manager::AUTH_REQUIRED_PREFIX)
+        .expect("an auth-required error");
+    serde_json::from_str::<Value>(methods).expect("auth methods stay valid JSON");
+}
+
+#[test]
+fn reports_a_generic_server_error_as_is_rather_than_as_a_sign_in() {
+    let (manager, _rx) = manager();
+    let mut launch = fake_agent();
+    launch.env.push(("FAKE_ACP_SERVER_ERROR".to_string(), "1".to_string()));
+
+    let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
+
+    assert!(!error.starts_with(agent_desktop_lib::acp::manager::AUTH_REQUIRED_PREFIX));
+    assert!(error.contains("disk full"), "unexpected error: {error}");
+}

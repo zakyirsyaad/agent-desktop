@@ -10,6 +10,8 @@ export interface DiffRow {
 
 /** Unchanged lines kept on each side of a change; longer unchanged runs are folded. */
 const CONTEXT_LINES = 3;
+/** Rows rendered at most, so a rewritten big file cannot freeze the chat. */
+const MAX_ROWS = 1500;
 
 function linesOf(value: string): string[] {
   const lines = value.split('\n');
@@ -33,12 +35,15 @@ function foldContext(lines: string[], isFirst: boolean, isLast: boolean): DiffRo
 /** Line-by-line rows for a file change; `oldText` null means a new file. */
 export function diffRows(oldText: string | null, newText: string): DiffRow[] {
   const parts = diffLines(oldText ?? '', newText);
-  return parts.flatMap((part, index) => {
+  const rows = parts.flatMap((part, index) => {
     const lines = linesOf(part.value);
     if (part.added) return lines.map((text): DiffRow => ({ kind: 'added', text }));
     if (part.removed) return lines.map((text): DiffRow => ({ kind: 'removed', text }));
     return foldContext(lines, index === 0, index === parts.length - 1);
   });
+  if (rows.length <= MAX_ROWS) return rows;
+  const left = rows.length - MAX_ROWS;
+  return [...rows.slice(0, MAX_ROWS), { kind: 'skipped', text: `${left} more lines not shown` }];
 }
 
 export function countChanges(rows: readonly DiffRow[]): { added: number; removed: number } {

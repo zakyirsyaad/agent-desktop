@@ -35,8 +35,15 @@ export function TerminalView({ sessionId, output, isLive, onInput, onResize }: T
     terminal.loadAddon(fitAddon);
     terminal.open(container);
 
+    // Keystrokes are taken only once the replay is parsed: old output holds
+    // terminal queries (cursor position, colours) that xterm would answer as
+    // input, and those answers must not reach the live agent.
+    let input: { dispose: () => void } | null = null;
+    let isDisposed = false;
     // Replay and subscribe in the same task, so no chunk is missed or repeated.
-    terminal.write(output.snapshot(sessionId));
+    terminal.write(output.snapshot(sessionId), () => {
+      if (isLive && !isDisposed) input = terminal.onData((data) => callbacksRef.current.onInput(data));
+    });
     const unsubscribe = output.subscribe(sessionId, (data) => terminal.write(data));
 
     const fit = () => {
@@ -48,12 +55,12 @@ export function TerminalView({ sessionId, output, isLive, onInput, onResize }: T
       if (isLive && terminal.cols && terminal.rows) callbacksRef.current.onResize(terminal.cols, terminal.rows);
     };
     fit();
-    const input = isLive ? terminal.onData((data) => callbacksRef.current.onInput(data)) : null;
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
     observer?.observe(container);
     if (isLive) terminal.focus();
 
     return () => {
+      isDisposed = true;
       unsubscribe();
       input?.dispose();
       observer?.disconnect();

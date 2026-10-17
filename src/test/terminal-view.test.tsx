@@ -19,8 +19,14 @@ const { FakeTerminal, terminals } = vi.hoisted(() => {
     focus() {
       this.focused = true;
     }
-    write(data: string) {
+    pendingWrites: (() => void)[] = [];
+    /** Like xterm, parses asynchronously: the callback runs once the data is processed. */
+    write(data: string, callback?: () => void) {
       this.written.push(data);
+      if (callback) this.pendingWrites.push(callback);
+    }
+    flushWrites() {
+      this.pendingWrites.splice(0).forEach((cb) => cb());
     }
     onData(listener: (data: string) => void) {
       this.dataListener = listener;
@@ -61,6 +67,7 @@ describe("TerminalView", () => {
     const onResize = vi.fn();
     render(<TerminalView sessionId="s-1" output={output} isLive onInput={onInput} onResize={onResize} />);
 
+    act(() => terminals[0].flushWrites());
     terminals[0].dataListener?.("y\r");
 
     expect(onInput).toHaveBeenCalledWith("y\r");
@@ -91,4 +98,17 @@ describe("TerminalView", () => {
     expect(terminals[0].disposed).toBe(true);
     expect(terminals[1].written).toEqual(["two"]);
   });
+
+  it("does not answer terminal queries in the replayed output to the live agent", () => {
+    const output = createPtyOutputStore();
+    output.append("s-1", "\x1b[6n old cursor query");
+    const onInput = vi.fn();
+    render(<TerminalView sessionId="s-1" output={output} isLive onInput={onInput} onResize={() => {}} />);
+
+    // While xterm still parses the replay, its answers must go nowhere.
+    expect(terminals[0].dataListener).toBeNull();
+    act(() => terminals[0].flushWrites());
+    expect(terminals[0].dataListener).not.toBeNull();
+  });
 });
+

@@ -19,6 +19,8 @@ type OpenDropdown = "permission" | "model" | "effort" | null;
 export interface ComposerHandle {
   /** Adds paths to the prompt (quoted when needed) and focuses it. */
   insertPaths: (paths: readonly string[]) => void;
+  /** Puts back a message that could not be sent, so it need not be typed again. */
+  restore: (text: string, attachments?: readonly string[]) => void;
 }
 
 export interface ComposerDockProps {
@@ -151,7 +153,14 @@ export function ComposerDock({
     textareaRef.current?.focus();
   };
 
-  useImperativeHandle(handleRef, () => ({ insertPaths }));
+  useImperativeHandle(handleRef, () => ({
+    insertPaths,
+    restore: (restoredText, restoredAttachments = []) => {
+      setText(restoredText);
+      if (attachAsFiles) setAttachments([...restoredAttachments]);
+      textareaRef.current?.focus();
+    },
+  }));
 
   const handleAttach = async () => {
     if (!onAttach) return;

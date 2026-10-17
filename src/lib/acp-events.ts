@@ -70,6 +70,16 @@ function withOpenReply(
   return [...messages, change(fresh)];
 }
 
+/** Tool output is kept in memory and in the saved transcript, so it is bounded. */
+const MAX_TOOL_TEXT = 50_000;
+const MAX_DIFF_TEXT = 200_000;
+const TRUNCATED_MARK = '… earlier output not shown\n';
+
+/** The end of the output matters most (the result, the error), so that is what is kept. */
+function boundedText(text: string): string {
+  return text.length <= MAX_TOOL_TEXT ? text : TRUNCATED_MARK + text.slice(text.length - MAX_TOOL_TEXT);
+}
+
 /** Diffs and text output from a tool's `content`; terminals (not offered by this client) are skipped. */
 function toDetails(content: unknown): ToolDetail[] | undefined {
   if (!Array.isArray(content)) return undefined;
@@ -78,11 +88,15 @@ function toDetails(content: unknown): ToolDetail[] | undefined {
       const path = str(item.path);
       const newText = str(item.newText);
       if (!path || newText === undefined) return [];
-      return [{ kind: 'diff', path, oldText: str(item.oldText) ?? null, newText }];
+      const oldText = str(item.oldText) ?? null;
+      if (newText.length + (oldText?.length ?? 0) > MAX_DIFF_TEXT) {
+        return [{ kind: 'text', text: `Changed ${path} (too large to show)` }];
+      }
+      return [{ kind: 'diff', path, oldText, newText }];
     }
     if (item.type === 'content') {
       const text = textOf(item.content);
-      return text ? [{ kind: 'text', text }] : [];
+      return text ? [{ kind: 'text', text: boundedText(text) }] : [];
     }
     return [];
   });

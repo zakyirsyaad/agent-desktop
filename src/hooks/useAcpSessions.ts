@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useLatest } from './useLatest';
@@ -117,6 +117,10 @@ function toInfo(raw: unknown): AcpSessionInfo {
 export function useAcpSessions(handlers: AcpHandlers) {
   const [info, setInfo] = useState<Record<string, AcpSessionInfo>>({});
   const handlersRef = useLatest(handlers);
+  // Commands an agent announces once its session exists but before the start
+  // call has returned; they are announced once, so they must not be lost.
+  const knownRef = useRef(new Set<string>());
+  const earlyCommandsRef = useRef(new Map<string, SlashCommand[]>());
 
   const patch = useCallback((sessionId: string, change: (current: AcpSessionInfo) => AcpSessionInfo) => {
     setInfo((prev) => (prev[sessionId] ? { ...prev, [sessionId]: change(prev[sessionId]) } : prev));
@@ -143,7 +147,8 @@ export function useAcpSessions(handlers: AcpHandlers) {
           }
           if (isObject(update) && update.sessionUpdate === 'available_commands_update') {
             const commands = toCommands(update.availableCommands);
-            patch(sessionId, (c) => ({ ...c, commands }));
+            if (knownRef.current.has(sessionId)) patch(sessionId, (c) => ({ ...c, commands }));
+            else earlyCommandsRef.current.set(sessionId, commands);
           }
           if (isObject(update) && update.sessionUpdate === 'config_option_update') {
             const options = toConfigOptions(update.configOptions);
@@ -169,6 +174,8 @@ export function useAcpSessions(handlers: AcpHandlers) {
           );
           break;
         case 'exit':
+          // A later resume opens it afresh; its first commands must be kept again.
+          knownRef.current.delete(sessionId);
           setBusy(sessionId, false);
           h.onExit(sessionId, typeof payload.code === 'number' ? payload.code : null);
           break;
@@ -188,7 +195,10 @@ export function useAcpSessions(handlers: AcpHandlers) {
   }, [handlersRef, patch, setBusy]);
 
   const remember = useCallback((sessionId: string, raw: unknown) => {
-    const started = toInfo(raw);
+    const early = earlyCommandsRef.current.get(sessionId);
+    earlyCommandsRef.current.delete(sessionId);
+    knownRef.current.add(sessionId);
+    const started = { ...toInfo(raw), commands: early ?? [] };
     setInfo((prev) => ({ ...prev, [sessionId]: started }));
     return started;
   }, []);
@@ -249,6 +259,8 @@ export function useAcpSessions(handlers: AcpHandlers) {
   );
 
   const stop = useCallback((sessionId: string) => {
+    knownRef.current.delete(sessionId);
+    earlyCommandsRef.current.delete(sessionId);
     setInfo((prev) => {
       const { [sessionId]: _removed, ...rest } = prev;
       return rest;

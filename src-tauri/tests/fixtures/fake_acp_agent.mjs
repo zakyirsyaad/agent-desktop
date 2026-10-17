@@ -71,6 +71,11 @@ const handlers = {
     });
   },
   "session/new": (id) => {
+    if (process.env.FAKE_ACP_STDERR) process.stderr.write("warming up the model cache\n");
+    if (process.env.FAKE_ACP_SERVER_ERROR) {
+      send({ id, error: { code: -32000, message: "Internal error: disk full" } });
+      return;
+    }
     if (process.env.FAKE_ACP_AUTH_REQUIRED) {
       send({ id, error: { code: -32000, message: "Authentication required" } });
       return;

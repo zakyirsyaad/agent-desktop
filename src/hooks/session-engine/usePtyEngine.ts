@@ -35,6 +35,7 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
   const parsersRef = useRef(new Map<string, StreamParser>());
   // Deleted sessions: their last output must not write a transcript back.
   const forgottenRef = useRef(new Set<string>());
+  const resizeReportedRef = useRef(new Set<string>());
   const activity = useAgentActivity();
 
   const sendRaw = useCallback(
@@ -120,6 +121,9 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
   /** Tells the agent its terminal's size, so its TUI lays out for the view. */
   const resize = (sessionId: string, cols: number, rows: number) => {
     invoke('resize_session', { sessionId, cols, rows }).catch((error) => {
+      // A view resizes on every layout change; one notice per session is enough.
+      if (resizeReportedRef.current.has(sessionId)) return;
+      resizeReportedRef.current.add(sessionId);
       reportError(`Failed to resize the terminal: ${String(error)}`);
     });
   };

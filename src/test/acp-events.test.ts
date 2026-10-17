@@ -176,6 +176,28 @@ describe("tool call details", () => {
     expect(finished[0].tools?.[0].status).toBe("completed");
   });
 
+  it("keeps only the end of very long output, and summarizes a file change too big to show", () => {
+    const longOutput = "x".repeat(60_000) + "THE END";
+    const hugeFile = "line\n".repeat(60_000);
+    const result = applyAcpUpdate(
+      [],
+      {
+        ...edit,
+        content: [
+          { type: "content", content: { type: "text", text: longOutput } },
+          { type: "diff", path: "/repo/big.txt", oldText: null, newText: hugeFile },
+        ],
+      },
+      ctx()
+    );
+
+    const [text, diff] = result[0].tools?.[0].details ?? [];
+    expect(text.kind === "text" && text.text.startsWith("… earlier output not shown")).toBe(true);
+    expect(text.kind === "text" && text.text.endsWith("THE END")).toBe(true);
+    expect(text.kind === "text" && text.text.length).toBeLessThan(51_000);
+    expect(diff).toEqual({ kind: "text", text: "Changed /repo/big.txt (too large to show)" });
+  });
+
   it("treats a missing oldText as a new file", () => {
     const result = applyAcpUpdate(
       [],

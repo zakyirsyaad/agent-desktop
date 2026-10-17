@@ -158,7 +158,10 @@ export default function App() {
   const acp = useAcpEngine({
     ...engineDeps,
     rememberOptions: rememberAgentOptions,
-    onAuthRequired: (profileId, cwd, methods) => setAuthRequest({ profileId, cwd, methods, status: "idle" }),
+    onAuthRequired: (profileId, cwd, methods, unsent) => {
+      setAuthRequest({ profileId, cwd, methods, status: "idle" });
+      if (unsent) composerRef.current?.restore(unsent.text, unsent.attachments);
+    },
   });
 
   /** Signs in in the agent itself (e.g. it opens a browser); the user then sends again. */

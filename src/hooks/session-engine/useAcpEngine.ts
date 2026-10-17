@@ -9,7 +9,7 @@ import {
   type PermissionRequestPayload,
 } from '../../lib/acp-events';
 import { changesToApply, NO_CHOICES, type AcpChoices, type AgentOptions } from '../../lib/acp-draft';
-import { findCard, userMessage, withoutMessage } from '../../lib/session-helpers';
+import { findCard, titleFromPrompt, userMessage, withoutMessage } from '../../lib/session-helpers';
 import { createId } from '../../lib/ids';
 import { toCommands, useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
 import type { ChatMessage, Session } from '../../types';
@@ -53,8 +53,8 @@ interface LaunchOptions {
 }
 
 export interface AcpEngineDeps extends EngineDeps {
-  /** The agent refused to start until the user signs in, with the ways it offers. */
-  onAuthRequired: (profileId: string, cwd: string, methods: AuthMethod[]) => void;
+  /** The agent refused to start until the user signs in, with the ways it offers and the unsent message. */
+  onAuthRequired: (profileId: string, cwd: string, methods: AuthMethod[], unsent?: FirstMessage) => void;
   /** Called with what an agent offers when one of its sessions opens or its commands change. */
   rememberOptions: (profileId: string, options: Partial<AgentOptions>) => void;
 }
@@ -90,8 +90,9 @@ export function useAcpEngine({
     onUpdate: unlessStopped((sessionId, update: unknown) => {
       const title = sessionTitleOf(update);
       if (title) {
-        // The agent's own title (e.g. a summary) beats one cut from the first prompt.
-        patchSession(sessionId, { name: title });
+        // The agent's own title (e.g. a summary) beats one cut from the first
+        // prompt; it is held to the same one-line, bounded shape.
+        patchSession(sessionId, { name: titleFromPrompt(title) });
         return;
       }
       if (isCommandsUpdate(update)) {
@@ -178,7 +179,7 @@ export function useAcpEngine({
       patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
       const authMethods = parseAuthRequired(error);
       if (authMethods) {
-        onAuthRequired(session.profileId, session.cwd, authMethods);
+        onAuthRequired(session.profileId, session.cwd, authMethods, options.first);
         return;
       }
       const name = agents.find((a) => a.id === session.profileId)?.name ?? session.profileId;

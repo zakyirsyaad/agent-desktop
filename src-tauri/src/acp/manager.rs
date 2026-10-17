@@ -156,7 +156,12 @@ impl AcpManager {
             .map_err(|e| {
                 let stderr = connection.stderr_tail();
                 connection.kill();
-                if stderr.is_empty() { e } else { format!("{}\n{}", e, stderr) }
+                // A sign-in error carries JSON the UI parses; stderr would break it.
+                if stderr.is_empty() || e.starts_with(AUTH_REQUIRED_PREFIX) {
+                    e
+                } else {
+                    format!("{}\n{}", e, stderr)
+                }
             })?;
         self.register(app_session_id, connection, connection_key, &started);
         Ok(started)
@@ -363,12 +368,19 @@ fn refuse(routes: &Arc<Mutex<Routes>>, connection_key: u64, id: &Value) {
     }
 }
 
+/// `-32000` is also JSON-RPC's generic server error, so the message must say it is about signing in.
+fn is_auth_required(error: &Value) -> bool {
+    let message = error["message"].as_str().unwrap_or_default().to_ascii_lowercase();
+    error["code"].as_i64() == Some(AUTH_REQUIRED)
+        && ["auth", "login", "log in", "sign in"].iter().any(|word| message.contains(word))
+}
+
 /// Opens a session; an "authentication required" answer becomes an error
 /// carrying [`AUTH_REQUIRED_PREFIX`] and the agent's auth methods.
 fn open_request(connection: &AcpConnection, init: &Value, method: &str, params: Value) -> Result<Value, String> {
     match connection.request_raw(method, params, HANDSHAKE_TIMEOUT)? {
         Ok(result) => Ok(result),
-        Err(error) if error["code"].as_i64() == Some(AUTH_REQUIRED) => {
+        Err(error) if is_auth_required(&error) => {
             let methods = match &init["authMethods"] {
                 Value::Array(methods) => Value::Array(methods.clone()),
                 _ => Value::Array(Vec::new()),
