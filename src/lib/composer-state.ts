@@ -2,7 +2,7 @@ import { acpControls, ptyDraftControls, ptySessionControls, type ComposerControl
 import { draftInfo, type AcpChoices, type AgentOptions } from './acp-draft';
 import type { AcpConfigOption } from '../hooks/useAcpSessions';
 import type { AcpEngine } from '../hooks/session-engine/useAcpEngine';
-import { TRANSPORT_ACP, type AgentProfile, type Session } from '../types';
+import { TRANSPORT_ACP, type AgentProfile, type Session, type SlashCommand } from '../types';
 
 export interface ComposerState {
   controls: ComposerControls;
@@ -67,4 +67,41 @@ export function composerStateFor(inputs: ComposerInputs): ComposerState {
     },
   });
   return { controls, locked: false };
+}
+
+export const COMPOSER_PLACEHOLDERS = {
+  noWorkspace: 'Open a folder and install an agent to start',
+  newSession: 'Message the agent to start a new session...',
+  resume: 'Message the agent to continue this session...',
+  creatingWorktree: 'Creating a worktree for the session...',
+} as const;
+
+/** What the empty composer says the next message does; none in a running session. */
+export function composerPlaceholder(state: {
+  isRunning: boolean;
+  isCreatingWorktree: boolean;
+  isResumable: boolean;
+  canStartSession: boolean;
+}): string | undefined {
+  if (state.isRunning) return undefined;
+  if (state.isCreatingWorktree) return COMPOSER_PLACEHOLDERS.creatingWorktree;
+  if (state.isResumable) return COMPOSER_PLACEHOLDERS.resume;
+  return state.canStartSession ? COMPOSER_PLACEHOLDERS.newSession : COMPOSER_PLACEHOLDERS.noWorkspace;
+}
+
+/**
+ * The slash commands the composer offers: a live ACP session's own; before
+ * it runs, the ones its agent offered last time. A terminal agent takes
+ * its commands in its own screen.
+ */
+export function composerCommandsFor(inputs: {
+  session: Session | undefined;
+  isRunning: boolean;
+  liveCommands: SlashCommand[] | undefined;
+  draftAgent: AgentProfile | undefined;
+  agentOptions: Readonly<Record<string, AgentOptions>> | undefined;
+}): SlashCommand[] | undefined {
+  if (inputs.isRunning) return inputs.session?.transport === TRANSPORT_ACP ? inputs.liveCommands : undefined;
+  const agent = inputs.draftAgent;
+  return agent?.transport === TRANSPORT_ACP ? inputs.agentOptions?.[agent.id]?.commands : undefined;
 }
