@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { matchFiles, mentionAt, type MentionQuery } from '../../lib/mentions';
 
 /** Where @-mentions come from: a workspace and how to list its files. */
@@ -25,25 +25,23 @@ export interface MentionMenuState {
  */
 export function useMentionMenu(source: MentionSource | undefined): MentionMenuState {
   const [mention, setMention] = useState<MentionQuery | null>(null);
-  const [listing, setListing] = useState<{ root: string; files: string[] } | null>(null);
-  const [loadingRoot, setLoadingRoot] = useState<string | null>(null);
+  // Kept per workspace: a list that arrives late for one cannot replace another's.
+  const [listings, setListings] = useState<Readonly<Record<string, string[]>>>({});
+  const requestedRef = useRef(new Set<string>());
 
   const update = (text: string, caret: number) => {
     const found = source ? mentionAt(text, caret) : null;
     setMention(found);
-    if (!found || !source || listing?.root === source.root || loadingRoot === source.root) return;
+    if (!found || !source || requestedRef.current.has(source.root)) return;
     const { root } = source;
-    setLoadingRoot(root);
+    requestedRef.current.add(root);
     source
       .loadFiles()
       .catch(() => [] as string[])
-      .then((files) => {
-        setListing({ root, files });
-        setLoadingRoot((current) => (current === root ? null : current));
-      });
+      .then((files) => setListings((prev) => ({ ...prev, [root]: files })));
   };
 
-  const isCurrent = source !== undefined && listing?.root === source.root;
-  const files = mention && isCurrent ? matchFiles(listing.files, mention.query) : [];
+  const listing = source ? listings[source.root] : undefined;
+  const files = mention && listing ? matchFiles(listing, mention.query) : [];
   return { mention, files, update, close: () => setMention(null) };
 }

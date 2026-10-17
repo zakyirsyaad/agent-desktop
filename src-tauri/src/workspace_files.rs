@@ -5,8 +5,9 @@
 //! and well-known build folders.
 
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use tauri::State;
 
@@ -27,9 +28,18 @@ const SKIPPED_FOLDERS: &[&str] = &[
     "__pycache__",
 ];
 
-/// The files git knows of or would add (tracked, or untracked and not ignored), or None outside a repository.
-fn git_files(git: &Path, root: &Path) -> Option<Vec<String>> {
-    let output = Command::new(git)
+/// True for a name the composer can offer: no control characters, which a
+/// terminal agent would take as keys (Enter, Ctrl-C) rather than text.
+fn is_plain_name(path: &str) -> bool {
+    !path.chars().any(char::is_control)
+}
+
+/// The files git knows of or would add (tracked, or untracked and not
+/// ignored) that exist as regular files, at most `limit` of them; None
+/// outside a repository. git's output is read as it comes and git is
+/// stopped at the limit, so a huge repository costs no more than that.
+fn git_files(git: &Path, root: &Path, limit: usize) -> Option<Vec<String>> {
+    let mut child = Command::new(git)
         .arg("-C")
         .arg(root)
         .args([
@@ -39,23 +49,36 @@ fn git_files(git: &Path, root: &Path) -> Option<Vec<String>> {
             "--others",
             "--exclude-standard",
         ])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
         .ok()?;
-    if !output.status.success() {
-        return None;
+    let mut files = Vec::new();
+    let mut is_cut = false;
+    if let Some(stdout) = child.stdout.take() {
+        for entry in BufReader::new(stdout).split(0) {
+            let Ok(bytes) = entry else { break };
+            let path = String::from_utf8_lossy(&bytes).into_owned();
+            // The index also names files deleted from disk, and submodule folders.
+            if !path.is_empty() && is_plain_name(&path) && root.join(&path).is_file() {
+                files.push(path);
+            }
+            if files.len() >= limit {
+                is_cut = true;
+                break;
+            }
+        }
     }
-    let listed = String::from_utf8_lossy(&output.stdout);
-    Some(
-        listed
-            .split('\0')
-            .filter(|path| !path.is_empty())
-            .map(str::to_string)
-            .collect(),
-    )
+    if is_cut {
+        // Stopping git early is the point; failing to only means it finishes on its own.
+        let _ = child.kill();
+    }
+    let status = child.wait().ok()?;
+    (is_cut || status.success()).then_some(files)
 }
 
 /// The files under `root`, walked folder by folder and stopping at `MAX_FILES`.
-fn walked_files(root: &Path) -> Vec<String> {
+fn walked_files(root: &Path, limit: usize) -> Vec<String> {
     let mut files = Vec::new();
     let mut folders: Vec<PathBuf> = vec![root.to_path_buf()];
     while let Some(folder) = folders.pop() {
@@ -77,9 +100,12 @@ fn walked_files(root: &Path) -> Vec<String> {
                 }
             } else if kind.is_file() {
                 if let Ok(relative) = path.strip_prefix(root) {
-                    files.push(relative.to_string_lossy().replace('\\', "/"));
+                    let relative = relative.to_string_lossy().replace('\\', "/");
+                    if is_plain_name(&relative) {
+                        files.push(relative);
+                    }
                 }
-                if files.len() >= MAX_FILES {
+                if files.len() >= limit {
                     return files;
                 }
             }
@@ -90,11 +116,19 @@ fn walked_files(root: &Path) -> Vec<String> {
 
 /// The workspace's files as paths relative to `root`, sorted.
 pub fn list_workspace_files(git: &Path, root: &Path) -> Result<Vec<String>, String> {
+    list_workspace_files_up_to(git, root, MAX_FILES)
+}
+
+/// Like `list_workspace_files`, with at most `limit` files.
+pub fn list_workspace_files_up_to(
+    git: &Path,
+    root: &Path,
+    limit: usize,
+) -> Result<Vec<String>, String> {
     if !root.is_dir() {
         return Err(format!("{} is not a folder", root.display()));
     }
-    let mut files = git_files(git, root).unwrap_or_else(|| walked_files(root));
-    files.truncate(MAX_FILES);
+    let mut files = git_files(git, root, limit).unwrap_or_else(|| walked_files(root, limit));
     files.sort();
     files.dedup();
     Ok(files)

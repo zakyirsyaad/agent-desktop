@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use agent_desktop_lib::workspace_files::list_workspace_files;
+use agent_desktop_lib::workspace_files::{list_workspace_files, list_workspace_files_up_to};
 
 fn unique_root(tag: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -64,5 +64,39 @@ fn walks_a_plain_folder_skipping_hidden_and_build_folders() {
     let files = list_workspace_files(Path::new("git"), &root).expect("list files");
 
     assert_eq!(files, vec!["docs/guide.md", "notes.md"]);
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn offers_only_files_that_exist_and_have_plain_names() {
+    let root = unique_root("existing");
+    git(&root, &["init", "-q"]);
+    write(&root, "kept.ts");
+    write(&root, "deleted.ts");
+    write(&root, "bad\rname.ts");
+    git(&root, &["add", "kept.ts", "deleted.ts"]);
+    fs::remove_file(root.join("deleted.ts")).expect("delete a tracked file");
+
+    let files = list_workspace_files(Path::new("git"), &root).expect("list files");
+
+    assert_eq!(
+        files,
+        vec!["kept.ts"],
+        "a deleted file and a name with a control character are left out"
+    );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn stops_reading_git_at_the_limit() {
+    let root = unique_root("limit");
+    git(&root, &["init", "-q"]);
+    for name in ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"] {
+        write(&root, name);
+    }
+
+    let files = list_workspace_files_up_to(Path::new("git"), &root, 2).expect("list files");
+
+    assert_eq!(files.len(), 2);
     fs::remove_dir_all(root).ok();
 }

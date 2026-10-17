@@ -73,4 +73,22 @@ describe("Composer @-mentions", () => {
     await type("mail me@app");
     expect(screen.queryByRole("listbox", { name: "Files to mention" })).toBeNull();
   });
+
+  it("keeps a workspace's files when an earlier workspace's list arrives later", async () => {
+    let finishA: (files: string[]) => void = () => {};
+    const loadA = vi.fn(() => new Promise<string[]>((resolve) => (finishA = resolve)));
+    const loadB = vi.fn().mockResolvedValue(["b/bravo.ts"]);
+    const { rerender } = render(<ComposerDock onSendMessage={() => {}} mentions={{ root: "/w/a", loadFiles: loadA }} />);
+    await type("@a");
+
+    rerender(<ComposerDock onSendMessage={() => {}} mentions={{ root: "/w/b", loadFiles: loadB }} />);
+    await type("@br");
+    await act(async () => {
+      finishA(["a/alpha.ts"]);
+    });
+
+    // Without typing again: the late list for A must not hide B's.
+    const menu = within(screen.getByRole("listbox", { name: "Files to mention" }));
+    expect(menu.getAllByRole("option").map((o) => o.getAttribute("data-file"))).toEqual(["b/bravo.ts"]);
+  });
 });

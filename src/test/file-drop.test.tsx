@@ -82,4 +82,18 @@ describe("Dropping files onto the window", () => {
     expect(files.getAllByRole("option").map((o) => o.getAttribute("data-file"))).toEqual(["src/App.tsx"]);
     spy.mockRestore();
   });
+
+  it("leaves out a dropped file whose name has control characters, and says so", async () => {
+    await act(async () => {
+      render(<App />);
+    });
+
+    await act(async () => {
+      dragHandler({ payload: { type: "drop", paths: ["/Users/test/ok.md", "/Users/test/evil\rname.md"] } });
+    });
+
+    const prompt = screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
+    expect(prompt.value).toBe("/Users/test/ok.md ");
+    expect(screen.getByRole("alert").textContent).toContain("control characters");
+  });
 });

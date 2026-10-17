@@ -63,6 +63,8 @@ const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
 const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
+// eslint-disable-next-line no-control-regex -- matching control characters is the point.
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 /** Shown in the session list: not archived. */
 const isListed = (session: Session) => !isArchived(session);
 
@@ -190,8 +192,17 @@ export default function App() {
   const isSessionBusy = (sessionId: string) =>
     isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) : pty.isBusy(sessionId);
 
-  /** Dropped files: typed into a live terminal agent, otherwise added to the message. */
-  const handleDroppedFiles = (paths: string[]) => {
+  /**
+   * Dropped files: typed into a live terminal agent, otherwise added to the
+   * message. A name with control characters is left out: a terminal would
+   * take them as keys (Enter, Ctrl-C), not as part of a path.
+   */
+  const handleDroppedFiles = (dropped: string[]) => {
+    const paths = dropped.filter((path) => !CONTROL_CHARACTER.test(path));
+    if (paths.length < dropped.length) {
+      setNotice("Left out a dropped file whose name has control characters.");
+    }
+    if (paths.length === 0) return;
     if (activeSession?.status === "running" && !isAcp(activeSession)) {
       void pty.sendRaw(activeSession.id, `${paths.map(formatAttachmentPath).join(" ")} `);
     } else {
