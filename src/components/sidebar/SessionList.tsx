@@ -202,7 +202,9 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
           {session.worktree && (
             <GitBranch size={11} aria-label="In its own worktree" className="shrink-0 text-amber-500/80" />
           )}
-          <span className="truncate">{session.name}</span>
+          <span className={`truncate ${session.hasUnread && !isBusy ? "font-medium text-neutral-100" : ""}`}>
+            {session.name}
+          </span>
         </span>
         {isWaiting ? (
           <span
@@ -211,12 +213,19 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
             title="The agent waits for your answer"
             className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 ml-1"
           />
-        ) : isBusy && (
+        ) : isBusy ? (
           <span
             role="status"
             aria-label="Agent working"
             title="The agent is working"
             className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0 ml-1 animate-pulse"
+          />
+        ) : session.hasUnread && (
+          <span
+            role="status"
+            aria-label="New activity"
+            title="The agent finished while you were in another session"
+            className="h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0 ml-1"
           />
         )}
       </button>

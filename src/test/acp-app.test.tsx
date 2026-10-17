@@ -27,7 +27,7 @@ function fakeStore(): FakeTauriStore {
 }
 
 function callsTo(spy: { mock: { calls: unknown[][] } }, cmd: string) {
-  return (spy.mock.calls as InvokeCall[]).filter(([name]) => name === cmd);
+  return (spy.mock.calls as unknown as InvokeCall[]).filter(([name]) => name === cmd);
 }
 
 async function acpEvent(payload: Record<string, unknown>) {
@@ -739,6 +739,297 @@ describe("ACP sessions in the app", () => {
         namedByUser: true,
       })
     );
+  });
+
+  it("marks a session unread when its agent finishes while another is open, until it is opened", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("long task");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    const sidebar = within(screen.getByRole("complementary"));
+    const row = () => sidebar.getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
+
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+
+    expect(within(row()).getByLabelText("New activity")).toBeDefined();
+    await act(async () => {
+      fireEvent.click(sidebar.getByText(FIRST_MESSAGE));
+    });
+    expect(within(row()).queryByLabelText("New activity")).toBeNull();
+  });
+
+  it("does not mark the open session unread when its agent finishes", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("short task");
+
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+
+    const row = within(screen.getByRole("complementary")).getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
+    expect(within(row).queryByLabelText("New activity")).toBeNull();
+  });
+
+  describe("choosing Qwen's model", () => {
+    // Shaped like Qwen Code's buildConfigOptions: model values carry the auth type.
+    const modelOption = (currentValue: string) => ({
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue,
+      options: [
+        { value: "coder-model(qwen-oauth)", name: "Coder Model" },
+        { value: "qwen3-max(openai)", name: "Qwen3 Max" },
+      ],
+    });
+    // As in Qwen, the efforts on offer depend on the model.
+    const EFFORTS: Record<string, { value: string; name: string }[]> = {
+      "coder-model(qwen-oauth)": [
+        { value: "low", name: "Low" },
+        { value: "high", name: "High" },
+      ],
+      "qwen3-max(openai)": [
+        { value: "low", name: "Low" },
+        { value: "max", name: "Max" },
+      ],
+    };
+    const effortOption = (model: string, currentValue: string) => ({
+      id: "reasoning_effort",
+      name: "Reasoning effort",
+      category: "thought_level",
+      type: "select",
+      currentValue,
+      options: EFFORTS[model],
+    });
+    // What the fake agent holds now; every new session starts on its defaults, as Qwen's do.
+    const current = { model: "coder-model(qwen-oauth)", effort: "low" };
+    const reported = () => [modelOption(current.model), effortOption(current.model, current.effort)];
+    function withModels() {
+      return vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+        const a = args as { sessionId?: string; value?: string; configId?: string } | undefined;
+        if (cmd === "acp_start_session") {
+          current.model = "coder-model(qwen-oauth)";
+          current.effort = "low";
+          return Promise.resolve({
+            acpSessionId: `acp-${a?.sessionId}`,
+            agentCapabilities: {},
+            modes: null,
+            models: null,
+            configOptions: reported(),
+          });
+        }
+        if (cmd === "acp_set_config_option") {
+          const value = String(a?.value);
+          if (a?.configId === "model") {
+            current.model = value;
+            // A model without the current effort falls back to its lowest one.
+            if (!EFFORTS[value].some((e) => e.value === current.effort)) current.effort = "low";
+          } else if (EFFORTS[current.model].some((e) => e.value === value)) {
+            current.effort = value;
+          } else {
+            return Promise.reject(`Reasoning selection was not applied: ${value}`);
+          }
+          return Promise.resolve(reported());
+        }
+        return realInvoke(cmd, args);
+      });
+    }
+
+    async function pick(control: string, option: string) {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${control}:`) }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("option", { name: option }));
+      });
+    }
+
+    /** Opens a new session, sends a message and returns the calls made from then on. */
+    async function nextSessionCalls(spy: ReturnType<typeof withModels>) {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+      });
+      const before = (spy.mock.calls as unknown as InvokeCall[]).length;
+      await send("next task");
+      await waitFor(() => expect(callsTo(spy, "acp_prompt").length).toBeGreaterThan(1));
+      return (spy.mock.calls as unknown as InvokeCall[])
+        .slice(before)
+        .map(([cmd, a]) => `${cmd}${(a as { value?: string })?.value ? `:${(a as { value?: string }).value}` : ""}`);
+    }
+
+    it("remembers the effort Qwen settles on when a model change resets it", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+      await pick("Effort", "High");
+      await pick("Model", "Qwen3 Max");
+      expect(screen.getByRole("button", { name: "Effort: Low" })).toBeDefined();
+
+      const calls = await nextSessionCalls(spy);
+
+      expect(calls).toContain("acp_set_config_option:qwen3-max(openai)");
+      expect(calls).not.toContain("acp_set_config_option:high");
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("applies a remembered effort that only the remembered model offers, after switching to it", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+      await pick("Model", "Qwen3 Max");
+      await pick("Effort", "Max");
+
+      const calls = await nextSessionCalls(spy);
+
+      const model = calls.indexOf("acp_set_config_option:qwen3-max(openai)");
+      const effort = calls.indexOf("acp_set_config_option:max");
+      const prompt = calls.findIndex((c) => c.startsWith("acp_prompt"));
+      expect(model).toBeGreaterThanOrEqual(0);
+      expect(effort).toBeGreaterThan(model);
+      expect(prompt).toBeGreaterThan(effort);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("switches the model of a running session and shows the new one", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Model: Coder Model" }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("option", { name: "Qwen3 Max" }));
+      });
+
+      expect(callsTo(spy, "acp_set_config_option").at(-1)?.[1]).toMatchObject({ configId: "model", value: "qwen3-max(openai)" });
+      expect(screen.getByRole("button", { name: "Model: Qwen3 Max" })).toBeDefined();
+    });
+
+    it("starts the next session with the model picked last, and remembers it", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Model: Coder Model" }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("option", { name: "Qwen3 Max" }));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+      });
+      expect(screen.getByRole("button", { name: "Model: Qwen3 Max" })).toBeDefined();
+      const before = (spy.mock.calls as unknown as InvokeCall[]).length;
+      await send("next task");
+      await waitFor(() => expect(callsTo(spy, "acp_prompt").length).toBeGreaterThan(1));
+
+      const later = (spy.mock.calls as unknown as InvokeCall[]).slice(before).map(([cmd, a]) => [cmd, (a as { value?: string })?.value]);
+      const setIndex = later.findIndex(([cmd, value]) => cmd === "acp_set_config_option" && value === "qwen3-max(openai)");
+      expect(setIndex).toBeGreaterThanOrEqual(0);
+      expect(setIndex).toBeLessThan(later.findIndex(([cmd]) => cmd === "acp_prompt"));
+      await waitFor(() =>
+        // As Qwen settled it: the model picked, and the effort it kept.
+        expect((fakeStore().state as { agentOptions?: Record<string, { preferredConfig?: unknown }> }).agentOptions?.qwen?.preferredConfig).toEqual({
+          model: "qwen3-max(openai)",
+          reasoning_effort: "low",
+        })
+      );
+    });
+
+    it("starts the next session with the effort picked last too", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Effort: Low" }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("option", { name: "High" }));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+      });
+      expect(screen.getByRole("button", { name: "Effort: High" })).toBeDefined();
+      const before = (spy.mock.calls as unknown as InvokeCall[]).length;
+      await send("next task");
+      await waitFor(() => expect(callsTo(spy, "acp_prompt").length).toBeGreaterThan(1));
+
+      const later = (spy.mock.calls as unknown as InvokeCall[]).slice(before).map(([cmd, a]) => [cmd, (a as { value?: string })?.value]);
+      const setIndex = later.findIndex(([cmd, value]) => cmd === "acp_set_config_option" && value === "high");
+      expect(setIndex).toBeGreaterThanOrEqual(0);
+      expect(setIndex).toBeLessThan(later.findIndex(([cmd]) => cmd === "acp_prompt"));
+    });
+
+    it("keeps the remembered effort for every later session, not only the next one", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+      await pick("Model", "Qwen3 Max");
+      await pick("Effort", "Max");
+
+      await nextSessionCalls(spy);
+      const third = await nextSessionCalls(spy);
+
+      expect(third).toContain("acp_set_config_option:qwen3-max(openai)");
+      expect(third).toContain("acp_set_config_option:max");
+    });
+
+    it("starts a new session with the model switched to last, not one picked before an earlier session", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+      });
+      await send("get started");
+      await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
+      const sessionId = String(callsTo(spy, "acp_start_session")[0][1]?.sessionId);
+      await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+      // A model picked in the draft before the second session, then switched back during it.
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+      });
+      await pick("Model", "Qwen3 Max");
+      await send("second");
+      await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(2));
+      const second = String(callsTo(spy, "acp_start_session")[1][1]?.sessionId);
+      await acpEvent({ sessionId: second, kind: "turn-end", stopReason: "end_turn" });
+      await pick("Model", "Coder Model");
+
+      const calls = await nextSessionCalls(spy);
+
+      expect(screen.getByRole("button", { name: "Model: Coder Model" })).toBeDefined();
+      expect(calls).not.toContain("acp_set_config_option:qwen3-max(openai)");
+    });
+
+    it("applies a model picked before the session starts, before its first prompt", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Model: Coder Model" }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("option", { name: "Qwen3 Max" }));
+      });
+      const before = (spy.mock.calls as unknown as InvokeCall[]).length;
+      await send("which model are you?");
+      await waitFor(() => expect(callsTo(spy, "acp_prompt").length).toBeGreaterThan(1));
+
+      const later = (spy.mock.calls as unknown as InvokeCall[]).slice(before).map(([cmd, a]) => [cmd, (a as { value?: string })?.value]);
+      const setIndex = later.findIndex(([cmd, value]) => cmd === "acp_set_config_option" && value === "qwen3-max(openai)");
+      const promptIndex = later.findIndex(([cmd]) => cmd === "acp_prompt");
+      expect(setIndex).toBeGreaterThanOrEqual(0);
+      expect(setIndex).toBeLessThan(promptIndex);
+    });
   });
 
   it("shows the context the agent has used, as it reports it", async () => {

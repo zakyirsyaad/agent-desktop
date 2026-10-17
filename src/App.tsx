@@ -38,9 +38,11 @@ import { useUserProfile } from "./hooks/useUserProfile";
 import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
+import { useUnreadMarks } from "./hooks/useUnreadMarks";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
 import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
+import type { AcpConfigOption } from "./hooks/useAcpSessions";
 import { attentionBody, notifyIfAway } from "./lib/notify";
 import { buildForkHandoff, buildForkPrompt } from "./lib/fork-handoff";
 import { pickFiles } from "./lib/file-picker";
@@ -49,7 +51,7 @@ import { useFileDrop } from "./hooks/useFileDrop";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerStateFor } from "./lib/composer-state";
-import { NO_CHOICES, type AcpChoices, type AgentOptions } from "./lib/acp-draft";
+import { NO_CHOICES, rememberedChoice, withPreferred, type AcpChoices, type AgentOptions } from "./lib/acp-draft";
 import type { AgentProfile, ChatMessage, Session, SessionWorktree, Settings, SpawnOptions } from "./types";
 import { DEFAULT_PERMISSION_MODE, TRANSPORT_ACP } from "./types";
 
@@ -164,6 +166,16 @@ export default function App() {
       return { ...prev, agentOptions: { ...prev.agentOptions, [profileId]: { ...known, ...options } } };
     });
 
+  // What a new or resumed session starts with: the picks made for it, else the model picked last.
+  const startChoices = draftAgent ? withPreferred(acpChoices, state.agentOptions?.[draftAgent.id]) : acpChoices;
+  /** Keeps a model or effort pick (as the agent settled it), so the agent's next session starts with it too. */
+  const rememberPick = (profileId: string, configId: string, value: string, reported?: AcpConfigOption[]) => {
+    const preferredConfig = rememberedChoice(state.agentOptions?.[profileId], configId, value, reported);
+    if (!preferredConfig) return;
+    // The lists on offer follow too (an effort list depends on its model), so the next draft offers the same.
+    rememberAgentOptions(profileId, { preferredConfig, ...(reported?.length ? { configOptions: reported } : {}) });
+  };
+
   const engineDeps = { sessions, agents, updateMessages, patchSession, reportError };
   const pty = usePtyEngine({ ...engineDeps, output: ptyOutput });
   const acp = useAcpEngine({
@@ -265,8 +277,10 @@ export default function App() {
   /** A terminal agent gets only the text: its files are already typed into it. */
   const startSession = (spec: SessionSpec, first?: FirstMessage) => {
     const session = recordSession(spec);
-    if (isAcp(session)) void acp.start(session, first, acpChoices);
+    if (isAcp(session)) void acp.start(session, first, startChoices);
     else pty.start(session, spec.options ?? spawnOptionsFor(spec.agent, draft), first?.text);
+    // The picks went with the session; a later draft starts from the model picked last.
+    setAcpChoices(NO_CHOICES);
   };
 
   /**
@@ -319,6 +333,8 @@ export default function App() {
   const openNewSession = (path?: string, agentId?: string) => {
     if (path) chooseFolder(path);
     setPickedAgentId(agentId ?? null);
+    // A fresh draft: picks left from an earlier one would override the model picked last.
+    setAcpChoices(NO_CHOICES);
     setActiveSessionId("");
   };
 
@@ -433,6 +449,8 @@ export default function App() {
     else pty.interrupt(sessionId);
   };
 
+  useUnreadMarks(sessions, activeSessionId, isSessionBusy, patchSession);
+
   const sessionActions = useSessionActions({
     sessions,
     setActiveSessionId,
@@ -463,7 +481,8 @@ export default function App() {
     if (!session.acpSessionId) return;
     // Continuing an archived session brings it back into the list.
     patchSession(session.id, { status: "running", endedAt: null, exitCode: null, archivedAt: null });
-    void acp.resume(session, session.acpSessionId, message, acpChoices);
+    void acp.resume(session, session.acpSessionId, message, startChoices);
+    setAcpChoices(NO_CHOICES);
   };
 
   /** Sends to the active session, continues it when it can be resumed, or starts a new one. */
@@ -506,10 +525,11 @@ export default function App() {
     draftAgent,
     draft,
     setDraft,
-    acpChoices,
+    acpChoices: startChoices,
     setAcpChoices,
     agentOptions: state.agentOptions,
     acp,
+    onPick: rememberPick,
   });
   const isActiveTerminal = isActiveRunning && !isAcp(activeSession);
   // A terminal agent shows its real screen: live, or the last one while it is still in memory.

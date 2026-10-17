@@ -110,6 +110,8 @@ export interface Session {
   archivedAt?: number | null;
   /** The user renamed the session, so the agent's own titles no longer replace its name. */
   namedByUser?: boolean;
+  /** The agent finished while the user was looking at another session. */
+  hasUnread?: boolean;
 }
 
 export interface Settings {

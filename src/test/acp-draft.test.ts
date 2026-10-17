@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { changesToApply, draftInfo, NO_CHOICES, type AgentOptions } from "../lib/acp-draft";
+import { changesToApply, draftInfo, NO_CHOICES, rememberedChoice, withPreferred, type AgentOptions } from "../lib/acp-draft";
 
 const qwen: AgentOptions = {
   modes: {
@@ -59,5 +59,73 @@ describe("changesToApply", () => {
 
   it("leaves the mode alone when asked to keep it, as for a fork", () => {
     expect(changesToApply(qwen, NO_CHOICES, false)).toEqual([]);
+  });
+});
+
+describe("the model picked last", () => {
+  it("starts the next session with it, while the agent still offers it", () => {
+    const remembered = { ...qwen, preferredConfig: { model: "qwen3-max" } };
+
+    expect(withPreferred(NO_CHOICES, remembered).config).toEqual({ model: "qwen3-max" });
+    expect(changesToApply(qwen, withPreferred(NO_CHOICES, remembered), false)).toEqual([
+      { kind: "config", configId: "model", value: "qwen3-max" },
+    ]);
+  });
+
+  it("gives way to a pick made for this session, and to a model the agent no longer offers", () => {
+    const remembered = { ...qwen, preferredConfig: { model: "qwen3-max" } };
+    const gone = { ...qwen, preferredConfig: { model: "retired-model" } };
+
+    expect(withPreferred({ config: { model: "qwen3-coder" } }, remembered).config).toEqual({ model: "qwen3-coder" });
+    expect(withPreferred(NO_CHOICES, gone).config).toEqual({});
+  });
+
+  const withEffort: AgentOptions = {
+    ...qwen,
+    configOptions: [
+      ...qwen.configOptions,
+      {
+        id: "reasoning_effort",
+        name: "Effort",
+        category: "thought_level",
+        currentValue: "low",
+        options: [
+          { value: "low", name: "Low" },
+          { value: "high", name: "High" },
+        ],
+      },
+      { id: "mode", name: "Mode", category: "mode", currentValue: "default", options: [{ value: "yolo", name: "YOLO" }] },
+    ],
+  };
+
+  it("remembers model and effort picks, not other settings", () => {
+    const afterModel = rememberedChoice(withEffort, "model", "qwen3-max");
+    expect(afterModel).toEqual({ model: "qwen3-max" });
+    expect(rememberedChoice({ ...withEffort, preferredConfig: afterModel ?? {} }, "reasoning_effort", "high")).toEqual({
+      model: "qwen3-max",
+      reasoning_effort: "high",
+    });
+    expect(rememberedChoice(withEffort, "mode", "yolo")).toBeNull();
+  });
+
+  it("keeps what the agent settled on after a change, such as an effort a model change reset", () => {
+    const remembered = { ...withEffort, preferredConfig: { reasoning_effort: "high" } };
+    const reported = withEffort.configOptions.map((o) =>
+      o.id === "model" ? { ...o, currentValue: "qwen3-max" } : o.id === "reasoning_effort" ? { ...o, currentValue: "low" } : o,
+    );
+
+    expect(rememberedChoice(remembered, "model", "qwen3-max", reported)).toEqual({
+      model: "qwen3-max",
+      reasoning_effort: "low",
+    });
+  });
+
+  it("applies the model before the effort, whose choices depend on it", () => {
+    const choices = { config: { reasoning_effort: "high", model: "qwen3-max" } };
+
+    expect(changesToApply(withEffort, choices, false)).toEqual([
+      { kind: "config", configId: "model", value: "qwen3-max" },
+      { kind: "config", configId: "reasoning_effort", value: "high" },
+    ]);
   });
 });

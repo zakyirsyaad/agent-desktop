@@ -7,6 +7,8 @@ export interface AgentOptions {
   modes: AcpModes | null;
   configOptions: AcpConfigOption[];
   commands?: SlashCommand[];
+  /** The model the user picked last, by config id, to start the next session with. */
+  preferredConfig?: Readonly<Record<string, string>>;
 }
 
 /** What the user picked in the composer before the agent runs: a mode and config values by id. */
@@ -24,6 +26,43 @@ export type AcpChange = SafeModeChange;
  * last time, with the user's picks, and the safe mode the session will be
  * switched to when the user picked none.
  */
+/** The settings a pick of is kept for the next session: the model and the reasoning effort. */
+const REMEMBERED_CATEGORIES = new Set(['model', 'thought_level']);
+
+/**
+ * The user's picks plus the model and effort they picked last, while the
+ * agent still offers them: agents such as Qwen Code change these for one
+ * session only, so without this every new session would start on its defaults.
+ */
+export function withPreferred(choices: AcpChoices, options: AgentOptions | undefined): AcpChoices {
+  const preferred = Object.entries(options?.preferredConfig ?? {}).filter(([configId, value]) =>
+    options?.configOptions.find((o) => o.id === configId)?.options.some((c) => c.value === value),
+  );
+  if (preferred.length === 0) return choices;
+  return { ...choices, config: { ...Object.fromEntries(preferred), ...choices.config } };
+}
+
+/**
+ * The remembered picks after the user picked `value` for `configId`, or null
+ * when that setting is not kept. With what the agent reported after the
+ * change, its settled values are kept instead: a model change can reset the
+ * effort, and the next session should start as this one ended.
+ */
+export function rememberedChoice(
+  options: AgentOptions | undefined,
+  configId: string,
+  value: string,
+  reported: readonly AcpConfigOption[] = [],
+): Record<string, string> | null {
+  const known = reported.length > 0 ? reported : (options?.configOptions ?? []);
+  const isKept = (option: AcpConfigOption | undefined) =>
+    option?.category !== undefined && REMEMBERED_CATEGORIES.has(option.category);
+  if (!isKept(known.find((o) => o.id === configId))) return null;
+  if (reported.length === 0) return { ...options?.preferredConfig, [configId]: value };
+  const settled = reported.filter(isKept).map((o): [string, string] => [o.id, o.currentValue]);
+  return { ...options?.preferredConfig, ...Object.fromEntries(settled) };
+}
+
 export function draftInfo(options: AgentOptions, choices: AcpChoices): Pick<AcpSessionInfo, 'modes' | 'configOptions'> {
   const safe = safeModeToApply(options);
   const modes = options.modes && {
@@ -53,7 +92,10 @@ export function changesToApply(
     const offered = info.modes.availableModes.some((m) => m.id === pickedMode);
     if (offered && pickedMode !== info.modes.currentModeId) changes.push({ kind: 'mode', modeId: pickedMode });
   }
-  for (const [configId, value] of Object.entries(choices.config)) {
+  // The model goes first: other choices, such as the effort, depend on it.
+  const isModel = (configId: string) => info.configOptions.find((o) => o.id === configId)?.category === 'model';
+  const picks = Object.entries(choices.config).sort(([a], [b]) => Number(isModel(b)) - Number(isModel(a)));
+  for (const [configId, value] of picks) {
     const option = info.configOptions.find((o) => o.id === configId);
     const offered = option?.options.some((o) => o.value === value);
     if (option && offered && option.currentValue !== value) changes.push({ kind: 'config', configId, value });

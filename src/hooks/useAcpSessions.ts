@@ -257,9 +257,11 @@ export function useAcpSessions(handlers: AcpHandlers) {
   );
 
   const setConfigOption = useCallback(
-    async (sessionId: string, configId: string, value: string) => {
+    /** Resolves with the options the agent reports after the change, which may be none. */
+    async (sessionId: string, configId: string, value: string): Promise<AcpConfigOption[]> => {
       const options = toConfigOptions(await invoke('acp_set_config_option', { sessionId, configId, value }));
       patch(sessionId, (c) => ({ ...c, configOptions: options.length > 0 ? options : c.configOptions }));
+      return options;
     },
     [patch],
   );

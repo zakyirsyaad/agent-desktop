@@ -70,6 +70,7 @@ fn session(id: &str, status: &str) -> SessionRecord {
         pinned: false,
         archived_at: None,
         named_by_user: false,
+        has_unread: false,
     }
 }
 
@@ -558,13 +559,19 @@ fn keeps_a_sessions_pin_archive_and_user_given_name() {
     state.sessions[0].pinned = true;
     state.sessions[0].archived_at = Some(1_700_000_000_999);
     state.sessions[0].named_by_user = true;
+    state.sessions[0].has_unread = true;
 
     store.save_state(&state).expect("save state");
     let raw = fs::read_to_string(root.join("state.json")).expect("read state file");
     let loaded = store.load_state().expect("load state");
 
     assert_eq!(loaded, state);
-    for key in ["\"pinned\"", "\"archivedAt\"", "\"namedByUser\""] {
+    for key in [
+        "\"pinned\"",
+        "\"archivedAt\"",
+        "\"namedByUser\"",
+        "\"hasUnread\"",
+    ] {
         assert!(raw.contains(key), "state.json is missing {key}: {raw}");
     }
     fs::remove_dir_all(&root).ok();
@@ -579,7 +586,7 @@ fn drops_malformed_organizing_fields_but_keeps_the_saved_sessions() {
         r#"{"version":1,"settings":{"defaultAgentId":null,"onboardingCompleted":true},"recentFolders":[],
             "sessions":[{"id":"s-1","name":"Fix login","profileId":"claude","cwd":"/tmp/project",
                          "status":"terminated","createdAt":1,
-                         "pinned":"yes","archivedAt":"2026-10-17","namedByUser":1}]}"#,
+                         "pinned":"yes","archivedAt":"2026-10-17","namedByUser":1,"hasUnread":"no"}]}"#,
     )
     .expect("write state file");
     let store = AppStore::new(root.clone());
@@ -594,5 +601,6 @@ fn drops_malformed_organizing_fields_but_keeps_the_saved_sessions() {
     assert!(!state.sessions[0].pinned);
     assert_eq!(state.sessions[0].archived_at, None);
     assert!(!state.sessions[0].named_by_user);
+    assert!(!state.sessions[0].has_unread);
     fs::remove_dir_all(&root).ok();
 }

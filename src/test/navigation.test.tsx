@@ -293,6 +293,28 @@ describe("Navigation and Layout Components", () => {
         expect(screen.queryByRole("list", { name: "Archived sessions" })).toBeNull();
       });
 
+      it("marks a session whose agent finished while another was open, unless it is working again", () => {
+        const withUnread: Session[] = [{ ...base, id: "done", name: "Done work", createdAt: 5, hasUnread: true }, ...organized];
+        const { rerender } = render(
+          <Sidebar workspaces={workspaces} sessions={withUnread} agents={mockProfiles} onNewSession={() => {}} onSelectSession={() => {}} />
+        );
+        const row = () => screen.getByText("Done work").closest("li") as HTMLElement;
+        expect(within(row()).getByLabelText("New activity")).toBeDefined();
+
+        rerender(
+          <Sidebar
+            workspaces={workspaces}
+            sessions={withUnread}
+            agents={mockProfiles}
+            onNewSession={() => {}}
+            onSelectSession={() => {}}
+            isSessionBusy={(id) => id === "done"}
+          />
+        );
+        expect(within(row()).queryByLabelText("New activity")).toBeNull();
+        expect(within(row()).getByLabelText("Agent working")).toBeDefined();
+      });
+
       it("finds pinned and archived sessions when searching", () => {
         renderOrganized();
 

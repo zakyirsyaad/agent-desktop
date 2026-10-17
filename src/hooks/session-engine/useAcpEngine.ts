@@ -8,7 +8,7 @@ import {
   resolvePermissionCard,
   type PermissionRequestPayload,
 } from '../../lib/acp-events';
-import { changesToApply, NO_CHOICES, type AcpChoices, type AgentOptions } from '../../lib/acp-draft';
+import { changesToApply, NO_CHOICES, type AcpChange, type AcpChoices, type AgentOptions } from '../../lib/acp-draft';
 import { findCard, titleFromPrompt, userMessage, withoutMessage } from '../../lib/session-helpers';
 import { createId } from '../../lib/ids';
 import { toCommands, useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
@@ -162,12 +162,27 @@ export function useAcpEngine({
    * Applies the user's picks, or the safe mode. A failed change leaves the
    * agent as it started, which the composer shows; the session stays usable.
    */
-  const applyChanges = async (sessionId: string, info: AcpSessionInfo, options: LaunchOptions) => {
-    for (const change of changesToApply(info, options.choices, options.applySafeMode)) {
-      if (isStopped(sessionId)) return;
+  /** Resolves with the agent's options once the changes are made, as it last reported them. */
+  const applyChanges = async (
+    sessionId: string,
+    info: AcpSessionInfo,
+    options: LaunchOptions,
+  ): Promise<Pick<AcpSessionInfo, 'modes' | 'configOptions'>> => {
+    let current: Pick<AcpSessionInfo, 'modes' | 'configOptions'> = info;
+    const done = new Set<string>();
+    const keyOf = (change: AcpChange) => (change.kind === 'mode' ? 'mode' : `config:${change.configId}`);
+    // One change at a time, each checked against the agent's latest state: what
+    // is on offer can depend on what was just set (an effort on its model).
+    for (;;) {
+      const change = changesToApply(current, options.choices, options.applySafeMode).find((c) => !done.has(keyOf(c)));
+      if (!change || isStopped(sessionId)) return current;
+      done.add(keyOf(change));
       try {
         if (change.kind === 'mode') await acp.setMode(sessionId, change.modeId);
-        else await acp.setConfigOption(sessionId, change.configId, change.value);
+        else {
+          const reported = await acp.setConfigOption(sessionId, change.configId, change.value);
+          if (reported.length > 0) current = { ...current, configOptions: reported };
+        }
       } catch (error) {
         // Stopped meanwhile (the user pressed Stop): the failure is expected.
         if (!isStopped(sessionId)) reportError(`Could not apply the session settings: ${String(error)}`);
@@ -207,7 +222,12 @@ export function useAcpEngine({
       }
       rememberOptions(session.profileId, { modes: info.modes, configOptions: info.configOptions });
       if (info.acpSessionId) patchSession(session.id, { acpSessionId: info.acpSessionId });
-      await applyChanges(session.id, info, options);
+      const settled = await applyChanges(session.id, info, options);
+      // What the agent offers now, after the picks: an effort list follows its model,
+      // and the next draft should offer what this session ended up with.
+      if (settled.configOptions !== info.configOptions) {
+        rememberOptions(session.profileId, { configOptions: settled.configOptions });
+      }
       if (message && !isStopped(session.id)) await prompt(session.id, message);
     } finally {
       markStarting(session.id, false);
@@ -289,9 +309,12 @@ export function useAcpEngine({
     acp.setMode(sessionId, modeId).catch(reportFailure('Could not change the mode'));
   };
 
-  const setConfigOption = (sessionId: string, configId: string, value: string) => {
-    acp.setConfigOption(sessionId, configId, value).catch(reportFailure('Could not change the setting'));
-  };
+  /** Resolves with the options the agent reports after the change, or null when it failed (reported). */
+  const setConfigOption = (sessionId: string, configId: string, value: string) =>
+    acp.setConfigOption(sessionId, configId, value).catch((error: unknown) => {
+      reportFailure('Could not change the setting')(error);
+      return null;
+    });
 
   const isBusy = (sessionId: string) => starting.has(sessionId) || acp.isBusy(sessionId);
 

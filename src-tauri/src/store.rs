@@ -134,6 +134,9 @@ pub struct SessionRecord {
     /// The user renamed the session, so the agent's own titles no longer replace its name.
     #[serde(deserialize_with = "lenient_bool")]
     pub named_by_user: bool,
+    /// The agent finished while the user was looking at another session.
+    #[serde(deserialize_with = "lenient_bool")]
+    pub has_unread: bool,
 }
 
 /// A session's worktree: the workspace it was made from, its root and branch.

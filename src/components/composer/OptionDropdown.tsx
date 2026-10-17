@@ -21,6 +21,14 @@ export interface OptionDropdownProps {
   disabledTitle?: string;
 }
 
+/**
+ * What the chip shows: a label without a leading "[Provider]" tag (Qwen
+ * Code's model names carry one), so the narrow chip shows the model itself.
+ */
+function chipLabelOf(label: string): string {
+  return label.replace(/^\[[^\]]*\]\s*/, "") || label;
+}
+
 /** A compact composer dropdown listing only options the agent really supports. */
 export function OptionDropdown({
   label,
@@ -46,11 +54,11 @@ export function OptionDropdown({
         aria-expanded={isOpen}
         onClick={onToggle}
         disabled={disabled}
-        title={disabled ? disabledTitle : undefined}
+        title={disabled ? disabledTitle : valueLabel}
         className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 transition-colors cursor-pointer border border-neutral-800/60 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
       >
         {icon}
-        <span className="max-w-[120px] truncate">{valueLabel}</span>
+        <span className="max-w-[140px] truncate">{chipLabelOf(valueLabel)}</span>
         <ChevronDown size={11} className="text-neutral-500" />
       </button>
 
