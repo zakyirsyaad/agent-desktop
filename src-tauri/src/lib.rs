@@ -10,6 +10,7 @@ pub mod spawn_plan;
 pub mod store;
 pub mod user_profile;
 pub mod windows;
+pub mod workspace_files;
 pub mod workspaces;
 pub mod worktrees;
 
@@ -278,6 +279,7 @@ pub fn run() {
             files::list_directory,
             files::open_path,
             files::remember_workspace,
+            workspace_files::workspace_files,
             git_info::workspace_details,
             changes::session_changes,
             changes::session_file_diff,

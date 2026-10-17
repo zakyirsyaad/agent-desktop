@@ -2,7 +2,10 @@ import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square, Bot } from "lucide-react";
 import { OptionDropdown } from "./composer/OptionDropdown";
 import { FolderPicker, type FolderControl } from "./composer/FolderPicker";
-import { appendAttachments, withAttachments } from "../lib/attachments";
+import { appendAttachments, formatAttachmentPath, withAttachments } from "../lib/attachments";
+import { joinWorkspacePath } from "../lib/files";
+import { MentionMenu } from "./composer/MentionMenu";
+import { useMentionMenu, type MentionSource } from "./composer/useMentionMenu";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ContextMeter } from "./composer/ContextMeter";
 import { isRiskyMode, type ComposerControl, type ComposerControls } from "../lib/composer-controls";
@@ -56,6 +59,8 @@ export interface ComposerDockProps {
   folder?: FolderControl;
   /** Before a new session starts: the agent it runs. */
   agent?: ComposerControl;
+  /** The workspace whose files `@` lists; mentions are off when absent. */
+  mentions?: MentionSource;
 }
 
 export function ComposerDock({
@@ -73,6 +78,7 @@ export function ComposerDock({
   contextUsage,
   folder,
   agent,
+  mentions,
 }: ComposerDockProps) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -122,8 +128,34 @@ export function ComposerDock({
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
+  const mentionMenu = useMentionMenu(mentions);
   const query = slashQuery(text);
   const menuCommands = query === null || isMenuDismissed ? [] : matchingCommands(commands, query);
+
+  /** Replaces the @word with the file: a chip for an agent that takes files, its path otherwise. */
+  const pickFile = (relativePath: string) => {
+    const { mention } = mentionMenu;
+    if (!mention || !mentions) return;
+    const path = joinWorkspacePath(mentions.root, relativePath);
+    const before = text.slice(0, mention.start);
+    const after = text.slice(mention.end);
+    if (attachAsFiles) {
+      setText(before + after.replace(/^ /, ""));
+      setAttachments((current) => withAttachments(current, [path]));
+    } else {
+      setText(`${before}${formatAttachmentPath(path)} ${after.replace(/^ /, "")}`);
+    }
+    mentionMenu.close();
+    textareaRef.current?.focus();
+  };
+
+  // The file list, when an @word is typed, takes the keys before the command list.
+  const openMenu =
+    mentionMenu.files.length > 0
+      ? { count: mentionMenu.files.length, pick: (i: number) => pickFile(mentionMenu.files[i]), dismiss: mentionMenu.close }
+      : menuCommands.length > 0
+        ? { count: menuCommands.length, pick: (i: number) => pickCommand(menuCommands[i]), dismiss: () => setIsMenuDismissed(true) }
+        : null;
   const hint = pendingHint(commands, text);
 
   const pickCommand = (command: SlashCommand) => {
@@ -131,14 +163,14 @@ export function ComposerDock({
     textareaRef.current?.focus();
   };
 
-  /** Arrow keys, Enter/Tab and Escape drive the command menu while it is open. */
+  /** Arrow keys, Enter/Tab and Escape drive the open menu (files or commands). */
   const handleMenuKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    if (menuCommands.length === 0) return false;
-    const last = menuCommands.length - 1;
+    if (!openMenu) return false;
+    const last = openMenu.count - 1;
     if (e.key === "ArrowDown") setHighlighted((i) => (i >= last ? 0 : i + 1));
     else if (e.key === "ArrowUp") setHighlighted((i) => (i <= 0 ? last : i - 1));
-    else if (e.key === "Enter" || e.key === "Tab") pickCommand(menuCommands[Math.min(highlighted, last)]);
-    else if (e.key === "Escape") setIsMenuDismissed(true);
+    else if (e.key === "Enter" || e.key === "Tab") openMenu.pick(Math.min(highlighted, last));
+    else if (e.key === "Escape") openMenu.dismiss();
     else return false;
     e.preventDefault();
     return true;
@@ -156,6 +188,7 @@ export function ComposerDock({
     setText(e.target.value);
     setHighlighted(0);
     setIsMenuDismissed(false);
+    mentionMenu.update(e.target.value, e.target.selectionStart ?? e.target.value.length);
     e.target.style.height = "auto";
     e.target.style.height = `${Math.min(e.target.scrollHeight, MAX_PROMPT_HEIGHT_PX)}px`;
   };
@@ -197,8 +230,12 @@ export function ComposerDock({
             />
           </div>
         )}
-        {menuCommands.length > 0 && (
-          <SlashCommandMenu commands={menuCommands} highlighted={highlighted} onPick={pickCommand} />
+        {mentionMenu.files.length > 0 ? (
+          <MentionMenu files={mentionMenu.files} highlighted={highlighted} onPick={pickFile} />
+        ) : (
+          menuCommands.length > 0 && (
+            <SlashCommandMenu commands={menuCommands} highlighted={highlighted} onPick={pickCommand} />
+          )
         )}
         <textarea
           ref={textareaRef}
