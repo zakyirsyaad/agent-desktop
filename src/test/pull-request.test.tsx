@@ -10,6 +10,7 @@ function tauriInternals(): TauriInternals {
 }
 
 const OPEN: PullRequestStatus = {
+  branch: "feat/x",
   number: 12,
   title: "Move session actions",
   url: "https://github.com/o/r/pull/12",
@@ -25,7 +26,7 @@ describe("usePullRequest", () => {
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) =>
       cmd === "session_pull_request" ? Promise.resolve(OPEN) : Promise.resolve(undefined),
     );
-    const { result, rerender } = renderHook(({ turns }) => usePullRequest("/w/api", turns, () => {}), {
+    const { result, rerender } = renderHook(({ turns }) => usePullRequest("/w/api", "feat/x", turns, () => {}), {
       initialProps: { turns: 0 },
     });
 
@@ -45,10 +46,10 @@ describe("usePullRequest", () => {
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) =>
       cmd === "session_pull_request" ? Promise.reject("gh: not logged in") : Promise.resolve(undefined),
     );
-    renderHook(() => usePullRequest(undefined, 0, onError));
+    renderHook(() => usePullRequest(undefined, "feat/x", 0, onError));
     expect(spy.mock.calls.some(([cmd]) => cmd === "session_pull_request")).toBe(false);
 
-    const { result, rerender } = renderHook(({ turns }) => usePullRequest("/w/api", turns, onError), {
+    const { result, rerender } = renderHook(({ turns }) => usePullRequest("/w/api", "feat/x", turns, onError), {
       initialProps: { turns: 0 },
     });
     await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
@@ -72,7 +73,7 @@ describe("usePullRequest after a failure", () => {
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) =>
       cmd === "session_pull_request" ? (fail ? Promise.reject("offline") : Promise.resolve(OPEN)) : Promise.resolve(undefined),
     );
-    const { result } = renderHook(() => usePullRequest("/w/api", 0, () => {}));
+    const { result } = renderHook(() => usePullRequest("/w/api", "feat/x", 0, () => {}));
     await waitFor(() => expect(result.current).toEqual(OPEN));
 
     fail = true;
@@ -81,6 +82,27 @@ describe("usePullRequest after a failure", () => {
     });
 
     await waitFor(() => expect(result.current).toBeNull());
+  });
+});
+
+describe("usePullRequest across a branch switch", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("shows a pull request only beside the branch it belongs to, and reads it again for a new branch", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) =>
+      cmd === "session_pull_request" ? Promise.resolve(OPEN) : Promise.resolve(undefined),
+    );
+    const { result, rerender } = renderHook(({ branch }) => usePullRequest("/w/api", branch, 0, () => {}), {
+      initialProps: { branch: "feat/x" },
+    });
+    await waitFor(() => expect(result.current).toEqual(OPEN));
+
+    spy.mockImplementation(() => new Promise(() => {}));
+    rerender({ branch: "feat/y" });
+
+    // The new branch's answer is still coming: the old branch's pull request is not shown beside it.
+    expect(result.current).toBeNull();
+    expect(spy.mock.calls.filter(([cmd]) => cmd === "session_pull_request")).toHaveLength(2);
   });
 });
 

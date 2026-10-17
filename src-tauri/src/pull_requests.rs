@@ -27,6 +27,8 @@ pub struct CheckCounts {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestStatus {
+    /// The branch it was looked up for, so the UI shows it only beside that branch.
+    pub branch: String,
     pub number: u64,
     pub title: String,
     pub url: String,
@@ -69,7 +71,7 @@ fn check_bucket(check: &Value) -> Option<&'static str> {
 
 /// The first pull request in `gh pr list --json …` output, or None when the
 /// branch has none.
-pub fn parse_pull_request(listed: &str) -> Result<Option<PullRequestStatus>, String> {
+pub fn parse_pull_request(listed: &str, branch: &str) -> Result<Option<PullRequestStatus>, String> {
     let parsed: Value =
         serde_json::from_str(listed).map_err(|e| format!("Unexpected answer from gh: {e}"))?;
     let Some(pr) = parsed.as_array().and_then(|list| list.first()) else {
@@ -96,6 +98,7 @@ pub fn parse_pull_request(listed: &str) -> Result<Option<PullRequestStatus>, Str
             .to_string()
     };
     Ok(Some(PullRequestStatus {
+        branch: branch.to_string(),
         number: pr.get("number").and_then(Value::as_u64).unwrap_or(0),
         title: text("title"),
         url: text("url"),
@@ -139,7 +142,7 @@ pub fn branch_pull_request(
             Err(error)
         };
     }
-    parse_pull_request(&String::from_utf8_lossy(&output.stdout))
+    parse_pull_request(&String::from_utf8_lossy(&output.stdout), branch)
 }
 
 /// The pull request for the branch checked out in a session's folder right
@@ -174,10 +177,11 @@ mod tests {
               {"__typename":"StatusContext","state":"PENDING"},
               {"__typename":"StatusContext","state":"SUCCESS"}]}]"#;
 
-        let pr = parse_pull_request(listed)
+        let pr = parse_pull_request(listed, "feat/x")
             .expect("parse")
             .expect("a pull request");
 
+        assert_eq!(pr.branch, "feat/x");
         assert_eq!(pr.number, 13);
         assert_eq!(pr.state, "open");
         assert!(!pr.is_draft);
@@ -204,12 +208,12 @@ mod tests {
 
     #[test]
     fn has_no_pull_request_for_an_empty_list() {
-        assert_eq!(parse_pull_request("[]").expect("parse"), None);
+        assert_eq!(parse_pull_request("[]", "feat/x").expect("parse"), None);
     }
 
     #[test]
     fn reports_an_answer_it_cannot_read() {
-        assert!(parse_pull_request("not json").is_err());
+        assert!(parse_pull_request("not json", "feat/x").is_err());
     }
 
     #[test]
@@ -219,7 +223,7 @@ mod tests {
               {"status":"COMPLETED","conclusion":"NEUTRAL"},
               {"status":"COMPLETED","conclusion":"CANCELLED"}]}]"#;
 
-        let pr = parse_pull_request(listed)
+        let pr = parse_pull_request(listed, "feat/x")
             .expect("parse")
             .expect("a pull request");
 

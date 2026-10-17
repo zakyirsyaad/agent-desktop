@@ -4,6 +4,8 @@ import { useLatest } from './useLatest';
 
 /** A branch's pull request and how its checks stand, as the backend reads it with the GitHub CLI. */
 export interface PullRequestStatus {
+  /** The branch it was looked up for. */
+  branch: string;
   number: number;
   title: string;
   url: string;
@@ -25,6 +27,8 @@ const REFRESH_INTERVAL_MS = 60_000;
  */
 export function usePullRequest(
   path: string | undefined,
+  /** The branch the top bar shows: a pull request is shown only beside its own branch. */
+  branch: string | undefined,
   refreshKey: number,
   onError: (message: string) => void,
 ): PullRequestStatus | null {
@@ -62,8 +66,10 @@ export function usePullRequest(
       window.removeEventListener('focus', load);
       clearInterval(timer);
     };
-  }, [path, refreshKey, onErrorRef]);
+    // A new branch is read at once, not at the next refresh.
+  }, [path, branch, refreshKey, onErrorRef]);
 
-  // Never show one folder's pull request under another while it loads.
-  return state && state.path === path ? state.pullRequest : null;
+  // Never show one folder's or branch's pull request beside another's while it loads.
+  const pullRequest = state && state.path === path ? state.pullRequest : null;
+  return pullRequest && pullRequest.branch === branch ? pullRequest : null;
 }

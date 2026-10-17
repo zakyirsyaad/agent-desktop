@@ -143,6 +143,7 @@ describe("Window chrome wiring", () => {
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "session_pull_request"
         ? Promise.resolve({
+            branch: "main",
             number: 7,
             title: "Changes panel",
             url: "https://github.com/o/r/pull/7",

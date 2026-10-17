@@ -225,7 +225,12 @@ export default function App() {
 
   const turnsEnded = useTurnsEnded(Boolean(activeSessionId) && isSessionBusy(activeSessionId));
   const sidePanel = useSidePanel(filesFolder?.path, isRepository, turnsEnded, reportError);
-  const pullRequest = usePullRequest(isRepository ? shownFolderPath : undefined, turnsEnded, reportError);
+  const pullRequest = usePullRequest(
+    isRepository ? shownFolderPath : undefined,
+    workspaceDetails?.branch ?? undefined,
+    turnsEnded,
+    reportError,
+  );
   // The agent may have checked out another branch: the top bar reads it again after each turn.
   useEffect(() => setBranchCheck(turnsEnded), [turnsEnded]);
   /**
