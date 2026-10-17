@@ -125,6 +125,9 @@ export default function App() {
   // A session shows the folder it runs in, even one no longer in the recents.
   const shownFolderPath = activeSession?.cwd ?? activeWorkspacePath;
   const workspaceDetails = useWorkspaceDetails(shownFolderPath);
+  // Files and Reveal act on the folder the top bar names; the backend only
+  // browses known workspaces, so a folder gone from the recents has neither.
+  const filesFolder = workspaces.find((ws) => ws.path === shownFolderPath);
 
   // An ended ACP session continues where it left off with its own agent.
   const isResumable =
@@ -372,8 +375,8 @@ export default function App() {
   };
 
   const handleRevealFolder = () => {
-    if (!activeWorkspacePath) return;
-    invoke("reveal_in_finder", { path: activeWorkspacePath }).catch((error) => {
+    if (!filesFolder) return;
+    invoke("reveal_in_finder", { path: filesFolder.path }).catch((error) => {
       setNotice(`Could not open the folder: ${String(error)}`);
     });
   };
@@ -520,8 +523,8 @@ export default function App() {
         canGoForward={navigation.canGoForward}
         onBack={() => navigateTo(isNewSessionDraft ? lastViewedSessionId : navigation.back())}
         onForward={() => navigateTo(navigation.forward())}
-        onToggleFiles={activeWorkspacePath ? () => setIsFilesOpen((prev) => !prev) : undefined}
-        isFilesOpen={isFilesOpen && Boolean(activeWorkspacePath)}
+        onToggleFiles={filesFolder ? () => setIsFilesOpen((prev) => !prev) : undefined}
+        isFilesOpen={isFilesOpen && Boolean(filesFolder)}
         onPopout={activeSession ? handlePopout : undefined}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -536,7 +539,6 @@ export default function App() {
           onNewSession={() => openNewSession()}
           onSelectSession={handleSelectSession}
           onNewSessionIn={openNewSession}
-          onSelectWorkspace={chooseFolder}
           defaultAgentId={defaultAgentId ?? undefined}
           onOpenFolder={() => void openFolder()}
           isSessionBusy={isSessionBusy}
@@ -636,11 +638,11 @@ export default function App() {
           </div>
 
         </article>
-        {isFilesOpen && activeWorkspace && activeWorkspacePath && (
+        {isFilesOpen && filesFolder && (
           <FilesPanel
-            key={activeWorkspacePath}
-            rootPath={activeWorkspacePath}
-            rootName={activeWorkspace.name}
+            key={filesFolder.path}
+            rootPath={filesFolder.path}
+            rootName={filesFolder.name}
             onClose={() => setIsFilesOpen(false)}
             onInsertPath={(path) => composerRef.current?.insertPaths([path])}
             onRevealRoot={handleRevealFolder}

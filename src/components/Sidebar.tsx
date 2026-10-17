@@ -12,8 +12,6 @@ export interface SidebarProps {
   agents: AgentProfile[];
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
-  /** Makes a folder the active workspace (its files, the next session's folder). */
-  onSelectWorkspace?: (path: string) => void;
   /** Opens a new session in that folder with that agent; each workspace's + button is hidden when absent. */
   onNewSessionIn?: (path: string, agentId: string) => void;
   /** The agent the + menu marks as the default. */
@@ -292,7 +290,6 @@ export function Sidebar({
   onNewSession,
   onSelectSession,
   onNewSessionIn,
-  onSelectWorkspace,
   defaultAgentId,
   onOpenFolder,
   isSessionBusy = () => false,
@@ -381,11 +378,7 @@ export function Sidebar({
               isActive={group.path === activeWorkspacePath}
               // A search shows every match, folded or not.
               isExpanded={query !== "" || !collapsedPaths.has(group.path)}
-              onToggle={() => {
-                // A heading both folds its sessions and makes its folder the active one.
-                toggle(group.path);
-                onSelectWorkspace?.(group.path);
-              }}
+              onToggle={() => toggle(group.path)}
               newSessionMenu={
                 onNewSessionIn && (
                   <NewSessionMenu
