@@ -79,6 +79,10 @@ describe("First run and project folders", () => {
     await click(sidebar().getByRole("button", { name: "Open folder" }));
     expect(sidebar().getByText("new-project")).toBeDefined();
     await click(screen.getByRole("button", { name: "+ New session" }));
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: "get started" } });
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Prompt" }), { key: "Enter" });
+    });
 
     const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { cwd: string };
     expect(args.cwd).toBe("/Users/test/code/new-project");

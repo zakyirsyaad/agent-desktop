@@ -1,4 +1,4 @@
-import type { ActionCard, ChatMessage, PersistedState, Session } from '../types';
+import type { ActionCard, ChatMessage, PersistedState, Session, Workspace } from '../types';
 import { createId } from './ids';
 
 /** Id of the most recently created session, or "" when there is none. */
@@ -50,10 +50,16 @@ export function removeSessionFrom(state: PersistedState, sessionId: string): Per
   return { ...state, sessions: state.sessions.filter((s) => s.id !== sessionId) };
 }
 
+/** A session with the sessions forked from it, newest first. */
+export interface SessionNode {
+  session: Session;
+  children: SessionNode[];
+}
+
 export interface SessionGroup {
   path: string;
   name: string;
-  sessions: Session[];
+  sessions: SessionNode[];
 }
 
 /** Last path segment, e.g. "/Users/a/project/" -> "project". */
@@ -61,26 +67,61 @@ export function folderNameOf(path: string): string {
   return path.split(/[\\/]+/).filter(Boolean).pop() ?? path;
 }
 
+const newestFirst = (a: Session, b: Session) => b.createdAt - a.createdAt;
+
+/** One folder's sessions as a tree: a fork sits under its source when that is in the same folder. */
+function forkTree(sessions: readonly Session[]): SessionNode[] {
+  const ids = new Set(sessions.map((s) => s.id));
+  const childrenOf = new Map<string, Session[]>();
+  const roots: Session[] = [];
+  for (const session of [...sessions].sort(newestFirst)) {
+    const parent = session.forkedFrom;
+    if (parent && parent !== session.id && ids.has(parent)) {
+      childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), session]);
+    } else {
+      roots.push(session);
+    }
+  }
+  const seen = new Set<string>();
+  const toNode = (session: Session): SessionNode => {
+    seen.add(session.id);
+    const children = (childrenOf.get(session.id) ?? []).filter((c) => !seen.has(c.id));
+    return { session, children: children.map(toNode) };
+  };
+  const tree = roots.map(toNode);
+  // Sessions forked from each other in a loop (only a hand-edited file has
+  // that) are reached from no root; each loop is listed from its newest one.
+  for (const session of [...sessions].sort(newestFirst)) {
+    if (!seen.has(session.id)) tree.push(toNode(session));
+  }
+  return tree;
+}
+
 /**
- * Groups sessions by their folder, newest session first inside a group. The
- * active folder's group comes first, the rest by their most recent session.
+ * The sidebar's tree: every workspace in the given order, each with its
+ * sessions newest first and forks nested under their source. Folders that
+ * only sessions still point at (a folder removed from the recents) follow,
+ * the one with the newest session first.
  */
-export function groupSessionsByFolder(
+export function groupSessionsByWorkspace(
+  workspaces: readonly Workspace[],
   sessions: readonly Session[],
-  activePath: string | undefined,
 ): SessionGroup[] {
   const byPath = new Map<string, Session[]>();
   for (const session of sessions) {
     byPath.set(session.cwd, [...(byPath.get(session.cwd) ?? []), session]);
   }
-  const newestFirst = (a: Session, b: Session) => b.createdAt - a.createdAt;
-  const groups = [...byPath.entries()].map(([path, list]) => ({
+  const known = new Set(workspaces.map((ws) => ws.path));
+  const newestIn = (path: string) => Math.max(...(byPath.get(path) ?? []).map((s) => s.createdAt));
+  const others = [...byPath.keys()]
+    .filter((path) => !known.has(path))
+    .sort((a, b) => newestIn(b) - newestIn(a))
+    .map((path) => ({ name: folderNameOf(path), path }));
+  return [...workspaces, ...others].map(({ name, path }) => ({
     path,
-    name: folderNameOf(path),
-    sessions: [...list].sort(newestFirst),
+    name,
+    sessions: forkTree(byPath.get(path) ?? []),
   }));
-  const rank = (g: SessionGroup) => (g.path === activePath ? Infinity : g.sessions[0].createdAt);
-  return groups.sort((a, b) => rank(b) - rank(a));
 }
 
 /** Sets the status of one action card (or every card when no id is given). */

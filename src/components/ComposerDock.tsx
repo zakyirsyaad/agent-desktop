@@ -1,6 +1,7 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
-import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square } from "lucide-react";
+import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square, Bot } from "lucide-react";
 import { OptionDropdown } from "./composer/OptionDropdown";
+import { FolderPicker, type FolderControl } from "./composer/FolderPicker";
 import { appendAttachments, withAttachments } from "../lib/attachments";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ContextMeter } from "./composer/ContextMeter";
@@ -14,7 +15,7 @@ const PLACEHOLDER = "Prompt the agent...";
 const PLACEHOLDER_WITH_COMMANDS = "Type / for commands, or prompt the agent...";
 const LOCKED_OPTIONS_TITLE = "Applies to the next new session: CLI flags are set when an agent starts.";
 
-type OpenDropdown = "permission" | "model" | "effort" | null;
+type OpenDropdown = "folder" | "agent" | "permission" | "model" | "effort" | null;
 
 /** What other parts of the window can do to the composer. */
 export interface ComposerHandle {
@@ -50,6 +51,10 @@ export interface ComposerDockProps {
   attachAsFiles?: boolean;
   /** How much of the agent's context window is used; the meter shows once the agent reports it. */
   contextUsage?: ContextUsage;
+  /** Before a new session starts: the folder it starts in. */
+  folder?: FolderControl;
+  /** Before a new session starts: the agent it runs. */
+  agent?: ComposerControl;
 }
 
 export function ComposerDock({
@@ -65,6 +70,8 @@ export function ComposerDock({
   commands = [],
   attachAsFiles = false,
   contextUsage,
+  folder,
+  agent,
 }: ComposerDockProps) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -87,7 +94,7 @@ export function ComposerDock({
 
   const toggle = (name: Exclude<OpenDropdown, null>) =>
     setOpenDropdown((current) => (current === name ? null : name));
-  const dropdownProps = (name: Exclude<OpenDropdown, null>, control: ComposerControl) => ({
+  const dropdownProps = (name: Exclude<OpenDropdown, null>, control: ComposerControl, isLockable = true) => ({
     options: control.options,
     selected: control.selected,
     isOpen: openDropdown === name,
@@ -96,7 +103,7 @@ export function ComposerDock({
       control.onChange(value);
       setOpenDropdown(null);
     },
-    disabled: optionsLocked,
+    disabled: isLockable && optionsLocked,
     disabledTitle: LOCKED_OPTIONS_TITLE,
   });
 
@@ -218,6 +225,19 @@ export function ComposerDock({
               >
                 <Plus size={15} />
               </button>
+            )}
+
+            {folder && (
+              <FolderPicker {...folder} isOpen={openDropdown === "folder"} onToggle={() => toggle("folder")} />
+            )}
+
+            {agent && (
+              <OptionDropdown
+                label="Agent"
+                align="left"
+                icon={<Bot size={12} className="text-neutral-400" />}
+                {...dropdownProps("agent", agent, false)}
+              />
             )}
 
             {permission && (

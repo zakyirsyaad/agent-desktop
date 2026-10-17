@@ -9,9 +9,11 @@ import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
 import { AuthPanel, type AuthStatus } from "./components/AuthPanel";
 import type { AuthMethod } from "./lib/acp-auth";
 import { TerminalView } from "./components/TerminalView";
+import { NewSessionView } from "./components/workspace/NewSessionView";
 import { createPtyOutputStore } from "./lib/pty-output-store";
 import { isAwaitingPermission } from "./lib/acp-events";
 import {
+  folderNameOf,
   isAutoName,
   mostRecentSessionId,
   nextSessionName,
@@ -29,6 +31,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { ProfileFooter } from "./components/ProfileFooter";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useUserProfile } from "./hooks/useUserProfile";
+import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
@@ -83,6 +86,8 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
+  /** The agent picked for the next new session; null means the default from Settings. */
+  const [pickedAgentId, setPickedAgentId] = useState<string | null>(null);
   const [acpChoices, setAcpChoices] = useState<AcpChoices>(NO_CHOICES);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isFilesOpen, setIsFilesOpen] = useState(false);
@@ -111,8 +116,13 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
-  const newSessionAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId);
+  const defaultAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId);
+  const newSessionAgentId =
+    agents.find((a) => a.id === pickedAgentId && a.detected)?.id ?? defaultAgentId;
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
+  // No session is selected: the window shows a new one, not started until its first message.
+  const isNewSessionDraft = !activeSession;
+  const workspaceDetails = useWorkspaceDetails(activeWorkspacePath);
 
   // An ended ACP session continues where it left off with its own agent.
   const isResumable =
@@ -252,9 +262,11 @@ export default function App() {
     else pty.start(session, spec.options ?? spawnOptionsFor(spec.agent, draft), first?.text);
   };
 
+  /** Starts a session in the active workspace with the agent picked for it. */
   const handleNewSession = (first?: FirstMessage) => {
+    const folder = activeWorkspace;
     // The backend rejects relative and missing cwds, so never spawn without a path.
-    if (!activeWorkspace || !activeWorkspacePath) {
+    if (!folder) {
       setNotice(NO_FOLDER_NOTICE);
       return;
     }
@@ -262,15 +274,32 @@ export default function App() {
       setNotice(NO_AGENT_NOTICE);
       return;
     }
-    rememberFolder(activeWorkspace);
+    rememberFolder(folder);
+    setPickedAgentId(null);
     startSession(
       {
         agent: newSessionAgent,
-        cwd: activeWorkspacePath,
+        cwd: folder.path,
         name: first ? titleFor(first) : nextSessionName(sessions),
       },
       first,
     );
+  };
+
+  /** Makes `path` the active workspace; a folder only old sessions still use is added back to the recents. */
+  const chooseFolder = (path: string) => {
+    if (workspaces.some((ws) => ws.path === path)) selectWorkspace(path);
+    else rememberFolder({ name: folderNameOf(path), path });
+  };
+
+  /**
+   * Shows a new, empty session: the folder and agent can still be changed in
+   * the composer, and the agent starts with the first message.
+   */
+  const openNewSession = (path?: string, agentId?: string) => {
+    if (path) chooseFolder(path);
+    setPickedAgentId(agentId ?? null);
+    setActiveSessionId("");
   };
 
   /**
@@ -478,6 +507,8 @@ export default function App() {
       <TopBar
         sessionName={activeSession?.name}
         workspaceName={activeWorkspace?.name}
+        workspacePath={activeWorkspacePath}
+        branch={workspaceDetails?.branch ?? undefined}
         canGoBack={navigation.canGoBack}
         canGoForward={navigation.canGoForward}
         onBack={() => navigateTo(navigation.back())}
@@ -495,9 +526,10 @@ export default function App() {
           sessions={sessions}
           activeSessionId={activeSessionId}
           agents={agents}
-          onNewSession={() => handleNewSession()}
+          onNewSession={() => openNewSession()}
           onSelectSession={handleSelectSession}
-          onSelectWorkspace={selectWorkspace}
+          onNewSessionIn={openNewSession}
+          defaultAgentId={defaultAgentId ?? undefined}
           onOpenFolder={() => void openFolder()}
           isSessionBusy={isSessionBusy}
           isSessionWaiting={isSessionWaiting}
@@ -545,6 +577,12 @@ export default function App() {
               onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
               isWorking={isSessionBusy(activeSessionId) && !isAwaitingPermission(currentMessages)}
             />
+          ) : isNewSessionDraft ? (
+            <NewSessionView
+              workspace={activeWorkspace}
+              details={workspaceDetails}
+              agentName={newSessionAgent?.name}
+            />
           ) : (
             <EmptySessionState />
           )}
@@ -572,6 +610,20 @@ export default function App() {
               handleRef={composerRef}
               commands={composerCommands}
               contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
+              folder={
+                isNewSessionDraft
+                  ? { folders: workspaces, selectedPath: activeWorkspacePath, onSelect: chooseFolder, onOpenFolder: () => void openFolder() }
+                  : undefined
+              }
+              agent={
+                isNewSessionDraft && newSessionAgent
+                  ? {
+                      options: agents.filter((a) => a.detected).map((a) => ({ value: a.id, label: a.name })),
+                      selected: newSessionAgent.id,
+                      onChange: (agentId) => setPickedAgentId(agentId ?? null),
+                    }
+                  : undefined
+              }
             />
           </div>
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { folderNameOf, groupSessionsByFolder, mostRecentSessionId, nextSessionName, isAutoName, titleFromPrompt } from "../lib/session-helpers";
+import { folderNameOf, groupSessionsByWorkspace, mostRecentSessionId, nextSessionName, isAutoName, titleFromPrompt } from "../lib/session-helpers";
+import type { SessionNode } from "../lib/session-helpers";
 import type { Session } from "../types";
 
 function session(id: string, cwd: string, createdAt: number): Session {
@@ -17,20 +18,64 @@ describe("session helpers", () => {
     expect(mostRecentSessionId([])).toBe("");
   });
 
-  it("groups sessions by folder with the active folder first and newest sessions first", () => {
-    const groups = groupSessionsByFolder(
-      [session("old-api", "/w/api", 1), session("web", "/w/web", 9), session("new-api", "/w/api", 5)],
-      "/w/api",
+  const fork = (id: string, cwd: string, createdAt: number, parent: string) => ({
+    ...session(id, cwd, createdAt),
+    forkedFrom: parent,
+  });
+  const ids = (nodes: SessionNode[]): unknown[] =>
+    nodes.map((n) => (n.children.length ? [n.session.id, ids(n.children)] : n.session.id));
+
+  it("lists every workspace in its own order, even one without sessions", () => {
+    const groups = groupSessionsByWorkspace(
+      [{ name: "web", path: "/w/web" }, { name: "api", path: "/w/api" }],
+      [session("old-api", "/w/api", 1), session("new-api", "/w/api", 5)],
     );
 
-    expect(groups.map((g) => g.name)).toEqual(["api", "web"]);
-    expect(groups[0].sessions.map((s) => s.id)).toEqual(["new-api", "old-api"]);
+    expect(groups.map((g) => g.name)).toEqual(["web", "api"]);
+    expect(groups[0].sessions).toEqual([]);
+    expect(ids(groups[1].sessions)).toEqual(["new-api", "old-api"]);
   });
 
-  it("orders inactive folders by their most recent session", () => {
-    const groups = groupSessionsByFolder([session("a", "/w/a", 1), session("b", "/w/b", 2)], undefined);
+  it("adds folders that only sessions know, newest first, after the workspaces", () => {
+    const groups = groupSessionsByWorkspace(
+      [{ name: "web", path: "/w/web" }],
+      [session("a", "/w/a", 1), session("b", "/w/b", 2)],
+    );
 
-    expect(groups.map((g) => g.name)).toEqual(["b", "a"]);
+    expect(groups.map((g) => g.path)).toEqual(["/w/web", "/w/b", "/w/a"]);
+  });
+
+  it("nests forks under the session they came from", () => {
+    const groups = groupSessionsByWorkspace(
+      [{ name: "api", path: "/w/api" }],
+      [
+        session("root", "/w/api", 1),
+        fork("fork-a", "/w/api", 2, "root"),
+        fork("fork-of-fork", "/w/api", 3, "fork-a"),
+        fork("fork-b", "/w/api", 4, "root"),
+        session("other", "/w/api", 5),
+      ],
+    );
+
+    expect(ids(groups[0].sessions)).toEqual(["other", ["root", ["fork-b", ["fork-a", ["fork-of-fork"]]]]]);
+  });
+
+  it("shows a fork at the top level when its source is gone or in another folder", () => {
+    const groups = groupSessionsByWorkspace(
+      [{ name: "api", path: "/w/api" }],
+      [fork("orphan", "/w/api", 2, "deleted"), session("elsewhere", "/w/web", 1), fork("moved", "/w/api", 3, "elsewhere")],
+    );
+
+    expect(ids(groups[0].sessions)).toEqual(["moved", "orphan"]);
+  });
+
+  it("still lists sessions whose fork links form a loop", () => {
+    const groups = groupSessionsByWorkspace(
+      [{ name: "api", path: "/w/api" }],
+      [fork("a", "/w/api", 1, "b"), fork("b", "/w/api", 2, "a")],
+    );
+
+    expect(ids(groups[0].sessions)).toEqual([["b", ["a"]]]);
   });
 });
 
