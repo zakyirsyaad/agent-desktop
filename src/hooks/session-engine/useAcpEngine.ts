@@ -163,8 +163,8 @@ export function useAcpEngine({
   /**
    * Applies the user's picks, or the safe mode. A failed change leaves the
    * agent as it started, which the composer shows; the session stays usable.
+   * Resolves with the agent's options once the changes are made, as it last reported them.
    */
-  /** Resolves with the agent's options once the changes are made, as it last reported them. */
   const applyChanges = async (
     sessionId: string,
     info: AcpSessionInfo,
@@ -275,8 +275,11 @@ export function useAcpEngine({
     });
   };
 
-  /** Ends the agent process (deleted session, or a start the user stopped); later events from it are ignored. */
-  /** Ends the agent; resolves with whether it stopped, after the backend has done it. */
+  /**
+   * Ends the agent process (deleted session, or a start the user stopped);
+   * later events from it are ignored. Resolves with whether it stopped, after
+   * the backend has done it.
+   */
   const stop = (sessionId: string): Promise<boolean> => {
     stoppedRef.current.add(sessionId);
     return acp.stop(sessionId).then(

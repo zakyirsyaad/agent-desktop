@@ -3,7 +3,9 @@
 //! asks for or stores a token.
 
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -115,6 +117,73 @@ fn is_not_on_github(error: &str) -> bool {
     error.contains("no git remotes found") || error.contains("point to a known github host")
 }
 
+/// Longest a gh call may take: on a stalled network it is stopped, rather
+/// than left running with a thread waiting on it at every refresh.
+const GH_TIMEOUT: Duration = Duration::from_secs(20);
+const GH_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Runs gh in `dir` with stdin closed, stopping it after `GH_TIMEOUT`: its
+/// output, None for a repository that is not on GitHub, or its error.
+fn run_gh(gh: &Path, dir: &Path, args: &[String]) -> Result<Option<String>, String> {
+    run_gh_within(gh, dir, args, GH_TIMEOUT)
+}
+
+fn run_gh_within(
+    gh: &Path,
+    dir: &Path,
+    args: &[String],
+    timeout: Duration,
+) -> Result<Option<String>, String> {
+    let mut child = Command::new(gh)
+        .current_dir(dir)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Could not run gh: {e}"))?;
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        let _ = child.kill();
+        return Err("Could not read gh's output".to_string());
+    };
+    let (stdout, stderr) = (
+        env_resolver::drain_in_background(stdout),
+        env_resolver::drain_in_background(stderr),
+    );
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child
+            .try_wait()
+            .map_err(|e| format!("Could not run gh: {e}"))?
+        {
+            Some(status) => break status,
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "gh did not answer within {} seconds",
+                    timeout.as_secs()
+                ));
+            }
+            None => thread::sleep(GH_POLL_INTERVAL),
+        }
+    };
+    let text = |rx| match env_resolver::recv_by_deadline(rx, deadline) {
+        Some(Ok(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
+        _ => String::new(),
+    };
+    if !status.success() {
+        let error = text(&stderr).trim().to_string();
+        // A repository with no GitHub remote has no pull requests: nothing to show, not a failure.
+        return if is_not_on_github(&error) {
+            Ok(None)
+        } else {
+            Err(error)
+        };
+    }
+    Ok(Some(text(&stdout)))
+}
+
 /// The pull request whose head is `branch` in the repository at `dir`, newest
 /// first, merged and closed ones included; None when there is none, or when
 /// the GitHub CLI is not installed (the status is then not shown at all).
@@ -126,23 +195,22 @@ pub fn branch_pull_request(
     if branch.trim().is_empty() {
         return Ok(None);
     }
-    let output = Command::new(gh)
-        .current_dir(dir)
-        .args(["pr", "list", "--state", "all", "--limit", "1"])
-        .arg(format!("--head={branch}"))
-        .args(["--json", "number,title,url,state,isDraft,statusCheckRollup"])
-        .output()
-        .map_err(|e| format!("Could not run gh: {e}"))?;
-    if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        // A repository with no GitHub remote has no pull requests: nothing to show, not a failure.
-        return if is_not_on_github(&error) {
-            Ok(None)
-        } else {
-            Err(error)
-        };
+    let args = [
+        "pr",
+        "list",
+        "--state",
+        "all",
+        "--limit",
+        "1",
+        &format!("--head={branch}"),
+        "--json",
+        "number,title,url,state,isDraft,statusCheckRollup",
+    ]
+    .map(String::from);
+    match run_gh(gh, dir, &args)? {
+        Some(listed) => parse_pull_request(&listed, branch),
+        None => Ok(None),
     }
-    parse_pull_request(&String::from_utf8_lossy(&output.stdout), branch)
 }
 
 /// The pull request for the branch checked out in a session's folder right
@@ -175,8 +243,9 @@ pub struct PullRequestSummary {
     pub is_draft: bool,
 }
 
-/// How many of the user's pull requests the list reads, newest first.
-const LISTED_PULL_REQUESTS: &str = "30";
+/// How many of the user's pull requests the list reads, newest first: one
+/// more than it shows (30), so it can tell there are others.
+const LISTED_PULL_REQUESTS: &str = "31";
 
 /// Every pull request in `gh pr list --json number,title,url,state,isDraft`
 /// output, in the order gh gave them (newest first).
@@ -219,27 +288,71 @@ pub fn repo_pull_requests(
     let Some(gh) = env_resolver::find_binary_in_user_path("gh") else {
         return Ok(None);
     };
-    let output = Command::new(gh)
-        .current_dir(&path)
-        .args(["pr", "list", "--state", "all", "--author", "@me"])
-        .args(["--limit", LISTED_PULL_REQUESTS])
-        .args(["--json", "number,title,url,state,isDraft"])
-        .output()
-        .map_err(|e| format!("Could not run gh: {e}"))?;
-    if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return if is_not_on_github(&error) {
-            Ok(None)
-        } else {
-            Err(error)
-        };
-    }
-    parse_pull_request_list(&String::from_utf8_lossy(&output.stdout)).map(Some)
+    let args = [
+        "pr",
+        "list",
+        "--state",
+        "all",
+        "--author",
+        "@me",
+        "--limit",
+        LISTED_PULL_REQUESTS,
+        "--json",
+        "number,title,url,state,isDraft",
+    ]
+    .map(String::from);
+    run_gh(&gh, Path::new(&path), &args)?
+        .map(|listed| parse_pull_request_list(&listed))
+        .transpose()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stand-in for gh: a shell script with `body`, in a fresh folder.
+    #[cfg(unix)]
+    fn fake_gh(name: &str, body: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("fake-gh-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create fake gh folder");
+        let gh = dir.join("gh");
+        std::fs::write(&gh, format!("#!/bin/sh\n{body}\n")).expect("write fake gh");
+        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755))
+            .expect("make fake gh runnable");
+        gh
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stops_a_gh_that_does_not_answer_in_time() {
+        let gh = fake_gh("hangs", "sleep 30");
+        let started = Instant::now();
+
+        let result = run_gh_within(&gh, &std::env::temp_dir(), &[], Duration::from_millis(200));
+
+        assert!(result.expect_err("a timeout").contains("did not answer"));
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reads_gh_output_and_takes_a_repository_off_github_as_none() {
+        let listing = fake_gh("lists", "echo '[]'");
+        let off_github = fake_gh("off-github", "echo 'no git remotes found' >&2; exit 1");
+        let failing = fake_gh("fails", "echo 'gh auth login' >&2; exit 4");
+        let dir = std::env::temp_dir();
+
+        assert_eq!(
+            run_gh(&listing, &dir, &[]).expect("run"),
+            Some("[]\n".to_string())
+        );
+        assert_eq!(run_gh(&off_github, &dir, &[]).expect("run"), None);
+        assert_eq!(
+            run_gh(&failing, &dir, &[]).expect_err("a failure"),
+            "gh auth login"
+        );
+    }
 
     #[test]
     fn reads_every_pull_request_in_a_list() {

@@ -26,7 +26,7 @@ const SEVEN = [7, 6, 5, 4, 3, 2, 1].map((n) => pr(n));
 describe("useRepoPullRequests", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("reads the folder's pull requests, and again when a turn ends", async () => {
+  it("reads the folder's pull requests, and again when the window regains focus or a turn ends", async () => {
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) =>
       cmd === "repo_pull_requests" ? Promise.resolve(SEVEN) : Promise.resolve(undefined),
     );
@@ -36,9 +36,12 @@ describe("useRepoPullRequests", () => {
 
     await waitFor(() => expect(result.current).toEqual(SEVEN));
     expect(spy).toHaveBeenCalledWith("repo_pull_requests", { path: "/w/api" }, undefined);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
     rerender({ turns: 1 });
 
-    await waitFor(() => expect(spy.mock.calls.filter(([cmd]) => cmd === "repo_pull_requests")).toHaveLength(2));
+    await waitFor(() => expect(spy.mock.calls.filter(([cmd]) => cmd === "repo_pull_requests")).toHaveLength(3));
   });
 
   it("asks for nothing without a folder, and reports a failure once with no list shown", async () => {
@@ -144,8 +147,36 @@ describe("PullRequestList", () => {
     expect(menu.style.bottom).toBe("34px");
     expect(menu.style.top).toBe("");
     expect(menu.style.right).toBe("20px");
+    // Another part of the window scrolling (the chat following a reply) leaves it open.
+    const chat = document.createElement("div");
+    document.body.appendChild(chat);
+    fireEvent.scroll(chat);
+    expect(screen.getByRole("menu")).toBeDefined();
     fireEvent.scroll(window);
     expect(screen.queryByRole("menu")).toBeNull();
+    chat.remove();
+  });
+
+  it("closes its menu when the list it sits in scrolls", () => {
+    render(
+      <div data-testid="list-scroller">
+        <PullRequestList pullRequests={[pr(9)]} onOpen={() => {}} />
+      </div>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "More actions for #9" }));
+
+    fireEvent.scroll(screen.getByTestId("list-scroller"));
+
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("shows at most 30, and says there are more when the backend read one past that", () => {
+    const many = Array.from({ length: 31 }, (_, i) => pr(31 - i));
+    render(<PullRequestList pullRequests={many} onOpen={() => {}} />);
+
+    expect(screen.getByRole("button", { name: /Pull requests \(30\+\)/ })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Show all (30+)" }));
+    expect(within(screen.getByRole("list", { name: "Pull requests" })).getAllByRole("listitem")).toHaveLength(30);
   });
 
   it("folds away and back", () => {

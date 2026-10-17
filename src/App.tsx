@@ -171,8 +171,6 @@ export default function App() {
       return { ...prev, agentOptions: { ...prev.agentOptions, [profileId]: { ...known, ...options } } };
     });
 
-  // What a new or resumed session starts with: the picks made for it, else the model picked last.
-  const startChoices = draftAgent ? withPreferred(acpChoices, state.agentOptions?.[draftAgent.id]) : acpChoices;
   /** Keeps a model or effort pick (as the agent settled it), so the agent's next session starts with it too. */
   const rememberPick = (profileId: string, configId: string, value: string, reported?: AcpConfigOption[]) => {
     const preferredConfig = rememberedChoice(state.agentOptions?.[profileId], configId, value, reported);
@@ -202,7 +200,7 @@ export default function App() {
   };
 
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
-  const { rewind, restart, isRestarting, cancelRestart } = useSessionRewind({
+  const { rewind, restart, isRestarting, cancelRestart, rewoundConfigOf } = useSessionRewind({
     agents,
     transcripts,
     acp,
@@ -219,6 +217,14 @@ export default function App() {
 
   const isSessionBusy = (sessionId: string) =>
     isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) || isRestarting(sessionId) : pty.isBusy(sessionId);
+
+  // What a new or resumed session starts with: the picks made for it, else the
+  // model picked last; a rewound session's fresh agent, the model it ran with.
+  const draftOptions = draftAgent ? state.agentOptions?.[draftAgent.id] : undefined;
+  const rewoundConfig = activeSession && isResumable ? rewoundConfigOf(activeSession.id) : undefined;
+  const startChoices = draftAgent
+    ? withPreferred(acpChoices, rewoundConfig && draftOptions ? { ...draftOptions, preferredConfig: rewoundConfig } : draftOptions)
+    : acpChoices;
 
   /**
    * Dropped files: typed into a live terminal agent, otherwise added to the

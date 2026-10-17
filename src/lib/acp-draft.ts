@@ -21,13 +21,16 @@ export const NO_CHOICES: AcpChoices = { config: {} };
 
 export type AcpChange = SafeModeChange;
 
-/**
- * What the composer shows before the agent runs: the options it reported
- * last time, with the user's picks, and the safe mode the session will be
- * switched to when the user picked none.
- */
 /** The settings a pick of is kept for the next session: the model and the reasoning effort. */
 const REMEMBERED_CATEGORIES = new Set(['model', 'thought_level']);
+
+const isKept = (option: AcpConfigOption | undefined) =>
+  option?.category !== undefined && REMEMBERED_CATEGORIES.has(option.category);
+
+/** The model and effort a session runs with now, by config id. */
+export function keptConfigOf(configOptions: readonly AcpConfigOption[]): Record<string, string> {
+  return Object.fromEntries(configOptions.filter(isKept).map((o): [string, string] => [o.id, o.currentValue]));
+}
 
 /**
  * The user's picks plus the model and effort they picked last, while the
@@ -55,14 +58,16 @@ export function rememberedChoice(
   reported: readonly AcpConfigOption[] = [],
 ): Record<string, string> | null {
   const known = reported.length > 0 ? reported : (options?.configOptions ?? []);
-  const isKept = (option: AcpConfigOption | undefined) =>
-    option?.category !== undefined && REMEMBERED_CATEGORIES.has(option.category);
   if (!isKept(known.find((o) => o.id === configId))) return null;
   if (reported.length === 0) return { ...options?.preferredConfig, [configId]: value };
-  const settled = reported.filter(isKept).map((o): [string, string] => [o.id, o.currentValue]);
-  return { ...options?.preferredConfig, ...Object.fromEntries(settled) };
+  return { ...options?.preferredConfig, ...keptConfigOf(reported) };
 }
 
+/**
+ * What the composer shows before the agent runs: the options it reported
+ * last time, with the user's picks, and the safe mode the session will be
+ * switched to when the user picked none.
+ */
 export function draftInfo(options: AgentOptions, choices: AcpChoices): Pick<AcpSessionInfo, 'modes' | 'configOptions'> {
   const safe = safeModeToApply(options);
   const modes = options.modes && {

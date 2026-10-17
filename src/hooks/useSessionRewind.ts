@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { AcpChoices } from '../lib/acp-draft';
+import { keptConfigOf, type AcpChoices } from '../lib/acp-draft';
 import type { AcpEngine, FirstMessage } from './session-engine/useAcpEngine';
 import { buildForkHandoff, buildRewindContext } from '../lib/fork-handoff';
 import { createId } from '../lib/ids';
@@ -9,7 +9,7 @@ import type { AgentProfile, ChatMessage, Session } from '../types';
 export interface SessionRewindDeps {
   agents: readonly AgentProfile[];
   transcripts: Readonly<Record<string, ChatMessage[]>>;
-  acp: Pick<AcpEngine, 'start' | 'stop'>;
+  acp: Pick<AcpEngine, 'info' | 'start' | 'stop'>;
   patchSession: (sessionId: string, patch: Partial<Session>) => void;
   updateMessages: (sessionId: string, updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
   /** Puts a message back in the composer of the session it was written for. */
@@ -26,6 +26,8 @@ export interface SessionRewind {
   isRestarting: (sessionId: string) => boolean;
   /** Stop pressed before the fresh agent started: none starts, and the message goes back to the composer. */
   cancelRestart: (sessionId: string) => void;
+  /** The model and effort a rewound session ran with, for its fresh agent to start with again. */
+  rewoundConfigOf: (sessionId: string) => Readonly<Record<string, string>> | undefined;
 }
 
 /** Messages before the one with `messageId`; all of them when it is gone. */
@@ -49,6 +51,8 @@ export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
   const cancelledRef = useRef(new Set<string>());
   // The message each pending restart carries, put back in the composer the moment Stop is pressed.
   const pendingRef = useRef(new Map<string, FirstMessage>());
+  // Read before the stop forgets the agent's options: a fresh agent should not switch models.
+  const rewoundConfigRef = useRef(new Map<string, Record<string, string>>());
   const [restarting, setRestarting] = useState<ReadonlySet<string>>(() => new Set());
 
   const markRestarting = (sessionId: string, isRestarting: boolean) => {
@@ -62,7 +66,16 @@ export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
     if (message?.role !== 'user') return;
     // Done at once, while this session is still the one shown: its message goes
     // back into its own composer. The old agent's late events are ignored.
-    if (session.status === 'running') stopsRef.current.set(session.id, acp.stop(session.id));
+    const config = keptConfigOf(acp.info[session.id]?.configOptions ?? []);
+    if (Object.keys(config).length > 0) rewoundConfigRef.current.set(session.id, config);
+    if (session.status === 'running') {
+      const stopped = acp.stop(session.id);
+      stopsRef.current.set(session.id, stopped);
+      // Kept only while it is under way: a session never continued leaves nothing behind.
+      void stopped.finally(() => {
+        if (stopsRef.current.get(session.id) === stopped) stopsRef.current.delete(session.id);
+      });
+    }
     // No agent session to resume: the next message starts a fresh agent.
     patchSession(session.id, { status: 'terminated', endedAt: Date.now(), acpSessionId: null });
     updateMessages(session.id, (prev) => before(prev, messageId));
@@ -99,8 +112,8 @@ export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
         return;
       }
       await stopsRef.current.get(session.id);
-      stopsRef.current.delete(session.id);
       if (cancelledRef.current.delete(session.id)) return;
+      rewoundConfigRef.current.delete(session.id);
       // Continuing an archived session brings it back into the list.
       patchSession(session.id, { status: 'running', endedAt: null, exitCode: null, archivedAt: null });
       // The engine marks the session as starting before this returns, so it stays busy throughout.
@@ -119,5 +132,11 @@ export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
     onRestore(sessionId, message.text, message.attachments);
   };
 
-  return { rewind, restart, isRestarting: (sessionId) => restarting.has(sessionId), cancelRestart };
+  return {
+    rewind,
+    restart,
+    isRestarting: (sessionId) => restarting.has(sessionId),
+    cancelRestart,
+    rewoundConfigOf: (sessionId) => rewoundConfigRef.current.get(sessionId),
+  };
 }
