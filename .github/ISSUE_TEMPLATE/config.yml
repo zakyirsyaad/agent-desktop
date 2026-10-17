@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Install and setup help
+    url: https://github.com/zakyirsyaad/agent-desktop#requirements
+    about: Requirements, signing in to agents, and opening an unsigned build.

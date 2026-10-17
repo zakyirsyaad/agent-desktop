@@ -13,12 +13,15 @@ const DEFAULT_TOOL_PATTERN = /^(?:Running\s+|Tool:\s+|🛠\s+Tool:\s*)([A-Za-z0-
 // 2. OSC sequences: \x1b\] ... (\x07 | \x1b\\)
 // 3. Two-char escapes: \x1b[@-Z\\-_]
 // 4. Cursor / keypad / other mode controls
+// Matching terminal escape codes is the point, so their control characters are meant.
 const COMPLETE_ANSI_REGEX =
+  // eslint-disable-next-line no-control-regex
   /(?:\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[@-Z\\-_]|\x1b\([B0-2])/g;
 
 // Detects potential incomplete ANSI escape sequence at the end of a chunk:
 // e.g. trailing \x1b, \x1b[, \x1b[3, \x1b], etc.
 const TRAILING_PARTIAL_ESCAPE_REGEX =
+  // eslint-disable-next-line no-control-regex
   /\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*|[A-Z\\-_]?)$/;
 
 // Upper bound on the unfinished line remembered between chunks, so a long

@@ -56,6 +56,8 @@ export function useTranscripts(onError: (message: string) => void): TranscriptsH
         onErrorRef.current(`Failed to save the conversation: ${String(error)}`);
       });
     },
+    // scheduleSaveRef is a ref declared below (save and scheduleSave call each other): stable, and not readable here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [transcriptsRef, onErrorRef],
   );
 

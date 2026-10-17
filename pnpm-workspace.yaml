@@ -3,3 +3,5 @@ minimumReleaseAgeExclude:
 
 allowBuilds:
   esbuild: true
+  # Its install script would write git hooks unasked: run `pnpm lefthook install` to opt in.
+  lefthook: false

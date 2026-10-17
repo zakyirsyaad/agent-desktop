@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { BookOpen, CircleAlert, CircleCheck, RefreshCw } from "lucide-react";
-import { installHintFor, isAgentReady, type AgentSummary } from "../../lib/agent-readiness";
+import { RECHECK_ERROR, installHintFor, isAgentReady, type AgentSummary } from "../../lib/agent-readiness";
 import { CopyButton } from "./CopyButton";
 
 export interface AgentsStepProps {
@@ -8,7 +8,6 @@ export interface AgentsStepProps {
   onRecheckAgents: () => void | Promise<void>;
 }
 
-const RECHECK_ERROR = "Couldn't check your agents. Try again.";
 
 function InstallHintRow({ agent }: { agent: AgentSummary }) {
   const hint = installHintFor(agent);

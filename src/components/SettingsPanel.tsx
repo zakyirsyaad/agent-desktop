@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef } from "react";
-import { Folder, RotateCcw, Trash2, X } from "lucide-react";
-import { readyAgents, type AgentSummary } from "../lib/agent-readiness";
+import { useEffect, useId, useRef, useState } from "react";
+import { Folder, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
+import { RECHECK_ERROR, readyAgents, type AgentSummary } from "../lib/agent-readiness";
 import type { FolderOption } from "./onboarding/types";
 
 export interface SettingsPanelProps {
@@ -10,6 +10,8 @@ export interface SettingsPanelProps {
   onChangeDefaultAgent: (agentId: string) => void;
   onRemoveRecentFolder: (path: string) => void;
   onRunOnboarding: () => void;
+  /** Detects the agents again, after one was installed while the app runs. */
+  onRecheckAgents?: () => Promise<void>;
   onClose: () => void;
 }
 
@@ -69,8 +71,12 @@ export function SettingsPanel({
   onChangeDefaultAgent,
   onRemoveRecentFolder,
   onRunOnboarding,
+  onRecheckAgents,
   onClose,
 }: SettingsPanelProps) {
+  const [isChecking, setIsChecking] = useState(false);
+  // Shown here: the app's own notice sits behind this dialog.
+  const [checkError, setCheckError] = useState<string | null>(null);
   const titleId = useId();
   const selectId = useId();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -129,6 +135,29 @@ export function SettingsPanel({
                 </option>
               ))}
             </select>
+          )}
+          {onRecheckAgents && (
+            <button
+              type="button"
+              aria-label="Check again for installed agents"
+              disabled={isChecking}
+              onClick={() => {
+                setIsChecking(true);
+                setCheckError(null);
+                onRecheckAgents()
+                  .catch(() => setCheckError(RECHECK_ERROR))
+                  .finally(() => setIsChecking(false));
+              }}
+              className="mt-2 flex items-center gap-1.5 rounded-lg border border-neutral-800/60 px-2.5 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-amber-500/40"
+            >
+              <RefreshCw size={12} className={isChecking ? "animate-spin" : undefined} aria-hidden="true" />
+              Check again
+            </button>
+          )}
+          {checkError && (
+            <p role="alert" className="mt-1.5 text-[11px] text-red-400">
+              {checkError}
+            </p>
           )}
         </section>
 

@@ -1,0 +1,17 @@
+# Fast checks before each commit; CI runs the full suites. Opt in with
+# `pnpm lefthook install`, skip once with `LEFTHOOK=0 git commit`.
+# Runs only from hooks someone installed; never rewrites them on its own.
+no_auto_install: true
+
+pre-commit:
+  parallel: true
+  commands:
+    types:
+      glob: "*.{ts,tsx}"
+      run: pnpm exec tsc --noEmit
+    eslint:
+      glob: "*.{ts,tsx,js,mjs}"
+      run: pnpm exec eslint --max-warnings=0 {staged_files}
+    rustfmt:
+      glob: "src-tauri/**/*.rs"
+      run: cd src-tauri && cargo fmt --check
