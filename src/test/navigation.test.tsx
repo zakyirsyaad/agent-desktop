@@ -113,6 +113,27 @@ describe("Navigation and Layout Components", () => {
       expect(screen.queryByText(/iwang/i)).toBeNull();
     });
 
+    it("shows each session's agent by its logo, and the detected agents too", () => {
+      render(
+        <Sidebar
+          workspaces={workspaces}
+          sessions={mockSessions}
+          agents={mockProfiles}
+          onNewSession={() => {}}
+          onSelectSession={() => {}}
+        />
+      );
+
+      const claudeRow = within(screen.getByText("New session (fork)").closest("li") as HTMLElement);
+      // The logo itself (small SVGs are inlined by Vite), not the generic icon.
+      expect(claudeRow.getByRole("img", { name: "Claude Code" }).tagName.toLowerCase()).toBe("img");
+      // Oh-My-Pi has no official logo: a generic agent icon names it instead.
+      const ompRow = within(screen.getByText("Market analyzer refactor").closest("li") as HTMLElement);
+      expect(ompRow.getByRole("img", { name: "Oh-My-Pi" }).tagName.toLowerCase()).toBe("svg");
+      const detected = within(screen.getByRole("list", { name: "Detected agents" }));
+      expect(detected.getByRole("img", { name: "Claude Code" })).toBeDefined();
+    });
+
     it("shows a workspace without sessions, and its + asks which agent to start there", () => {
       const onNewSessionIn = vi.fn();
       render(

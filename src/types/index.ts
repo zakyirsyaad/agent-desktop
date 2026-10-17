@@ -74,6 +74,8 @@ export interface ContextUsage {
   used: number;
   /** The window's size; 0 when the agent does not know it. */
   size: number;
+  /** What the session has cost so far, when the agent reports it. */
+  cost?: { amount: number; currency: string };
 }
 
 /** A git worktree a session runs in: its own checkout, on its own branch. */

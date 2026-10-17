@@ -9,10 +9,12 @@ import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
 import { AuthPanel } from "./components/AuthPanel";
 import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
+import { WorkspaceSummary } from "./components/workspace/WorkspaceSummary";
 import { ChangesPanel } from "./components/changes/ChangesPanel";
 import { useSidePanel } from "./hooks/useSidePanel";
 import { useTurnsEnded } from "./hooks/useTurnsEnded";
 import { usePullRequest } from "./hooks/usePullRequest";
+import { useRepoPullRequests } from "./hooks/useRepoPullRequests";
 import { useAgentAuth } from "./hooks/useAgentAuth";
 import { createSessionWorktree } from "./lib/session-worktree";
 import { EMPTY_DRAFT, spawnOptionsFor, titleFor, type SessionSpec } from "./lib/session-start";
@@ -41,6 +43,7 @@ import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
 import { useSessionFork } from "./hooks/useSessionFork";
+import { useSessionRewind } from "./hooks/useSessionRewind";
 import { useUnreadMarks } from "./hooks/useUnreadMarks";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
@@ -124,12 +127,10 @@ export default function App() {
     workspaces.find((ws) => ws.path === shownFolderPath) ??
     (activeSession ? { name: folderNameOf(activeSession.cwd), path: activeSession.cwd } : undefined);
 
-  // An ended ACP session continues where it left off with its own agent.
+  // An ended ACP session continues with its own agent: in the agent's own
+  // session when it has one, else (rewound) in a fresh one handed the conversation.
   const isResumable =
-    isAcp(activeSession) &&
-    activeSession?.status !== "running" &&
-    Boolean(activeSession?.acpSessionId) &&
-    activeAgent?.detected === true;
+    isAcp(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
   const draftAgent = isResumable ? activeAgent : newSessionAgent;
 
   // A model or effort chosen for one agent means nothing to another one.
@@ -201,8 +202,23 @@ export default function App() {
   };
 
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
+  const { rewind, restart, isRestarting, cancelRestart } = useSessionRewind({
+    agents,
+    transcripts,
+    acp,
+    patchSession,
+    updateMessages,
+    // The user may have opened another session meanwhile: the message goes back
+    // into the session it was written for, not that one's composer.
+    onRestore: (sessionId, text, attachments) => {
+      setActiveSessionId(sessionId);
+      composerRef.current?.restore(text, attachments);
+    },
+    onNotice: setNotice,
+  });
+
   const isSessionBusy = (sessionId: string) =>
-    isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) : pty.isBusy(sessionId);
+    isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) || isRestarting(sessionId) : pty.isBusy(sessionId);
 
   /**
    * Dropped files: typed into a live terminal agent, otherwise added to the
@@ -231,6 +247,15 @@ export default function App() {
     turnsEnded,
     reportError,
   );
+  // Read only while the Changes panel shows them.
+  const repoPullRequests = useRepoPullRequests(
+    sidePanel.open === "changes" && isRepository ? filesFolder?.path : undefined,
+    turnsEnded,
+    reportError,
+  );
+  const openPullRequest = (url: string) => {
+    invoke("open_external_url", { url }).catch((error) => setNotice(`Could not open the pull request: ${String(error)}`));
+  };
   // The agent may have checked out another branch: the top bar reads it again after each turn.
   useEffect(() => setBranchCheck(turnsEnded), [turnsEnded]);
   /**
@@ -394,7 +419,9 @@ export default function App() {
 
   /** Stops the agent's current turn; the session stays open for the next message. */
   const handleInterrupt = (sessionId: string) => {
-    if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
+    // A rewound session's fresh agent has not started yet: only its start is called off.
+    if (isRestarting(sessionId)) cancelRestart(sessionId);
+    else if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
     else pty.interrupt(sessionId);
   };
 
@@ -425,9 +452,16 @@ export default function App() {
     }
   };
 
-  /** Continues an ended ACP session: a fresh agent process loads it, then gets the message. */
+  /**
+   * Continues an ended ACP session: a fresh agent process loads it, then gets
+   * the message. A rewound one has no agent session left to load.
+   */
   const resumeSession = (session: Session, message: FirstMessage) => {
-    if (!session.acpSessionId) return;
+    if (!session.acpSessionId) {
+      void restart(session, message, startChoices);
+      setAcpChoices(NO_CHOICES);
+      return;
+    }
     // Continuing an archived session brings it back into the list.
     patchSession(session.id, { status: "running", endedAt: null, exitCode: null, archivedAt: null });
     void acp.resume(session, session.acpSessionId, message, startChoices);
@@ -514,9 +548,7 @@ export default function App() {
         workspacePath={shownFolderPath}
         branch={workspaceDetails?.branch ?? undefined}
         pullRequest={pullRequest}
-        onOpenPullRequest={(url) => {
-          invoke("open_external_url", { url }).catch((error) => setNotice(`Could not open the pull request: ${String(error)}`));
-        }}
+        onOpenPullRequest={openPullRequest}
         canGoBack={canGoBack}
         canGoForward={navigation.canGoForward}
         onBack={() => navigateTo(isNewSessionDraft ? lastViewedSessionId : navigation.back())}
@@ -590,6 +622,16 @@ export default function App() {
               messages={currentMessages}
               agentName={activeAgent?.name}
               onForkBranch={(messageId) => void forkSession(messageId)}
+              onRewind={isAcp(activeSession) ? (messageId) => void rewind(activeSession, messageId) : undefined}
+              header={
+                <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 px-4 py-3">
+                  <WorkspaceSummary
+                    name={folderNameOf(workspacePathOf(activeSession))}
+                    path={shownFolderPath ?? activeSession.cwd}
+                    details={workspaceDetails}
+                  />
+                </div>
+              }
               onSendPtyInput={(input) => void pty.sendRaw(activeSessionId, input)}
               onApproveAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "approved")}
               onRejectAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "rejected")}
@@ -666,6 +708,8 @@ export default function App() {
             version={sidePanel.changes.version}
             onReload={sidePanel.changes.reload}
             onClose={sidePanel.close}
+            pullRequests={repoPullRequests}
+            onOpenPullRequest={openPullRequest}
           />
         )}
         {sidePanel.open === "files" && filesFolder && (

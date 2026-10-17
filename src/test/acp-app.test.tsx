@@ -677,6 +677,202 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_fork_session")).toHaveLength(0);
   });
 
+  /** Clicks a user message's Rewind, then confirms it. */
+  async function rewindTo(text: string) {
+    const yours = screen.getByText(text, { selector: "p" }).closest("[data-testid^='chat-message-']") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(yours).getByRole("button", { name: "Rewind to here" }));
+    });
+    await act(async () => {
+      fireEvent.click(within(yours).getByRole("button", { name: "Confirm rewind" }));
+    });
+  }
+
+  it("rewinds in place: the agent ends, the conversation goes back to before the message, which returns to the composer", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+
+    await rewindTo("plan the parser");
+
+    expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toContainEqual({ sessionId });
+    const chat = within(screen.getByTestId("chat-canvas-container"));
+    expect(chat.queryByText("plan the parser")).toBeNull();
+    expect(chat.getByText(FIRST_MESSAGE, { selector: "p" })).toBeDefined();
+    expect(prompt().value).toBe("plan the parser");
+    // Still the one session: no fork in the sidebar.
+    expect(within(screen.getByRole("complementary")).queryByText(`${FIRST_MESSAGE} (fork)`)).toBeNull();
+    expect(callsTo(spy, "acp_start_session")).toHaveLength(1);
+  });
+
+  it("asks before rewinding, and a first click alone changes nothing", async () => {
+    const spy = await renderWithQwen();
+    await startQwenSession(spy);
+    const first = screen.getByText(FIRST_MESSAGE, { selector: "p" }).closest("[data-testid^='chat-message-']") as HTMLElement;
+
+    await act(async () => {
+      fireEvent.click(within(first).getByRole("button", { name: "Rewind to here" }));
+    });
+
+    expect(callsTo(spy, "acp_stop_session")).toHaveLength(0);
+    expect(within(first).getByRole("button", { name: "Confirm rewind" })).toBeDefined();
+  });
+
+  it("continues a rewound session in a fresh agent, handed the conversation left but showing only the new message", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await rewindTo("plan the parser");
+
+    await send("plan the lexer");
+
+    await waitFor(() => expect(callsTo(spy, "acp_start_session")).toHaveLength(2));
+    // The same session, with a fresh agent.
+    expect(callsTo(spy, "acp_start_session")[1][1]).toMatchObject({ sessionId });
+    const handoff = String(callsTo(spy, "write_fork_handoff")[0][1]?.content);
+    expect(handoff).toContain(FIRST_MESSAGE);
+    expect(handoff).not.toContain("plan the parser");
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(3));
+    const sent = String(callsTo(spy, "acp_prompt")[2][1]?.text);
+    expect(sent).toContain(String(callsTo(spy, "write_fork_handoff")[0][1]?.handoffId));
+    expect(sent.endsWith("plan the lexer")).toBe(true);
+    const chat = within(screen.getByTestId("chat-canvas-container"));
+    expect(chat.getByText("plan the lexer", { selector: "p" })).toBeDefined();
+    expect(chat.queryByText(/Read the file/)).toBeNull();
+  });
+
+  it("keeps the message in the composer when the conversation cannot be handed to a fresh agent", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await rewindTo("plan the parser");
+    spy.mockImplementation((cmd, args) =>
+      cmd === "write_fork_handoff" ? Promise.reject("disk full") : realInvoke(cmd, args),
+    );
+
+    await send("plan the lexer");
+
+    expect(await screen.findByText(/Could not continue the session: disk full/)).toBeDefined();
+    expect(prompt().value).toBe("plan the lexer");
+    expect(callsTo(spy, "acp_start_session")).toHaveLength(1);
+  });
+
+  it("takes no second message while a rewound session's fresh agent is being handed the conversation", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await rewindTo("plan the parser");
+    let finishHandoff: (path: string) => void = () => {};
+    spy.mockImplementation((cmd, args) =>
+      cmd === "write_fork_handoff"
+        ? new Promise((resolve) => {
+            finishHandoff = resolve;
+          })
+        : realInvoke(cmd, args),
+    );
+
+    await send("plan the lexer");
+    await send("and the tokens");
+
+    expect(callsTo(spy, "write_fork_handoff")).toHaveLength(1);
+    expect(prompt().value).toBe("and the tokens");
+    await act(async () => {
+      finishHandoff("/fake/app-data/handoffs/rewind.md");
+    });
+    await waitFor(() => expect(callsTo(spy, "acp_start_session")).toHaveLength(2));
+  });
+
+  it("starts no agent when Stop is pressed while a rewound session's restart is pending, and keeps the message", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await rewindTo("plan the parser");
+    let finishHandoff: (path: string) => void = () => {};
+    spy.mockImplementation((cmd, args) =>
+      cmd === "write_fork_handoff"
+        ? new Promise((resolve) => {
+            finishHandoff = resolve;
+          })
+        : realInvoke(cmd, args),
+    );
+    await send("plan the lexer");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    });
+    // Back at once, so it is there to edit while the wait goes on.
+    expect(prompt().value).toBe("plan the lexer");
+    await act(async () => {
+      fireEvent.change(prompt(), { target: { value: "a newer draft" } });
+    });
+    await act(async () => {
+      finishHandoff("/fake/app-data/handoffs/rewind.md");
+    });
+
+    expect(callsTo(spy, "acp_start_session")).toHaveLength(1);
+    expect(callsTo(spy, "acp_cancel")).toHaveLength(0);
+    // The end of the wait leaves the draft typed meanwhile alone.
+    expect(prompt().value).toBe("a newer draft");
+    expect(screen.queryByRole("button", { name: "Stop agent" })).toBeNull();
+  });
+
+  it("puts an unsent message back in its own session when the handoff fails after the user moved on", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await rewindTo("plan the parser");
+    let failHandoff: (error: string) => void = () => {};
+    spy.mockImplementation((cmd, args) =>
+      cmd === "write_fork_handoff"
+        ? new Promise((_, reject) => {
+            failHandoff = reject;
+          })
+        : realInvoke(cmd, args),
+    );
+    await send("plan the lexer");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    await act(async () => {
+      failHandoff("disk full");
+    });
+
+    expect(screen.queryByRole("heading", { name: "New session" })).toBeNull();
+    expect(within(screen.getByTestId("chat-canvas-container")).getByText(FIRST_MESSAGE, { selector: "p" })).toBeDefined();
+    expect(prompt().value).toBe("plan the lexer");
+  });
+
+  it("rewinds to the first message to an empty session, which starts afresh without a handoff", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+
+    await rewindTo(FIRST_MESSAGE);
+    expect(prompt().value).toBe(FIRST_MESSAGE);
+    await send("start over");
+
+    await waitFor(() => expect(callsTo(spy, "acp_start_session")).toHaveLength(2));
+    expect(callsTo(spy, "acp_start_session")[1][1]).toMatchObject({ sessionId });
+    expect(callsTo(spy, "write_fork_handoff")).toHaveLength(0);
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(2));
+    expect(callsTo(spy, "acp_prompt")[1][1]).toMatchObject({ text: "start over" });
+  });
+
+  it("shows the session's folder and branch above its conversation", async () => {
+    const spy = await renderWithQwen();
+    await startQwenSession(spy);
+
+    const workspace = within(within(screen.getByTestId("chat-canvas-container")).getByRole("group", { name: "Workspace" }));
+    expect(workspace.getByText("ai-perpetual-trading")).toBeDefined();
+    expect(await workspace.findByLabelText("Branch main")).toBeDefined();
+  });
+
   it("stays busy until the first prompt is out, so a second message cannot slip in", async () => {
     const spy = await renderWithQwen();
     let finishSetMode: () => void = () => {};
@@ -1042,6 +1238,22 @@ describe("ACP sessions in the app", () => {
     await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
 
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
+  it("shows the session's cost in the context details when the agent reports it", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+
+    await acpEvent({
+      sessionId,
+      kind: "update",
+      update: { sessionUpdate: "usage_update", used: 1_000, size: 10_000, cost: { amount: 1.5, currency: "USD" } },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Context details" }));
+    });
+
+    expect(within(screen.getByRole("dialog", { name: "Context usage" })).getByText("$1.50")).toBeDefined();
   });
 
   it("shows the context the agent has used, as it reports it", async () => {

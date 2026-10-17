@@ -41,7 +41,9 @@ function buildActivityLines(message: ChatMessage): string[] {
   const cardLines = card
     ? [`- Approval requested: ${card.prompt} (${card.status})`]
     : [];
-  return [...toolLines, ...cardLines];
+  // The files themselves are not copied: their paths let the new agent read them again.
+  const attachmentLines = (message.attachments ?? []).map((path) => `- Attached: ${path}`);
+  return [...attachmentLines, ...toolLines, ...cardLines];
 }
 
 function buildSection(message: ChatMessage): string {
@@ -110,5 +112,17 @@ export function buildForkPrompt(handoffPath: string): string {
   return (
     `Read the file "${safePath}" for the context of a previous session, ` +
     "then continue from where it left off. Reply briefly that you are ready."
+  );
+}
+
+/**
+ * What a rewound session's fresh agent is told ahead of the user's message:
+ * the conversation so far is in the handoff, and the message follows.
+ */
+export function buildRewindContext(handoffPath: string): string {
+  const safePath = handoffPath.replace(LINE_BREAK_PATTERN, " ");
+  return (
+    `Read the file "${safePath}" for this conversation so far, then answer my message below. ` +
+    "Do not mention the file."
   );
 }

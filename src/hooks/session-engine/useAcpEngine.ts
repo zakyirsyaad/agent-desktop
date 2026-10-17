@@ -40,6 +40,8 @@ function sessionTitleOf(update: unknown): string | undefined {
 export interface FirstMessage {
   text: string;
   attachments?: readonly string[];
+  /** Sent to the agent ahead of the text but not shown: what a rewound session's fresh agent is handed. */
+  context?: string;
 }
 
 export type AttentionReason = 'needs-answer' | 'finished' | 'failed';
@@ -139,9 +141,9 @@ export function useAcpEngine({
   const reportFailure = (what: string) => (error: unknown) => reportError(`${what}: ${String(error)}`);
 
   /** Prompts the agent with a message already shown in the chat; removes it if the prompt is refused. */
-  const prompt = async (sessionId: string, message: ChatMessage): Promise<boolean> => {
+  const prompt = async (sessionId: string, message: ChatMessage, context?: string): Promise<boolean> => {
     try {
-      await acp.prompt(sessionId, message.content, message.attachments);
+      await acp.prompt(sessionId, context ? `${context}\n\n${message.content}` : message.content, message.attachments);
       return true;
     } catch (error) {
       updateMessages(sessionId, (prev) => withoutMessage(prev, message.id));
@@ -228,7 +230,7 @@ export function useAcpEngine({
       if (settled.configOptions !== info.configOptions) {
         rememberOptions(session.profileId, { configOptions: settled.configOptions });
       }
-      if (message && !isStopped(session.id)) await prompt(session.id, message);
+      if (message && !isStopped(session.id)) await prompt(session.id, message, options.first?.context);
     } finally {
       markStarting(session.id, false);
     }

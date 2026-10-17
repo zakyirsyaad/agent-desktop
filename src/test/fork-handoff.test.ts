@@ -3,6 +3,7 @@ import {
   MAX_HANDOFF_CHARS,
   buildForkHandoff,
   buildForkPrompt,
+  buildRewindContext,
   type ForkHandoffMeta,
 } from "../lib/fork-handoff";
 import type { ChatMessage } from "../types";
@@ -186,6 +187,17 @@ describe("buildForkHandoff sections", () => {
 
     expect(messages).toEqual(snapshot);
   });
+
+  it("lists the paths of the files a message attached, so the new agent can read them again", () => {
+    const attached: ChatMessage[] = [
+      { ...messages[0], attachments: ["/repo/design.png", "/repo/my notes.md"] },
+    ];
+
+    const document = buildForkHandoff(attached, "msg-1", meta);
+
+    expect(document).toContain("- Attached: /repo/design.png");
+    expect(document).toContain("- Attached: /repo/my notes.md");
+  });
 });
 
 describe("buildForkHandoff unknown ids", () => {
@@ -302,5 +314,15 @@ describe("buildForkPrompt", () => {
     expect(prompt.replace(/\s+/g, " ")).toContain("/data/hand offs/ab c.md");
     expect(prompt.startsWith('Read the file "')).toBe(true);
     expect(prompt.endsWith("Reply briefly that you are ready.")).toBe(true);
+  });
+});
+
+describe("buildRewindContext", () => {
+  it("points the fresh agent at the conversation so far, quoted and on one line", () => {
+    const context = buildRewindContext("/Users/me/Library/Application Support/app/handoffs/re\nwind.md");
+
+    expect(context).toContain('"/Users/me/Library/Application Support/app/handoffs/re wind.md"');
+    expect(context).not.toMatch(/[\r\n]/);
+    expect(context).toContain("answer my message below");
   });
 });

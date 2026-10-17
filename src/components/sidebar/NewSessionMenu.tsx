@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { Bot, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
+import { AgentLogo } from "../AgentLogo";
 import type { AgentProfile } from "../../types";
 import { useDismiss } from "../../hooks/useDismiss";
 
@@ -61,7 +62,7 @@ export function NewSessionMenu({ folderName, agents, defaultAgentId, onPick }: N
               className="flex w-full items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-xs text-neutral-300 transition-colors hover:bg-neutral-800/60 hover:text-neutral-100"
             >
               <span className="flex min-w-0 items-center gap-2">
-                <Bot size={12} aria-hidden="true" className="shrink-0 text-emerald-400" />
+                <AgentLogo profileId={agent.id} name="" size={12} />
                 <span className="truncate">{agent.name}</span>
               </span>
               {agent.id === defaultAgentId && <span className="shrink-0 text-[10px] text-neutral-500">Default</span>}

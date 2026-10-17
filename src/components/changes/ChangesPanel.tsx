@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { ChevronRight, GitBranch, RefreshCw, X } from "lucide-react";
 import { commitPathsOf, type ChangeKind, type FileChange } from "../../lib/git-changes";
 import { FileDiff } from "./FileDiff";
+import { PullRequestList } from "./PullRequestList";
+import type { PullRequestSummary } from "../../hooks/useRepoPullRequests";
 
 export interface ChangesPanelProps {
   /** The folder the session works in; its whole repository's changes are listed. */
@@ -15,6 +17,9 @@ export interface ChangesPanelProps {
   version: number;
   onReload: () => void;
   onClose: () => void;
+  /** The user's pull requests in this repository, newest first; none shown when null (gh missing, not on GitHub). */
+  pullRequests?: PullRequestSummary[] | null;
+  onOpenPullRequest?: (url: string) => void;
 }
 
 const KIND_LABEL: Record<ChangeKind, { letter: string; name: string; style: string }> = {
@@ -72,7 +77,17 @@ function ChangeRow({ change, isChecked, isOpen, onCheck, onOpen }: {
  * What changed in a session's repository since the last commit: each file's
  * diff, and a commit of the files chosen. It never pushes or throws changes away.
  */
-export function ChangesPanel({ rootPath, rootName, branch, changes, version, onReload, onClose }: ChangesPanelProps) {
+export function ChangesPanel({
+  rootPath,
+  rootName,
+  branch,
+  changes,
+  version,
+  onReload,
+  onClose,
+  pullRequests,
+  onOpenPullRequest,
+}: ChangesPanelProps) {
   // Files left out of the commit; any new change is included by default.
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set());
   const [openPath, setOpenPath] = useState<string | null>(null);
@@ -137,6 +152,11 @@ export function ChangesPanel({ rootPath, rootName, branch, changes, version, onR
         </button>
       </div>
 
+      {pullRequests && onOpenPullRequest && (
+        <div className="max-h-[45%] shrink-0 overflow-y-auto">
+          <PullRequestList pullRequests={pullRequests} onOpen={onOpenPullRequest} />
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto p-1.5">
         {changes === null && <p className="px-2 py-1.5 text-[11px] text-neutral-500">Reading the changes…</p>}
         {changes !== null && list.length === 0 && (

@@ -311,11 +311,11 @@ All systems ready for compilation.`,
       />
     );
 
-    // Message action bar buttons
-    expect(screen.getByRole("button", { name: /copy message/i })).toBeDefined();
+    // Message action bar buttons (your messages have a Copy of their own)
+    expect(screen.getAllByRole("button", { name: /copy message/i }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /fork branch/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /read aloud/i })).toBeDefined();
-    expect(screen.getByText(/ago/i)).toBeDefined();
+    expect(screen.getAllByText(/ago/i).length).toBeGreaterThan(0);
   });
 
   it("labels agent messages with the active agent name instead of a hard-coded product", () => {
@@ -500,7 +500,7 @@ All systems ready for compilation.`,
 
     expect(screen.queryByRole("button", { name: /read aloud/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /stop reading/i })).toBeNull();
-    expect(screen.getByRole("button", { name: /copy message/i })).toBeDefined();
+    expect(screen.getAllByRole("button", { name: /copy message/i }).length).toBeGreaterThan(0);
   });
 
   it("stops the utterance when the canvas unmounts mid-speech", () => {
@@ -722,3 +722,53 @@ describe("ACP chat content", () => {
   });
 });
 
+
+describe("ChatCanvas: your messages and the session's header", () => {
+  const messages: ChatMessage[] = [
+    { id: "u-1", role: "user", content: "fix the parser", timestamp: Date.now() - 120_000 },
+    { id: "a-1", role: "agent", content: "Done.", timestamp: Date.now() - 60_000, isComplete: true },
+  ];
+
+  it("puts the time, Copy and Rewind under your message, and Rewind names the message", () => {
+    const onRewind = vi.fn();
+    render(<ChatCanvas messages={messages} onSendPtyInput={() => {}} onRewind={onRewind} />);
+    const yours = within(screen.getByTestId("chat-message-u-1"));
+
+    expect(yours.getByText("2 minutes ago")).toBeDefined();
+    expect(yours.getByRole("button", { name: "Copy message" })).toBeDefined();
+    fireEvent.click(yours.getByRole("button", { name: "Rewind to here" }));
+    // It drops the messages after it, so it takes a confirming second click.
+    expect(onRewind).not.toHaveBeenCalled();
+    fireEvent.click(yours.getByRole("button", { name: "Confirm rewind" }));
+
+    expect(onRewind).toHaveBeenCalledWith("u-1");
+  });
+
+  it("turns a Rewind left unconfirmed back by itself", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ChatCanvas messages={messages} onSendPtyInput={() => {}} onRewind={() => {}} />);
+      const yours = within(screen.getByTestId("chat-message-u-1"));
+      fireEvent.click(yours.getByRole("button", { name: "Rewind to here" }));
+
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+
+      expect(yours.queryByRole("button", { name: "Confirm rewind" })).toBeNull();
+      expect(yours.getByRole("button", { name: "Rewind to here" })).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("offers no Rewind when the host cannot rewind, and shows the header above the conversation", () => {
+    render(
+      <ChatCanvas messages={messages} onSendPtyInput={() => {}} header={<p>agent-desktop · ~/developer</p>} />
+    );
+
+    expect(screen.queryByRole("button", { name: "Rewind to here" })).toBeNull();
+    const container = screen.getByTestId("chat-canvas-container");
+    expect(container.firstElementChild?.textContent).toContain("agent-desktop · ~/developer");
+  });
+});

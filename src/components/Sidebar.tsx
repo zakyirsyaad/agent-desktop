@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { Search, Plus, FolderPlus, ChevronRight, Bot } from "lucide-react";
+import { Search, Plus, FolderPlus, ChevronRight } from "lucide-react";
+import { AgentLogo } from "./AgentLogo";
 import type { AgentProfile, Session, Workspace } from "../types";
 import { NewSessionMenu } from "./sidebar/NewSessionMenu";
 import { SessionTree, type SessionListContext } from "./sidebar/SessionList";
@@ -111,7 +112,7 @@ function DetectedAgents({ agents }: { agents: AgentProfile[] }) {
             className="flex items-center justify-between rounded-md px-2 py-1 text-neutral-300 hover:bg-neutral-900/40"
           >
             <div className="flex items-center gap-2 truncate">
-              <Bot size={13} aria-hidden="true" className="text-emerald-400" />
+              <AgentLogo profileId={agent.id} name={agent.name} />
               <span className="truncate">{agent.name}</span>
             </div>
             <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">

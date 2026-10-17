@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Sparkles, User } from "lucide-react";
 import { ActionCard } from "./ActionCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { MessageActionBar } from "./MessageActionBar";
+import { UserMessageBar } from "./chat/UserMessageBar";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ToolCallList } from "./chat/ToolCallList";
 import { PlanList, ThinkingBlock, WorkingIndicator } from "./chat/ReplyExtras";
@@ -40,6 +41,10 @@ export interface ChatCanvasProps {
   isWorking?: boolean;
   /** Which conversation is shown; switching starts at its newest output. */
   conversationId?: string;
+  /** Starts again from before one of your messages; Rewind is offered only when given. */
+  onRewind?: (messageId: string) => void;
+  /** Shown above the conversation, e.g. the folder and branch the session works in. */
+  header?: ReactNode;
 }
 
 /**
@@ -48,12 +53,12 @@ export interface ChatCanvasProps {
 function formatRelativeTime(timestamp: number): string {
   const diffSec = Math.floor((Date.now() - timestamp) / 1000);
   if (diffSec < 60) return "Just now";
+  const ago = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"} ago`;
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffMin < 60) return ago(diffMin, "minute");
   const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} hours ago`;
-  const diffDays = Math.floor(diffHour / 24);
-  return `${diffDays}d ago`;
+  if (diffHour < 24) return ago(diffHour, "hour");
+  return ago(Math.floor(diffHour / 24), "day");
 }
 
 export function ChatCanvas({
@@ -66,6 +71,8 @@ export function ChatCanvas({
   onChooseOption,
   isWorking = false,
   conversationId,
+  onRewind,
+  header,
 }: ChatCanvasProps) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const readAloud = useReadAloud();
@@ -128,6 +135,7 @@ export function ChatCanvas({
       data-testid="chat-canvas-container"
       className="flex-1 overflow-y-auto px-6 py-6 space-y-6"
     >
+      {header && <div className="mx-auto w-full max-w-3xl">{header}</div>}
       {visibleMessages.map((msg) => {
         const isUser = msg.role === "user";
 
@@ -195,6 +203,15 @@ export function ChatCanvas({
                 />
               )}
             </div>
+
+            {isUser && (
+              <UserMessageBar
+                timeLabel={formatRelativeTime(msg.timestamp)}
+                copied={copiedMessageId === msg.id}
+                onCopy={() => handleCopyMessage(msg.id, msg.content)}
+                onRewind={onRewind ? () => onRewind(msg.id) : undefined}
+              />
+            )}
 
             {/* Message Action Bar at bottom of Agent message */}
             {!isUser && (
