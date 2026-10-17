@@ -81,6 +81,7 @@ fn populated_state() -> PersistedState {
             last_opened_at: 1_700_000_000_123,
         }],
         sessions: vec![session("s-1", "terminated")],
+        ..PersistedState::default()
     }
 }
 
@@ -181,6 +182,7 @@ fn a_session_saved_as_running_loads_back_as_terminated() {
             settings: Settings::default(),
             recent_folders: Vec::new(),
             sessions: vec![running, finished],
+            ..PersistedState::default()
         })
         .expect("save state");
 
@@ -408,5 +410,20 @@ fn acp_sessions_keep_their_transport_and_agent_session_id() {
     assert_eq!(saved["transport"], "acp");
     assert_eq!(saved["acpSessionId"], "qwen-session-123");
 
+    fs::remove_dir_all(&root).expect("remove temp root");
+}
+
+#[test]
+fn keeps_the_options_each_acp_agent_reported_last() {
+    let root = unique_temp_root("agent-options");
+    let store = AppStore::new(root.clone());
+    let mut state = populated_state();
+    let options = json!({ "qwen": { "modes": { "currentModeId": "yolo", "availableModes": [] }, "configOptions": [] } });
+    state.agent_options = options.as_object().cloned().expect("object");
+
+    store.save_state(&state).expect("save state");
+    let loaded = store.load_state().expect("load state");
+
+    assert_eq!(loaded.agent_options["qwen"]["modes"]["currentModeId"], "yolo");
     fs::remove_dir_all(&root).expect("remove temp root");
 }

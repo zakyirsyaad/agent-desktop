@@ -85,6 +85,57 @@ impl AcpManager {
 
     /// Starts an agent process, initializes ACP and opens a session in `cwd`.
     pub fn start(&self, app_session_id: &str, cwd: &str, launch: &AcpLaunch) -> Result<StartedSession, String> {
+        self.open(app_session_id, cwd, launch, |connection, capabilities| {
+            let session = connection.request(
+                "session/new",
+                json!({ "cwd": cwd, "mcpServers": [] }),
+                HANDSHAKE_TIMEOUT,
+            )?;
+            started_session(session, capabilities)
+        })
+    }
+
+    /// Starts an agent process and resumes its earlier session `acp_session_id`.
+    ///
+    /// The agent replays the old conversation as `session/update`s before it
+    /// answers. The session is registered only after that, so the replay is
+    /// not routed to the app, which already has the conversation.
+    pub fn load(
+        &self,
+        app_session_id: &str,
+        cwd: &str,
+        launch: &AcpLaunch,
+        acp_session_id: &str,
+    ) -> Result<StartedSession, String> {
+        self.open(app_session_id, cwd, launch, |connection, capabilities| {
+            if capabilities["loadSession"] != Value::Bool(true) {
+                return Err("This agent cannot resume earlier sessions".to_string());
+            }
+            let response = connection.request(
+                "session/load",
+                json!({ "sessionId": acp_session_id, "cwd": cwd, "mcpServers": [] }),
+                HANDSHAKE_TIMEOUT,
+            )?;
+            Ok(StartedSession {
+                acp_session_id: acp_session_id.to_string(),
+                agent_capabilities: capabilities,
+                modes: response["modes"].clone(),
+                models: response["models"].clone(),
+                config_options: response["configOptions"].clone(),
+            })
+        })
+    }
+
+    /// Spawns the agent, initializes ACP, opens a session with `open_session`
+    /// and registers it. On failure the process is killed and its stderr tail
+    /// is added to the error.
+    fn open(
+        &self,
+        app_session_id: &str,
+        cwd: &str,
+        launch: &AcpLaunch,
+        open_session: impl FnOnce(&AcpConnection, Value) -> Result<StartedSession, String>,
+    ) -> Result<StartedSession, String> {
         validate_cwd(cwd)?;
         let connection_key = self.next_connection_key.fetch_add(1, Ordering::SeqCst);
         let connection = AcpConnection::spawn(
@@ -95,11 +146,13 @@ impl AcpManager {
             self.connection_sink(connection_key),
         )?;
 
-        let started = handshake(&connection, cwd).map_err(|e| {
-            let stderr = connection.stderr_tail();
-            connection.kill();
-            if stderr.is_empty() { e } else { format!("{}\n{}", e, stderr) }
-        })?;
+        let started = initialize(&connection)
+            .and_then(|capabilities| open_session(&connection, capabilities))
+            .map_err(|e| {
+                let stderr = connection.stderr_tail();
+                connection.kill();
+                if stderr.is_empty() { e } else { format!("{}\n{}", e, stderr) }
+            })?;
         self.register(app_session_id, connection, connection_key, &started);
         Ok(started)
     }
@@ -281,7 +334,8 @@ fn refuse(routes: &Arc<Mutex<Routes>>, connection_key: u64, id: &Value) {
     }
 }
 
-fn handshake(connection: &AcpConnection, cwd: &str) -> Result<StartedSession, String> {
+/// Initializes ACP and returns the agent's capabilities.
+fn initialize(connection: &AcpConnection) -> Result<Value, String> {
     let init = connection.request(
         "initialize",
         json!({
@@ -291,12 +345,7 @@ fn handshake(connection: &AcpConnection, cwd: &str) -> Result<StartedSession, St
         }),
         HANDSHAKE_TIMEOUT,
     )?;
-    let session = connection.request(
-        "session/new",
-        json!({ "cwd": cwd, "mcpServers": [] }),
-        HANDSHAKE_TIMEOUT,
-    )?;
-    started_session(session, init["agentCapabilities"].clone())
+    Ok(init["agentCapabilities"].clone())
 }
 
 fn started_session(response: Value, agent_capabilities: Value) -> Result<StartedSession, String> {

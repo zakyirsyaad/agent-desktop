@@ -356,5 +356,93 @@ describe("ACP sessions in the app", () => {
     expect(screen.getByText(/has no terminal/i)).toBeDefined();
     expect(screen.queryByText(/no running session/i)).toBeNull();
   });
+
+  it("remembers the options an agent reported, for the composer before the next session", async () => {
+    const spy = await renderWithQwen();
+    await startQwenSession(spy);
+
+    await waitFor(() => {
+      const options = fakeStore().state.agentOptions as Record<string, { modes?: { availableModes: unknown[] } }>;
+      expect(options?.qwen?.modes?.availableModes).toHaveLength(2);
+    });
+  });
+
+  it("offers the agent's last options before a session starts and applies the user's pick", async () => {
+    fakeStore().state.agentOptions = {
+      qwen: {
+        modes: { currentModeId: "yolo", availableModes: [{ id: "default", name: "Default" }, { id: "yolo", name: "YOLO" }] },
+        configOptions: [],
+      },
+    };
+    const spy = await renderWithQwen();
+    expect(screen.getByRole("button", { name: "Permission mode: Default" })).toBeDefined();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Permission mode: Default" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "YOLO" }));
+    });
+    await send("go");
+
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
+    // The fake agent starts in YOLO already, so nothing is switched; above all not to Default.
+    expect(callsTo(spy, "acp_set_mode")).toHaveLength(0);
+  });
+
+  it("continues an ended ACP session with the agent's own session/load", async () => {
+    fakeStore().state.sessions = [
+      {
+        id: "s-old",
+        name: "Session #4",
+        profileId: "qwen",
+        cwd: "/Users/test/developer/ai-perpetual-trading",
+        status: "terminated",
+        createdAt: 1,
+        transport: "acp",
+        acpSessionId: "qwen-old",
+      },
+    ];
+    const spy = await renderWithQwen();
+    expect(screen.getByPlaceholderText(/continue this session/i)).toBeDefined();
+
+    await send("next step");
+
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
+    expect(callsTo(spy, "acp_load_session")[0][1]).toMatchObject({
+      sessionId: "s-old",
+      profileId: "qwen",
+      cwd: "/Users/test/developer/ai-perpetual-trading",
+      acpSessionId: "qwen-old",
+    });
+    expect(callsTo(spy, "acp_prompt")[0][1]).toMatchObject({ sessionId: "s-old", text: "next step" });
+    expect(callsTo(spy, "acp_start_session")).toHaveLength(0);
+    expect(within(screen.getByRole("complementary")).queryByText("Session #5")).toBeNull();
+  });
+
+  it("reports a session that cannot be resumed and leaves it ended", async () => {
+    fakeStore().state.sessions = [
+      {
+        id: "s-old",
+        name: "Session #4",
+        profileId: "qwen",
+        cwd: "/Users/test/developer/ai-perpetual-trading",
+        status: "terminated",
+        createdAt: 1,
+        transport: "acp",
+        acpSessionId: "qwen-old",
+      },
+    ];
+    const spy = await renderWithQwen();
+    spy.mockImplementation((cmd, args) =>
+      cmd === "acp_load_session" ? Promise.reject("session not found") : realInvoke(cmd, args)
+    );
+
+    await send("next step");
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("session not found"));
+    expect(callsTo(spy, "acp_prompt")).toHaveLength(0);
+    expect(screen.getByPlaceholderText(/continue this session/i)).toBeDefined();
+  });
 });
 

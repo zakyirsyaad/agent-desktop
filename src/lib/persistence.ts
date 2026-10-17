@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ChatMessage, PersistedState, Session } from '../types';
+import type { AgentOptions } from './acp-draft';
+import { toConfigOptions, toModes } from '../hooks/useAcpSessions';
 
 export const STATE_VERSION = 1;
 
@@ -28,6 +30,18 @@ function isSession(value: unknown): value is Session {
   );
 }
 
+function toAgentOptions(raw: unknown): Record<string, AgentOptions> {
+  if (!isObject(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw)
+      .filter((entry): entry is [string, Record<string, unknown>] => isObject(entry[1]))
+      .map(([profileId, options]) => [
+        profileId,
+        { modes: toModes(options.modes), configOptions: toConfigOptions(options.configOptions) },
+      ]),
+  );
+}
+
 /**
  * Coerces whatever the backend returned into a well-formed state, keeping the
  * valid parts. A malformed file must degrade to "empty", never crash the UI.
@@ -50,6 +64,7 @@ export function normalizePersistedState(raw: unknown): PersistedState {
         )
       : [],
     sessions: Array.isArray(raw.sessions) ? raw.sessions.filter(isSession) : [],
+    agentOptions: toAgentOptions(raw.agentOptions),
   };
 }
 

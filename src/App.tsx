@@ -21,23 +21,20 @@ import { useUserProfile } from "./hooks/useUserProfile";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
-import { useAcpEngine, type AcpEngine } from "./hooks/session-engine/useAcpEngine";
+import { useAcpEngine } from "./hooks/session-engine/useAcpEngine";
 import { buildForkHandoff, buildForkPrompt } from "./lib/fork-handoff";
 import { pickFiles } from "./lib/file-picker";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
-import {
-  acpControls,
-  ptyDraftControls,
-  ptySessionControls,
-  type ComposerControls,
-  type SessionDraft,
-} from "./lib/composer-controls";
+import type { SessionDraft } from "./lib/composer-controls";
+import { composerStateFor } from "./lib/composer-state";
+import { NO_CHOICES, type AcpChoices, type AgentOptions } from "./lib/acp-draft";
 import type { AgentProfile, ChatMessage, Session, Settings, SpawnOptions } from "./types";
 import { DEFAULT_PERMISSION_MODE, TRANSPORT_ACP } from "./types";
 
 const ACP_NO_TERMINAL_MESSAGE = "This agent talks to the app directly over ACP, so it has no terminal.";
 const NO_WORKSPACE_PLACEHOLDER = "Open a folder and install an agent to start";
 const NEW_SESSION_PLACEHOLDER = "Message the agent to start a new session...";
+const RESUME_PLACEHOLDER = "Message the agent to continue this session...";
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
 const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
@@ -56,47 +53,12 @@ function spawnOptionsFor(agent: AgentProfile, draft: SessionDraft): SpawnOptions
 
 const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
 
-interface ComposerState {
-  controls: ComposerControls;
-  locked: boolean;
-}
-
-/**
- * What the composer offers: a live ACP session's own modes and options
- * (changed on the fly), a running terminal session's fixed flags, or the
- * flags for the next terminal session. A new ACP session reports its options
- * only once it has started, so there is nothing to pick before that.
- */
-function composerStateFor(
-  session: Session | undefined,
-  sessionAgent: AgentProfile | undefined,
-  nextAgent: AgentProfile | undefined,
-  draft: SessionDraft,
-  setDraft: (draft: SessionDraft) => void,
-  acp: AcpEngine,
-): ComposerState {
-  if (session?.status === "running") {
-    if (isAcp(session)) {
-      const info = acp.info[session.id];
-      const controls = info
-        ? acpControls(info, {
-            setMode: (modeId) => acp.setMode(session.id, modeId),
-            setConfigOption: (configId, value) => acp.setConfigOption(session.id, configId, value),
-          })
-        : {};
-      return { controls, locked: false };
-    }
-    return { controls: sessionAgent ? ptySessionControls(sessionAgent, session) : {}, locked: true };
-  }
-  if (!nextAgent || nextAgent.transport === TRANSPORT_ACP) return { controls: {}, locked: false };
-  return { controls: ptyDraftControls(nextAgent, draft, setDraft), locked: false };
-}
-
 export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
+  const [acpChoices, setAcpChoices] = useState<AcpChoices>(NO_CHOICES);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isFilesOpen, setIsFilesOpen] = useState(false);
   const composerRef = useRef<ComposerHandle>(null);
@@ -125,8 +87,17 @@ export default function App() {
   const newSessionAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId);
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
 
+  // An ended ACP session continues where it left off with its own agent.
+  const isResumable =
+    isAcp(activeSession) &&
+    activeSession?.status !== "running" &&
+    Boolean(activeSession?.acpSessionId) &&
+    activeAgent?.detected === true;
+  const draftAgent = isResumable ? activeAgent : newSessionAgent;
+
   // A model or effort chosen for one agent means nothing to another one.
   useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
+  useEffect(() => setAcpChoices(NO_CHOICES), [draftAgent?.id]);
 
   // Once saved sessions are loaded, show the most recent one.
   useEffect(() => {
@@ -147,9 +118,12 @@ export default function App() {
     [updateState],
   );
 
+  const rememberAgentOptions = (profileId: string, options: AgentOptions) =>
+    updateState((prev) => ({ ...prev, agentOptions: { ...prev.agentOptions, [profileId]: options } }));
+
   const engineDeps = { sessions, agents, updateMessages, patchSession, reportError };
   const pty = usePtyEngine(engineDeps);
-  const acp = useAcpEngine(engineDeps);
+  const acp = useAcpEngine({ ...engineDeps, rememberOptions: rememberAgentOptions });
 
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
   const isSessionBusy = (sessionId: string) =>
@@ -190,7 +164,7 @@ export default function App() {
 
   const startSession = (spec: SessionSpec, firstPrompt?: string) => {
     const session = recordSession(spec);
-    if (isAcp(session)) void acp.start(session, firstPrompt);
+    if (isAcp(session)) void acp.start(session, firstPrompt, acpChoices);
     else pty.start(session, spec.options ?? spawnOptionsFor(spec.agent, draft), firstPrompt);
   };
 
@@ -328,8 +302,17 @@ export default function App() {
     isAcp(sessionById(sessionId)) ? acp.send(sessionId, text) : pty.send(sessionId, text);
 
   /** Sends to the active session, or starts a new one with the message as its first prompt. */
+  /** Continues an ended ACP session: a fresh agent process loads it, then gets the message. */
+  const resumeSession = (session: Session, text: string) => {
+    if (!session.acpSessionId) return;
+    patchSession(session.id, { status: "running", endedAt: null, exitCode: null });
+    void acp.resume(session, session.acpSessionId, text, acpChoices);
+  };
+
+  /** Sends to the active session, continues it when it can be resumed, or starts a new one. */
   const handleSendMessage = (text: string) => {
     if (activeSession && isActiveRunning) void sendTo(activeSession.id, text);
+    else if (activeSession && isResumable) resumeSession(activeSession, text);
     else handleNewSession(text);
   };
 
@@ -349,7 +332,17 @@ export default function App() {
 
   const currentMessages = transcripts[activeSessionId] ?? [];
   const canStartSession = Boolean(activeWorkspacePath && newSessionAgent);
-  const composer = composerStateFor(activeSession, activeAgent, newSessionAgent, draft, setDraft, acp);
+  const composer = composerStateFor({
+    session: activeSession,
+    sessionAgent: activeAgent,
+    draftAgent,
+    draft,
+    setDraft,
+    acpChoices,
+    setAcpChoices,
+    agentOptions: state.agentOptions,
+    acp,
+  });
   const isActiveTerminal = isActiveRunning && !isAcp(activeSession);
 
   if (isLoaded && !state.settings.onboardingCompleted) {
@@ -428,9 +421,15 @@ export default function App() {
               optionsLocked={composer.locked}
               isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
               onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
-              disabled={!isActiveRunning && !canStartSession}
+              disabled={!isActiveRunning && !isResumable && !canStartSession}
               placeholder={
-                isActiveRunning ? undefined : canStartSession ? NEW_SESSION_PLACEHOLDER : NO_WORKSPACE_PLACEHOLDER
+                isActiveRunning
+                  ? undefined
+                  : isResumable
+                    ? RESUME_PLACEHOLDER
+                    : canStartSession
+                      ? NEW_SESSION_PLACEHOLDER
+                      : NO_WORKSPACE_PLACEHOLDER
               }
               onSendMessage={handleSendMessage}
               onAttach={pickFiles}

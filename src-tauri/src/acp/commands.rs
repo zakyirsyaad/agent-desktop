@@ -67,6 +67,18 @@ pub fn acp_start_session(
     manager.start(&session_id, &cwd, &launch_for(&profile_id)?)
 }
 
+/// Resumes the agent's earlier session `acp_session_id` as app session `session_id`.
+#[tauri::command(async)]
+pub fn acp_load_session(
+    manager: State<'_, AcpManager>,
+    session_id: String,
+    cwd: String,
+    profile_id: String,
+    acp_session_id: String,
+) -> Result<StartedSession, String> {
+    manager.load(&session_id, &cwd, &launch_for(&profile_id)?, &acp_session_id)
+}
+
 #[tauri::command(async)]
 pub fn acp_fork_session(
     manager: State<'_, AcpManager>,

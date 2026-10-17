@@ -8,7 +8,7 @@ import {
   resolvePermissionCard,
   type PermissionRequestPayload,
 } from '../../lib/acp-events';
-import { safeModeToApply } from '../../lib/acp-modes';
+import { changesToApply, NO_CHOICES, type AcpChoices, type AgentOptions } from '../../lib/acp-draft';
 import { findCard, userMessage, withoutMessage } from '../../lib/session-helpers';
 import { createId } from '../../lib/ids';
 import { useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
@@ -25,8 +25,17 @@ function turnEndNotice(stopReason: string | undefined, error: string | undefined
 
 interface LaunchOptions {
   firstPrompt?: string;
+  /** What the user picked in the composer before the agent ran. */
+  choices: AcpChoices;
   /** False for a fork: it keeps the mode the user chose in the source session. */
   applySafeMode: boolean;
+  /** "start" or "resume", for the error message. */
+  action: string;
+}
+
+export interface AcpEngineDeps extends Omit<EngineDeps, 'sessions'> {
+  /** Called with what an agent offers each time one of its sessions opens. */
+  rememberOptions: (profileId: string, options: AgentOptions) => void;
 }
 
 /**
@@ -34,7 +43,7 @@ interface LaunchOptions {
  * become chat messages, permission requests become cards with the agent's own
  * choices, and modes and config options are changed live.
  */
-export function useAcpEngine({ agents, updateMessages, patchSession, reportError }: Omit<EngineDeps, 'sessions'>) {
+export function useAcpEngine({ agents, updateMessages, patchSession, reportError, rememberOptions }: AcpEngineDeps) {
   const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
   // Sessions the app stopped (deleted, or stopped while starting): their late
   // events must not write a transcript back, and a start still in flight must
@@ -95,20 +104,25 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
     await prompt(sessionId, message);
   };
 
-  /** A failed switch leaves the agent in its starting mode, which the composer shows; the session stays usable. */
-  const applySafeMode = async (sessionId: string, info: AcpSessionInfo) => {
-    const change = safeModeToApply(info);
-    if (!change) return;
-    try {
-      if (change.kind === 'mode') await acp.setMode(sessionId, change.modeId);
-      else await acp.setConfigOption(sessionId, change.configId, change.value);
-    } catch (error) {
-      reportError(`Could not switch the agent to ask before acting: ${String(error)}`);
+  /**
+   * Applies the user's picks, or the safe mode. A failed change leaves the
+   * agent as it started, which the composer shows; the session stays usable.
+   */
+  const applyChanges = async (sessionId: string, info: AcpSessionInfo, options: LaunchOptions) => {
+    for (const change of changesToApply(info, options.choices, options.applySafeMode)) {
+      try {
+        if (change.kind === 'mode') await acp.setMode(sessionId, change.modeId);
+        else await acp.setConfigOption(sessionId, change.configId, change.value);
+      } catch (error) {
+        reportError(`Could not apply the session settings: ${String(error)}`);
+      }
     }
   };
 
-  /** Starts (or forks into) an already recorded session, then applies the safe mode and the first prompt. */
+  /** Opens an already recorded session in its agent, then applies the picks and the first prompt. */
   const launch = async (session: Session, open: () => Promise<AcpSessionInfo>, options: LaunchOptions) => {
+    // A session ended earlier and now resumed must hear from its agent again.
+    stoppedRef.current.delete(session.id);
     const message = options.firstPrompt ? userMessage(options.firstPrompt) : null;
     if (message) updateMessages(session.id, (prev) => [...prev, message]);
     markStarting(session.id, true);
@@ -117,9 +131,10 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
       info = await open();
     } catch (error) {
       if (isStopped(session.id)) return;
+      if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
       patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
       const name = agents.find((a) => a.id === session.profileId)?.name ?? session.profileId;
-      reportError(`Failed to start ${name}: ${String(error)}`);
+      reportError(`Failed to ${options.action} ${name}: ${String(error)}`);
       return;
     } finally {
       markStarting(session.id, false);
@@ -129,19 +144,35 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
       acp.stop(session.id).catch(reportFailure('Failed to stop the agent'));
       return;
     }
+    rememberOptions(session.profileId, { modes: info.modes, configOptions: info.configOptions });
     if (info.acpSessionId) patchSession(session.id, { acpSessionId: info.acpSessionId });
-    if (options.applySafeMode) await applySafeMode(session.id, info);
+    await applyChanges(session.id, info, options);
     if (message && !isStopped(session.id)) await prompt(session.id, message);
   };
 
-  const start = (session: Session, firstPrompt?: string) =>
+  const start = (session: Session, firstPrompt?: string, choices: AcpChoices = NO_CHOICES) =>
     launch(session, () => acp.start(session.id, session.cwd, session.profileId), {
       firstPrompt,
+      choices,
       applySafeMode: true,
+      action: 'start',
+    });
+
+  /** Continues an ended session in a fresh agent process through the agent's own session/load. */
+  const resume = (session: Session, acpSessionId: string, firstPrompt?: string, choices: AcpChoices = NO_CHOICES) =>
+    launch(session, () => acp.load(session.id, session.cwd, session.profileId, acpSessionId), {
+      firstPrompt,
+      choices,
+      applySafeMode: true,
+      action: 'resume',
     });
 
   const fork = (sourceSessionId: string, session: Session) =>
-    launch(session, () => acp.fork(sourceSessionId, session.id, session.cwd), { applySafeMode: false });
+    launch(session, () => acp.fork(sourceSessionId, session.id, session.cwd), {
+      choices: NO_CHOICES,
+      applySafeMode: false,
+      action: 'fork',
+    });
 
   const chooseOption = (sessionId: string, messages: ChatMessage[] | undefined, cardId: string, optionId: string) => {
     const card = findCard(messages, cardId);
@@ -196,6 +227,7 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
   return {
     info: acp.info,
     start,
+    resume,
     fork,
     send,
     chooseOption,

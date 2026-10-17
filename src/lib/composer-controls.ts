@@ -44,7 +44,10 @@ export interface AcpControlActions {
 }
 
 /** Controls for an ACP session: exactly what its agent reported, applied live. */
-export function acpControls(info: AcpSessionInfo, actions: AcpControlActions): ComposerControls {
+export function acpControls(
+  info: Pick<AcpSessionInfo, 'modes' | 'configOptions'>,
+  actions: AcpControlActions,
+): ComposerControls {
   const byCategory = (category: string) => info.configOptions.find((o) => o.category === category);
   const fromConfig = (category: string): ComposerControl | undefined => {
     const option = byCategory(category);

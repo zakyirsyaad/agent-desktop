@@ -45,6 +45,10 @@ pub struct PersistedState {
     pub recent_folders: Vec<RecentFolder>,
     /// Every session the UI has created, newest last.
     pub sessions: Vec<SessionRecord>,
+    /// The modes and config options each ACP agent reported last, by profile
+    /// id, so the composer can offer them before a session starts. Opaque to
+    /// the backend.
+    pub agent_options: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Default for PersistedState {
@@ -54,6 +58,7 @@ impl Default for PersistedState {
             settings: Settings::default(),
             recent_folders: Vec::new(),
             sessions: Vec::new(),
+            agent_options: serde_json::Map::new(),
         }
     }
 }

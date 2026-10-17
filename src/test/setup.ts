@@ -13,6 +13,7 @@ export interface FakeTauriStore {
     settings: { defaultAgentId: string | null; onboardingCompleted: boolean };
     recentFolders: unknown[];
     sessions: unknown[];
+    agentOptions?: Record<string, unknown>;
   };
   transcripts: Record<string, unknown[]>;
 }
@@ -57,9 +58,11 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
       return Promise.resolve(undefined);
     case "acp_start_session":
     case "acp_fork_session":
+    case "acp_load_session":
       // Shaped like Qwen Code's real answer; it starts in YOLO like the user's own config.
       return Promise.resolve({
-        acpSessionId: `acp-${(args as { sessionId?: string })?.sessionId}`,
+        acpSessionId:
+          (args as { acpSessionId?: string })?.acpSessionId ?? `acp-${(args as { sessionId?: string })?.sessionId}`,
         agentCapabilities: { sessionCapabilities: { fork: {} } },
         modes: {
           currentModeId: "yolo",

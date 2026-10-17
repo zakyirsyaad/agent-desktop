@@ -2,6 +2,8 @@
  * Core type definitions for Agent Desktop GUI
  */
 
+import type { AgentOptions } from '../lib/acp-draft';
+
 /** A reasoning-effort choice backed by a real CLI flag or env var. */
 export interface EffortLevel {
   label: string;
@@ -103,6 +105,8 @@ export interface PersistedState {
   settings: Settings;
   recentFolders: RecentFolder[];
   sessions: Session[];
+  /** What each ACP agent offered last, by profile id; missing in files from older builds. */
+  agentOptions?: Record<string, AgentOptions>;
 }
 
 export interface ActionCard {

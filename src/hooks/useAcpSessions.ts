@@ -53,7 +53,8 @@ type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === 'string';
 
-function toModes(raw: unknown): AcpModes | null {
+/** Validates modes an agent reported; null when malformed. */
+export function toModes(raw: unknown): AcpModes | null {
   if (!isObject(raw) || !isString(raw.currentModeId) || !Array.isArray(raw.availableModes)) return null;
   const availableModes = raw.availableModes
     .filter(isObject)
@@ -62,7 +63,8 @@ function toModes(raw: unknown): AcpModes | null {
   return { currentModeId: raw.currentModeId, availableModes };
 }
 
-function toConfigOptions(raw: unknown): AcpConfigOption[] {
+/** Validates config options an agent reported, dropping malformed ones. */
+export function toConfigOptions(raw: unknown): AcpConfigOption[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter(isObject).flatMap((option) => {
     if (!isString(option.id) || !isString(option.name) || !isString(option.currentValue)) return [];
@@ -173,6 +175,12 @@ export function useAcpSessions(handlers: AcpHandlers) {
     [remember],
   );
 
+  const load = useCallback(
+    async (sessionId: string, cwd: string, profileId: string, acpSessionId: string) =>
+      remember(sessionId, await invoke('acp_load_session', { sessionId, cwd, profileId, acpSessionId })),
+    [remember],
+  );
+
   const fork = useCallback(
     async (sourceSessionId: string, sessionId: string, cwd: string) =>
       remember(sessionId, await invoke('acp_fork_session', { sourceSessionId, sessionId, cwd })),
@@ -227,5 +235,5 @@ export function useAcpSessions(handlers: AcpHandlers) {
   const isBusy = useCallback((sessionId: string) => info[sessionId]?.isBusy ?? false, [info]);
   const canFork = useCallback((sessionId: string) => info[sessionId]?.canFork ?? false, [info]);
 
-  return { info, start, fork, prompt, cancel, respondPermission, setMode, setConfigOption, stop, isBusy, canFork };
+  return { info, start, load, fork, prompt, cancel, respondPermission, setMode, setConfigOption, stop, isBusy, canFork };
 }

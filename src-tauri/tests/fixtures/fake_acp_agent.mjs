@@ -45,7 +45,23 @@ function handlePrompt(id, params) {
 
 const handlers = {
   initialize: (id) =>
-    reply(id, { protocolVersion: 1, agentCapabilities: { loadSession: false, sessionCapabilities: { fork: {} } } }),
+    reply(id, {
+      protocolVersion: 1,
+      agentCapabilities: { loadSession: !process.env.FAKE_ACP_NO_LOAD, sessionCapabilities: { fork: {} } },
+    }),
+  // Like real agents, replays the old conversation before answering.
+  "session/load": (id, params) => {
+    say(params.sessionId, "replayed history");
+    reply(id, {
+      modes: {
+        currentModeId: "default",
+        availableModes: [
+          { id: "default", name: "Default" },
+          { id: "yolo", name: "YOLO" },
+        ],
+      },
+    });
+  },
   "session/new": (id) =>
     reply(id, {
       sessionId: `fake-${nextSession++}`,

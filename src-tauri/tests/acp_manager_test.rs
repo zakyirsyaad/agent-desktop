@@ -168,3 +168,32 @@ fn stopping_a_session_forgets_it() {
     let err = manager.prompt("s-1", "hi").unwrap_err();
     assert!(err.contains("not found"), "unexpected error: {err}");
 }
+
+#[test]
+fn loads_an_earlier_session_without_replaying_its_history_to_the_app() {
+    let (manager, rx) = manager();
+
+    let loaded = manager
+        .load("s-resumed", &cwd(), &fake_agent(), "fake-earlier")
+        .expect("load");
+
+    assert_eq!(loaded.acp_session_id, "fake-earlier");
+    assert_eq!(loaded.modes["currentModeId"], "default");
+    // The agent replays the old conversation while loading; the app already has it.
+    manager.prompt("s-resumed", "hi again").unwrap();
+    let first_text = wait_for(&rx, |e| agent_text(e).is_some());
+    assert_eq!(agent_text(&first_text).as_deref(), Some("echo: hi again"));
+    assert!(matches!(first_text, AcpEvent::Update { ref session_id, .. } if session_id == "s-resumed"));
+    manager.stop("s-resumed");
+}
+
+#[test]
+fn refuses_to_load_when_the_agent_cannot_resume_sessions() {
+    let (manager, _rx) = manager();
+    let mut launch = fake_agent();
+    launch.env.push(("FAKE_ACP_NO_LOAD".to_string(), "1".to_string()));
+
+    let error = manager.load("s-x", &cwd(), &launch, "fake-earlier").unwrap_err();
+
+    assert!(error.contains("cannot resume"), "unexpected error: {error}");
+}
