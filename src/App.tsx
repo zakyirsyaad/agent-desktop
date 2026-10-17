@@ -704,6 +704,7 @@ export default function App() {
           onChangeDefaultAgent={(defaultAgentId) => updateSettings({ defaultAgentId })}
           onRemoveRecentFolder={removeFolder}
           onRunOnboarding={handleRunOnboarding}
+          onRecheckAgents={refreshAgents}
           onClose={() => setIsSettingsOpen(false)}
         />
       )}

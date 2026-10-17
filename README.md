@@ -3,22 +3,41 @@
 [![CI](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/ci.yml)
 [![Security](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/security.yml/badge.svg)](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/security.yml)
 [![Release](https://img.shields.io/github/v/release/zakyirsyaad/agent-desktop?include_prereleases)](https://github.com/zakyirsyaad/agent-desktop/releases)
+![macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
 
-A desktop app for the coding agents you already use: Qwen Code, Claude Code
-and Codex in a real chat UI, and terminal agents (Oh-My-Pi, Aider) in their
-own terminal. Like Claude Code Desktop, but for whichever agent you have.
+A desktop app for the coding agents you already use. Qwen Code, Claude Code
+and Codex run in a real chat UI, and terminal agents (Oh-My-Pi, Aider) run in
+their own terminal. It is like Claude Code Desktop, but for whichever agent
+you have.
 
-- **Chat with the agent's own data.** Qwen Code, Claude Code and Codex are
-  driven over the [Agent Client Protocol](https://agentclientprotocol.com):
-  you get their real modes and models, permission requests with the agent's
-  own choices, diffs of every file change, slash commands, context usage,
-  and sessions that resume after a restart.
+- [Highlights](#highlights)
+- [Supported agents](#supported-agents)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Getting started](#getting-started)
+- [Privacy and your data](#privacy-and-your-data)
+- [Troubleshooting](#troubleshooting)
+- [How it works](#how-it-works)
+- [Development](#development)
+- [Releasing](#releasing)
+- [Roadmap](#roadmap)
+- [License](#license)
+
+## Highlights
+
+- **The agent's own data.** Qwen Code, Claude Code and Codex are driven over
+  the [Agent Client Protocol](https://agentclientprotocol.com). You get:
+  - their real modes and models;
+  - permission requests with the agent's own choices;
+  - a diff of every file change;
+  - slash commands and context usage;
+  - sessions that resume after a restart.
 - **Terminal agents stay terminals.** Oh-My-Pi and Aider run as their real
   TUI in the main view.
 - **Workspaces and sessions.** Sessions are grouped by folder, titled from
-  the first message, and saved on disk. Rename, pin and archive them; an
-  unread mark shows which agent finished while you were elsewhere. Pop a
-  session out into its own window.
+  the first message, and saved on disk. You can rename, pin and archive them.
+  An unread mark shows which agent finished while you were elsewhere, and a
+  session can pop out into its own window.
 - **Fork and rewind.** Fork any reply into a new session, or rewind to
   before one of your messages and send it again, edited.
 - **Worktrees.** Run a session in its own git worktree on an
@@ -26,17 +45,40 @@ own terminal. Like Claude Code Desktop, but for whichever agent you have.
   same files.
 - **Review and commit.** The Changes panel shows each changed file's diff
   and commits the files you choose. The top bar shows the branch's pull
-  request and its checks, and the panel lists your pull requests, all read
-  with your own `gh`.
-- **The composer.** Pick the agent, folder, model, effort and permission
-  mode before a session starts (your last model and effort are remembered),
-  mention files with `@`, drop files onto the window, and click the context
-  meter for tokens used, tokens left and cost.
+  request and its checks, and the panel lists your pull requests. All of
+  this is read with your own `gh`.
+- **The composer.** Before a session starts, pick its agent, folder, model,
+  effort and permission mode; your last model and effort are remembered. You
+  can also:
+  - mention files with `@`;
+  - drop files onto the window;
+  - click the context meter to see tokens used, tokens left and cost.
+
+## Supported agents
+
+| | Qwen Code | Claude Code | Codex | Oh-My-Pi | Aider |
+|---|---|---|---|---|---|
+| Runs as | `qwen --acp` | [ACP adapter](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp) via `npx` | [ACP adapter](https://www.npmjs.com/package/@agentclientprotocol/codex-acp) via `npx` | its TUI (`omp`) | its TUI (`aider`) |
+| View | chat | chat | chat | terminal | terminal |
+| Models, effort, modes | from the agent | from the agent | from the agent | flags at start | model flag at start |
+| Approvals | in the chat | in the chat | in the chat | detected `[y/n]` prompts | in its terminal |
+| Resume after a restart | when the agent can load sessions | when the agent can load sessions | when the agent can load sessions | — | — |
+| Rewind | yes | yes | yes | — | — |
+| Fork | yes | yes | yes | yes, by handoff | yes, by handoff |
+
+The ACP agents report their own models, efforts and approval modes for each
+session, so the app offers whatever your install has. An agent that cannot
+load an earlier session (ACP `session/load`) says so when you try to
+continue one.
+
+A fork from the latest reply uses the agent's own fork when it has one.
+Otherwise it is done by handoff: the conversation is written to a file, and
+the new agent is asked to read it.
 
 ## Requirements
 
 - macOS (Apple Silicon or Intel).
-- **Node.js 22+ with `npx`** on your login shell's `PATH` (nvm, Homebrew…):
+- **Node.js 22+ with `npx`** on your login shell's `PATH` (nvm, Homebrew…).
   Claude Code and Codex run through their ACP adapters with `npx`.
 - **At least one agent CLI**, installed and signed in:
 
@@ -48,10 +90,11 @@ own terminal. Like Claude Code Desktop, but for whichever agent you have.
   | Oh-My-Pi / Aider | see their docs | — |
 
 - **Optional: the [GitHub CLI](https://cli.github.com)**, signed in with
-  `gh auth login`, for pull request status. Without it that part is hidden.
+  `gh auth login`, for pull request status. Without it, that part is hidden.
 
-The app reads your login shell's environment, so anything your terminal finds
-it finds too. Installed an agent while the app runs? Click **Check again**.
+The app reads your login shell's environment, so anything your terminal finds,
+it finds too. If you install an agent while the app runs, click **Check again**
+in Settings.
 
 ## Install
 
@@ -59,21 +102,83 @@ Download the `.dmg` from the
 [latest release](https://github.com/zakyirsyaad/agent-desktop/releases) and
 drag Agent Desktop into Applications.
 
-An unsigned build is blocked the first time you open it. Open it once, then
-go to **System Settings → Privacy & Security** and click **Open Anyway** next
-to the Agent Desktop message (macOS 15 no longer offers right-click → Open for
-this). Or, in a terminal:
+The build is not yet signed, so macOS blocks it the first time you open it.
+Open it once, then go to **System Settings → Privacy & Security** and click
+**Open Anyway** next to the Agent Desktop message. macOS 15 no longer offers
+right-click → Open for this. You can also run this in a terminal:
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Agent Desktop.app"
 ```
 
-## Your data
+## Getting started
 
-Sessions and transcripts are stored in
-`~/Library/Application Support/com.agentdesktop.app/` (`state.json` and
-`transcripts/`). The app never asks for API keys: agents sign in with their
-own tools.
+1. **Onboarding.** The first run checks which agents are installed, lets you
+   pick a default, and asks for a project folder.
+2. **Start a session.** Click **+ New session** (or the **+** next to a
+   folder to choose its agent). Pick the model, effort and permission mode
+   in the composer, and send your first message. Turn on **Worktree** first
+   to give the session its own checkout.
+3. **Work with the agent.**
+   - Answer its permission requests in the chat.
+   - Open **Files** to browse the folder and **Changes** to review and commit
+     what it changed.
+   - Use the top bar to go back and forth between sessions.
+4. **Branch off.**
+   - **Fork** under any reply starts a new session from there.
+   - **↺ Rewind** under one of your messages takes the conversation back to
+     before it and puts the message in the composer to edit. It needs a
+     confirming second click, and files the agent changed stay as they are.
+
+Permission mode **Ask** is the default: the agent asks before it edits files
+or runs commands.
+
+## Privacy and your data
+
+- **Sign-in stays with the agents.** The app never asks for or stores API
+  keys or tokens. Agents sign in with their own tools, and pull request data
+  comes from your own `gh` login.
+- **No traffic of its own.** The app sends no telemetry and makes no network
+  requests itself: its Content Security Policy only allows the local IPC
+  bridge. Your agents talk to their own services as they always do.
+- **Where your data lives.** Sessions and transcripts are stored in
+  `~/Library/Application Support/com.agentdesktop.app/`, as `state.json` and
+  `transcripts/`. Session worktrees live in `worktrees/` there.
+- **Folder limits.** The backend only reads and runs in folders you opened in
+  the app.
+
+## Troubleshooting
+
+| Problem | What to try |
+|---|---|
+| An agent shows as not installed | Check that `which qwen` (or `claude`, `codex`) works in a new terminal, then click **Check again** in Settings. The app reads your login shell's `PATH`. |
+| "Sign in to *agent*": the agent needs you to sign in before it can start | Use a sign-in method the panel offers, or sign in once in a terminal (see [Requirements](#requirements)), then send your message again. |
+| Claude Code or Codex does not start | They need `npx` (Node.js 22+). The first start downloads the ACP adapter, so it can take a moment. |
+| No pull request status | Install `gh` and run `gh auth login`. A repository without a GitHub remote has none to show. |
+| "is not in the last commit, so a worktree would not have it" | A worktree checks out the last commit. Commit the folder first, or start the session without Worktree. |
+| The app is blocked on first open | See [Install](#install). |
+
+## How it works
+
+```mermaid
+flowchart LR
+  UI["React UI<br/>(src/)"] <-- "Tauri commands<br/>and events" --> Core["Rust backend<br/>(src-tauri/)"]
+  Core -- "ACP: JSON-RPC over stdio" --> ACP["Qwen Code · Claude Code · Codex"]
+  Core -- "PTY" --> TUI["Oh-My-Pi · Aider"]
+  Core -- "git · gh" --> Repo[("Your repository")]
+  Core --> Store[("state.json<br/>transcripts/")]
+```
+
+- **The frontend** (`src/`, React 19 and Tailwind). `App.tsx` picks a session
+  engine: `hooks/session-engine/useAcpEngine.ts` for ACP agents and
+  `usePtyEngine.ts` for terminal agents.
+- **The backend** (`src-tauri/src/`, Tauri 2):
+  - `acp/`: the ACP client;
+  - `pty_session.rs`: terminal agents;
+  - `profiles.rs`: which agents exist and how they are found;
+  - `store.rs`: state and transcripts;
+  - `changes.rs` and `worktrees.rs`: git;
+  - `pull_requests.rs`: `gh`.
 
 ## Development
 
@@ -90,39 +195,50 @@ pnpm tauri dev
 | Rust lint | `cd src-tauri && cargo clippy --all-targets -- -D warnings` |
 | Production build | `pnpm tauri build` |
 
-Optional pre-commit checks (types, ESLint, `cargo fmt`): `pnpm lefthook install`.
+To run the fast checks before each commit (types, ESLint, `cargo fmt`), opt in
+with `pnpm lefthook install`.
 
-CI runs the types, ESLint, tests and Rust lint on every pull request, plus
-CodeQL and a dependency audit (`pnpm audit`, `cargo audit`); Dependabot
-proposes updates weekly. It does not
-build the release bundle: run `pnpm tauri build` and open the app before a
-release, since the production build is the only one that applies the
-Content Security Policy.
+On every pull request, CI runs the types, ESLint, the tests and the Rust lint.
+It also runs CodeQL and a dependency audit (`pnpm audit`, `cargo audit`), and
+Dependabot proposes updates weekly.
 
-**Layout.** `src/` is the React UI (`App.tsx` picks a session engine:
-`hooks/session-engine/useAcpEngine.ts` for ACP agents,
-`usePtyEngine.ts` for terminal agents). `src-tauri/src/` is the Rust backend:
-`acp/` (the ACP client), `pty_session.rs`, `profiles.rs` (which agents exist
-and how they are found), `store.rs` (state and transcripts), `changes.rs`
-and `worktrees.rs` (git), `pull_requests.rs` (`gh`).
+CI does not build the release bundle. Before a release, run
+`pnpm tauri build` and open the app: the production build is the only one that
+applies the Content Security Policy.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to propose a change, and
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to propose a change,
+[SECURITY.md](SECURITY.md) for how to report a vulnerability, and
 [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
 
 ## Releasing
 
 1. Bump the version in `package.json`, `src-tauri/Cargo.toml` and
-   `src-tauri/tauri.conf.json`, and move the `Unreleased` notes in
-   `CHANGELOG.md` under the new version.
+   `src-tauri/tauri.conf.json`. In `CHANGELOG.md`, rename `Unreleased` to the
+   new version with its release date, add its compare link, and start a new
+   empty `Unreleased` section.
 2. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 3. The **Release** workflow builds a universal macOS app and attaches it to a
-   draft GitHub release; publish the draft when it looks right.
+   draft GitHub release. Publish the draft when it looks right.
 
-To sign and notarize (so Gatekeeper opens it without a warning), add these
-repository secrets from an Apple Developer account: `APPLE_CERTIFICATE`
-(base64 `.p12`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
-`APPLE_ID`, `APPLE_PASSWORD` (an app-specific password) and `APPLE_TEAM_ID`.
-Without them the build is unsigned.
+To sign and notarize the app, so Gatekeeper opens it without a warning, add
+these repository secrets from an Apple Developer account:
+
+- `APPLE_CERTIFICATE` (a base64 `.p12`)
+- `APPLE_CERTIFICATE_PASSWORD`
+- `APPLE_SIGNING_IDENTITY`
+- `APPLE_ID`
+- `APPLE_PASSWORD` (an app-specific password)
+- `APPLE_TEAM_ID`
+
+Without them, the build is unsigned.
+
+## Roadmap
+
+- A signed and notarized build, so macOS opens it without a warning.
+- Updates inside the app.
+- Windows and Linux builds.
+- Undoing an agent's file changes along with a rewind.
+- End-to-end tests of the built app.
 
 ## License
 

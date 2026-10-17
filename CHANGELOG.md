@@ -4,7 +4,7 @@ All notable changes to Agent Desktop. Versions follow [Semantic Versioning](http
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-10-18
+To be released as 0.2.0.
 
 ### Added
 
@@ -21,6 +21,7 @@ All notable changes to Agent Desktop. Versions follow [Semantic Versioning](http
 - **Agent logos.** The session list and Detected Agents show each agent's logo. ([#15])
 - **Rewind.** Under each of your messages: its time, Copy, and Rewind, which takes the conversation back to before that message and puts it back in the composer. ([#15])
 - **Workspace header.** The session's folder and branch sit above its conversation. ([#15])
+- **Check again in Settings.** Detect an agent installed while the app runs, without running setup again. ([#17])
 
 ### Changed
 
@@ -45,8 +46,7 @@ All notable changes to Agent Desktop. Versions follow [Semantic Versioning](http
 
 - Approval safety, terminal handling, the stream parser and working folders. ([#1])
 
-[Unreleased]: https://github.com/zakyirsyaad/agent-desktop/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/zakyirsyaad/agent-desktop/compare/v0.1.0...v0.2.0
+[Unreleased]: https://github.com/zakyirsyaad/agent-desktop/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/zakyirsyaad/agent-desktop/releases/tag/v0.1.0
 [#1]: https://github.com/zakyirsyaad/agent-desktop/pull/1
 [#2]: https://github.com/zakyirsyaad/agent-desktop/pull/2
@@ -63,3 +63,4 @@ All notable changes to Agent Desktop. Versions follow [Semantic Versioning](http
 [#14]: https://github.com/zakyirsyaad/agent-desktop/pull/14
 [#15]: https://github.com/zakyirsyaad/agent-desktop/pull/15
 [#16]: https://github.com/zakyirsyaad/agent-desktop/pull/16
+[#17]: https://github.com/zakyirsyaad/agent-desktop/pull/17

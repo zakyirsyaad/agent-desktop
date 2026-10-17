@@ -10,7 +10,7 @@ pre-commit:
       glob: "*.{ts,tsx}"
       run: pnpm exec tsc --noEmit
     eslint:
-      glob: "*.{ts,tsx,js}"
+      glob: "*.{ts,tsx,js,mjs}"
       run: pnpm exec eslint --max-warnings=0 {staged_files}
     rustfmt:
       glob: "src-tauri/**/*.rs"
