@@ -103,7 +103,7 @@ describe("ACP sessions in the app", () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);
     await send("hi");
-    expect(screen.getByTestId("thinking-indicator-ring")).toBeDefined();
+    expect(screen.getByTestId("agent-working")).toBeDefined();
 
     await acpEvent({
       sessionId,
@@ -113,7 +113,7 @@ describe("ACP sessions in the app", () => {
     await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
 
     expect(screen.getByText("Hello from Qwen")).toBeDefined();
-    expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
+    expect(screen.queryByTestId("agent-working")).toBeNull();
   });
 
   it("answers a permission request with the option the user picks", async () => {
@@ -202,7 +202,7 @@ describe("ACP sessions in the app", () => {
     await acpEvent({ sessionId, kind: "turn-end", error: "model overloaded" });
 
     expect(screen.getByRole("alert").textContent).toContain("model overloaded");
-    expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
+    expect(screen.queryByTestId("agent-working")).toBeNull();
   });
 
   it("forks a live ACP session natively from its latest reply", async () => {
@@ -627,6 +627,15 @@ describe("ACP sessions in the app", () => {
     });
     await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
     expect(callsTo(spy, "acp_prompt")[0][1]).toMatchObject({ text: "first" });
+  });
+
+  it("shows the context the agent has used, as it reports it", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+
+    await acpEvent({ sessionId, kind: "update", update: { sessionUpdate: "usage_update", used: 250_000, size: 1_000_000 } });
+
+    expect(screen.getByRole("meter", { name: "Context used" }).getAttribute("aria-valuenow")).toBe("25");
   });
 });
 

@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useLatest } from './useLatest';
 import type { PermissionRequestPayload } from '../lib/acp-events';
 import type { SlashCommand } from '../types';
+import type { ContextUsage } from '../components/composer/ContextMeter';
 
 /** The one event channel the backend emits ACP traffic on. */
 export const ACP_EVENT = 'acp-event';
@@ -34,6 +35,8 @@ export interface AcpSessionInfo {
   configOptions: AcpConfigOption[];
   /** The agent's slash commands, from its latest available_commands_update. */
   commands: SlashCommand[];
+  /** Context window use, from the agent's latest usage_update. */
+  usage?: ContextUsage;
   canFork: boolean;
   isBusy: boolean;
 }
@@ -149,6 +152,10 @@ export function useAcpSessions(handlers: AcpHandlers) {
             const commands = toCommands(update.availableCommands);
             if (knownRef.current.has(sessionId)) patch(sessionId, (c) => ({ ...c, commands }));
             else earlyCommandsRef.current.set(sessionId, commands);
+          }
+          if (isObject(update) && update.sessionUpdate === 'usage_update') {
+            const { used, size } = update;
+            if (typeof used === 'number' && typeof size === 'number') patch(sessionId, (c) => ({ ...c, usage: { used, size } }));
           }
           if (isObject(update) && update.sessionUpdate === 'config_option_update') {
             const options = toConfigOptions(update.configOptions);

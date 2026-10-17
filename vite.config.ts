@@ -21,5 +21,7 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Agent worktrees under .claude/ hold copies of the tests; run only this checkout's.
+    exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
   },
 });

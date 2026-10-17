@@ -127,21 +127,37 @@ describe("ComposerDock", () => {
   });
 
   describe("while the agent works", () => {
-    it("shows the thinking indicator and a Stop button in place of Send", () => {
+    it("shows a Stop button in place of Send; the working indicator lives in the conversation", () => {
       const onStop = vi.fn();
       render(<ComposerDock isThinking onStop={onStop} onSendMessage={() => {}} />);
 
-      expect(screen.getByTestId("thinking-indicator-ring")).toBeDefined();
+      expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
       expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
       expect(onStop).toHaveBeenCalledTimes(1);
     });
 
-    it("shows neither indicator nor Stop when idle", () => {
+    it("shows no Stop when idle", () => {
       render(<ComposerDock onStop={() => {}} onSendMessage={() => {}} />);
 
-      expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
       expect(screen.queryByRole("button", { name: "Stop agent" })).toBeNull();
+    });
+  });
+
+  describe("context usage", () => {
+    it("shows how much of the agent's context window is used", () => {
+      render(<ComposerDock onSendMessage={() => {}} contextUsage={{ used: 74_485, size: 1_000_000 }} />);
+
+      const meter = screen.getByRole("meter", { name: "Context used" });
+      expect(meter.getAttribute("aria-valuenow")).toBe("7");
+      expect(meter.textContent).toContain("7%");
+      expect(meter.getAttribute("title")).toContain("74,485 of 1,000,000 tokens");
+    });
+
+    it("hides the meter until the agent reports usage", () => {
+      render(<ComposerDock onSendMessage={() => {}} />);
+
+      expect(screen.queryByRole("meter", { name: "Context used" })).toBeNull();
     });
   });
 

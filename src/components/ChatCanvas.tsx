@@ -5,7 +5,7 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import { MessageActionBar } from "./MessageActionBar";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ToolCallList } from "./chat/ToolCallList";
-import { PlanList, ThinkingBlock } from "./chat/ReplyExtras";
+import { PlanList, ThinkingBlock, WorkingIndicator } from "./chat/ReplyExtras";
 import { useReadAloud } from "../hooks/useReadAloud";
 import type { ChatMessage } from "../types";
 
@@ -33,6 +33,8 @@ export interface ChatCanvasProps {
   onForkBranch?: (messageId: string) => void;
   /** Answers an ACP permission card with one of the agent's options. */
   onChooseOption?: (cardId: string, optionId: string) => void;
+  /** True while the agent works on its turn: shown under the last message. */
+  isWorking?: boolean;
 }
 
 /**
@@ -57,6 +59,7 @@ export function ChatCanvas({
   onRejectAction,
   onForkBranch,
   onChooseOption,
+  isWorking = false,
 }: ChatCanvasProps) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const readAloud = useReadAloud();
@@ -130,7 +133,7 @@ export function ChatCanvas({
                   : "px-1 text-neutral-200"
               }`}
             >
-              {msg.thinking && <ThinkingBlock text={msg.thinking} />}
+              {msg.thinking && <ThinkingBlock text={msg.thinking} isDone={Boolean(msg.isComplete)} />}
               {msg.plan && msg.plan.length > 0 && <PlanList entries={msg.plan} />}
               {msg.tools && msg.tools.length > 0 && <ToolCallList tools={msg.tools} />}
 
@@ -175,6 +178,7 @@ export function ChatCanvas({
           </div>
         );
       })}
+      {isWorking && <WorkingIndicator />}
     </div>
   );
 }

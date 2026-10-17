@@ -652,5 +652,26 @@ describe("ACP chat content", () => {
     expect(screen.getByTestId("chat-message-a-1")).toBeDefined();
     expect(screen.queryByTestId("chat-message-a-2")).toBeNull();
   });
+
+  it("shows the reasoning as a collapsed 'Thinking' row while the reply streams, and 'Thought' once done", () => {
+    const reply = { id: "a-1", role: "agent" as const, content: "ok", timestamp: 1, thinking: "Let me check" };
+    const { rerender } = render(<ChatCanvas messages={[reply]} onSendPtyInput={() => {}} />);
+
+    const summary = screen.getByText("Thinking");
+    expect(summary.closest("details")?.open).toBe(false);
+
+    rerender(<ChatCanvas messages={[{ ...reply, isComplete: true }]} onSendPtyInput={() => {}} />);
+    expect(screen.getByText("Thought")).toBeDefined();
+  });
+
+  it("shows the agent working at the end of the conversation", () => {
+    const messages = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
+    const { rerender } = render(<ChatCanvas messages={messages} onSendPtyInput={() => {}} isWorking />);
+
+    expect(screen.getByTestId("agent-working").textContent).toMatch(/working/i);
+
+    rerender(<ChatCanvas messages={messages} onSendPtyInput={() => {}} />);
+    expect(screen.queryByTestId("agent-working")).toBeNull();
+  });
 });
 

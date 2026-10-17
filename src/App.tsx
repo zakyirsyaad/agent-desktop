@@ -497,6 +497,7 @@ export default function App() {
               onApproveAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "approved")}
               onRejectAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "rejected")}
               onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
+              isWorking={isSessionBusy(activeSessionId)}
             />
           ) : (
             <EmptySessionState />
@@ -524,6 +525,7 @@ export default function App() {
               onAttach={pickFiles}
               handleRef={composerRef}
               commands={composerCommands}
+              contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
             />
           </div>
 

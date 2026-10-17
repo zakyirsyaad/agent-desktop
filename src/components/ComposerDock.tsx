@@ -3,6 +3,7 @@ import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square } from "l
 import { OptionDropdown } from "./composer/OptionDropdown";
 import { appendAttachments, withAttachments } from "../lib/attachments";
 import { AttachmentChips } from "./composer/AttachmentChips";
+import { ContextMeter, type ContextUsage } from "./composer/ContextMeter";
 import { isRiskyMode, type ComposerControl, type ComposerControls } from "../lib/composer-controls";
 import { matchingCommands, pendingHint, slashQuery } from "../lib/slash-commands";
 import { SlashCommandMenu } from "./composer/SlashCommandMenu";
@@ -47,6 +48,8 @@ export interface ComposerDockProps {
    * are typed into the prompt.
    */
   attachAsFiles?: boolean;
+  /** How much of the agent's context window is used; the meter shows once the agent reports it. */
+  contextUsage?: ContextUsage;
 }
 
 export function ComposerDock({
@@ -61,6 +64,7 @@ export function ComposerDock({
   handleRef,
   commands = [],
   attachAsFiles = false,
+  contextUsage,
 }: ComposerDockProps) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -233,12 +237,7 @@ export function ComposerDock({
           </div>
 
           <div className="flex items-center gap-2">
-            {isThinking && (
-              <div
-                data-testid="thinking-indicator-ring"
-                className="h-4 w-4 rounded-full border-2 border-amber-500/30 border-t-amber-500 animate-spin"
-              />
-            )}
+            {contextUsage && <ContextMeter used={contextUsage.used} size={contextUsage.size} />}
 
             {model && (
               <OptionDropdown
