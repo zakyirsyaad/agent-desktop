@@ -17,6 +17,24 @@ export function nextSessionName(sessions: readonly Pick<Session, 'name'>[]): str
   return `Session #${highest + 1}`;
 }
 
+const MAX_TITLE_LENGTH = 48;
+const AUTO_NAME = /^Session #\d+$/;
+
+/** True for a numbered placeholder name, which the first message replaces. */
+export function isAutoName(name: string): boolean {
+  return AUTO_NAME.test(name);
+}
+
+/** A session title from the user's prompt: its first line, cut at a word boundary. */
+export function titleFromPrompt(prompt: string): string {
+  const firstLine = prompt.trim().split('\n')[0].replace(/\s+/g, ' ').trim();
+  if (!firstLine) return 'New session';
+  if (firstLine.length <= MAX_TITLE_LENGTH) return firstLine;
+  const cut = firstLine.slice(0, MAX_TITLE_LENGTH + 1);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : firstLine.slice(0, MAX_TITLE_LENGTH)).trimEnd()}…`;
+}
+
 export function patchSessionIn(
   state: PersistedState,
   sessionId: string,

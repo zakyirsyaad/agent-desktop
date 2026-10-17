@@ -7,7 +7,14 @@ import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { FilesPanel } from "./components/FilesPanel";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
-import { mostRecentSessionId, nextSessionName, patchSessionIn, removeSessionFrom } from "./lib/session-helpers";
+import {
+  isAutoName,
+  mostRecentSessionId,
+  nextSessionName,
+  patchSessionIn,
+  removeSessionFrom,
+  titleFromPrompt,
+} from "./lib/session-helpers";
 import { createId } from "./lib/ids";
 import { usePersistedState } from "./hooks/usePersistedState";
 import { useTranscripts } from "./hooks/useTranscripts";
@@ -183,7 +190,11 @@ export default function App() {
     }
     rememberFolder(activeWorkspace);
     startSession(
-      { agent: newSessionAgent, cwd: activeWorkspacePath, name: nextSessionName(sessions) },
+      {
+        agent: newSessionAgent,
+        cwd: activeWorkspacePath,
+        name: firstPrompt ? titleFromPrompt(firstPrompt) : nextSessionName(sessions),
+      },
       firstPrompt,
     );
   };
@@ -301,8 +312,15 @@ export default function App() {
     }
   };
 
-  const sendTo = (sessionId: string, text: string) =>
-    isAcp(sessionById(sessionId)) ? acp.send(sessionId, text) : pty.send(sessionId, text);
+  const sendTo = async (sessionId: string, text: string) => {
+    const session = sessionById(sessionId);
+    // A numbered session takes its title from the first thing the user asks.
+    const isFirstMessage = !(transcripts[sessionId]?.some((m) => m.role === "user") ?? false);
+    const sent = await (isAcp(session) ? acp.send(sessionId, text) : pty.send(sessionId, text));
+    if (sent && session && isFirstMessage && isAutoName(session.name)) {
+      patchSession(sessionId, { name: titleFromPrompt(text) });
+    }
+  };
 
   /** Sends to the active session, or starts a new one with the message as its first prompt. */
   /** Continues an ended ACP session: a fresh agent process loads it, then gets the message. */

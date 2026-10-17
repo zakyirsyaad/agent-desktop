@@ -27,6 +27,14 @@ function isCommandsUpdate(update: unknown): update is { availableCommands: unkno
   return typeof update === 'object' && update !== null && (update as { sessionUpdate?: unknown }).sessionUpdate === 'available_commands_update';
 }
 
+/** The title in a session_info_update, if it carries a usable one. */
+function sessionTitleOf(update: unknown): string | undefined {
+  if (typeof update !== 'object' || update === null) return undefined;
+  const { sessionUpdate, title } = update as { sessionUpdate?: unknown; title?: unknown };
+  if (sessionUpdate !== 'session_info_update' || typeof title !== 'string') return undefined;
+  return title.trim() || undefined;
+}
+
 interface LaunchOptions {
   firstPrompt?: string;
   /** What the user picked in the composer before the agent ran. */
@@ -70,6 +78,12 @@ export function useAcpEngine({
 
   const acp = useAcpSessions({
     onUpdate: unlessStopped((sessionId, update: unknown) => {
+      const title = sessionTitleOf(update);
+      if (title) {
+        // The agent's own title (e.g. a summary) beats one cut from the first prompt.
+        patchSession(sessionId, { name: title });
+        return;
+      }
       if (isCommandsUpdate(update)) {
         const profileId = sessions.find((s) => s.id === sessionId)?.profileId;
         if (profileId) rememberOptions(profileId, { commands: toCommands(update.availableCommands) });
@@ -104,20 +118,23 @@ export function useAcpEngine({
   const reportFailure = (what: string) => (error: unknown) => reportError(`${what}: ${String(error)}`);
 
   /** Prompts the agent with a message already shown in the chat; removes it if the prompt is refused. */
-  const prompt = async (sessionId: string, message: ChatMessage) => {
+  const prompt = async (sessionId: string, message: ChatMessage): Promise<boolean> => {
     try {
       await acp.prompt(sessionId, message.content);
+      return true;
     } catch (error) {
       updateMessages(sessionId, (prev) => withoutMessage(prev, message.id));
       reportError(`Failed to send the message: ${String(error)}`);
+      return false;
     }
   };
 
-  const send = async (sessionId: string, text: string) => {
+  /** Resolves to whether the agent took the message. */
+  const send = async (sessionId: string, text: string): Promise<boolean> => {
     // Shown before the prompt goes out, so the agent's reply always lands after it.
     const message = userMessage(text);
     updateMessages(sessionId, (prev) => [...prev, message]);
-    await prompt(sessionId, message);
+    return prompt(sessionId, message);
   };
 
   /**

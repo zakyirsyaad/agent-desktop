@@ -183,7 +183,7 @@ describe("Session lifecycle", () => {
     });
 
     expect(spy.mock.calls.some(([cmd]) => cmd === "spawn_session")).toBe(true);
-    expect(sidebar().getByText("Session #1")).toBeDefined();
+    expect(sidebar().getByText("run the tests")).toBeDefined();
   });
 
   it("shows an alert and does not append the message when sending fails", async () => {

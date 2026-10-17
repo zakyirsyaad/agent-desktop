@@ -96,7 +96,7 @@ describe("ACP sessions in the app", () => {
     await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
     const [, promptArgs] = callsTo(spy, "acp_prompt")[0];
     expect(promptArgs).toMatchObject({ text: "explain the parser" });
-    expect(screen.getByText("explain the parser")).toBeDefined();
+    expect(within(screen.getByTestId("chat-canvas-container")).getByText("explain the parser")).toBeDefined();
   });
 
   it("streams the agent's reply and ends the turn", async () => {
@@ -184,7 +184,7 @@ describe("ACP sessions in the app", () => {
   it("only marks a session as working while its agent is busy", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);
-    const row = () => within(screen.getByRole("complementary")).getByText("Session #1").closest("li") as HTMLElement;
+    const row = () => within(screen.getByRole("list", { name: /^Sessions in/ })).getAllByRole("listitem")[0];
     expect(within(row()).queryByLabelText("Agent working")).toBeNull();
 
     await send("go");
@@ -224,7 +224,7 @@ describe("ACP sessions in the app", () => {
     const [, forkArgs] = callsTo(spy, "acp_fork_session")[0];
     expect(forkArgs).toMatchObject({ sourceSessionId: sessionId, cwd: "/Users/test/developer/ai-perpetual-trading" });
     expect(callsTo(spy, "write_fork_handoff")).toHaveLength(0);
-    expect(within(screen.getByRole("complementary")).getByText("Session #1 (fork)")).toBeDefined();
+    expect(within(screen.getByRole("complementary")).getByText("plan it (fork)")).toBeDefined();
   });
 
   it("stops a live ACP agent when its session is deleted and ignores its late events", async () => {
@@ -301,7 +301,7 @@ describe("ACP sessions in the app", () => {
 
     await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
     expect(screen.getByRole("alert").textContent).toContain("mode switch timed out");
-    const row = within(screen.getByRole("complementary")).getByText("Session #1").closest("li") as HTMLElement;
+    const row = within(screen.getByRole("complementary")).getByText("explain the parser").closest("li") as HTMLElement;
     expect(within(row).queryByRole("button", { name: "Delete session" })).toBeNull();
   });
 
@@ -472,6 +472,37 @@ describe("ACP sessions in the app", () => {
         { name: "compress", description: "Compress the context", hint: "optional focus" },
       ]);
     });
+  });
+
+  it("names a session after its first message, then after the agent's own title", async () => {
+    const spy = await renderWithQwen();
+    await send("explain the parser");
+    const sidebar = within(screen.getByRole("complementary"));
+    expect(sidebar.getByText("explain the parser")).toBeDefined();
+    const [, startArgs] = callsTo(spy, "acp_start_session")[0];
+
+    await acpEvent({
+      sessionId: String(startArgs?.sessionId),
+      kind: "update",
+      update: { sessionUpdate: "session_info_update", title: "Parser walkthrough" },
+    });
+
+    expect(sidebar.getByText("Parser walkthrough")).toBeDefined();
+  });
+
+  it("renames a numbered session on its first message only", async () => {
+    const spy = await renderWithQwen();
+    await startQwenSession(spy);
+    const sidebar = within(screen.getByRole("complementary"));
+    expect(sidebar.getByText("Session #1")).toBeDefined();
+
+    await send("first question");
+    await acpEvent({ sessionId: String(callsTo(spy, "acp_start_session")[0][1]?.sessionId), kind: "turn-end", stopReason: "end_turn" });
+    await send("second question");
+
+    expect(sidebar.getByText("first question")).toBeDefined();
+    expect(sidebar.queryByText("Session #1")).toBeNull();
+    expect(sidebar.queryByText("second question")).toBeNull();
   });
 });
 

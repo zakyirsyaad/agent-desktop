@@ -43,10 +43,12 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
     [reportError],
   );
 
+  /** Resolves to whether the agent took the message. */
   const send = useCallback(
-    async (sessionId: string, text: string) => {
-      if (!(await sendRaw(sessionId, `${text}\n`))) return;
+    async (sessionId: string, text: string): Promise<boolean> => {
+      if (!(await sendRaw(sessionId, `${text}\n`))) return false;
       updateMessages(sessionId, (prev) => [...prev, userMessage(text)]);
+      return true;
     },
     [sendRaw, updateMessages],
   );
