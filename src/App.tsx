@@ -6,12 +6,14 @@ import { ChatCanvas } from "./components/ChatCanvas";
 import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { FilesPanel } from "./components/FilesPanel";
 import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
-import { AuthPanel, type AuthStatus } from "./components/AuthPanel";
-import type { AuthMethod } from "./lib/acp-auth";
+import { AuthPanel } from "./components/AuthPanel";
 import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
 import { ChangesPanel } from "./components/changes/ChangesPanel";
-import { useSessionChanges } from "./hooks/useSessionChanges";
+import { useSidePanel } from "./hooks/useSidePanel";
+import { useAgentAuth } from "./hooks/useAgentAuth";
+import { createSessionWorktree, removeSessionWorktree } from "./lib/session-worktree";
+import { EMPTY_DRAFT, spawnOptionsFor, titleFor } from "./lib/session-start";
 import { createPtyOutputStore } from "./lib/pty-output-store";
 import { isAwaitingPermission } from "./lib/acp-events";
 import {
@@ -22,7 +24,6 @@ import {
   nextSessionName,
   patchSessionIn,
   removeSessionFrom,
-  titleFromPrompt,
 } from "./lib/session-helpers";
 import { createId } from "./lib/ids";
 import { usePersistedState } from "./hooks/usePersistedState";
@@ -39,10 +40,9 @@ import { usePopoutHost } from "./hooks/usePopoutHost";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
 import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
-import { notifyIfAway } from "./lib/notify";
+import { attentionBody, notifyIfAway } from "./lib/notify";
 import { buildForkHandoff, buildForkPrompt } from "./lib/fork-handoff";
 import { pickFiles } from "./lib/file-picker";
-import { fileNameOf } from "./lib/attachments";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerStateFor } from "./lib/composer-state";
@@ -58,33 +58,7 @@ const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder butto
 const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
-/** An agent waiting for the user to sign in, and how far that got. */
-interface AuthRequest {
-  profileId: string;
-  cwd: string;
-  methods: AuthMethod[];
-  status: AuthStatus;
-  error?: string;
-}
-
-const EMPTY_DRAFT: SessionDraft = { permissionMode: DEFAULT_PERMISSION_MODE };
-
-function spawnOptionsFor(agent: AgentProfile, draft: SessionDraft): SpawnOptions {
-  return {
-    model: draft.model,
-    effort: draft.effort,
-    permissionMode: draft.permissionMode,
-    // Agents with a session-id flag get an id we choose, so they can be forked natively later.
-    agentSessionId: agent.session_id_arg ? crypto.randomUUID() : undefined,
-  };
-}
-
 const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
-
-/** A session title from a message, or from its first file when it has no text. */
-function titleFor({ text, attachments }: FirstMessage): string {
-  return titleFromPrompt(text || fileNameOf(attachments?.[0] ?? ""));
-}
 
 export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
@@ -97,13 +71,9 @@ export default function App() {
   const [isCreatingWorktree, setIsCreatingWorktree] = useState(false);
   const [acpChoices, setAcpChoices] = useState<AcpChoices>(NO_CHOICES);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  /** The panel shown right of the chat: the session's files or its uncommitted changes. */
-  const [sidePanel, setSidePanel] = useState<"files" | "changes" | null>(null);
-  /** Counts the active agent's finished turns, so the changes are read again after each. */
-  const [turnsEnded, setTurnsEnded] = useState(0);
   const composerRef = useRef<ComposerHandle>(null);
   const [ptyOutput] = useState(createPtyOutputStore);
-  const [authRequest, setAuthRequest] = useState<AuthRequest | null>(null);
+  const { authRequest, requestSignIn, signIn, dismiss: dismissSignIn } = useAgentAuth();
 
   const reportError = useCallback((message: string) => setNotice(message), []);
   const { state, isLoaded, updateState } = usePersistedState(reportError);
@@ -196,7 +166,7 @@ export default function App() {
     rememberOptions: rememberAgentOptions,
     onAttention: (sessionId, reason) => notifyAttention(sessionId, reason),
     onAuthRequired: (profileId, cwd, methods, unsent) => {
-      setAuthRequest({ profileId, cwd, methods, status: "idle" });
+      requestSignIn(profileId, cwd, methods);
       if (unsent) composerRef.current?.restore(unsent.text, unsent.attachments);
     },
   });
@@ -205,42 +175,20 @@ export default function App() {
   const notifyAttention = (sessionId: string, reason: AttentionReason) => {
     const session = sessionById(sessionId);
     const agentName = agents.find((a) => a.id === session?.profileId)?.name ?? "The agent";
-    const body = {
-      "needs-answer": `${agentName} needs your answer.`,
-      finished: `${agentName} finished.`,
-      failed: `${agentName} stopped with an error.`,
-    }[reason];
     // A notification that cannot be shown is not worth an error banner: the chat has it all.
-    notifyIfAway({ title: session?.name ?? agentName, body }).catch(() => {});
-  };
-
-  /** Signs in in the agent itself (e.g. it opens a browser); the user then sends again. */
-  const handleSignIn = (methodId: string) => {
-    if (!authRequest) return;
-    const { profileId, cwd } = authRequest;
-    setAuthRequest({ ...authRequest, status: "signing-in", error: undefined });
-    invoke("acp_authenticate", { profileId, cwd, methodId })
-      .then(() => setAuthRequest((prev) => prev && { ...prev, status: "signed-in" }))
-      .catch((error) => setAuthRequest((prev) => prev && { ...prev, status: "failed", error: String(error) }));
+    notifyIfAway({ title: session?.name ?? agentName, body: attentionBody(agentName, reason) }).catch(() => {});
   };
 
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
   const isSessionBusy = (sessionId: string) =>
     isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) : pty.isBusy(sessionId);
 
-  const toggleSidePanel = (panel: "files" | "changes") => {
-    // The list may be stale while the panel is closed (an agent mid-turn): opening reads it afresh.
-    if (panel === "changes" && sidePanel !== "changes") sessionChanges.reload();
-    setSidePanel((current) => (current === panel ? null : panel));
-  };
-  // When the active agent stops working, what it changed is read again.
-  const isActiveBusy = Boolean(activeSessionId) && isSessionBusy(activeSessionId);
-  const wasActiveBusyRef = useRef(false);
-  useEffect(() => {
-    if (wasActiveBusyRef.current && !isActiveBusy) setTurnsEnded((n) => n + 1);
-    wasActiveBusyRef.current = isActiveBusy;
-  }, [isActiveBusy]);
-  const sessionChanges = useSessionChanges(filesFolder?.path, isRepository, turnsEnded, reportError);
+  const sidePanel = useSidePanel(
+    filesFolder?.path,
+    isRepository,
+    Boolean(activeSessionId) && isSessionBusy(activeSessionId),
+    reportError,
+  );
   /**
    * Whether a session's agent waits for the user's answer. An ACP agent stays
    * busy while it asks; a terminal agent goes quiet on its y/n prompt, so for
@@ -318,12 +266,7 @@ export default function App() {
     if (isWorktreeOn && canUseWorktree) {
       setIsCreatingWorktree(true);
       try {
-        const created = await invoke<{ path: string; cwd: string; branch: string }>("create_session_worktree", {
-          repoPath: activeWorkspace.path,
-          title: name,
-        });
-        worktree = { repoPath: activeWorkspace.path, path: created.path, branch: created.branch };
-        cwd = created.cwd;
+        ({ worktree, cwd } = await createSessionWorktree(activeWorkspace.path, name));
       } catch (error) {
         setNotice(`Could not create a worktree: ${String(error)}`);
         // The user may have opened another session meanwhile: the message goes
@@ -459,26 +402,6 @@ export default function App() {
     else pty.interrupt(sessionId);
   };
 
-  /**
-   * Removes a deleted session's worktree when no other session runs in it,
-   * once its agent has stopped: never from under a running agent. The backend
-   * keeps one with uncommitted changes, and its branch always.
-   */
-  const removeWorktreeOf = async (session: Session, stopped: Promise<boolean>) => {
-    const worktree = session.worktree;
-    if (!worktree) return;
-    if (sessions.some((s) => s.id !== session.id && s.worktree?.path === worktree.path)) return;
-    if (!(await stopped)) {
-      setNotice(`Kept the worktree of "${session.name}": its agent could not be stopped.`);
-      return;
-    }
-    try {
-      await invoke("remove_session_worktree", { repoPath: worktree.repoPath, path: worktree.path });
-    } catch (error) {
-      setNotice(`Kept the worktree of "${session.name}": ${String(error)}`);
-    }
-  };
-
   const handleDeleteSession = (sessionId: string) => {
     const session = sessionById(sessionId);
     const isRunning = session?.status === "running";
@@ -487,7 +410,9 @@ export default function App() {
     navigation.remove(sessionId);
     updateState((prev) => removeSessionFrom(prev, sessionId));
     removeTranscript(sessionId);
-    if (session) void removeWorktreeOf(session, stopped);
+    if (session) {
+      void removeSessionWorktree(session, sessions, stopped).then((kept) => kept && setNotice(kept));
+    }
     if (sessionId === activeSessionId) {
       setActiveSessionId(mostRecentSessionId(sessions.filter((s) => s.id !== sessionId)));
     }
@@ -594,11 +519,11 @@ export default function App() {
         canGoForward={navigation.canGoForward}
         onBack={() => navigateTo(isNewSessionDraft ? lastViewedSessionId : navigation.back())}
         onForward={() => navigateTo(navigation.forward())}
-        onToggleFiles={filesFolder ? () => toggleSidePanel("files") : undefined}
-        isFilesOpen={sidePanel === "files" && Boolean(filesFolder)}
-        onToggleChanges={filesFolder && isRepository ? () => toggleSidePanel("changes") : undefined}
-        isChangesOpen={sidePanel === "changes" && Boolean(filesFolder) && isRepository}
-        changeCount={sessionChanges.changes?.length}
+        onToggleFiles={filesFolder ? () => sidePanel.toggle("files") : undefined}
+        isFilesOpen={sidePanel.open === "files" && Boolean(filesFolder)}
+        onToggleChanges={filesFolder && isRepository ? () => sidePanel.toggle("changes") : undefined}
+        isChangesOpen={sidePanel.open === "changes" && Boolean(filesFolder) && isRepository}
+        changeCount={sidePanel.changes.changes?.length}
         onPopout={activeSession ? handlePopout : undefined}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -637,8 +562,8 @@ export default function App() {
               methods={authRequest.methods}
               status={authRequest.status}
               error={authRequest.error}
-              onSignIn={handleSignIn}
-              onDismiss={() => setAuthRequest(null)}
+              onSignIn={signIn}
+              onDismiss={dismissSignIn}
             />
           )}
           {showsTerminal ? (
@@ -720,24 +645,24 @@ export default function App() {
           </div>
 
         </article>
-        {sidePanel === "changes" && filesFolder && isRepository && (
+        {sidePanel.open === "changes" && filesFolder && isRepository && (
           <ChangesPanel
             key={filesFolder.path}
             rootPath={filesFolder.path}
             rootName={filesFolder.name}
             branch={workspaceDetails?.branch ?? undefined}
-            changes={sessionChanges.changes}
-            version={sessionChanges.version}
-            onReload={sessionChanges.reload}
-            onClose={() => setSidePanel(null)}
+            changes={sidePanel.changes.changes}
+            version={sidePanel.changes.version}
+            onReload={sidePanel.changes.reload}
+            onClose={sidePanel.close}
           />
         )}
-        {sidePanel === "files" && filesFolder && (
+        {sidePanel.open === "files" && filesFolder && (
           <FilesPanel
             key={filesFolder.path}
             rootPath={filesFolder.path}
             rootName={filesFolder.name}
-            onClose={() => setSidePanel(null)}
+            onClose={sidePanel.close}
             onInsertPath={(path) => composerRef.current?.insertPaths([path])}
             onRevealRoot={handleRevealFolder}
           />

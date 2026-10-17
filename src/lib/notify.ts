@@ -1,5 +1,6 @@
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { getAllWindows } from '@tauri-apps/api/window';
+import type { AttentionReason } from '../hooks/session-engine/useAcpEngine';
 
 export interface AttentionNotice {
   title: string;
@@ -23,4 +24,13 @@ export async function notifyIfAway(notice: AttentionNotice): Promise<void> {
   if (await isAppFocused()) return;
   const isGranted = (await isPermissionGranted()) || (await requestPermission()) === 'granted';
   if (isGranted) sendNotification(notice);
+}
+
+/** What a notification says about a session that needs the user or is done. */
+export function attentionBody(agentName: string, reason: AttentionReason): string {
+  return {
+    'needs-answer': `${agentName} needs your answer.`,
+    finished: `${agentName} finished.`,
+    failed: `${agentName} stopped with an error.`,
+  }[reason];
 }
