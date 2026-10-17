@@ -258,11 +258,11 @@ All systems ready for compilation.`,
     );
 
     // Tool chip 1: completed
-    expect(screen.getByText(/Tool:\s*Edit\(file_path:\s*"src\/App\.tsx"\)/i)).toBeDefined();
+    expect(screen.getByText(/Edit\(file_path:\s*"src\/App\.tsx"\)/i)).toBeDefined();
     expect(screen.getByText(/Completed/i)).toBeDefined();
 
     // Tool chip 2: running
-    expect(screen.getByText(/Tool:\s*Bash\(pnpm test\)/i)).toBeDefined();
+    expect(screen.getByText(/Bash\(pnpm test\)/i)).toBeDefined();
     expect(screen.getByText(/Running/i)).toBeDefined();
   });
 
@@ -531,5 +531,109 @@ All systems ready for compilation.`,
     unmount();
 
     expect(speech.cancel).not.toHaveBeenCalled();
+  });
+});
+
+describe("ACP chat content", () => {
+  const permissionCard: ActionCardType = {
+    id: "act-acp",
+    sessionId: "s-1",
+    title: "Permission requested",
+    prompt: "Run rm -rf build",
+    toolName: "execute",
+    status: "pending",
+    approvalKey: "",
+    rejectKey: "",
+    timestamp: 1,
+    requestId: "perm-1",
+    options: [
+      { optionId: "allow", name: "Allow", kind: "allow_once" },
+      { optionId: "always", name: "Always allow", kind: "allow_always" },
+      { optionId: "reject", name: "Reject", kind: "reject_once" },
+    ],
+  };
+
+  it("offers the agent's own permission choices and reports the pick", () => {
+    const onChooseOption = vi.fn();
+    render(
+      <ChatCanvas
+        messages={[{ id: "m-1", role: "agent", content: "", timestamp: 1, actionCard: permissionCard }]}
+        onSendPtyInput={() => {}}
+        onChooseOption={onChooseOption}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Always allow" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+
+    expect(onChooseOption).toHaveBeenCalledWith("act-acp", "reject");
+  });
+
+  it("shows which choice was made once a permission card is answered", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          {
+            id: "m-1",
+            role: "agent",
+            content: "",
+            timestamp: 1,
+            actionCard: { ...permissionCard, status: "approved", chosenOptionId: "always" },
+          },
+        ]}
+        onSendPtyInput={() => {}}
+        onChooseOption={() => {}}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(screen.getByText(/Always allow/)).toBeDefined();
+  });
+
+  it("renders the agent's thinking collapsed and its plan with statuses", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          {
+            id: "m-1",
+            role: "agent",
+            content: "Working on it",
+            timestamp: 1,
+            thinking: "First I will read the parser",
+            plan: [
+              { content: "Read the parser", status: "completed" },
+              { content: "Split it in two", status: "in_progress" },
+            ],
+          },
+        ]}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    expect(screen.getByText("Thinking")).toBeDefined();
+    expect(screen.getByText("First I will read the parser")).toBeDefined();
+    const plan = screen.getByRole("list", { name: "Plan" });
+    expect(within(plan).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(plan).getByText("Split it in two")).toBeDefined();
+  });
+
+  it("shows an ACP tool call by its title, without empty parentheses", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          {
+            id: "m-1",
+            role: "agent",
+            content: "",
+            timestamp: 1,
+            tools: [{ id: "t-1", name: "Read src/App.tsx", args: "", status: "completed", kind: "read" }],
+          },
+        ]}
+        onSendPtyInput={() => {}}
+      />
+    );
+
+    expect(screen.getByText("Read src/App.tsx")).toBeDefined();
+    expect(screen.queryByText(/\(\)/)).toBeNull();
   });
 });

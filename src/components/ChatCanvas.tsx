@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Check, Sparkles, User, Wrench, Clock } from "lucide-react";
+import { Sparkles, User } from "lucide-react";
 import { ActionCard } from "./ActionCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { MessageActionBar } from "./MessageActionBar";
+import { ToolCallList } from "./chat/ToolCallList";
+import { PlanList, ThinkingBlock } from "./chat/ReplyExtras";
 import { useReadAloud } from "../hooks/useReadAloud";
 import type { ChatMessage } from "../types";
 
@@ -20,6 +22,8 @@ export interface ChatCanvasProps {
   onApproveAction?: (key: string, cardId?: string) => void;
   onRejectAction?: (key: string, cardId?: string) => void;
   onForkBranch?: (messageId: string) => void;
+  /** Answers an ACP permission card with one of the agent's options. */
+  onChooseOption?: (cardId: string, optionId: string) => void;
 }
 
 /**
@@ -43,6 +47,7 @@ export function ChatCanvas({
   onApproveAction,
   onRejectAction,
   onForkBranch,
+  onChooseOption,
 }: ChatCanvasProps) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const readAloud = useReadAloud();
@@ -116,43 +121,9 @@ export function ChatCanvas({
                   : "bg-[#080808] border border-neutral-800/80 text-neutral-200"
               }`}
             >
-              {/* Tool Execution Chips */}
-              {msg.tools && msg.tools.length > 0 && (
-                <div className="mb-4 space-y-2">
-                  {msg.tools.map((tool) => (
-                    <div
-                      key={tool.id}
-                      className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800/80 bg-neutral-950/60 px-3 py-1.5 font-mono text-xs text-neutral-300"
-                    >
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        <Wrench className="h-3.5 w-3.5 text-neutral-500 shrink-0" />
-                        <span className="truncate">
-                          Tool: {tool.name}({tool.args})
-                        </span>
-                      </div>
-                      <div className="shrink-0">
-                        {tool.status === "completed" && (
-                          <span className="inline-flex items-center gap-1 rounded bg-emerald-950/60 border border-emerald-800/50 px-2 py-0.5 text-[11px] text-emerald-400">
-                            <Check className="h-3 w-3" />
-                            Completed
-                          </span>
-                        )}
-                        {tool.status === "running" && (
-                          <span className="inline-flex items-center gap-1 rounded bg-amber-950/60 border border-amber-800/50 px-2 py-0.5 text-[11px] text-amber-400 animate-pulse">
-                            <Clock className="h-3 w-3" />
-                            Running
-                          </span>
-                        )}
-                        {tool.status === "failed" && (
-                          <span className="inline-flex items-center gap-1 rounded bg-rose-950/60 border border-rose-800/50 px-2 py-0.5 text-[11px] text-rose-400">
-                            Failed
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {msg.thinking && <ThinkingBlock text={msg.thinking} />}
+              {msg.plan && msg.plan.length > 0 && <PlanList entries={msg.plan} />}
+              {msg.tools && msg.tools.length > 0 && <ToolCallList tools={msg.tools} />}
 
               {/* Message Markdown Body */}
               <MarkdownRenderer content={msg.content} />
@@ -163,6 +134,9 @@ export function ChatCanvas({
                   card={msg.actionCard}
                   onApprove={(key) => handleApprove(key, msg.actionCard!.id)}
                   onReject={(key) => handleReject(key, msg.actionCard!.id)}
+                  onChoose={
+                    onChooseOption ? (optionId) => onChooseOption(msg.actionCard!.id, optionId) : undefined
+                  }
                 />
               )}
             </div>
