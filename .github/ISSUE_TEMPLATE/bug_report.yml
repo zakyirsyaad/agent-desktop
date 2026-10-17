@@ -1,0 +1,47 @@
+name: Bug report
+description: Something in Agent Desktop does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Never paste API keys, tokens or private transcripts; a bug report does not need them.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Shown in the sidebar's footer, for example 0.2.0.
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options: [Qwen Code, Claude Code, Codex, Oh-My-Pi, Aider, Not agent-specific]
+    validations:
+      required: true
+  - type: input
+    id: agent-version
+    attributes:
+      label: Agent version
+      description: For example the output of `qwen --version`.
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and chip
+      description: For example macOS 15.4, Apple Silicon.
+  - type: textarea
+    id: steps
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. Started a Qwen Code session in a repository with Worktree on
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error text or logs
+      description: Any error the app showed, with secrets removed.
+      render: text
