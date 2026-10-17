@@ -45,6 +45,8 @@ export interface AgentProfile {
 
 export type AgentTransport = 'acp' | 'pty';
 
+export const TRANSPORT_ACP: AgentTransport = 'acp';
+
 /** A `PermissionModeOption.id`; `"ask"` is the safe default every agent supports. */
 export type PermissionMode = string;
 

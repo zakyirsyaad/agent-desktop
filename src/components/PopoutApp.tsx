@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ChatMessage, Session } from "../types";
-import { DEFAULT_PERMISSION_MODE } from "../types";
+import { TRANSPORT_ACP } from "../types";
+import { ptySessionControls } from "../lib/composer-controls";
 import {
   POPOUT_ACTION_EVENT,
   POPOUT_READY_EVENT,
@@ -61,6 +62,8 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
 
   const agent = agents.find((a) => a.id === session?.profileId);
   const isRunning = session?.status === "running";
+  // An ACP session's live modes belong to the main window; change them there.
+  const isAcp = session?.transport === TRANSPORT_ACP;
 
   return (
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
@@ -78,6 +81,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
             onSendPtyInput={(key) => forward({ kind: "resolve-card", key, status: "approved" })}
             onApproveAction={(key, cardId) => forward({ kind: "resolve-card", cardId, key, status: "approved" })}
             onRejectAction={(key, cardId) => forward({ kind: "resolve-card", cardId, key, status: "rejected" })}
+            onChooseOption={(cardId, optionId) => forward({ kind: "choose-option", cardId, optionId })}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-neutral-500">
@@ -86,10 +90,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
         )}
         <div className="p-4 flex justify-center">
           <ComposerDock
-            activeAgent={agent}
-            selectedModel={session?.model}
-            selectedEffort={session?.effort}
-            permissionMode={session?.permissionMode ?? DEFAULT_PERMISSION_MODE}
+            controls={agent && session && !isAcp ? ptySessionControls(agent, session) : undefined}
             optionsLocked
             disabled={!isRunning}
             placeholder={isRunning ? undefined : "This session is not running"}
@@ -100,6 +101,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
           isOpen={isTerminalOpen}
           sessionId={sessionId}
           sessionName={session?.name}
+          isLive={isRunning && !isAcp}
           onClose={() => setIsTerminalOpen(false)}
         />
       </article>

@@ -23,7 +23,8 @@ export interface SessionSnapshotPayload {
 
 export type PopoutAction =
   | { kind: 'send'; text: string }
-  | { kind: 'resolve-card'; cardId?: string; key: string; status: ActionCard['status'] };
+  | { kind: 'resolve-card'; cardId?: string; key: string; status: ActionCard['status'] }
+  | { kind: 'choose-option'; cardId: string; optionId: string };
 
 export interface PopoutActionPayload {
   sessionId: string;

@@ -93,30 +93,51 @@ describe("Session lifecycle", () => {
     });
   });
 
+  it("offers Stop only while the agent works, and stops its turn with Ctrl+C", async () => {
+    await renderApp();
+    const sessionId = await startNewSession();
+    const row = () => sessionRow("Session #1");
+    expect(within(row()).queryByRole("button", { name: "Stop session" })).toBeNull();
+    expect(within(row()).queryByLabelText("Agent working")).toBeNull();
+
+    await act(async () => {
+      listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Thinking...\r\n" } });
+    });
+    expect(within(row()).getByLabelText("Agent working")).toBeDefined();
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+    await act(async () => {
+      fireEvent.click(within(row()).getByRole("button", { name: "Stop session" }));
+    });
+
+    expect(spy).toHaveBeenCalledWith("send_input", { sessionId, data: "\x03" }, undefined);
+  });
+
   it("marks a session ended when its agent process exits", async () => {
     await renderApp();
     const sessionId = await startNewSession();
-    const row = sessionRow("Session #1");
-    expect(within(row).getByRole("button", { name: "Stop session" })).toBeDefined();
 
     await act(async () => {
       listeners.get("pty-exit")?.({ payload: { session_id: sessionId, exit_code: 0 } });
     });
 
-    expect(within(row).queryByRole("button", { name: "Stop session" })).toBeNull();
-    expect(within(row).getByRole("button", { name: "Delete session" })).toBeDefined();
+    await waitFor(() => {
+      const [saved] = fakeStore().state.sessions as { status: string }[];
+      expect(saved.status).toBe("terminated");
+    });
+    expect(within(sessionRow("Session #1")).getByRole("button", { name: "Delete session" })).toBeDefined();
   });
 
-  it("stops a running session through terminate_session", async () => {
+  it("stops a live session's agent before deleting it", async () => {
     await renderApp();
     const sessionId = await startNewSession();
     const spy = vi.spyOn(tauriInternals(), "invoke");
 
     await act(async () => {
-      fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Stop session" }));
+      fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Delete session" }));
     });
 
     expect(spy).toHaveBeenCalledWith("terminate_session", { sessionId }, undefined);
+    expect(sidebar().queryByText("Session #1")).toBeNull();
   });
 
   it("deletes an ended session and its transcript", async () => {
@@ -133,12 +154,20 @@ describe("Session lifecycle", () => {
     expect(spy).toHaveBeenCalledWith("delete_transcript", { sessionId: "s-old" }, undefined);
   });
 
-  it("disables the composer when the active session is not running", async () => {
+  it("starts a new session from the composer when the active one has ended", async () => {
     fakeStore().state.sessions = [seedSession("s-old", "Refactor parser", 1000)];
     await renderApp();
+    const spy = vi.spyOn(tauriInternals(), "invoke");
 
-    const composer = screen.getByPlaceholderText("Start a session to send a message");
-    expect((composer as HTMLTextAreaElement).disabled).toBe(true);
+    const composer = screen.getByPlaceholderText(/start a new session/i) as HTMLTextAreaElement;
+    expect(composer.disabled).toBe(false);
+    await act(async () => {
+      fireEvent.change(composer, { target: { value: "run the tests" } });
+      fireEvent.keyDown(composer, { key: "Enter" });
+    });
+
+    expect(spy.mock.calls.some(([cmd]) => cmd === "spawn_session")).toBe(true);
+    expect(sidebar().getByText("Session #2")).toBeDefined();
   });
 
   it("shows an alert and does not append the message when sending fails", async () => {

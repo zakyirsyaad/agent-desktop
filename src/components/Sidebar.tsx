@@ -14,6 +14,9 @@ export interface SidebarProps {
   onSelectWorkspace: (path: string) => void;
   /** Opens the native folder dialog; the button is hidden when absent. */
   onOpenFolder?: () => void;
+  /** True while a session's agent is working on a turn. */
+  isSessionBusy?: (sessionId: string) => boolean;
+  /** Stops the agent's current turn; offered only while it works. */
   onStopSession?: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   /** Bottom bar content, e.g. the user's profile. */
@@ -32,13 +35,13 @@ function matches(query: string, ...values: string[]): boolean {
 interface SessionRowProps {
   session: Session;
   isActive: boolean;
+  isBusy: boolean;
   onSelect: () => void;
   onStop?: () => void;
   onDelete?: () => void;
 }
 
-function SessionRow({ session, isActive, onSelect, onStop, onDelete }: SessionRowProps) {
-  const isRunning = session.status === "running";
+function SessionRow({ session, isActive, isBusy, onSelect, onStop, onDelete }: SessionRowProps) {
   return (
     <li
       className={`group flex items-center rounded-md transition-colors ${
@@ -60,14 +63,27 @@ function SessionRow({ session, isActive, onSelect, onStop, onDelete }: SessionRo
           )}
           <span className="truncate">{session.name}</span>
         </div>
-        {isRunning && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0 ml-1 animate-pulse" />}
+        {isBusy && (
+          <span
+            role="status"
+            aria-label="Agent working"
+            title="The agent is working"
+            className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0 ml-1 animate-pulse"
+          />
+        )}
       </button>
-      {isRunning && onStop && (
-        <button type="button" aria-label="Stop session" title="Stop session" onClick={onStop} className={ROW_ACTION}>
+      {isBusy && onStop && (
+        <button
+          type="button"
+          aria-label="Stop session"
+          title="Stop the agent's current turn"
+          onClick={onStop}
+          className={ROW_ACTION}
+        >
           <Square size={11} />
         </button>
       )}
-      {!isRunning && onDelete && (
+      {!isBusy && onDelete && (
         <button
           type="button"
           aria-label="Delete session"
@@ -124,6 +140,7 @@ export function Sidebar({
   onSelectSession,
   onSelectWorkspace,
   onOpenFolder,
+  isSessionBusy = () => false,
   onStopSession,
   onDeleteSession,
   footer,
@@ -232,6 +249,7 @@ export function Sidebar({
                     key={s.id}
                     session={s}
                     isActive={s.id === activeSessionId}
+                    isBusy={isSessionBusy(s.id)}
                     onSelect={() => onSelectSession(s.id)}
                     onStop={onStopSession ? () => onStopSession(s.id) : undefined}
                     onDelete={onDeleteSession ? () => onDeleteSession(s.id) : undefined}

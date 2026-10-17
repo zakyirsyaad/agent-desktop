@@ -1,15 +1,37 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { ComposerDock } from "../components/ComposerDock";
-import { claudeProfile, ompProfile } from "./fixtures/agents";
+import type { ComposerControls } from "../lib/composer-controls";
 
 function prompt(): HTMLTextAreaElement {
   return screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
 }
 
+function controls(overrides: Partial<ComposerControls> = {}): ComposerControls {
+  return {
+    permission: {
+      options: [
+        { value: "default", label: "Default" },
+        { value: "yolo", label: "YOLO" },
+      ],
+      selected: "default",
+      onChange: vi.fn(),
+    },
+    model: {
+      options: [
+        { value: undefined, label: "Default model" },
+        { value: "opus", label: "opus" },
+      ],
+      selected: undefined,
+      onChange: vi.fn(),
+    },
+    ...overrides,
+  };
+}
+
 describe("ComposerDock", () => {
   it("renders no usage banner, Upgrade or voice controls (no data source exists for them)", () => {
-    render(<ComposerDock activeAgent={claudeProfile} onSendMessage={() => {}} />);
+    render(<ComposerDock controls={controls()} onSendMessage={() => {}} />);
 
     expect(screen.queryByText(/usage limit/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /upgrade/i })).toBeNull();
@@ -19,7 +41,7 @@ describe("ComposerDock", () => {
   describe("sending", () => {
     it("submits on Enter without Shift and clears the input", () => {
       const onSendMessage = vi.fn();
-      render(<ComposerDock activeAgent={claudeProfile} onSendMessage={onSendMessage} />);
+      render(<ComposerDock onSendMessage={onSendMessage} />);
 
       fireEvent.change(prompt(), { target: { value: "  fix the build  " } });
       fireEvent.keyDown(prompt(), { key: "Enter" });
@@ -30,7 +52,7 @@ describe("ComposerDock", () => {
 
     it("keeps Shift+Enter for a newline instead of sending", () => {
       const onSendMessage = vi.fn();
-      render(<ComposerDock activeAgent={claudeProfile} onSendMessage={onSendMessage} />);
+      render(<ComposerDock onSendMessage={onSendMessage} />);
 
       fireEvent.change(prompt(), { target: { value: "line one" } });
       fireEvent.keyDown(prompt(), { key: "Enter", shiftKey: true });
@@ -40,7 +62,7 @@ describe("ComposerDock", () => {
 
     it("sends with the Send button and ignores whitespace-only input", () => {
       const onSendMessage = vi.fn();
-      render(<ComposerDock activeAgent={claudeProfile} onSendMessage={onSendMessage} />);
+      render(<ComposerDock onSendMessage={onSendMessage} />);
 
       fireEvent.change(prompt(), { target: { value: "   " } });
       fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -52,76 +74,80 @@ describe("ComposerDock", () => {
     });
   });
 
-  describe("agent options", () => {
-    it("lists the agent's own permission modes and defaults to the safe one", () => {
-      const onPermissionModeChange = vi.fn();
-      render(
-        <ComposerDock
-          activeAgent={claudeProfile}
-          onSendMessage={() => {}}
-          onPermissionModeChange={onPermissionModeChange}
-        />
-      );
+  describe("controls", () => {
+    it("shows the given permission choices and reports a pick", () => {
+      const c = controls();
+      render(<ComposerDock controls={c} onSendMessage={() => {}} />);
 
-      fireEvent.click(screen.getByRole("button", { name: /permission mode: ask every time/i }));
-      fireEvent.click(screen.getByRole("option", { name: "Plan mode" }));
+      fireEvent.click(screen.getByRole("button", { name: /permission mode: default/i }));
+      fireEvent.click(screen.getByRole("option", { name: "YOLO" }));
 
-      expect(onPermissionModeChange).toHaveBeenCalledWith("plan");
+      expect(c.permission?.onChange).toHaveBeenCalledWith("yolo");
     });
 
-    it("offers the agent's models plus a default that passes no flag", () => {
-      const onModelChange = vi.fn();
-      render(
+    it("warns visually when a risky mode is selected", () => {
+      const c = controls();
+      const { rerender } = render(<ComposerDock controls={c} onSendMessage={() => {}} />);
+      expect(screen.queryByTestId("risky-permission-icon")).toBeNull();
+
+      rerender(
         <ComposerDock
-          activeAgent={claudeProfile}
-          selectedModel="sonnet"
+          controls={{ ...c, permission: { ...c.permission!, selected: "yolo" } }}
           onSendMessage={() => {}}
-          onModelChange={onModelChange}
         />
       );
+      expect(screen.getByTestId("risky-permission-icon")).toBeDefined();
+    });
 
-      fireEvent.click(screen.getByRole("button", { name: /model: sonnet/i }));
+    it("reports a model pick, including the default that passes no flag", () => {
+      const c = controls();
+      render(<ComposerDock controls={c} onSendMessage={() => {}} />);
+
+      fireEvent.click(screen.getByRole("button", { name: /model: default model/i }));
       fireEvent.click(screen.getByRole("option", { name: "opus" }));
-      expect(onModelChange).toHaveBeenLastCalledWith("opus");
 
-      fireEvent.click(screen.getByRole("button", { name: /model: sonnet/i }));
-      fireEvent.click(screen.getByRole("option", { name: "Default model" }));
-      expect(onModelChange).toHaveBeenLastCalledWith(undefined);
+      expect(c.model?.onChange).toHaveBeenCalledWith("opus");
     });
 
-    it("offers the agent's effort levels", () => {
-      const onEffortChange = vi.fn();
-      render(
-        <ComposerDock activeAgent={claudeProfile} onSendMessage={() => {}} onEffortChange={onEffortChange} />
-      );
+    it("renders only the controls it is given", () => {
+      render(<ComposerDock controls={{ model: controls().model }} onSendMessage={() => {}} />);
 
-      fireEvent.click(screen.getByRole("button", { name: /effort: default effort/i }));
-      fireEvent.click(screen.getByRole("option", { name: "high" }));
-
-      expect(onEffortChange).toHaveBeenCalledWith("high");
+      expect(screen.queryByRole("button", { name: /permission mode/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^effort:/i })).toBeNull();
+      expect(screen.getByRole("button", { name: /^model:/i })).toBeDefined();
     });
 
-    it("hides selectors the agent has no real options for", () => {
-      render(<ComposerDock activeAgent={ompProfile} onSendMessage={() => {}} />);
+    it("locks the controls with an explanation when asked", () => {
+      render(<ComposerDock controls={controls()} optionsLocked onSendMessage={() => {}} />);
 
-      expect(screen.queryByRole("button", { name: /^model:/i })).toBeNull();
-      expect(screen.getByRole("button", { name: /^effort:/i })).toBeDefined();
-    });
-
-    it("locks the options while a session runs, because CLI flags only apply at start", () => {
-      render(<ComposerDock activeAgent={claudeProfile} optionsLocked onSendMessage={() => {}} />);
-
-      const permission = screen.getByRole("button", { name: /permission mode/i }) as HTMLButtonElement;
       const model = screen.getByRole("button", { name: /^model:/i }) as HTMLButtonElement;
-      expect(permission.disabled).toBe(true);
       expect(model.disabled).toBe(true);
       expect(model.title).toMatch(/new session/i);
     });
   });
 
+  describe("while the agent works", () => {
+    it("shows the thinking indicator and a Stop button in place of Send", () => {
+      const onStop = vi.fn();
+      render(<ComposerDock isThinking onStop={onStop} onSendMessage={() => {}} />);
+
+      expect(screen.getByTestId("thinking-indicator-ring")).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+      expect(onStop).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows neither indicator nor Stop when idle", () => {
+      render(<ComposerDock onStop={() => {}} onSendMessage={() => {}} />);
+
+      expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Stop agent" })).toBeNull();
+    });
+  });
+
   it("inserts picked attachment paths into the prompt, quoting paths with spaces", async () => {
     const onAttach = vi.fn().mockResolvedValue(["/repo/src/app.ts", "/repo/my notes.md"]);
-    render(<ComposerDock activeAgent={claudeProfile} onSendMessage={() => {}} onAttach={onAttach} />);
+    render(<ComposerDock onSendMessage={() => {}} onAttach={onAttach} />);
 
     fireEvent.change(prompt(), { target: { value: "review" } });
     await act(async () => {
@@ -132,16 +158,8 @@ describe("ComposerDock", () => {
   });
 
   it("hides the attachment button when no picker is wired", () => {
-    render(<ComposerDock activeAgent={claudeProfile} onSendMessage={() => {}} />);
+    render(<ComposerDock onSendMessage={() => {}} />);
 
     expect(screen.queryByRole("button", { name: "Add attachment" })).toBeNull();
-  });
-
-  it("shows the thinking indicator only while the agent is busy", () => {
-    const { rerender } = render(<ComposerDock activeAgent={claudeProfile} onSendMessage={() => {}} />);
-    expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
-
-    rerender(<ComposerDock activeAgent={claudeProfile} isThinking onSendMessage={() => {}} />);
-    expect(screen.getByTestId("thinking-indicator-ring")).toBeDefined();
   });
 });

@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge } from "lucide-react";
-import type { AgentProfile, PermissionMode } from "../types";
-import { DEFAULT_PERMISSION_MODE } from "../types";
-import { OptionDropdown, type DropdownOption } from "./composer/OptionDropdown";
+import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square } from "lucide-react";
+import { OptionDropdown } from "./composer/OptionDropdown";
 import { appendAttachments } from "../lib/attachments";
+import { isRiskyMode, type ComposerControl, type ComposerControls } from "../lib/composer-controls";
 
 const MAX_PROMPT_HEIGHT_PX = 180;
 const LOCKED_OPTIONS_TITLE = "Applies to the next new session: CLI flags are set when an agent starts.";
@@ -11,42 +10,29 @@ const LOCKED_OPTIONS_TITLE = "Applies to the next new session: CLI flags are set
 type OpenDropdown = "permission" | "model" | "effort" | null;
 
 export interface ComposerDockProps {
-  activeAgent?: AgentProfile;
-  /** A model alias from the agent profile; undefined means the agent's default. */
-  selectedModel?: string;
-  /** An effort label from the agent profile; undefined means the agent's default. */
-  selectedEffort?: string;
-  permissionMode?: PermissionMode;
-  /** True while a session runs: its flags were fixed when it started. */
+  /** Dropdowns to show; each is omitted when the agent offers no real choice. */
+  controls?: ComposerControls;
+  /** True for a running terminal session: its flags were fixed when it started. */
   optionsLocked?: boolean;
+  /** True while the agent is working on a turn. */
   isThinking?: boolean;
+  /** Interrupts the agent's current turn; shown in place of Send while it works. */
+  onStop?: () => void;
   placeholder?: string;
   disabled?: boolean;
   onSendMessage: (message: string) => void;
-  onModelChange?: (model: string | undefined) => void;
-  onEffortChange?: (effort: string | undefined) => void;
-  onPermissionModeChange?: (mode: PermissionMode) => void;
   /** Opens a file picker and resolves with the chosen paths; hidden when absent. */
   onAttach?: () => Promise<string[]>;
 }
 
-function withDefault(defaultLabel: string, values: readonly string[]): DropdownOption[] {
-  return [{ value: undefined, label: defaultLabel }, ...values.map((v) => ({ value: v, label: v }))];
-}
-
 export function ComposerDock({
-  activeAgent,
-  selectedModel,
-  selectedEffort,
-  permissionMode = DEFAULT_PERMISSION_MODE,
+  controls = {},
   optionsLocked = false,
   isThinking = false,
+  onStop,
   placeholder = "Type / for commands, or prompt the agent...",
   disabled = false,
   onSendMessage,
-  onModelChange,
-  onEffortChange,
-  onPermissionModeChange,
   onAttach,
 }: ComposerDockProps) {
   const [text, setText] = useState("");
@@ -65,22 +51,20 @@ export function ComposerDock({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const permissionOptions: DropdownOption[] = (activeAgent?.permission_modes ?? []).map((m) => ({
-    value: m.id,
-    label: m.label,
-  }));
-  const modelOptions = withDefault("Default model", activeAgent?.models ?? []);
-  const effortOptions = withDefault(
-    "Default effort",
-    (activeAgent?.effort_levels ?? []).map((e) => e.label),
-  );
-
   const toggle = (name: Exclude<OpenDropdown, null>) =>
     setOpenDropdown((current) => (current === name ? null : name));
-  const choose = <T,>(handler: ((value: T) => void) | undefined) => (value: T) => {
-    handler?.(value);
-    setOpenDropdown(null);
-  };
+  const dropdownProps = (name: Exclude<OpenDropdown, null>, control: ComposerControl) => ({
+    options: control.options,
+    selected: control.selected,
+    isOpen: openDropdown === name,
+    onToggle: () => toggle(name),
+    onSelect: (value: string | undefined) => {
+      control.onChange(value);
+      setOpenDropdown(null);
+    },
+    disabled: optionsLocked,
+    disabledTitle: LOCKED_OPTIONS_TITLE,
+  });
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -110,7 +94,8 @@ export function ComposerDock({
     textareaRef.current?.focus();
   };
 
-  const isRiskyPermission = permissionMode !== DEFAULT_PERMISSION_MODE;
+  const { permission, model, effort } = controls;
+  const isRiskyPermission = isRiskyMode(permission?.selected);
 
   return (
     <footer ref={containerRef} className="w-full max-w-3xl flex flex-col items-center px-4 select-none">
@@ -145,26 +130,18 @@ export function ComposerDock({
               </button>
             )}
 
-            {permissionOptions.length > 0 && (
+            {permission && (
               <OptionDropdown
                 label="Permission mode"
                 align="left"
                 icon={
                   isRiskyPermission ? (
-                    <ShieldAlert size={13} className="text-amber-500" />
+                    <ShieldAlert size={13} className="text-amber-500" data-testid="risky-permission-icon" />
                   ) : (
                     <Shield size={13} className="text-emerald-500" />
                   )
                 }
-                options={permissionOptions}
-                selected={permissionMode}
-                isOpen={openDropdown === "permission"}
-                onToggle={() => toggle("permission")}
-                onSelect={choose((value: string | undefined) =>
-                  onPermissionModeChange?.(value ?? DEFAULT_PERMISSION_MODE),
-                )}
-                disabled={optionsLocked}
-                disabledTitle={LOCKED_OPTIONS_TITLE}
+                {...dropdownProps("permission", permission)}
               />
             )}
           </div>
@@ -177,43 +154,43 @@ export function ComposerDock({
               />
             )}
 
-            {modelOptions.length > 1 && (
+            {model && (
               <OptionDropdown
                 label="Model"
                 icon={<Cpu size={12} className="text-neutral-400" />}
-                options={modelOptions}
-                selected={selectedModel}
-                isOpen={openDropdown === "model"}
-                onToggle={() => toggle("model")}
-                onSelect={choose(onModelChange)}
-                disabled={optionsLocked}
-                disabledTitle={LOCKED_OPTIONS_TITLE}
+                {...dropdownProps("model", model)}
               />
             )}
 
-            {effortOptions.length > 1 && (
+            {effort && (
               <OptionDropdown
                 label="Effort"
                 icon={<Gauge size={12} className="text-neutral-400" />}
-                options={effortOptions}
-                selected={selectedEffort}
-                isOpen={openDropdown === "effort"}
-                onToggle={() => toggle("effort")}
-                onSelect={choose(onEffortChange)}
-                disabled={optionsLocked}
-                disabledTitle={LOCKED_OPTIONS_TITLE}
+                {...dropdownProps("effort", effort)}
               />
             )}
 
-            <button
-              type="button"
-              aria-label="Send message"
-              onClick={handleSend}
-              disabled={!text.trim() || disabled}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-200 text-neutral-900 hover:bg-white disabled:opacity-30 disabled:hover:bg-neutral-200 transition-all font-medium cursor-pointer"
-            >
-              <CornerDownLeft size={14} />
-            </button>
+            {isThinking && onStop ? (
+              <button
+                type="button"
+                aria-label="Stop agent"
+                title="Stop the agent's current turn"
+                onClick={onStop}
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-200 text-neutral-900 hover:bg-white transition-all cursor-pointer"
+              >
+                <Square size={12} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                aria-label="Send message"
+                onClick={handleSend}
+                disabled={!text.trim() || disabled}
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-200 text-neutral-900 hover:bg-white disabled:opacity-30 disabled:hover:bg-neutral-200 transition-all font-medium cursor-pointer"
+              >
+                <CornerDownLeft size={14} />
+              </button>
+            )}
           </div>
         </div>
       </div>

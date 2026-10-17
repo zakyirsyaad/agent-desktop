@@ -55,6 +55,30 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
     case "delete_transcript":
       delete store.transcripts[args?.sessionId ?? ""];
       return Promise.resolve(undefined);
+    case "acp_start_session":
+    case "acp_fork_session":
+      // Shaped like Qwen Code's real answer; it starts in YOLO like the user's own config.
+      return Promise.resolve({
+        acpSessionId: `acp-${(args as { sessionId?: string })?.sessionId}`,
+        agentCapabilities: { sessionCapabilities: { fork: {} } },
+        modes: {
+          currentModeId: "yolo",
+          availableModes: [
+            { id: "default", name: "Default" },
+            { id: "yolo", name: "YOLO" },
+          ],
+        },
+        models: null,
+        configOptions: [],
+      });
+    case "acp_set_config_option":
+      return Promise.resolve([]);
+    case "acp_prompt":
+    case "acp_cancel":
+    case "acp_respond_permission":
+    case "acp_set_mode":
+    case "acp_stop_session":
+      return Promise.resolve(undefined);
     case "write_fork_handoff":
       return Promise.resolve(`/fake/app-data/handoffs/${(args as { handoffId?: string })?.handoffId}.md`);
     case "get_user_profile":

@@ -101,4 +101,44 @@ describe("Popout windows", () => {
     await deliver("popout-action", { sessionId: "s-1", action: { kind: "send", text: "hello" } });
     expect(spy).toHaveBeenCalledWith("send_input", { sessionId: "s-1", data: "hello\n" }, undefined);
   });
+
+  it("forwards the option picked on an agent's permission request", async () => {
+    await act(async () => {
+      render(<PopoutApp sessionId="s-1" />);
+    });
+    await deliver("session-snapshot", {
+      sessionId: "s-1",
+      session: { ...runningSession, profileId: "qwen", transport: "acp" },
+      messages: [
+        {
+          id: "m-1",
+          role: "agent",
+          content: "",
+          timestamp: 1,
+          actionCard: {
+            id: "act-1",
+            sessionId: "s-1",
+            title: "Permission requested",
+            prompt: "Run tests",
+            status: "pending",
+            approvalKey: "",
+            rejectKey: "",
+            timestamp: 1,
+            requestId: 3,
+            options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+          },
+        },
+      ],
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    });
+
+    expect(emitted).toContainEqual({
+      event: "popout-action",
+      payload: { sessionId: "s-1", action: { kind: "choose-option", cardId: "act-1", optionId: "allow" } },
+    });
+  });
 });
+

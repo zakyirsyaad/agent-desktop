@@ -1,4 +1,5 @@
 import type { ActionCard, ChatMessage, PersistedState, Session } from '../types';
+import { createId } from './ids';
 
 /** Id of the most recently created session, or "" when there is none. */
 export function mostRecentSessionId(sessions: readonly Session[]): string {
@@ -67,4 +68,18 @@ export function setCardStatus(
     if (cardId && msg.actionCard.id !== cardId) return msg;
     return { ...msg, actionCard: { ...msg.actionCard, status } };
   });
+}
+
+/** A chat message the user typed. */
+export function userMessage(content: string): ChatMessage {
+  return { id: createId('msg'), role: 'user', content, timestamp: Date.now() };
+}
+
+/** Drops one message by id, e.g. a user message whose send failed. */
+export function withoutMessage(messages: readonly ChatMessage[], messageId: string): ChatMessage[] {
+  return messages.filter((m) => m.id !== messageId);
+}
+
+export function findCard(messages: readonly ChatMessage[] | undefined, cardId: string): ActionCard | undefined {
+  return messages?.find((m) => m.actionCard?.id === cardId)?.actionCard;
 }
