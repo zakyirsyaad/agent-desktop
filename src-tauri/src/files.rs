@@ -106,7 +106,10 @@ fn compare_entries(a: &DirEntryInfo, b: &DirEntryInfo) -> std::cmp::Ordering {
 
 /// Accepts `root` only when it is one of the user's workspaces (compared
 /// canonically), so a caller cannot widen the browsable area to any folder.
-pub fn ensure_known_workspace(root: &str, is_known: impl FnOnce(&Path) -> Result<bool, String>) -> Result<(), String> {
+pub fn ensure_known_workspace(
+    root: &str,
+    is_known: impl FnOnce(&Path) -> Result<bool, String>,
+) -> Result<(), String> {
     let root = canonical_root(root)?;
     if is_known(&root)? {
         Ok(())
@@ -124,7 +127,11 @@ pub fn remember_workspace(store: State<'_, AppStore>, path: String) -> Result<()
 
 /// Lists the children of `relative` inside the workspace `root`.
 #[tauri::command(async)]
-pub fn list_directory(store: State<'_, AppStore>, root: String, relative: String) -> Result<Vec<DirEntryInfo>, String> {
+pub fn list_directory(
+    store: State<'_, AppStore>,
+    root: String,
+    relative: String,
+) -> Result<Vec<DirEntryInfo>, String> {
     ensure_known_workspace(&root, |r| store.is_known_workspace(r))?;
     list_entries(&root, &relative)
 }
@@ -324,7 +331,10 @@ mod tests {
         // Another spelling of the same folder is the same workspace.
         assert!(ensure_known_workspace(&format!("{}/inner/..", ws.root()), is_known).is_ok());
         let err = ensure_known_workspace("/", is_known).expect_err("must reject");
-        assert!(err.contains("not one of your workspaces"), "unexpected error: {err}");
+        assert!(
+            err.contains("not one of your workspaces"),
+            "unexpected error: {err}"
+        );
         assert!(ensure_known_workspace(&format!("{}/inner", ws.root()), is_known).is_err());
     }
 

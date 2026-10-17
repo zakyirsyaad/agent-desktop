@@ -59,11 +59,24 @@ pub struct StartedSession {
 /// Events for the UI, already routed to the app session they belong to.
 #[derive(Debug, Clone)]
 pub enum AcpEvent {
-    Update { session_id: String, update: Value },
-    PermissionRequest { session_id: String, request_id: Value, params: Value },
+    Update {
+        session_id: String,
+        update: Value,
+    },
+    PermissionRequest {
+        session_id: String,
+        request_id: Value,
+        params: Value,
+    },
     /// The prompt turn finished: `Ok(stopReason)` or `Err(message)`.
-    TurnEnded { session_id: String, stop_reason: Result<String, String> },
-    Exited { session_id: String, code: Option<i32> },
+    TurnEnded {
+        session_id: String,
+        stop_reason: Result<String, String>,
+    },
+    Exited {
+        session_id: String,
+        code: Option<i32>,
+    },
 }
 
 pub type AcpEventSink = Box<dyn Fn(AcpEvent) + Send + Sync>;
@@ -99,9 +112,19 @@ impl AcpManager {
     }
 
     /// Starts an agent process, initializes ACP and opens a session in `cwd`.
-    pub fn start(&self, app_session_id: &str, cwd: &str, launch: &AcpLaunch) -> Result<StartedSession, String> {
+    pub fn start(
+        &self,
+        app_session_id: &str,
+        cwd: &str,
+        launch: &AcpLaunch,
+    ) -> Result<StartedSession, String> {
         self.open(app_session_id, cwd, launch, |connection, init| {
-            let session = open_request(connection, init, "session/new", json!({ "cwd": cwd, "mcpServers": [] }))?;
+            let session = open_request(
+                connection,
+                init,
+                "session/new",
+                json!({ "cwd": cwd, "mcpServers": [] }),
+            )?;
             started_session(session, init["agentCapabilities"].clone()).map_err(OpenError::Agent)
         })
     }
@@ -121,7 +144,9 @@ impl AcpManager {
         self.open(app_session_id, cwd, launch, |connection, init| {
             let capabilities = init["agentCapabilities"].clone();
             if capabilities["loadSession"] != Value::Bool(true) {
-                return Err(OpenError::Agent("This agent cannot resume earlier sessions".to_string()));
+                return Err(OpenError::Agent(
+                    "This agent cannot resume earlier sessions".to_string(),
+                ));
             }
             let response = open_request(
                 connection,
@@ -179,7 +204,12 @@ impl AcpManager {
     /// Signs in to the agent with one of the methods it reported, in a
     /// short-lived process. Methods that need a secret (an API key in the
     /// environment) are for the user to set up outside the app.
-    pub fn authenticate(&self, cwd: &str, launch: &AcpLaunch, method_id: &str) -> Result<(), String> {
+    pub fn authenticate(
+        &self,
+        cwd: &str,
+        launch: &AcpLaunch,
+        method_id: &str,
+    ) -> Result<(), String> {
         validate_cwd(cwd)?;
         // This process hosts no app session, so routing cannot answer its
         // requests; refuse them here so the agent never waits on us.
@@ -188,24 +218,44 @@ impl AcpManager {
         let sink: EventSink = Arc::new(move |event| {
             if let ConnectionEvent::Request { id, .. } = event {
                 if let Some(connection) = sink_slot.get().and_then(Weak::upgrade) {
-                    let _ = connection.respond_error(&id, METHOD_NOT_FOUND, "Not available while signing in");
+                    let _ = connection.respond_error(
+                        &id,
+                        METHOD_NOT_FOUND,
+                        "Not available while signing in",
+                    );
                 }
             }
         });
-        let connection = AcpConnection::spawn(&launch.program, &launch.args, cwd, &launch.env, sink)?;
+        let connection =
+            AcpConnection::spawn(&launch.program, &launch.args, cwd, &launch.env, sink)?;
         let _ = connection_slot.set(Arc::downgrade(&connection));
         let result = initialize(&connection).and_then(|_| {
-            connection.request("authenticate", json!({ "methodId": method_id }), AUTHENTICATE_TIMEOUT)
+            connection.request(
+                "authenticate",
+                json!({ "methodId": method_id }),
+                AUTHENTICATE_TIMEOUT,
+            )
         });
         connection.kill();
         result.map(|_| ())
     }
 
     /// Forks `source` into a new app session hosted by the same agent process.
-    pub fn fork(&self, source_app_id: &str, new_app_id: &str, cwd: &str) -> Result<StartedSession, String> {
-        let (connection, connection_key, acp_id, capabilities) = self.with_entry(source_app_id, |e| {
-            (Arc::clone(&e.connection), e.connection_key, e.acp_session_id.clone(), e.agent_capabilities.clone())
-        })?;
+    pub fn fork(
+        &self,
+        source_app_id: &str,
+        new_app_id: &str,
+        cwd: &str,
+    ) -> Result<StartedSession, String> {
+        let (connection, connection_key, acp_id, capabilities) =
+            self.with_entry(source_app_id, |e| {
+                (
+                    Arc::clone(&e.connection),
+                    e.connection_key,
+                    e.acp_session_id.clone(),
+                    e.agent_capabilities.clone(),
+                )
+            })?;
         let response = connection.request(
             "session/fork",
             json!({ "sessionId": acp_id, "cwd": cwd, "mcpServers": [] }),
@@ -217,9 +267,18 @@ impl AcpManager {
     }
 
     /// Sends a user prompt. Returns once sent; the turn ends with `TurnEnded`.
-    pub fn prompt(&self, app_session_id: &str, text: &str, attachments: &[String]) -> Result<(), String> {
+    pub fn prompt(
+        &self,
+        app_session_id: &str,
+        text: &str,
+        attachments: &[String],
+    ) -> Result<(), String> {
         let (connection, acp_id, capabilities) = self.with_entry(app_session_id, |e| {
-            (Arc::clone(&e.connection), e.acp_session_id.clone(), e.agent_capabilities.clone())
+            (
+                Arc::clone(&e.connection),
+                e.acp_session_id.clone(),
+                e.agent_capabilities.clone(),
+            )
         })?;
         let supports_images = capabilities["promptCapabilities"]["image"] == Value::Bool(true);
         let prompt = prompt_blocks(text, attachments, supports_images)?;
@@ -232,7 +291,10 @@ impl AcpManager {
                 let stop_reason = result
                     .map(|r| r["stopReason"].as_str().unwrap_or("end_turn").to_string())
                     .map_err(|e| error_message(&e));
-                sink(AcpEvent::TurnEnded { session_id, stop_reason });
+                sink(AcpEvent::TurnEnded {
+                    session_id,
+                    stop_reason,
+                });
             }),
         )
     }
@@ -269,7 +331,12 @@ impl AcpManager {
     }
 
     /// Sets a session config option (e.g. the model); returns the agent's updated options.
-    pub fn set_config_option(&self, app_session_id: &str, config_id: &str, value: &str) -> Result<Value, String> {
+    pub fn set_config_option(
+        &self,
+        app_session_id: &str,
+        config_id: &str,
+        value: &str,
+    ) -> Result<Value, String> {
         let (connection, acp_id) = self.connection_for(app_session_id)?;
         let response = connection.request(
             "session/set_config_option",
@@ -292,18 +359,33 @@ impl AcpManager {
 
     /// Forgets the session; kills the agent once no other session uses it.
     pub fn stop(&self, app_session_id: &str) {
-        let Ok(mut routes) = self.routes.lock() else { return };
-        let Some(entry) = routes.sessions.remove(app_session_id) else { return };
+        let Ok(mut routes) = self.routes.lock() else {
+            return;
+        };
+        let Some(entry) = routes.sessions.remove(app_session_id) else {
+            return;
+        };
         routes.by_acp_id.remove(&entry.acp_session_id);
-        let still_used = routes.sessions.values().any(|e| e.connection_key == entry.connection_key);
+        let still_used = routes
+            .sessions
+            .values()
+            .any(|e| e.connection_key == entry.connection_key);
         if !still_used {
             entry.connection.kill();
         }
     }
 
-    fn register(&self, app_session_id: &str, connection: Arc<AcpConnection>, key: u64, started: &StartedSession) {
+    fn register(
+        &self,
+        app_session_id: &str,
+        connection: Arc<AcpConnection>,
+        key: u64,
+        started: &StartedSession,
+    ) {
         if let Ok(mut routes) = self.routes.lock() {
-            routes.by_acp_id.insert(started.acp_session_id.clone(), app_session_id.to_string());
+            routes
+                .by_acp_id
+                .insert(started.acp_session_id.clone(), app_session_id.to_string());
             routes.sessions.insert(
                 app_session_id.to_string(),
                 SessionEntry {
@@ -316,8 +398,15 @@ impl AcpManager {
         }
     }
 
-    fn with_entry<T>(&self, app_session_id: &str, f: impl FnOnce(&SessionEntry) -> T) -> Result<T, String> {
-        let routes = self.routes.lock().map_err(|_| "Session lock poisoned".to_string())?;
+    fn with_entry<T>(
+        &self,
+        app_session_id: &str,
+        f: impl FnOnce(&SessionEntry) -> T,
+    ) -> Result<T, String> {
+        let routes = self
+            .routes
+            .lock()
+            .map_err(|_| "Session lock poisoned".to_string())?;
         routes
             .sessions
             .get(app_session_id)
@@ -326,7 +415,9 @@ impl AcpManager {
     }
 
     fn connection_for(&self, app_session_id: &str) -> Result<(Arc<AcpConnection>, String), String> {
-        self.with_entry(app_session_id, |e| (Arc::clone(&e.connection), e.acp_session_id.clone()))
+        self.with_entry(app_session_id, |e| {
+            (Arc::clone(&e.connection), e.acp_session_id.clone())
+        })
     }
 
     /// Routes one connection's events to the app sessions it hosts.
@@ -337,12 +428,25 @@ impl AcpManager {
     }
 }
 
-fn route_event(routes: &Arc<Mutex<Routes>>, sink: &Arc<AcpEventSink>, connection_key: u64, event: ConnectionEvent) {
-    let app_id_for = |acp_id: &str| routes.lock().ok().and_then(|r| r.by_acp_id.get(acp_id).cloned());
+fn route_event(
+    routes: &Arc<Mutex<Routes>>,
+    sink: &Arc<AcpEventSink>,
+    connection_key: u64,
+    event: ConnectionEvent,
+) {
+    let app_id_for = |acp_id: &str| {
+        routes
+            .lock()
+            .ok()
+            .and_then(|r| r.by_acp_id.get(acp_id).cloned())
+    };
     match event {
         ConnectionEvent::Notification { method, params } if method == "session/update" => {
             if let Some(session_id) = params["sessionId"].as_str().and_then(app_id_for) {
-                sink(AcpEvent::Update { session_id, update: params["update"].clone() });
+                sink(AcpEvent::Update {
+                    session_id,
+                    update: params["update"].clone(),
+                });
             }
         }
         ConnectionEvent::Notification { .. } => {}
@@ -350,7 +454,11 @@ fn route_event(routes: &Arc<Mutex<Routes>>, sink: &Arc<AcpEventSink>, connection
             let session_id = params["sessionId"].as_str().and_then(app_id_for);
             match (method.as_str(), session_id) {
                 ("session/request_permission", Some(session_id)) => {
-                    sink(AcpEvent::PermissionRequest { session_id, request_id: id, params })
+                    sink(AcpEvent::PermissionRequest {
+                        session_id,
+                        request_id: id,
+                        params,
+                    })
                 }
                 // We advertise no fs/terminal capabilities, so anything else is refused.
                 _ => refuse(routes, connection_key, &id),
@@ -389,7 +497,11 @@ fn refuse(routes: &Arc<Mutex<Routes>>, connection_key: u64, id: &Value) {
             .map(|e| Arc::clone(&e.connection))
     });
     if let Some(connection) = connection {
-        let _ = connection.respond_error(id, METHOD_NOT_FOUND, "Method not supported by Agent Desktop");
+        let _ = connection.respond_error(
+            id,
+            METHOD_NOT_FOUND,
+            "Method not supported by Agent Desktop",
+        );
     }
 }
 
@@ -404,22 +516,39 @@ fn is_auth_required(error: &Value) -> bool {
         .collect::<String>()
         .to_ascii_lowercase();
     error["code"].as_i64() == Some(AUTH_REQUIRED)
-        && ["auth", "login", "loggedin", "signin", "signedin"].iter().any(|word| message.contains(word))
+        && ["auth", "login", "loggedin", "signin", "signedin"]
+            .iter()
+            .any(|word| message.contains(word))
 }
 
 /// Opens a session; an "authentication required" answer becomes an error
 /// carrying [`AUTH_REQUIRED_PREFIX`] and the agent's auth methods.
-fn open_request(connection: &AcpConnection, init: &Value, method: &str, params: Value) -> Result<Value, OpenError> {
-    match connection.request_raw(method, params, HANDSHAKE_TIMEOUT).map_err(OpenError::Transport)? {
+fn open_request(
+    connection: &AcpConnection,
+    init: &Value,
+    method: &str,
+    params: Value,
+) -> Result<Value, OpenError> {
+    match connection
+        .request_raw(method, params, HANDSHAKE_TIMEOUT)
+        .map_err(OpenError::Transport)?
+    {
         Ok(result) => Ok(result),
         Err(error) if is_auth_required(&error) => {
             let methods = match &init["authMethods"] {
                 Value::Array(methods) => Value::Array(methods.clone()),
                 _ => Value::Array(Vec::new()),
             };
-            Err(OpenError::Agent(format!("{}{}", AUTH_REQUIRED_PREFIX, methods)))
+            Err(OpenError::Agent(format!(
+                "{}{}",
+                AUTH_REQUIRED_PREFIX, methods
+            )))
         }
-        Err(error) => Err(OpenError::Agent(format!("{} failed: {}", method, error_message(&error)))),
+        Err(error) => Err(OpenError::Agent(format!(
+            "{} failed: {}",
+            method,
+            error_message(&error)
+        ))),
     }
 }
 

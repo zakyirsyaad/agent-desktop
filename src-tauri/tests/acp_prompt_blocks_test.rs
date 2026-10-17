@@ -5,8 +5,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use agent_desktop_lib::acp::prompt_blocks::{prompt_blocks, MAX_INLINE_IMAGE_BYTES};
 
 fn temp_dir(tag: &str) -> PathBuf {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("acp-blocks-{}-{}-{}", tag, std::process::id(), nanos));
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "acp-blocks-{}-{}-{}",
+        tag,
+        std::process::id(),
+        nanos
+    ));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -15,7 +23,10 @@ fn temp_dir(tag: &str) -> PathBuf {
 fn sends_text_alone_when_nothing_is_attached() {
     let blocks = prompt_blocks("hello", &[], true).unwrap();
 
-    assert_eq!(blocks, vec![serde_json::json!({ "type": "text", "text": "hello" })]);
+    assert_eq!(
+        blocks,
+        vec![serde_json::json!({ "type": "text", "text": "hello" })]
+    );
 }
 
 #[test]
@@ -25,7 +36,10 @@ fn inlines_images_and_links_other_files() {
     let notes = dir.join("notes.md");
     fs::write(&image, [0x89, b'P', b'N', b'G']).unwrap();
     fs::write(&notes, "# notes").unwrap();
-    let attachments = [image.to_string_lossy().to_string(), notes.to_string_lossy().to_string()];
+    let attachments = [
+        image.to_string_lossy().to_string(),
+        notes.to_string_lossy().to_string(),
+    ];
 
     let blocks = prompt_blocks("look", &attachments, true).unwrap();
 

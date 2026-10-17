@@ -264,4 +264,50 @@ describe("Session lifecycle", () => {
     expect(screen.getByRole("alert").textContent).toContain("Failed to send input");
     expect(screen.queryByText("please run the tests")).toBeNull();
   });
+
+  it("removes a deleted session's worktree, unless another session still runs in it", async () => {
+    const worktree = { repoPath: "/Users/test/developer/agent-desktop", path: "/data/worktrees/agent-desktop/fix", branch: "agent/fix" };
+    fakeStore().state.sessions = [
+      { ...seedSession("s-src", "Fix login", 1000), cwd: worktree.path, worktree },
+      { ...seedSession("s-fork", "Fix login (fork)", 2000), cwd: worktree.path, worktree, forkedFrom: "s-src" },
+    ];
+    await renderApp();
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+    const remove = async (name: string) => {
+      await act(async () => {
+        fireEvent.click(within(sessionRow(name)).getByRole("button", { name: "Delete session" }));
+      });
+      await act(async () => {
+        fireEvent.click(within(sessionRow(name)).getByRole("button", { name: "Confirm delete" }));
+      });
+    };
+    const removals = () => spy.mock.calls.filter(([cmd]) => cmd === "remove_session_worktree");
+
+    await remove("Fix login (fork)");
+    expect(removals()).toHaveLength(0);
+
+    await remove("Fix login");
+    expect(removals().map(([, args]) => args)).toEqual([{ repoPath: worktree.repoPath, path: worktree.path }]);
+  });
+
+  it("says so when a deleted session's worktree is kept for its uncommitted changes", async () => {
+    const worktree = { repoPath: "/Users/test/developer/agent-desktop", path: "/data/worktrees/agent-desktop/fix", branch: "agent/fix" };
+    fakeStore().state.sessions = [{ ...seedSession("s-src", "Fix login", 1000), cwd: worktree.path, worktree }];
+    await renderApp();
+    const original = tauriInternals().invoke;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "remove_session_worktree"
+        ? Promise.reject("/data/worktrees/agent-desktop/fix has uncommitted changes, so it was kept")
+        : original(cmd, args)
+    );
+
+    await act(async () => {
+      fireEvent.click(within(sessionRow("Fix login")).getByRole("button", { name: "Delete session" }));
+    });
+    await act(async () => {
+      fireEvent.click(within(sessionRow("Fix login")).getByRole("button", { name: "Confirm delete" }));
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toContain("uncommitted changes");
+  });
 });

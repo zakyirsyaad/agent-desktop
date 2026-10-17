@@ -27,7 +27,11 @@ fn compute_file_sha256(path: &Path) -> Option<String> {
 }
 
 /// Harness config files the app must never touch, relative to HOME.
-const HARNESS_CONFIGS: [&str; 3] = [".claude/settings.json", ".claude.json", ".omp/agent/config.yml"];
+const HARNESS_CONFIGS: [&str; 3] = [
+    ".claude/settings.json",
+    ".claude.json",
+    ".omp/agent/config.yml",
+];
 
 /// A throwaway HOME holding copies of the harness configs.
 ///
@@ -40,7 +44,11 @@ fn isolated_home() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let home = std::env::temp_dir().join(format!("agent-desktop-e2e-home-{}-{}", std::process::id(), nanos));
+    let home = std::env::temp_dir().join(format!(
+        "agent-desktop-e2e-home-{}-{}",
+        std::process::id(),
+        nanos
+    ));
     for relative in HARNESS_CONFIGS {
         let path = home.join(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -54,7 +62,6 @@ fn snapshot_harness_configs(home_path: &Path) -> Vec<(PathBuf, Option<String>)> 
     let mut snapshots = Vec::new();
 
     {
-
         // Claude Code settings
         let claude_settings = home_path.join(".claude").join("settings.json");
         let hash = compute_file_sha256(&claude_settings);

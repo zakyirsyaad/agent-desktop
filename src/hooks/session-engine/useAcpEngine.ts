@@ -252,9 +252,16 @@ export function useAcpEngine({
   };
 
   /** Ends the agent process (deleted session, or a start the user stopped); later events from it are ignored. */
-  const stop = (sessionId: string) => {
+  /** Ends the agent; resolves with whether it stopped, after the backend has done it. */
+  const stop = (sessionId: string): Promise<boolean> => {
     stoppedRef.current.add(sessionId);
-    acp.stop(sessionId).catch(reportFailure('Failed to stop the agent'));
+    return acp.stop(sessionId).then(
+      () => true,
+      (error) => {
+        reportFailure('Failed to stop the agent')(error);
+        return false;
+      },
+    );
   };
 
   /**
@@ -265,7 +272,7 @@ export function useAcpEngine({
    */
   const interrupt = (sessionId: string, messages: ChatMessage[] | undefined) => {
     if (starting.has(sessionId)) {
-      stop(sessionId);
+      void stop(sessionId);
       patchSession(sessionId, { status: 'terminated', endedAt: Date.now() });
       return;
     }

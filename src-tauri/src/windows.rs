@@ -131,12 +131,16 @@ const EXTERNAL_URL_SCHEMES: [&str; 3] = ["https://", "http://", "mailto:"];
 /// whitespace or control characters (so it stays one argument to `open`).
 pub fn validated_external_url(url: &str) -> Result<&str, String> {
     let lower = url.to_ascii_lowercase();
-    let has_allowed_scheme = EXTERNAL_URL_SCHEMES.iter().any(|scheme| lower.starts_with(scheme));
+    let has_allowed_scheme = EXTERNAL_URL_SCHEMES
+        .iter()
+        .any(|scheme| lower.starts_with(scheme));
     let is_clean = !url.is_empty() && !url.chars().any(|c| c.is_whitespace() || c.is_control());
     if has_allowed_scheme && is_clean {
         Ok(url)
     } else {
-        Err(format!("Not opening {url:?}: only http, https and mailto links are opened"))
+        Err(format!(
+            "Not opening {url:?}: only http, https and mailto links are opened"
+        ))
     }
 }
 
@@ -171,8 +175,18 @@ mod tests {
         assert!(super::validated_external_url("https://example.com/docs?a=1").is_ok());
         assert!(super::validated_external_url("HTTP://example.com").is_ok());
         assert!(super::validated_external_url("mailto:me@example.com").is_ok());
-        for bad in ["file:///etc/passwd", "javascript:alert(1)", "vscode://x", "/Applications/Calculator.app", "https://a b", ""] {
-            assert!(super::validated_external_url(bad).is_err(), "{bad:?} must be refused");
+        for bad in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "vscode://x",
+            "/Applications/Calculator.app",
+            "https://a b",
+            "",
+        ] {
+            assert!(
+                super::validated_external_url(bad).is_err(),
+                "{bad:?} must be refused"
+            );
         }
     }
 
@@ -204,7 +218,16 @@ mod tests {
         // A label or query string containing these would address a different
         // window or smuggle extra query parameters into the popout URL.
         for id in [
-            "s 1", "s.1", "s/1", "s\\1", "s&popout=0", "s=1", "s?x", "s#1", "s:1", "ünicode",
+            "s 1",
+            "s.1",
+            "s/1",
+            "s\\1",
+            "s&popout=0",
+            "s=1",
+            "s?x",
+            "s#1",
+            "s:1",
+            "ünicode",
             "s\x001",
         ] {
             assert!(!is_valid_session_id(id), "expected {id:?} to be rejected");
@@ -264,7 +287,10 @@ mod tests {
 
         let err = validated_reveal_path(missing.to_str().expect("utf-8 path"))
             .expect_err("a missing path must be rejected");
-        assert!(err.contains("not an existing directory"), "unexpected error: {err}");
+        assert!(
+            err.contains("not an existing directory"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

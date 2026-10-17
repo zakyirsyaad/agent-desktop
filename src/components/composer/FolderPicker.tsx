@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, ChevronDown, Folder, FolderPlus } from "lucide-react";
+import { Check, ChevronDown, Folder, FolderPlus, GitBranch } from "lucide-react";
 import type { Workspace } from "../../types";
 
 /** The folder a new session starts in, chosen before it starts. */
@@ -9,6 +9,8 @@ export interface FolderControl {
   onSelect: (path: string) => void;
   /** Opens the native folder dialog; the entry is hidden when absent. */
   onOpenFolder?: () => void;
+  /** Whether the session gets its own worktree; offered only for a git repository. */
+  worktree?: { isOn: boolean; onChange: (isOn: boolean) => void };
 }
 
 export interface FolderPickerProps extends FolderControl {
@@ -17,7 +19,7 @@ export interface FolderPickerProps extends FolderControl {
 }
 
 /** A composer chip naming the folder, with a searchable list of recent ones. */
-export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, isOpen, onToggle }: FolderPickerProps) {
+export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, worktree, isOpen, onToggle }: FolderPickerProps) {
   const [query, setQuery] = useState("");
   // However the list closed (a pick, Escape, a click elsewhere), it reopens unfiltered.
   if (!isOpen && query !== "") setQuery("");
@@ -40,6 +42,7 @@ export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, is
       >
         <Folder size={12} className="text-neutral-400" />
         <span className="max-w-[140px] truncate">{selected?.name ?? "Choose folder"}</span>
+        {worktree?.isOn && <GitBranch size={11} aria-label="in a new worktree" className="text-amber-400" />}
         <ChevronDown size={11} className="text-neutral-500" />
       </button>
 
@@ -103,6 +106,29 @@ export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, is
               >
                 <FolderPlus size={13} className="text-neutral-400" />
                 Open folder…
+              </button>
+            </div>
+          )}
+          {worktree && (
+            <div className="border-t border-neutral-800 p-1">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={worktree.isOn}
+                aria-label="Worktree"
+                title="Run the session in its own checkout, on a new branch, so it does not touch your working copy"
+                onClick={() => worktree.onChange(!worktree.isOn)}
+                className="flex w-full items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-xs text-neutral-300 transition-colors hover:bg-neutral-800/60 hover:text-neutral-100"
+              >
+                <span>Worktree</span>
+                <span
+                  aria-hidden="true"
+                  className={`relative h-4 w-7 rounded-full transition-colors ${worktree.isOn ? "bg-amber-500" : "bg-neutral-700"}`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${worktree.isOn ? "translate-x-3.5" : "translate-x-0.5"}`}
+                  />
+                </span>
               </button>
             </div>
           )}

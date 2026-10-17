@@ -9,8 +9,18 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::State;
 
+use crate::env_resolver;
 use crate::files::ensure_known_workspace;
 use crate::store::AppStore;
+
+/// Locates git, preferring the login shell's `PATH`.
+///
+/// An app launched from Finder or the Dock does not inherit the user's shell
+/// `PATH`, so a Homebrew-installed git would be invisible without this. The
+/// bare name is kept as a fallback so the process `PATH` still gets a chance.
+pub(crate) fn git_binary() -> PathBuf {
+    env_resolver::find_binary_in_user_path("git").unwrap_or_else(|| PathBuf::from("git"))
+}
 
 /// How many characters of a commit a detached `HEAD` is shown with.
 const SHORT_COMMIT_LEN: usize = 7;
@@ -44,7 +54,12 @@ pub fn branch_of(dir: &Path) -> Option<String> {
     let head = head.trim();
     if let Some(reference) = head.strip_prefix("ref:") {
         let reference = reference.trim();
-        return Some(reference.strip_prefix("refs/heads/").unwrap_or(reference).to_string());
+        return Some(
+            reference
+                .strip_prefix("refs/heads/")
+                .unwrap_or(reference)
+                .to_string(),
+        );
     }
     let is_commit = head.len() >= SHORT_COMMIT_LEN && head.chars().all(|c| c.is_ascii_hexdigit());
     is_commit.then(|| head[..SHORT_COMMIT_LEN].to_string())
@@ -62,7 +77,10 @@ pub fn display_location(path: &Path, home: Option<&Path>) -> String {
 
 /// The folder line and branch shown for one of the user's workspaces.
 #[tauri::command(async)]
-pub fn workspace_details(store: State<'_, AppStore>, path: String) -> Result<WorkspaceDetails, String> {
+pub fn workspace_details(
+    store: State<'_, AppStore>,
+    path: String,
+) -> Result<WorkspaceDetails, String> {
     ensure_known_workspace(&path, |p| store.is_known_workspace(p))?;
     let path = Path::new(&path);
     let home = std::env::var_os("HOME").map(PathBuf::from);

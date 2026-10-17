@@ -158,6 +158,170 @@ describe("New session spawning", () => {
     expect(args.profileId).toBe("claude-code");
   });
 
+  it("runs a new session in its own worktree when Worktree is on", async () => {
+    const invokeSpy = stubInvoke({
+      create_session_worktree: () =>
+        Promise.resolve({
+          path: "/data/worktrees/ai-perpetual-trading/get-started",
+          cwd: "/data/worktrees/ai-perpetual-trading/get-started",
+          branch: "agent/get-started",
+        }),
+    });
+    await act(async () => {
+      render(<App />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("switch", { name: "Worktree" }));
+    });
+    await sendFirst();
+
+    const created = invokeSpy.mock.calls.find(([cmd]) => cmd === "create_session_worktree")?.[1];
+    expect(created).toEqual({ repoPath: "/Users/test/developer/ai-perpetual-trading", title: "get started" });
+    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { cwd: string };
+    expect(args.cwd).toBe("/data/worktrees/ai-perpetual-trading/get-started");
+    // The session is listed under the workspace it was made from.
+    const sessions = within(await screen.findByRole("list", { name: "Sessions in ai-perpetual-trading" }));
+    expect(sessions.getByTitle(/agent\/get-started/)).toBeDefined();
+  });
+
+  it("keeps the message and starts nothing when the worktree cannot be made", async () => {
+    const invokeSpy = stubInvoke({
+      create_session_worktree: () => Promise.reject("ai-perpetual-trading is not a git repository"),
+    });
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("switch", { name: "Worktree" }));
+    });
+
+    await sendFirst("fix the login");
+
+    expect(screen.getByRole("alert").textContent).toContain("not a git repository");
+    expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("fix the login");
+    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")).toBeUndefined();
+  });
+
+  it("offers Worktree only for a folder that is a git repository", async () => {
+    stubInvoke({ workspace_details: () => Promise.resolve({ location: "~/developer", branch: null }) });
+    await act(async () => {
+      render(<App />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+
+    expect(screen.getByRole("dialog", { name: "Choose a folder" })).toBeDefined();
+    expect(screen.queryByRole("switch", { name: "Worktree" })).toBeNull();
+  });
+
+  async function turnOnWorktree() {
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("switch", { name: "Worktree" }));
+    });
+  }
+
+  const CREATED_WORKTREE = {
+    path: "/data/worktrees/ai-perpetual-trading/get-started",
+    cwd: "/data/worktrees/ai-perpetual-trading/get-started",
+    branch: "agent/get-started",
+  };
+
+  async function deleteSession(name: string) {
+    const row = () => within(screen.getByRole("complementary")).getByText(name).closest("li") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(row()).getByRole("button", { name: "Delete session" }));
+    });
+    await act(async () => {
+      fireEvent.click(within(row()).getByRole("button", { name: "Confirm delete" }));
+    });
+  }
+
+  it("removes a deleted session's worktree only after its agent has stopped", async () => {
+    let finishStopping: () => void = () => {};
+    const invokeSpy = stubInvoke({
+      create_session_worktree: () => Promise.resolve(CREATED_WORKTREE),
+      terminate_session: () =>
+        new Promise((resolve) => {
+          finishStopping = () => resolve(undefined);
+        }),
+    });
+    await act(async () => {
+      render(<App />);
+    });
+    await turnOnWorktree();
+    await sendFirst();
+    const removals = () => invokeSpy.mock.calls.filter(([cmd]) => cmd === "remove_session_worktree");
+
+    await deleteSession("get started");
+    expect(removals()).toHaveLength(0);
+    await act(async () => {
+      finishStopping();
+    });
+
+    expect(removals()).toHaveLength(1);
+  });
+
+  it("keeps a deleted session's worktree when its agent could not be stopped", async () => {
+    const invokeSpy = stubInvoke({
+      create_session_worktree: () => Promise.resolve(CREATED_WORKTREE),
+      terminate_session: () => Promise.reject("no such session"),
+    });
+    await act(async () => {
+      render(<App />);
+    });
+    await turnOnWorktree();
+    await sendFirst();
+
+    await deleteSession("get started");
+
+    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "remove_session_worktree")).toBeUndefined();
+    expect(screen.getAllByRole("alert").map((a) => a.textContent).join(" ")).toContain("Kept the worktree");
+  });
+
+  it("puts a message back into its new session when the worktree fails after the user moved on", async () => {
+    (window as unknown as { __FAKE_TAURI_STORE__: { state: { sessions: unknown[] } } }).__FAKE_TAURI_STORE__.state.sessions = [
+      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/agent-desktop", status: "terminated", createdAt: 1 },
+    ];
+    let failCreating: () => void = () => {};
+    stubInvoke({
+      create_session_worktree: () =>
+        new Promise((_, reject) => {
+          failCreating = () => reject("disk full");
+        }),
+    });
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    await turnOnWorktree();
+    await sendFirst("fix the login");
+
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("complementary")).getByText("Old work"));
+    });
+    await act(async () => {
+      failCreating();
+    });
+
+    expect(screen.getByRole("heading", { name: "New session" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" })).toBeDefined();
+    expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("fix the login");
+  });
+
   it("spawns by agent profile and options, never by a raw command", async () => {
     const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
 

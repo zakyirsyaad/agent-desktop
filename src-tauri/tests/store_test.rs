@@ -5,7 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::json;
 
 use agent_desktop_lib::store::{
-    AppStore, PersistedState, RecentFolder, SessionRecord, Settings, STATE_VERSION,
+    AppStore, PersistedState, RecentFolder, SessionRecord, SessionWorktreeRecord, Settings,
+    STATE_VERSION,
 };
 
 /// Builds a root path that is unique to this process and this call, so tests
@@ -65,6 +66,7 @@ fn session(id: &str, status: &str) -> SessionRecord {
         agent_session_id: None,
         transport: None,
         acp_session_id: None,
+        worktree: None,
     }
 }
 
@@ -401,7 +403,10 @@ fn acp_sessions_keep_their_transport_and_agent_session_id() {
         "acpSessionId": "qwen-session-123"
     }))
     .expect("deserialize session");
-    let state = PersistedState { sessions: vec![record], ..populated_state() };
+    let state = PersistedState {
+        sessions: vec![record],
+        ..populated_state()
+    };
 
     store.save_state(&state).expect("save state");
     let loaded = store.load_state().expect("load state");
@@ -424,7 +429,10 @@ fn keeps_the_options_each_acp_agent_reported_last() {
     store.save_state(&state).expect("save state");
     let loaded = store.load_state().expect("load state");
 
-    assert_eq!(loaded.agent_options["qwen"]["modes"]["currentModeId"], "yolo");
+    assert_eq!(
+        loaded.agent_options["qwen"]["modes"]["currentModeId"],
+        "yolo"
+    );
     fs::remove_dir_all(&root).expect("remove temp root");
 }
 
@@ -447,11 +455,94 @@ fn knows_saved_and_just_remembered_workspaces_without_rereading_the_file() {
     store.save_state(&state).expect("save state");
 
     // A folder the user just opened is known before its state save lands.
-    store.remember_workspace(&opened.to_string_lossy()).expect("remember");
+    store
+        .remember_workspace(&opened.to_string_lossy())
+        .expect("remember");
 
-    assert!(store.is_known_workspace(&saved.canonicalize().unwrap()).unwrap());
-    assert!(store.is_known_workspace(&opened.canonicalize().unwrap()).unwrap());
+    assert!(store
+        .is_known_workspace(&saved.canonicalize().unwrap())
+        .unwrap());
+    assert!(store
+        .is_known_workspace(&opened.canonicalize().unwrap())
+        .unwrap());
     assert!(!store.is_known_workspace(Path::new("/")).unwrap());
     assert!(store.remember_workspace("/definitely/not/here").is_err());
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn keeps_a_sessions_worktree_through_a_save() {
+    let root = unique_temp_root("worktree");
+    let store = AppStore::new(root.clone());
+    let mut state = populated_state();
+    state.sessions[0].worktree = Some(SessionWorktreeRecord {
+        repo_path: "/Users/dev/developer/agent-desktop".to_string(),
+        path: "/data/worktrees/agent-desktop/fix-login".to_string(),
+        branch: "agent/fix-login".to_string(),
+    });
+
+    store.save_state(&state).expect("save state");
+    let raw = fs::read_to_string(root.join("state.json")).expect("read state file");
+    let loaded = store.load_state().expect("load state");
+
+    assert_eq!(loaded, state);
+    assert!(
+        raw.contains("\"repoPath\""),
+        "the worktree is saved in the UI's camelCase: {raw}"
+    );
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn drops_a_malformed_worktree_but_keeps_the_saved_sessions() {
+    let root = unique_temp_root("bad-worktree");
+    fs::create_dir_all(&root).expect("create root");
+    fs::write(
+        root.join("state.json"),
+        r#"{"version":1,"settings":{"defaultAgentId":"claude","onboardingCompleted":true},
+            "recentFolders":[],
+            "sessions":[{"id":"s-1","name":"Fix login","profileId":"claude","cwd":"/tmp/project",
+                         "status":"terminated","createdAt":1,"worktree":{"path":3}}]}"#,
+    )
+    .expect("write state file");
+    let store = AppStore::new(root.clone());
+
+    let state = store.load_state().expect("load state");
+
+    assert_eq!(
+        state.sessions.len(),
+        1,
+        "the session survives its bad worktree"
+    );
+    assert_eq!(state.sessions[0].worktree, None);
+    assert!(state.settings.onboarding_completed);
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn knows_the_folder_a_saved_worktree_was_made_from() {
+    let root = unique_temp_root("worktree-source");
+    let source = root.join("my-app");
+    fs::create_dir_all(&source).expect("create source folder");
+    let store = AppStore::new(root.join("data"));
+    let mut state = PersistedState {
+        sessions: vec![session("s-1", "terminated")],
+        ..PersistedState::default()
+    };
+    state.sessions[0].worktree = Some(SessionWorktreeRecord {
+        repo_path: source.to_string_lossy().to_string(),
+        path: root
+            .join("data/worktrees/my-app/fix")
+            .to_string_lossy()
+            .to_string(),
+        branch: "agent/fix".to_string(),
+    });
+    store.save_state(&state).expect("save state");
+
+    let fresh = AppStore::new(root.join("data"));
+
+    assert!(fresh
+        .is_known_workspace(&source.canonicalize().expect("canonical source"))
+        .expect("check workspace"));
     fs::remove_dir_all(&root).ok();
 }

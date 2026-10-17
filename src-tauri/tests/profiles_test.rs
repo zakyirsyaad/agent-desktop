@@ -1,4 +1,6 @@
-use agent_desktop_lib::profiles::{get_available_agent_profiles, get_default_profiles, AgentProfile};
+use agent_desktop_lib::profiles::{
+    get_available_agent_profiles, get_default_profiles, AgentProfile,
+};
 
 fn find<'a>(profiles: &'a [AgentProfile], id: &str) -> &'a AgentProfile {
     profiles
@@ -39,7 +41,11 @@ fn test_claude_code_profile_matches_its_real_cli_flags() {
     // `--model <model>`: "Provide an alias for the latest model (e.g. 'fable',
     // 'opus', or 'sonnet')". Aliases, not versioned ids that go stale.
     assert_eq!(claude.model_arg, Some("--model".to_string()));
-    assert!(claude.models.contains(&"opus".to_string()), "{:?}", claude.models);
+    assert!(
+        claude.models.contains(&"opus".to_string()),
+        "{:?}",
+        claude.models
+    );
     assert!(
         claude.models.contains(&"sonnet".to_string()),
         "{:?}",
@@ -58,7 +64,12 @@ fn test_claude_code_profile_matches_its_real_cli_flags() {
             "level {:?} must map to the real --effort flag",
             level.label
         );
-        assert_eq!(level.args.len(), 2, "level {:?} must pass exactly one value", level.label);
+        assert_eq!(
+            level.args.len(),
+            2,
+            "level {:?} must pass exactly one value",
+            level.label
+        );
         assert!(
             ["low", "medium", "high", "xhigh", "max"].contains(&level.args[1].as_str()),
             "'{}' is not a documented --effort value",
@@ -105,7 +116,11 @@ fn test_claude_code_ask_permission_mode_is_first_and_passes_no_args() {
 
     // `--permission-mode <mode>` with choices acceptEdits/auto/bypassPermissions/
     // manual/dontAsk/plan. Only modes with documented semantics are surfaced.
-    let ids: Vec<&str> = claude.permission_modes.iter().map(|m| m.id.as_str()).collect();
+    let ids: Vec<&str> = claude
+        .permission_modes
+        .iter()
+        .map(|m| m.id.as_str())
+        .collect();
     assert!(ids.contains(&"bypass"), "{ids:?}");
     let bypass = claude
         .permission_modes
@@ -169,7 +184,11 @@ fn test_omp_profile_matches_its_real_cli_flags() {
     // `--approval-mode=<value>`: "(always-ask|write|yolo)".
     let ask = omp.permission_modes.first().expect("omp must offer modes");
     assert_eq!(ask.id, "ask");
-    assert!(ask.args.is_empty(), "'ask' must be omp's default: {:?}", ask.args);
+    assert!(
+        ask.args.is_empty(),
+        "'ask' must be omp's default: {:?}",
+        ask.args
+    );
     let bypass = omp
         .permission_modes
         .iter()
@@ -208,7 +227,10 @@ fn test_aider_profile_does_not_claim_unverified_capabilities() {
     assert_eq!(aider.fork_support, "handoff");
     assert!(aider.resume_fork_args.is_empty());
 
-    let ask = aider.permission_modes.first().expect("aider must offer modes");
+    let ask = aider
+        .permission_modes
+        .first()
+        .expect("aider must offer modes");
     assert_eq!(ask.id, "ask");
     assert!(ask.args.is_empty());
     let bypass = aider
@@ -218,7 +240,6 @@ fn test_aider_profile_does_not_claim_unverified_capabilities() {
         .expect("aider must map the generic bypass id");
     assert_eq!(bypass.args, vec!["--yes-always".to_string()]);
 }
-
 
 #[test]
 fn test_no_profile_lists_an_effort_level_without_a_real_mechanism() {
@@ -237,11 +258,20 @@ fn test_no_profile_lists_an_effort_level_without_a_real_mechanism() {
             );
         }
 
-        let mut labels: Vec<&str> = profile.effort_levels.iter().map(|l| l.label.as_str()).collect();
+        let mut labels: Vec<&str> = profile
+            .effort_levels
+            .iter()
+            .map(|l| l.label.as_str())
+            .collect();
         let count = labels.len();
         labels.sort_unstable();
         labels.dedup();
-        assert_eq!(labels.len(), count, "{} repeats an effort label", profile.id);
+        assert_eq!(
+            labels.len(),
+            count,
+            "{} repeats an effort label",
+            profile.id
+        );
     }
 }
 
@@ -254,8 +284,7 @@ fn test_no_profile_reintroduces_the_max_thinking_tokens_env_hack() {
                 assert_ne!(
                     key, "MAX_THINKING_TOKENS",
                     "{} effort '{}' must not map a label onto MAX_THINKING_TOKENS",
-                    profile.id,
-                    level.label
+                    profile.id, level.label
                 );
                 assert!(
                     !value.trim().is_empty(),
@@ -276,24 +305,33 @@ fn test_every_profile_that_offers_permission_modes_defaults_to_ask_first() {
         }
 
         let first = &profile.permission_modes[0];
-        assert_eq!(
-            first.id, "ask",
-            "{} must list 'ask' first",
-            profile.id
-        );
+        assert_eq!(first.id, "ask", "{} must list 'ask' first", profile.id);
         assert!(
             first.args.is_empty(),
             "{} 'ask' must pass no extra args, got {:?}",
             profile.id,
             first.args
         );
-        assert!(!first.label.trim().is_empty(), "{} 'ask' needs a label", profile.id);
+        assert!(
+            !first.label.trim().is_empty(),
+            "{} 'ask' needs a label",
+            profile.id
+        );
 
-        let mut ids: Vec<&str> = profile.permission_modes.iter().map(|m| m.id.as_str()).collect();
+        let mut ids: Vec<&str> = profile
+            .permission_modes
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect();
         let count = ids.len();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), count, "{} repeats a permission mode id", profile.id);
+        assert_eq!(
+            ids.len(),
+            count,
+            "{} repeats a permission mode id",
+            profile.id
+        );
     }
 }
 
@@ -345,7 +383,11 @@ fn test_detection_flags_match_system_binaries() {
             let found = agent_desktop_lib::env_resolver::find_binary_in_user_path(&profile.command);
             match found {
                 Some(path) => {
-                    assert!(profile.detected, "Profile {} should be detected", profile.id);
+                    assert!(
+                        profile.detected,
+                        "Profile {} should be detected",
+                        profile.id
+                    );
                     assert_eq!(
                         profile.detected_path,
                         Some(path.to_string_lossy().to_string()),
@@ -370,7 +412,9 @@ fn test_detection_flags_match_system_binaries() {
 fn test_there_is_no_unconfigurable_custom_cli_profile() {
     let profiles = get_default_profiles();
 
-    assert!(profiles.iter().all(|p| p.id != "generic" && !p.command.is_empty()));
+    assert!(profiles
+        .iter()
+        .all(|p| p.id != "generic" && !p.command.is_empty()));
 }
 
 #[test]
@@ -387,17 +431,24 @@ fn test_acp_agents_are_driven_over_acp_with_pinned_adapters() {
     let claude = find(&profiles, "claude-code");
     assert_eq!(claude.transport, "acp");
     assert_eq!(claude.acp_program.as_deref(), Some("npx"));
-    assert!(claude.acp_args.contains(&"@agentclientprotocol/claude-agent-acp@0.85.1".to_string()));
+    assert!(claude
+        .acp_args
+        .contains(&"@agentclientprotocol/claude-agent-acp@0.85.1".to_string()));
 
     let codex = find(&profiles, "codex");
     assert_eq!(codex.command, "codex");
     assert_eq!(codex.transport, "acp");
-    assert!(codex.acp_args.contains(&"@agentclientprotocol/codex-acp@2.1.1".to_string()));
+    assert!(codex
+        .acp_args
+        .contains(&"@agentclientprotocol/codex-acp@2.1.1".to_string()));
 }
 
 #[test]
 fn test_npx_adapters_are_pinned_to_exact_versions() {
-    for profile in get_default_profiles().iter().filter(|p| p.acp_program.as_deref() == Some("npx")) {
+    for profile in get_default_profiles()
+        .iter()
+        .filter(|p| p.acp_program.as_deref() == Some("npx"))
+    {
         let package = profile
             .acp_args
             .iter()

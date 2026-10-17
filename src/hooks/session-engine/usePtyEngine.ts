@@ -110,11 +110,15 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
   };
 
   /** Ends the agent process; the session is marked ended when pty-exit arrives. */
-  const stop = (sessionId: string) => {
-    invoke('terminate_session', { sessionId }).catch((error) => {
-      reportError(`Failed to stop the session: ${String(error)}`);
-    });
-  };
+  /** Ends the agent; resolves with whether it stopped, after the backend has done it. */
+  const stop = (sessionId: string): Promise<boolean> =>
+    invoke('terminate_session', { sessionId }).then(
+      () => true,
+      (error) => {
+        reportError(`Failed to stop the session: ${String(error)}`);
+        return false;
+      },
+    );
 
   const interrupt = (sessionId: string) => void sendRaw(sessionId, INTERRUPT_KEY);
 

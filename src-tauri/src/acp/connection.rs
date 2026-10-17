@@ -20,10 +20,19 @@ const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// What the reader thread reports besides responses to our own requests.
 #[derive(Debug, Clone)]
 pub enum ConnectionEvent {
-    Notification { method: String, params: Value },
+    Notification {
+        method: String,
+        params: Value,
+    },
     /// The agent asks us something and waits for `respond`.
-    Request { id: Value, method: String, params: Value },
-    Exited { code: Option<i32> },
+    Request {
+        id: Value,
+        method: String,
+        params: Value,
+    },
+    Exited {
+        code: Option<i32>,
+    },
 }
 
 pub type EventSink = Arc<dyn Fn(ConnectionEvent) + Send + Sync>;
@@ -59,9 +68,18 @@ impl AcpConnection {
             .spawn()
             .map_err(|e| format!("Failed to start agent '{}': {}", program, e))?;
 
-        let stdin = child.stdin.take().ok_or("Failed to open the agent's stdin")?;
-        let stdout = child.stdout.take().ok_or("Failed to open the agent's stdout")?;
-        let stderr = child.stderr.take().ok_or("Failed to open the agent's stderr")?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or("Failed to open the agent's stdin")?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or("Failed to open the agent's stdout")?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or("Failed to open the agent's stderr")?;
 
         let connection = Arc::new(Self {
             stdin: Mutex::new(stdin),
@@ -117,10 +135,14 @@ impl AcpConnection {
             }
 
             // stdout closed: the agent is gone. Fail every request still waiting.
-            let waiting: Vec<ResponseHandler> =
-                pending.lock().map(|mut p| p.drain().map(|(_, h)| h).collect()).unwrap_or_default();
+            let waiting: Vec<ResponseHandler> = pending
+                .lock()
+                .map(|mut p| p.drain().map(|(_, h)| h).collect())
+                .unwrap_or_default();
             for handler in waiting {
-                handler(Err(json!({ "message": "The agent exited before answering" })));
+                handler(Err(
+                    json!({ "message": "The agent exited before answering" }),
+                ));
             }
             // Poll instead of a blocking `wait()`: the child lock must stay free
             // for `kill()`, which may run while the process still lingers. The
@@ -138,7 +160,10 @@ impl AcpConnection {
     }
 
     fn write_line(&self, line: &str) -> Result<(), String> {
-        let mut stdin = self.stdin.lock().map_err(|_| "Agent stdin lock poisoned".to_string())?;
+        let mut stdin = self
+            .stdin
+            .lock()
+            .map_err(|_| "Agent stdin lock poisoned".to_string())?;
         stdin
             .write_all(line.as_bytes())
             .and_then(|_| stdin.write_all(b"\n"))
@@ -147,12 +172,23 @@ impl AcpConnection {
     }
 
     /// Sends a request; `on_done` runs on the reader thread with the result.
-    pub fn send_request(&self, method: &str, params: Value, on_done: ResponseHandler) -> Result<(), String> {
-        self.send_request_with_id(method, params, on_done).map(|_| ())
+    pub fn send_request(
+        &self,
+        method: &str,
+        params: Value,
+        on_done: ResponseHandler,
+    ) -> Result<(), String> {
+        self.send_request_with_id(method, params, on_done)
+            .map(|_| ())
     }
 
     /// Like [`send_request`](Self::send_request), returning the request id.
-    fn send_request_with_id(&self, method: &str, params: Value, on_done: ResponseHandler) -> Result<u64, String> {
+    fn send_request_with_id(
+        &self,
+        method: &str,
+        params: Value,
+        on_done: ResponseHandler,
+    ) -> Result<u64, String> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         self.pending
             .lock()
@@ -179,11 +215,20 @@ impl AcpConnection {
 
     /// Like [`request`](Self::request), but keeps the agent's JSON-RPC error
     /// object (inner `Err`) apart from transport failures and timeouts.
-    pub fn request_raw(&self, method: &str, params: Value, timeout: Duration) -> Result<Result<Value, Value>, String> {
+    pub fn request_raw(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Result<Value, Value>, String> {
         let (tx, rx) = mpsc::channel();
-        let id = self.send_request_with_id(method, params, Box::new(move |result| {
-            let _ = tx.send(result);
-        }))?;
+        let id = self.send_request_with_id(
+            method,
+            params,
+            Box::new(move |result| {
+                let _ = tx.send(result);
+            }),
+        )?;
         rx.recv_timeout(timeout).map_err(|_| {
             // Nobody waits for this answer any more; don't keep its handler around.
             self.forget_request(id);
@@ -228,7 +273,10 @@ impl Drop for AcpConnection {
 /// The human-readable part of a JSON-RPC error object.
 pub fn error_message(error: &Value) -> String {
     let message = error["message"].as_str().unwrap_or("unknown error");
-    match error["data"]["details"].as_str().or_else(|| error["data"].as_str()) {
+    match error["data"]["details"]
+        .as_str()
+        .or_else(|| error["data"].as_str())
+    {
         Some(details) => format!("{} ({})", message, details),
         None => message.to_string(),
     }

@@ -26,7 +26,8 @@ fn builds_notifications_without_an_id() {
 
 #[test]
 fn builds_responses_and_errors_for_agent_requests() {
-    let ok: serde_json::Value = serde_json::from_str(&response(&json!(3), json!({ "x": 1 }))).unwrap();
+    let ok: serde_json::Value =
+        serde_json::from_str(&response(&json!(3), json!({ "x": 1 }))).unwrap();
     assert_eq!(ok["id"], 3);
     assert_eq!(ok["result"]["x"], 1);
 
@@ -38,7 +39,8 @@ fn builds_responses_and_errors_for_agent_requests() {
 
 #[test]
 fn classifies_a_response_to_our_request() {
-    let incoming = parse_incoming(r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s"}}"#).unwrap();
+    let incoming =
+        parse_incoming(r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s"}}"#).unwrap();
 
     match incoming {
         Incoming::Response { id, result } => {
@@ -52,7 +54,8 @@ fn classifies_a_response_to_our_request() {
 #[test]
 fn classifies_an_error_response() {
     let incoming =
-        parse_incoming(r#"{"jsonrpc":"2.0","id":5,"error":{"code":-32603,"message":"boom"}}"#).unwrap();
+        parse_incoming(r#"{"jsonrpc":"2.0","id":5,"error":{"code":-32603,"message":"boom"}}"#)
+            .unwrap();
 
     match incoming {
         Incoming::Response { id, result } => {

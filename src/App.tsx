@@ -15,6 +15,7 @@ import { isAwaitingPermission } from "./lib/acp-events";
 import {
   folderNameOf,
   isAutoName,
+  workspacePathOf,
   mostRecentSessionId,
   nextSessionName,
   patchSessionIn,
@@ -44,12 +45,13 @@ import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerStateFor } from "./lib/composer-state";
 import { NO_CHOICES, type AcpChoices, type AgentOptions } from "./lib/acp-draft";
-import type { AgentProfile, ChatMessage, Session, Settings, SpawnOptions } from "./types";
+import type { AgentProfile, ChatMessage, Session, SessionWorktree, Settings, SpawnOptions } from "./types";
 import { DEFAULT_PERMISSION_MODE, TRANSPORT_ACP } from "./types";
 
 const NO_WORKSPACE_PLACEHOLDER = "Open a folder and install an agent to start";
 const NEW_SESSION_PLACEHOLDER = "Message the agent to start a new session...";
 const RESUME_PLACEHOLDER = "Message the agent to continue this session...";
+const CREATING_WORKTREE_PLACEHOLDER = "Creating a worktree for the session...";
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
 const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
@@ -88,6 +90,9 @@ export default function App() {
   const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
   /** The agent picked for the next new session; null means the default from Settings. */
   const [pickedAgentId, setPickedAgentId] = useState<string | null>(null);
+  /** Whether the next new session runs in its own worktree (a git repository only). */
+  const [isWorktreeOn, setIsWorktreeOn] = useState(false);
+  const [isCreatingWorktree, setIsCreatingWorktree] = useState(false);
   const [acpChoices, setAcpChoices] = useState<AcpChoices>(NO_CHOICES);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isFilesOpen, setIsFilesOpen] = useState(false);
@@ -127,6 +132,7 @@ export default function App() {
   const workspaceDetails = useWorkspaceDetails(shownFolderPath, reportError);
   // Files and Reveal act on the folder the top bar names. The backend browses
   // every saved session's folder, so one gone from the recents keeps them.
+  const canUseWorktree = isNewSessionDraft && Boolean(workspaceDetails?.branch);
   const filesFolder =
     workspaces.find((ws) => ws.path === shownFolderPath) ??
     (activeSession ? { name: folderNameOf(activeSession.cwd), path: activeSession.cwd } : undefined);
@@ -238,10 +244,11 @@ export default function App() {
     options?: SpawnOptions;
     forkedFrom?: string;
     initialMessages?: ChatMessage[];
+    worktree?: SessionWorktree | null;
   }
 
   /** Records a new session and shows it; the agent is started by its engine. */
-  const recordSession = ({ id, agent, cwd, name, options, forkedFrom, initialMessages }: SessionSpec): Session => {
+  const recordSession = ({ id, agent, cwd, name, options, forkedFrom, initialMessages, worktree }: SessionSpec): Session => {
     const session: Session = {
       id: id ?? createId("s"),
       name,
@@ -255,6 +262,7 @@ export default function App() {
       agentSessionId: options?.agentSessionId ?? null,
       forkedFrom: forkedFrom ?? null,
       transport: agent.transport,
+      worktree: worktree ?? null,
     };
     updateState((prev) => ({ ...prev, sessions: [session, ...prev.sessions] }));
     if (initialMessages) updateMessages(session.id, () => initialMessages);
@@ -269,8 +277,11 @@ export default function App() {
     else pty.start(session, spec.options ?? spawnOptionsFor(spec.agent, draft), first?.text);
   };
 
-  /** Starts a session in the active workspace with the agent picked for it. */
-  const handleNewSession = (first?: FirstMessage) => {
+  /**
+   * Starts a session in the active workspace with the agent picked for it, in
+   * a new worktree of it when Worktree is on.
+   */
+  const handleNewSession = async (first?: FirstMessage) => {
     // The backend rejects relative and missing cwds, so never spawn without a path.
     if (!activeWorkspace) {
       setNotice(NO_FOLDER_NOTICE);
@@ -281,15 +292,31 @@ export default function App() {
       return;
     }
     rememberFolder(activeWorkspace);
+    const name = first ? titleFor(first) : nextSessionName(sessions);
+    let worktree: SessionWorktree | null = null;
+    let cwd = activeWorkspace.path;
+    if (isWorktreeOn && canUseWorktree) {
+      setIsCreatingWorktree(true);
+      try {
+        const created = await invoke<{ path: string; cwd: string; branch: string }>("create_session_worktree", {
+          repoPath: activeWorkspace.path,
+          title: name,
+        });
+        worktree = { repoPath: activeWorkspace.path, path: created.path, branch: created.branch };
+        cwd = created.cwd;
+      } catch (error) {
+        setNotice(`Could not create a worktree: ${String(error)}`);
+        // The user may have opened another session meanwhile: the message goes
+        // back into the new session it was written for, not that one's composer.
+        openNewSession(activeWorkspace.path, newSessionAgent.id);
+        if (first) composerRef.current?.restore(first.text, first.attachments);
+        return;
+      } finally {
+        setIsCreatingWorktree(false);
+      }
+    }
     setPickedAgentId(null);
-    startSession(
-      {
-        agent: newSessionAgent,
-        cwd: activeWorkspace.path,
-        name: first ? titleFor(first) : nextSessionName(sessions),
-      },
-      first,
-    );
+    startSession({ agent: newSessionAgent, cwd, name, worktree }, first);
   };
 
   /** Makes `path` the active workspace; a folder only old sessions still use is added back to the recents. */
@@ -338,6 +365,8 @@ export default function App() {
       cwd: source.cwd,
       name: `${source.name} (fork)`,
       forkedFrom: source.id,
+      // A fork works in the same checkout as its source.
+      worktree: source.worktree,
       initialMessages: messages.slice(0, index + 1),
     };
     // A native fork needs the source agent alive; after it exited, fall back to a handoff.
@@ -369,7 +398,8 @@ export default function App() {
     // An agent picked for a new session that was never started is forgotten.
     setPickedAgentId(null);
     const selected = sessionById(sessionId);
-    if (selected && workspaces.some((ws) => ws.path === selected.cwd)) selectWorkspace(selected.cwd);
+    const workspacePath = selected && workspacePathOf(selected);
+    if (workspacePath && workspaces.some((ws) => ws.path === workspacePath)) selectWorkspace(workspacePath);
   };
 
   const navigateTo = (sessionId: string | null) => {
@@ -409,16 +439,35 @@ export default function App() {
     else pty.interrupt(sessionId);
   };
 
+  /**
+   * Removes a deleted session's worktree when no other session runs in it,
+   * once its agent has stopped: never from under a running agent. The backend
+   * keeps one with uncommitted changes, and its branch always.
+   */
+  const removeWorktreeOf = async (session: Session, stopped: Promise<boolean>) => {
+    const worktree = session.worktree;
+    if (!worktree) return;
+    if (sessions.some((s) => s.id !== session.id && s.worktree?.path === worktree.path)) return;
+    if (!(await stopped)) {
+      setNotice(`Kept the worktree of "${session.name}": its agent could not be stopped.`);
+      return;
+    }
+    try {
+      await invoke("remove_session_worktree", { repoPath: worktree.repoPath, path: worktree.path });
+    } catch (error) {
+      setNotice(`Kept the worktree of "${session.name}": ${String(error)}`);
+    }
+  };
+
   const handleDeleteSession = (sessionId: string) => {
     const session = sessionById(sessionId);
-    if (session?.status === "running") {
-      if (isAcp(session)) acp.stop(sessionId);
-      else pty.stop(sessionId);
-    }
+    const isRunning = session?.status === "running";
+    const stopped = !isRunning ? Promise.resolve(true) : isAcp(session) ? acp.stop(sessionId) : pty.stop(sessionId);
     pty.forget(sessionId);
     navigation.remove(sessionId);
     updateState((prev) => removeSessionFrom(prev, sessionId));
     removeTranscript(sessionId);
+    if (session) void removeWorktreeOf(session, stopped);
     if (sessionId === activeSessionId) {
       setActiveSessionId(mostRecentSessionId(sessions.filter((s) => s.id !== sessionId)));
     }
@@ -448,7 +497,7 @@ export default function App() {
     const message = { text, attachments };
     if (activeSession && isActiveRunning) void sendTo(activeSession.id, message);
     else if (activeSession && isResumable) resumeSession(activeSession, message);
-    else handleNewSession(message);
+    else void handleNewSession(message);
   };
 
   const chooseOption = (sessionId: string, cardId: string, optionId: string) =>
@@ -518,7 +567,7 @@ export default function App() {
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
       <TopBar
         sessionName={activeSession?.name}
-        workspaceName={activeSession ? folderNameOf(activeSession.cwd) : activeWorkspace?.name}
+        workspaceName={activeSession ? folderNameOf(workspacePathOf(activeSession)) : activeWorkspace?.name}
         workspacePath={shownFolderPath}
         branch={workspaceDetails?.branch ?? undefined}
         canGoBack={canGoBack}
@@ -606,11 +655,13 @@ export default function App() {
               optionsLocked={composer.locked}
               isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
               onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
-              disabled={!isActiveRunning && !isResumable && !canStartSession}
+              disabled={isCreatingWorktree || (!isActiveRunning && !isResumable && !canStartSession)}
               placeholder={
                 isActiveRunning
                   ? undefined
-                  : isResumable
+                  : isCreatingWorktree
+                    ? CREATING_WORKTREE_PLACEHOLDER
+                    : isResumable
                     ? RESUME_PLACEHOLDER
                     : canStartSession
                       ? NEW_SESSION_PLACEHOLDER
@@ -624,7 +675,13 @@ export default function App() {
               contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
               folder={
                 isNewSessionDraft
-                  ? { folders: workspaces, selectedPath: activeWorkspacePath, onSelect: chooseFolder, onOpenFolder: () => void openFolder() }
+                  ? {
+                      folders: workspaces,
+                      selectedPath: activeWorkspacePath,
+                      onSelect: chooseFolder,
+                      onOpenFolder: () => void openFolder(),
+                      worktree: canUseWorktree ? { isOn: isWorktreeOn, onChange: setIsWorktreeOn } : undefined,
+                    }
                   : undefined
               }
               agent={

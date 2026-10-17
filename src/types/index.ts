@@ -76,6 +76,15 @@ export interface ContextUsage {
   size: number;
 }
 
+/** A git worktree a session runs in: its own checkout, on its own branch. */
+export interface SessionWorktree {
+  /** The workspace it was made from; the sidebar lists the session there. */
+  repoPath: string;
+  /** The worktree's root folder. */
+  path: string;
+  branch: string;
+}
+
 export interface Session {
   id: string;
   name: string;
@@ -93,6 +102,8 @@ export interface Session {
   /** Missing on sessions saved before ACP existed: those ran in a terminal. */
   transport?: AgentTransport;
   acpSessionId?: string | null;
+  /** Set when the session runs in a worktree; `cwd` is then inside it. */
+  worktree?: SessionWorktree | null;
 }
 
 export interface Settings {

@@ -234,8 +234,16 @@ fn claude_code_profile() -> AgentProfile {
         ])
         .with_permission_modes(vec![
             PermissionModeOption::ask("Ask"),
-            PermissionModeOption::new("bypass", "Bypass permissions", &["--permission-mode", "bypassPermissions"]),
-            PermissionModeOption::new("acceptEdits", "Accept edits", &["--permission-mode", "acceptEdits"]),
+            PermissionModeOption::new(
+                "bypass",
+                "Bypass permissions",
+                &["--permission-mode", "bypassPermissions"],
+            ),
+            PermissionModeOption::new(
+                "acceptEdits",
+                "Accept edits",
+                &["--permission-mode", "acceptEdits"],
+            ),
             PermissionModeOption::new("plan", "Plan mode", &["--permission-mode", "plan"]),
         ])
         .with_session_id_arg("--session-id")
@@ -359,7 +367,8 @@ fn detect(profile: AgentProfile, path_var: Option<&str>) -> AgentProfile {
     };
     let detected_path = locate(&profile.command);
     let acp_program_path = profile.acp_program.as_deref().and_then(locate);
-    let detected = detected_path.is_some() && (profile.acp_program.is_none() || acp_program_path.is_some());
+    let detected =
+        detected_path.is_some() && (profile.acp_program.is_none() || acp_program_path.is_some());
 
     AgentProfile {
         detected,

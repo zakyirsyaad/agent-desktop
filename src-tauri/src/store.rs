@@ -8,11 +8,11 @@
 use std::collections::HashSet;
 use std::fs;
 use std::io::ErrorKind;
-use std::sync::Mutex;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// The schema version written to `state.json`, bumped when the shape changes.
 pub const STATE_VERSION: u32 = 1;
@@ -122,6 +122,18 @@ pub struct SessionRecord {
     pub transport: Option<String>,
     /// The session id the agent assigned over ACP.
     pub acp_session_id: Option<String>,
+    /// The git worktree the session runs in, when it was given one.
+    #[serde(deserialize_with = "lenient_worktree")]
+    pub worktree: Option<SessionWorktreeRecord>,
+}
+
+/// A session's worktree: the workspace it was made from, its root and branch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionWorktreeRecord {
+    pub repo_path: String,
+    pub path: String,
+    pub branch: String,
 }
 
 /// A repository over the app's state directory.
@@ -136,13 +148,30 @@ pub struct AppStore {
     known_workspaces: Mutex<Option<HashSet<PathBuf>>>,
 }
 
-/// The canonical folders a state refers to, deduplicated.
+/// A saved worktree, or none when it is malformed: a bad entry must not make
+/// the whole state file unreadable, which would lose every saved session.
+fn lenient_worktree<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<SessionWorktreeRecord>, D::Error> {
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| serde_json::from_value(value).ok()))
+}
+
+/// The canonical folders a state refers to, deduplicated: recent folders,
+/// session folders, and the folders saved worktrees were made from, so a
+/// worktree can still be cleaned up after its source left the recents.
 fn workspaces_in(state: &PersistedState) -> HashSet<PathBuf> {
     state
         .recent_folders
         .iter()
         .map(|f| f.path.as_str())
         .chain(state.sessions.iter().map(|s| s.cwd.as_str()))
+        .chain(
+            state
+                .sessions
+                .iter()
+                .filter_map(|s| s.worktree.as_ref().map(|w| w.repo_path.as_str())),
+        )
         .collect::<HashSet<_>>()
         .into_iter()
         .filter_map(|path| Path::new(path).canonicalize().ok())
@@ -153,16 +182,29 @@ impl AppStore {
     /// Creates a store rooted at `root`. The directory itself is created on the
     /// first write, so a read-only launch never touches the filesystem.
     pub fn new(root: PathBuf) -> Self {
-        Self { root, known_workspaces: Mutex::new(None) }
+        Self {
+            root,
+            known_workspaces: Mutex::new(None),
+        }
+    }
+
+    /// Where session worktrees are made.
+    pub fn worktrees_root(&self) -> PathBuf {
+        self.root.join("worktrees")
     }
 
     /// Whether `canonical_root` is one of the user's workspaces.
     pub fn is_known_workspace(&self, canonical_root: &Path) -> Result<bool, String> {
-        let mut known = self.known_workspaces.lock().map_err(|_| "Workspace lock poisoned".to_string())?;
+        let mut known = self
+            .known_workspaces
+            .lock()
+            .map_err(|_| "Workspace lock poisoned".to_string())?;
         if known.is_none() {
             *known = Some(workspaces_in(&self.load_state()?));
         }
-        Ok(known.as_ref().is_some_and(|set| set.contains(canonical_root)))
+        Ok(known
+            .as_ref()
+            .is_some_and(|set| set.contains(canonical_root)))
     }
 
     /// Records a folder the user just opened, before its debounced state save lands.
@@ -173,7 +215,10 @@ impl AppStore {
         if !canonical.is_dir() {
             return Err(format!("{path:?} is not a folder"));
         }
-        let mut known = self.known_workspaces.lock().map_err(|_| "Workspace lock poisoned".to_string())?;
+        let mut known = self
+            .known_workspaces
+            .lock()
+            .map_err(|_| "Workspace lock poisoned".to_string())?;
         if known.is_none() {
             *known = Some(workspaces_in(&self.load_state()?));
         }

@@ -139,13 +139,7 @@ fn test_pty_session_nonexistent_command_error() {
         .to_string_lossy()
         .to_string();
 
-    let res = manager.start_session(
-        session_id,
-        &cwd,
-        "/nonexistent/binary/for/sure",
-        &[],
-        &[],
-    );
+    let res = manager.start_session(session_id, &cwd, "/nonexistent/binary/for/sure", &[], &[]);
     assert!(res.is_err(), "Expected error for nonexistent binary");
 }
 
@@ -174,7 +168,10 @@ fn test_pty_session_rejects_missing_cwd_instead_of_falling_back() {
     );
 
     let err = res.expect_err("missing cwd must be rejected");
-    assert!(err.contains("not an existing directory"), "unexpected error: {err}");
+    assert!(
+        err.contains("not an existing directory"),
+        "unexpected error: {err}"
+    );
 }
 
 #[test]
@@ -218,7 +215,10 @@ fn test_write_stdin_does_not_block_when_a_raw_mode_child_is_not_reading_input() 
         session_id,
         &cwd,
         "/bin/sh",
-        &["-c".to_string(), "stty raw -echo; echo READY; sleep 2".to_string()],
+        &[
+            "-c".to_string(),
+            "stty raw -echo; echo READY; sleep 2".to_string(),
+        ],
         &[],
     );
     assert!(res.is_ok(), "Failed to start session: {:?}", res.err());
@@ -284,7 +284,10 @@ fn test_start_session_applies_extra_env_and_still_sets_term() {
         session_id,
         &cwd,
         "/bin/sh",
-        &["-c".to_string(), "printf 'PROBE=%s TERM=%s\\n' \"$SPAWN_PLAN_PROBE\" \"$TERM\"".to_string()],
+        &[
+            "-c".to_string(),
+            "printf 'PROBE=%s TERM=%s\\n' \"$SPAWN_PLAN_PROBE\" \"$TERM\"".to_string(),
+        ],
         &extra_env,
     );
     assert!(res.is_ok(), "Failed to start session: {:?}", res.err());
@@ -341,7 +344,10 @@ fn test_start_session_extra_env_overrides_the_user_environment() {
         session_id,
         &cwd,
         "/bin/sh",
-        &["-c".to_string(), "printf 'HOME=%s\\n' \"$HOME\"".to_string()],
+        &[
+            "-c".to_string(),
+            "printf 'HOME=%s\\n' \"$HOME\"".to_string(),
+        ],
         &extra_env,
     );
     assert!(res.is_ok(), "Failed to start session: {:?}", res.err());
@@ -380,9 +386,16 @@ fn kill_all_ends_every_running_session() {
     let manager = PtySessionManager::new(Box::new(move |event| {
         let _ = tx.send(event);
     }));
-    let cwd = std::env::current_dir().unwrap().to_string_lossy().to_string();
-    manager.start_session("orphan-1", &cwd, "/bin/cat", &[], &[]).expect("start first");
-    manager.start_session("orphan-2", &cwd, "/bin/cat", &[], &[]).expect("start second");
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    manager
+        .start_session("orphan-1", &cwd, "/bin/cat", &[], &[])
+        .expect("start first");
+    manager
+        .start_session("orphan-2", &cwd, "/bin/cat", &[], &[])
+        .expect("start second");
 
     assert_eq!(manager.kill_all(), 2);
 
