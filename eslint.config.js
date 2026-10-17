@@ -6,6 +6,16 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   { ignores: ["dist", "src-tauri", "node_modules", ".claude"] },
   {
+    // Config and tooling scripts, run by Node.
+    files: ["**/*.{js,mjs}"],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: globals.node,
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
