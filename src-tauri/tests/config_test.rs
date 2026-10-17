@@ -19,3 +19,21 @@ fn the_app_ships_with_a_strict_content_security_policy() {
     assert!(!script_src.contains("unsafe-inline") && !script_src.contains("unsafe-eval"), "{script_src}");
     assert!(!csp.contains("https:") && !csp.contains("http: "), "no remote origins: {csp}");
 }
+
+/// Tauri adds hashes/nonces to the CSP of bundled assets; in `style-src` they
+/// would void `'unsafe-inline'`, which xterm's injected <style> needs.
+#[test]
+fn inline_styles_stay_allowed_in_the_bundled_app() {
+    let config = tauri_config();
+    let security = &config["app"]["security"];
+
+    let untouched: Vec<&str> = security["dangerousDisableAssetCspModification"]
+        .as_array()
+        .expect("a list of directives Tauri must not modify")
+        .iter()
+        .filter_map(|d| d.as_str())
+        .collect();
+
+    assert_eq!(untouched, ["style-src"], "only style-src: script-src keeps Tauri's nonces");
+    assert!(security["csp"].as_str().unwrap().contains("style-src 'self' 'unsafe-inline'"));
+}

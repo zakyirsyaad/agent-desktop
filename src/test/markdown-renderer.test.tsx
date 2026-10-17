@@ -51,4 +51,25 @@ describe("MarkdownRenderer", () => {
   it("is memoized, so an unchanged message is not parsed again on every streamed chunk", () => {
     expect((MarkdownRenderer as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for("react.memo"));
   });
+
+  it("shows a link the app cannot open (a file path) as plain text with its target, not a dead link", () => {
+    const spy = vi.spyOn(internals(), "invoke");
+    render(<MarkdownRenderer content={"Changed [App.tsx](src/App.tsx)."} />);
+
+    expect(screen.queryByRole("link")).toBeNull();
+    const text = screen.getByText("App.tsx");
+    expect(text.getAttribute("title")).toBe("src/App.tsx");
+    fireEvent.click(text);
+    expect(spy.mock.calls.some(([cmd]) => cmd === "open_external_url")).toBe(false);
+  });
+
+  it("shows a remote image as a link to it, since the app does not load remote images", () => {
+    const { container } = render(<MarkdownRenderer content={"![build status](https://example.com/badge.svg)"} />);
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByRole("link", { name: "Image: build status" }).getAttribute("href")).toBe(
+      "https://example.com/badge.svg"
+    );
+  });
 });
+

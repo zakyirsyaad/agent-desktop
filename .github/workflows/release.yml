@@ -2,11 +2,11 @@ name: Release
 
 # Builds the macOS app for a version tag (v1.2.3) and attaches it to a draft
 # GitHub release. With the Apple secrets set (see README, "Releasing"), the
-# app is signed and notarized; without them it is built unsigned.
+# app is signed and notarized; without them it is built unsigned. Only tags
+# trigger it: the release is named after the tag that started the run.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -32,18 +32,30 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - uses: tauri-apps/tauri-action@v1.0.0
+      # A secret that is not set still expands to an empty variable, which the
+      # bundler would take as "sign with this". Export only the ones that exist.
+      - name: Use the Apple signing secrets that are set
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            value="${!name}"
+            if [ -n "$value" ]; then
+              delimiter="EOF_$(openssl rand -hex 8)"
+              { echo "$name<<$delimiter"; echo "$value"; echo "$delimiter"; } >> "$GITHUB_ENV"
+            fi
+          done
+      - uses: tauri-apps/tauri-action@v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Agent Desktop ${{ github.ref_name }}
-          releaseBody: See the README for requirements. Unsigned builds need right-click → Open the first time.
+          releaseBody: See the README for requirements, and for opening an unsigned build (System Settings → Privacy & Security → Open Anyway).
           releaseDraft: true
           args: --target universal-apple-darwin

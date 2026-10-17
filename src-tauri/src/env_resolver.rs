@@ -88,9 +88,13 @@ fn resolve_once(cell: &Mutex<Option<EnvResult>>, resolve: impl FnOnce() -> EnvRe
 
 /// Runs `resolve` and caches its outcome. A failed re-read keeps an earlier
 /// good environment: agents launched later still need the user's PATH.
+///
+/// The login shell runs before the lock is taken, so callers reading the
+/// cached environment meanwhile (e.g. a session spawning on the main thread)
+/// get the current value instead of waiting for the shell.
 fn re_resolve(cell: &Mutex<Option<EnvResult>>, resolve: impl FnOnce() -> EnvResult) -> EnvResult {
-    let mut slot = lock(cell);
     let result = resolve();
+    let mut slot = lock(cell);
     if result.is_ok() || !matches!(slot.as_ref(), Some(Ok(_))) {
         *slot = Some(result.clone());
     }
@@ -369,6 +373,26 @@ mod tests {
         assert_eq!(stale.unwrap()["PATH"], "/old");
         assert_eq!(fresh.unwrap()["PATH"], "/old:/new");
         assert_eq!(later.unwrap()["PATH"], "/old:/new");
+    }
+
+    #[test]
+    fn re_resolve_does_not_block_readers_while_the_shell_runs() {
+        let cell = Mutex::new(Some(Ok(HashMap::from([("PATH".to_string(), "/old".to_string())]))));
+
+        thread::scope(|scope| {
+            let refresh = scope.spawn(|| {
+                re_resolve(&cell, || {
+                    thread::sleep(Duration::from_millis(300));
+                    Ok(HashMap::from([("PATH".to_string(), "/new".to_string())]))
+                })
+            });
+            thread::sleep(Duration::from_millis(50));
+            let started = Instant::now();
+            let during = resolve_once(&cell, || Err("must not resolve".to_string()));
+            assert!(started.elapsed() < Duration::from_millis(150), "a reader waited for the shell");
+            assert_eq!(during.unwrap()["PATH"], "/old");
+            refresh.join().unwrap().unwrap();
+        });
     }
 
     #[test]

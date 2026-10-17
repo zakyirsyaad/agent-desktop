@@ -20,6 +20,11 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
   sendNotification: (options: { title: string; body?: string }) => notifications.sent.push(options),
 }));
 
+const windows = vi.hoisted(() => ({ focused: [] as boolean[] }));
+vi.mock("@tauri-apps/api/window", () => ({
+  getAllWindows: () => Promise.resolve(windows.focused.map((focused) => ({ isFocused: () => Promise.resolve(focused) }))),
+}));
+
 import App from "../App";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
@@ -51,6 +56,7 @@ async function acpEvent(payload: Record<string, unknown>) {
 describe("Notifications", () => {
   beforeEach(() => {
     notifications.sent.length = 0;
+    windows.focused = [false, false];
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -84,4 +90,16 @@ describe("Notifications", () => {
 
     expect(notifications.sent).toHaveLength(0);
   });
+
+  it("stays quiet while the user watches the session in a popout window", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    windows.focused = [false, true];
+    const sessionId = await startQwenAndSend("hi");
+
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(notifications.sent).toHaveLength(0);
+  });
 });
+

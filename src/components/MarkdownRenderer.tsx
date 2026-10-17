@@ -53,21 +53,42 @@ function textOf(children: ReactNode): string {
   return "";
 }
 
-/** Links open in the user's browser; a click must never navigate the app's webview away. */
+/** What the app can open for a link: web pages and mail, in the user's apps. */
+const OPENABLE_URL = /^(https?:|mailto:)/i;
+
+/**
+ * Links open in the user's browser; a click must never navigate the app's
+ * webview away. Anything else (a file path an agent mentions, say) is shown
+ * as text with its target on hover instead of a link that does nothing.
+ */
 function ExternalLink({ href, children }: { href?: string; children?: ReactNode }) {
+  if (!href || !OPENABLE_URL.test(href)) {
+    return (
+      <span title={href} className="text-neutral-200 underline decoration-dotted decoration-neutral-600 underline-offset-2">
+        {children}
+      </span>
+    );
+  }
   return (
     <a
       href={href}
       title={href}
       onClick={(event) => {
         event.preventDefault();
-        if (href) invoke("open_external_url", { url: href }).catch(() => {});
+        // The backend only refuses what OPENABLE_URL already excludes.
+        invoke("open_external_url", { url: href }).catch(() => {});
       }}
       className="text-amber-400 underline decoration-amber-400/40 underline-offset-2 hover:decoration-amber-400"
     >
       {children}
     </a>
   );
+}
+
+/** The app loads no remote images (see the CSP), so an image becomes a link to it. */
+function ImageLink({ src, alt }: { src?: string; alt?: string }) {
+  const label = `Image: ${alt || src || "untitled"}`;
+  return <ExternalLink href={typeof src === "string" ? src : undefined}>{label}</ExternalLink>;
 }
 
 const COMPONENTS: Components = {
@@ -85,6 +106,7 @@ const COMPONENTS: Components = {
     <blockquote className="border-l-2 border-neutral-700 pl-3 text-neutral-400">{children}</blockquote>
   ),
   a: ({ href, children }) => <ExternalLink href={href}>{children}</ExternalLink>,
+  img: ({ src, alt }) => <ImageLink src={typeof src === "string" ? src : undefined} alt={alt} />,
   table: ({ children }) => (
     <div className="my-3 overflow-x-auto">
       <table className="w-full border-collapse text-left text-xs text-neutral-300">{children}</table>

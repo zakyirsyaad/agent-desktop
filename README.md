@@ -36,8 +36,16 @@ it finds too. Installed an agent while the app runs? Click **Check again**.
 
 Download the `.dmg` from the
 [latest release](https://github.com/zakyirsyaad/agent-desktop/releases) and
-drag Agent Desktop into Applications. Unsigned builds: right-click the app →
-**Open** the first time (or `xattr -dr com.apple.quarantine "/Applications/Agent Desktop.app"`).
+drag Agent Desktop into Applications.
+
+An unsigned build is blocked the first time you open it. Open it once, then
+go to **System Settings → Privacy & Security** and click **Open Anyway** next
+to the Agent Desktop message (macOS 15 no longer offers right-click → Open for
+this). Or, in a terminal:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Agent Desktop.app"
+```
 
 ## Your data
 
@@ -61,7 +69,10 @@ pnpm tauri dev
 | Rust lint | `cd src-tauri && cargo clippy --all-targets -- -D warnings` |
 | Production build | `pnpm tauri build` |
 
-CI runs all of these on every pull request.
+CI runs the types, tests and Rust lint on every pull request. It does not
+build the release bundle: run `pnpm tauri build` and open the app before a
+release, since the production build is the only one that applies the
+Content Security Policy.
 
 **Layout.** `src/` is the React UI (`App.tsx` picks a session engine:
 `hooks/session-engine/useAcpEngine.ts` for ACP agents,
