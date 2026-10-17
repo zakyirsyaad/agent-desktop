@@ -2,6 +2,7 @@ import { acpControls, ptyDraftControls, ptySessionControls, type ComposerControl
 import { draftInfo, type AcpChoices, type AgentOptions } from './acp-draft';
 import type { AcpConfigOption } from '../hooks/useAcpSessions';
 import type { AcpEngine } from '../hooks/session-engine/useAcpEngine';
+import { isAcpSession } from './session-helpers';
 import { TRANSPORT_ACP, type AgentProfile, type Session, type SlashCommand } from '../types';
 
 export interface ComposerState {
@@ -36,7 +37,7 @@ export interface ComposerInputs {
 export function composerStateFor(inputs: ComposerInputs): ComposerState {
   const { session, sessionAgent, draftAgent, acp } = inputs;
   if (session?.status === 'running') {
-    if (session.transport === TRANSPORT_ACP) {
+    if (isAcpSession(session)) {
       const info = acp.info[session.id];
       const controls = info
         ? acpControls(info, {
@@ -101,7 +102,7 @@ export function composerCommandsFor(inputs: {
   draftAgent: AgentProfile | undefined;
   agentOptions: Readonly<Record<string, AgentOptions>> | undefined;
 }): SlashCommand[] | undefined {
-  if (inputs.isRunning) return inputs.session?.transport === TRANSPORT_ACP ? inputs.liveCommands : undefined;
+  if (inputs.isRunning) return isAcpSession(inputs.session) ? inputs.liveCommands : undefined;
   const agent = inputs.draftAgent;
   return agent?.transport === TRANSPORT_ACP ? inputs.agentOptions?.[agent.id]?.commands : undefined;
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { isWaitingForAnswer, newSessionRecord } from "../lib/session-start";
 import { TRANSPORT_ACP, type AgentProfile, type ChatMessage, type Session } from "../types";
 
@@ -59,9 +59,9 @@ describe("isWaitingForAnswer", () => {
   const acp = { status: "running", transport: TRANSPORT_ACP } as Session;
 
   it("waits on an ACP agent that is still busy with an unanswered request", () => {
-    expect(isWaitingForAnswer(acp, pending, true)).toBe(true);
-    expect(isWaitingForAnswer(acp, pending, false)).toBe(false);
-    expect(isWaitingForAnswer(acp, [], true)).toBe(false);
+    expect(isWaitingForAnswer(acp, pending, () => true)).toBe(true);
+    expect(isWaitingForAnswer(acp, pending, () => false)).toBe(false);
+    expect(isWaitingForAnswer(acp, [], () => true)).toBe(false);
   });
 
   it("waits on a terminal agent with an unanswered approval card, though it has gone quiet", () => {
@@ -77,12 +77,22 @@ describe("isWaitingForAnswer", () => {
       } as ChatMessage,
     ];
 
-    expect(isWaitingForAnswer(terminal, typedPrompt, false)).toBe(true);
-    expect(isWaitingForAnswer({ ...acp, status: "running" }, typedPrompt, true)).toBe(false);
+    expect(isWaitingForAnswer(terminal, typedPrompt, () => false)).toBe(true);
+    expect(isWaitingForAnswer({ ...acp, status: "running" }, typedPrompt, () => true)).toBe(false);
+  });
+
+  it("asks whether the agent is busy only for a running ACP session", () => {
+    const isBusy = vi.fn(() => true);
+
+    isWaitingForAnswer({ status: "running", transport: "pty" } as Session, pending, isBusy);
+    isWaitingForAnswer({ ...acp, status: "terminated" }, pending, isBusy);
+    expect(isBusy).not.toHaveBeenCalled();
+    isWaitingForAnswer(acp, pending, isBusy);
+    expect(isBusy).toHaveBeenCalledTimes(1);
   });
 
   it("waits on nothing in a session that is not running", () => {
-    expect(isWaitingForAnswer({ ...acp, status: "terminated" }, pending, true)).toBe(false);
-    expect(isWaitingForAnswer(undefined, pending, true)).toBe(false);
+    expect(isWaitingForAnswer({ ...acp, status: "terminated" }, pending, () => true)).toBe(false);
+    expect(isWaitingForAnswer(undefined, pending, () => true)).toBe(false);
   });
 });

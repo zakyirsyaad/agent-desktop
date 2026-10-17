@@ -4,7 +4,8 @@ import { buildForkHandoff, buildForkPrompt } from '../lib/fork-handoff';
 import { createId } from '../lib/ids';
 import { spawnOptionsFor, type SessionSpec } from '../lib/session-start';
 import type { SessionDraft } from '../lib/composer-controls';
-import { DEFAULT_PERMISSION_MODE, TRANSPORT_ACP, type AgentProfile, type ChatMessage, type Session } from '../types';
+import { isAcpSession } from '../lib/session-helpers';
+import { DEFAULT_PERMISSION_MODE, type AgentProfile, type ChatMessage, type Session } from '../types';
 
 export interface SessionForkDeps {
   /** The session forked from: the one open. */
@@ -37,7 +38,7 @@ export function useSessionFork(deps: SessionForkDeps): (messageId: string) => Pr
     const index = messages.findIndex((m) => m.id === messageId);
     if (index < 0) return;
 
-    const isAcp = source.transport === TRANSPORT_ACP;
+    const isAcp = isAcpSession(source);
     const isLatest = index === messages.length - 1;
     const baseOptions: SessionDraft = {
       model: source.model,

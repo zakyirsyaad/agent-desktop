@@ -29,6 +29,7 @@ import { createPtyOutputStore } from "./lib/pty-output-store";
 import { isAwaitingPermission } from "./lib/acp-events";
 import {
   folderNameOf,
+  isAcpSession as isAcp,
   isListed,
   isAutoName,
   workspacePathOf,
@@ -70,7 +71,6 @@ const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder butto
 const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
-const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
 // eslint-disable-next-line no-control-regex -- matching control characters is the point.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 
@@ -267,7 +267,7 @@ export default function App() {
   // The agent may have checked out another branch: the top bar reads it again after each turn.
   useEffect(() => setBranchCheck(turnsEnded), [turnsEnded]);
   const isSessionWaiting = (sessionId: string) =>
-    isWaitingForAnswer(sessionById(sessionId), transcripts[sessionId] ?? [], isSessionBusy(sessionId));
+    isWaitingForAnswer(sessionById(sessionId), transcripts[sessionId] ?? [], () => isSessionBusy(sessionId));
 
   /** Records a new session and shows it; the agent is started by its engine. */
   const recordSession = (spec: SessionSpec): Session => {

@@ -3,10 +3,10 @@ import { fileNameOf } from './attachments';
 import type { SessionDraft } from './composer-controls';
 import type { FirstMessage } from '../hooks/session-engine/useAcpEngine';
 import { isAwaitingPermission } from './acp-events';
+import { isAcpSession } from './session-helpers';
 import { createId } from './ids';
 import {
   DEFAULT_PERMISSION_MODE,
-  TRANSPORT_ACP,
   type AgentProfile,
   type ChatMessage,
   type Session,
@@ -69,15 +69,16 @@ export function newSessionRecord(spec: SessionSpec, createdAt: number = Date.now
 /**
  * Whether a session's agent waits for the user's answer. An ACP agent stays
  * busy while it asks; a terminal agent goes quiet on its y/n prompt, so for
- * it a running session with an unanswered approval card is enough.
+ * it a running session with an unanswered approval card is enough. `isBusy`
+ * is asked only for a running ACP session.
  */
 export function isWaitingForAnswer(
   session: Session | undefined,
   messages: readonly ChatMessage[],
-  isBusy: boolean,
+  isBusy: () => boolean,
 ): boolean {
   if (session?.status !== 'running') return false;
-  return session.transport === TRANSPORT_ACP
-    ? isBusy && isAwaitingPermission(messages)
+  return isAcpSession(session)
+    ? isBusy() && isAwaitingPermission(messages)
     : isAwaitingPermission(messages, { includeTerminal: true });
 }
