@@ -677,27 +677,36 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_fork_session")).toHaveLength(0);
   });
 
-  it("rewinds to a later message: a new branch from before it, with the message back in the composer", async () => {
+  /** Clicks a user message's Rewind, then confirms it. */
+  async function rewindTo(text: string) {
+    const yours = screen.getByText(text, { selector: "p" }).closest("[data-testid^='chat-message-']") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(yours).getByRole("button", { name: "Rewind to here" }));
+    });
+    await act(async () => {
+      fireEvent.click(within(yours).getByRole("button", { name: "Confirm rewind" }));
+    });
+  }
+
+  it("rewinds in place: the agent ends, the conversation goes back to before the message, which returns to the composer", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);
     await send("plan the parser");
     await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
-    const yours = screen.getByText("plan the parser").closest("[data-testid^='chat-message-']") as HTMLElement;
 
-    await act(async () => {
-      fireEvent.click(within(yours).getByRole("button", { name: "Rewind to here" }));
-    });
+    await rewindTo("plan the parser");
 
-    await waitFor(() => expect(callsTo(spy, "write_fork_handoff")).toHaveLength(1));
-    // The handoff carries the conversation up to the message before the one rewound to.
-    const handoff = String(callsTo(spy, "write_fork_handoff")[0][1]?.content);
-    expect(handoff).toContain(FIRST_MESSAGE);
-    expect(handoff).not.toContain("plan the parser");
+    expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toContainEqual({ sessionId });
+    const chat = within(screen.getByTestId("chat-canvas-container"));
+    expect(chat.queryByText("plan the parser")).toBeNull();
+    expect(chat.getByText(FIRST_MESSAGE, { selector: "p" })).toBeDefined();
     expect(prompt().value).toBe("plan the parser");
-    expect(within(screen.getByRole("complementary")).getByText(`${FIRST_MESSAGE} (fork)`)).toBeDefined();
+    // Still the one session: no fork in the sidebar.
+    expect(within(screen.getByRole("complementary")).queryByText(`${FIRST_MESSAGE} (fork)`)).toBeNull();
+    expect(callsTo(spy, "acp_start_session")).toHaveLength(1);
   });
 
-  it("rewinds to the first message as a new session in the same folder, with the message ready", async () => {
+  it("asks before rewinding, and a first click alone changes nothing", async () => {
     const spy = await renderWithQwen();
     await startQwenSession(spy);
     const first = screen.getByText(FIRST_MESSAGE, { selector: "p" }).closest("[data-testid^='chat-message-']") as HTMLElement;
@@ -706,9 +715,64 @@ describe("ACP sessions in the app", () => {
       fireEvent.click(within(first).getByRole("button", { name: "Rewind to here" }));
     });
 
-    expect(screen.getByRole("heading", { name: "New session" })).toBeDefined();
+    expect(callsTo(spy, "acp_stop_session")).toHaveLength(0);
+    expect(within(first).getByRole("button", { name: "Confirm rewind" })).toBeDefined();
+  });
+
+  it("continues a rewound session in a fresh agent, handed the conversation left but showing only the new message", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await rewindTo("plan the parser");
+
+    await send("plan the lexer");
+
+    await waitFor(() => expect(callsTo(spy, "acp_start_session")).toHaveLength(2));
+    // The same session, with a fresh agent.
+    expect(callsTo(spy, "acp_start_session")[1][1]).toMatchObject({ sessionId });
+    const handoff = String(callsTo(spy, "write_fork_handoff")[0][1]?.content);
+    expect(handoff).toContain(FIRST_MESSAGE);
+    expect(handoff).not.toContain("plan the parser");
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(3));
+    const sent = String(callsTo(spy, "acp_prompt")[2][1]?.text);
+    expect(sent).toContain(String(callsTo(spy, "write_fork_handoff")[0][1]?.handoffId));
+    expect(sent.endsWith("plan the lexer")).toBe(true);
+    const chat = within(screen.getByTestId("chat-canvas-container"));
+    expect(chat.getByText("plan the lexer", { selector: "p" })).toBeDefined();
+    expect(chat.queryByText(/Read the file/)).toBeNull();
+  });
+
+  it("keeps the message in the composer when the conversation cannot be handed to a fresh agent", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("plan the parser");
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await rewindTo("plan the parser");
+    spy.mockImplementation((cmd, args) =>
+      cmd === "write_fork_handoff" ? Promise.reject("disk full") : realInvoke(cmd, args),
+    );
+
+    await send("plan the lexer");
+
+    expect(await screen.findByText(/Could not continue the session: disk full/)).toBeDefined();
+    expect(prompt().value).toBe("plan the lexer");
+    expect(callsTo(spy, "acp_start_session")).toHaveLength(1);
+  });
+
+  it("rewinds to the first message to an empty session, which starts afresh without a handoff", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+
+    await rewindTo(FIRST_MESSAGE);
     expect(prompt().value).toBe(FIRST_MESSAGE);
-    expect(screen.getByRole("button", { name: "Agent: Qwen Code" })).toBeDefined();
+    await send("start over");
+
+    await waitFor(() => expect(callsTo(spy, "acp_start_session")).toHaveLength(2));
+    expect(callsTo(spy, "acp_start_session")[1][1]).toMatchObject({ sessionId });
+    expect(callsTo(spy, "write_fork_handoff")).toHaveLength(0);
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(2));
+    expect(callsTo(spy, "acp_prompt")[1][1]).toMatchObject({ text: "start over" });
   });
 
   it("shows the session's folder and branch above its conversation", async () => {

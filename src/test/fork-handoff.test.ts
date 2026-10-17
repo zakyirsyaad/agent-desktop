@@ -3,6 +3,7 @@ import {
   MAX_HANDOFF_CHARS,
   buildForkHandoff,
   buildForkPrompt,
+  buildRewindContext,
   type ForkHandoffMeta,
 } from "../lib/fork-handoff";
 import type { ChatMessage } from "../types";
@@ -302,5 +303,15 @@ describe("buildForkPrompt", () => {
     expect(prompt.replace(/\s+/g, " ")).toContain("/data/hand offs/ab c.md");
     expect(prompt.startsWith('Read the file "')).toBe(true);
     expect(prompt.endsWith("Reply briefly that you are ready.")).toBe(true);
+  });
+});
+
+describe("buildRewindContext", () => {
+  it("points the fresh agent at the conversation so far, quoted and on one line", () => {
+    const context = buildRewindContext("/Users/me/Library/Application Support/app/handoffs/re\nwind.md");
+
+    expect(context).toContain('"/Users/me/Library/Application Support/app/handoffs/re wind.md"');
+    expect(context).not.toMatch(/[\r\n]/);
+    expect(context).toContain("answer my message below");
   });
 });

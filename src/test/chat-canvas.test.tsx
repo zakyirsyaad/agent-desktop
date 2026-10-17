@@ -737,8 +737,29 @@ describe("ChatCanvas: your messages and the session's header", () => {
     expect(yours.getByText("2 minutes ago")).toBeDefined();
     expect(yours.getByRole("button", { name: "Copy message" })).toBeDefined();
     fireEvent.click(yours.getByRole("button", { name: "Rewind to here" }));
+    // It drops the messages after it, so it takes a confirming second click.
+    expect(onRewind).not.toHaveBeenCalled();
+    fireEvent.click(yours.getByRole("button", { name: "Confirm rewind" }));
 
     expect(onRewind).toHaveBeenCalledWith("u-1");
+  });
+
+  it("turns a Rewind left unconfirmed back by itself", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ChatCanvas messages={messages} onSendPtyInput={() => {}} onRewind={() => {}} />);
+      const yours = within(screen.getByTestId("chat-message-u-1"));
+      fireEvent.click(yours.getByRole("button", { name: "Rewind to here" }));
+
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+
+      expect(yours.queryByRole("button", { name: "Confirm rewind" })).toBeNull();
+      expect(yours.getByRole("button", { name: "Rewind to here" })).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("offers no Rewind when the host cannot rewind, and shows the header above the conversation", () => {

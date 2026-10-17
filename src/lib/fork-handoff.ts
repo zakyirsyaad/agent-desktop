@@ -112,3 +112,15 @@ export function buildForkPrompt(handoffPath: string): string {
     "then continue from where it left off. Reply briefly that you are ready."
   );
 }
+
+/**
+ * What a rewound session's fresh agent is told ahead of the user's message:
+ * the conversation so far is in the handoff, and the message follows.
+ */
+export function buildRewindContext(handoffPath: string): string {
+  const safePath = handoffPath.replace(LINE_BREAK_PATTERN, " ");
+  return (
+    `Read the file "${safePath}" for this conversation so far, then answer my message below. ` +
+    "Do not mention the file."
+  );
+}

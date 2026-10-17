@@ -43,6 +43,7 @@ import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
 import { useSessionFork } from "./hooks/useSessionFork";
+import { useSessionRewind } from "./hooks/useSessionRewind";
 import { useUnreadMarks } from "./hooks/useUnreadMarks";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
@@ -126,12 +127,10 @@ export default function App() {
     workspaces.find((ws) => ws.path === shownFolderPath) ??
     (activeSession ? { name: folderNameOf(activeSession.cwd), path: activeSession.cwd } : undefined);
 
-  // An ended ACP session continues where it left off with its own agent.
+  // An ended ACP session continues with its own agent: in the agent's own
+  // session when it has one, else (rewound) in a fresh one handed the conversation.
   const isResumable =
-    isAcp(activeSession) &&
-    activeSession?.status !== "running" &&
-    Boolean(activeSession?.acpSessionId) &&
-    activeAgent?.detected === true;
+    isAcp(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
   const draftAgent = isResumable ? activeAgent : newSessionAgent;
 
   // A model or effort chosen for one agent means nothing to another one.
@@ -356,22 +355,15 @@ export default function App() {
     onNotice: setNotice,
   });
 
-  /**
-   * Starts again from before one of the user's messages, with it back in the
-   * composer to edit. An agent cannot forget part of a conversation, so this
-   * opens a new branch: a fork from the message before, or a new session for
-   * the first message. The session itself is kept.
-   */
-  const rewindTo = async (messageId: string) => {
-    if (!activeSession) return;
-    const messages = transcripts[activeSession.id] ?? [];
-    const index = messages.findIndex((m) => m.id === messageId);
-    const message = messages[index];
-    if (!message) return;
-    if (index === 0) openNewSession(workspacePathOf(activeSession), activeSession.profileId);
-    else await forkSession(messages[index - 1].id);
-    composerRef.current?.restore(message.content, message.attachments);
-  };
+  const { rewind, restart } = useSessionRewind({
+    agents,
+    transcripts,
+    acp,
+    patchSession,
+    updateMessages,
+    onRestore: (text, attachments) => composerRef.current?.restore(text, attachments),
+    onNotice: setNotice,
+  });
 
   const handleSelectSession = (sessionId: string) => {
     setActiveSessionId(sessionId);
@@ -453,9 +445,16 @@ export default function App() {
     }
   };
 
-  /** Continues an ended ACP session: a fresh agent process loads it, then gets the message. */
+  /**
+   * Continues an ended ACP session: a fresh agent process loads it, then gets
+   * the message. A rewound one has no agent session left to load.
+   */
   const resumeSession = (session: Session, message: FirstMessage) => {
-    if (!session.acpSessionId) return;
+    if (!session.acpSessionId) {
+      void restart(session, message, startChoices);
+      setAcpChoices(NO_CHOICES);
+      return;
+    }
     // Continuing an archived session brings it back into the list.
     patchSession(session.id, { status: "running", endedAt: null, exitCode: null, archivedAt: null });
     void acp.resume(session, session.acpSessionId, message, startChoices);
@@ -616,7 +615,7 @@ export default function App() {
               messages={currentMessages}
               agentName={activeAgent?.name}
               onForkBranch={(messageId) => void forkSession(messageId)}
-              onRewind={(messageId) => void rewindTo(messageId)}
+              onRewind={isAcp(activeSession) ? (messageId) => void rewind(activeSession, messageId) : undefined}
               header={
                 <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 px-4 py-3">
                   <WorkspaceSummary
