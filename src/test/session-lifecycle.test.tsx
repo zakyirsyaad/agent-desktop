@@ -165,7 +165,7 @@ describe("Session lifecycle", () => {
     await act(async () => {
       listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Goodbye\r\n" } });
     });
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await new Promise((resolve) => setTimeout(resolve, 1200));
 
     expect(spy.mock.calls.filter(([cmd, args]) => cmd === "save_transcript" && (args as { sessionId?: string })?.sessionId === sessionId)).toHaveLength(0);
   });

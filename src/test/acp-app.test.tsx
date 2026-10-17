@@ -241,7 +241,7 @@ describe("ACP sessions in the app", () => {
     await acpEvent({ sessionId, kind: "exit", code: 0 });
 
     expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toContainEqual({ sessionId });
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await new Promise((resolve) => setTimeout(resolve, 1200));
     expect(callsTo(spy, "save_transcript").filter(([, a]) => a?.sessionId === sessionId)).toHaveLength(0);
   });
 

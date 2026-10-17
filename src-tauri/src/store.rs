@@ -260,7 +260,8 @@ impl AppStore {
         let dir = self.transcripts_dir();
         self.ensure_dir(&dir)?;
 
-        let json = serde_json::to_string_pretty(messages)
+        // Compact: transcripts are rewritten often while an agent streams.
+        let json = serde_json::to_string(messages)
             .map_err(|e| format!("Failed to serialize transcript '{}': {}", session_id, e))?;
 
         atomic_write(

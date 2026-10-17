@@ -2,9 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage } from '../types';
 import { deleteTranscript, loadTranscript, saveTranscript } from '../lib/persistence';
 import { useLatest } from './useLatest';
-import { SAVE_DEBOUNCE_MS } from './usePersistedState';
 
 type Transcripts = Record<string, ChatMessage[]>;
+
+/**
+ * A streaming agent changes its transcript many times a second; the whole
+ * transcript is written at most this often, and still during a long stream.
+ */
+const TRANSCRIPT_SAVE_INTERVAL_MS = 1000;
 
 export interface TranscriptsHandle {
   transcripts: Transcripts;
@@ -20,7 +25,7 @@ function omitKey(record: Transcripts, key: string): Transcripts {
 
 /**
  * Chat messages per session: loaded lazily from disk the first time a session
- * is shown, and saved per session with a debounce after every change.
+ * is shown, and saved per session at most once per interval while it changes.
  */
 export function useTranscripts(onError: (message: string) => void): TranscriptsHandle {
   const [transcripts, setTranscripts] = useState<Transcripts>({});
@@ -39,28 +44,51 @@ export function useTranscripts(onError: (message: string) => void): TranscriptsH
     return () => timers.forEach((timer) => clearTimeout(timer));
   }, []);
 
+  /** Writes the transcript now, unless its file is still loading (retry later) or unreadable. */
+  const save = useCallback(
+    (sessionId: string) => {
+      if (loadingRef.current.has(sessionId)) {
+        scheduleSaveRef.current(sessionId);
+        return;
+      }
+      if (unreadableRef.current.has(sessionId)) return;
+      saveTranscript(sessionId, transcriptsRef.current[sessionId] ?? []).catch((error) => {
+        onErrorRef.current(`Failed to save the conversation: ${String(error)}`);
+      });
+    },
+    [transcriptsRef, onErrorRef],
+  );
+
+  /** A throttle, not a debounce: a save already due writes the latest messages, so it is not pushed back. */
   const scheduleSave = useCallback(
     (sessionId: string) => {
       const timers = timersRef.current;
-      clearTimeout(timers.get(sessionId));
+      if (timers.has(sessionId)) return;
       timers.set(
         sessionId,
         setTimeout(() => {
           timers.delete(sessionId);
-          if (loadingRef.current.has(sessionId)) {
-            scheduleSaveRef.current(sessionId);
-            return;
-          }
-          if (unreadableRef.current.has(sessionId)) return;
-          saveTranscript(sessionId, transcriptsRef.current[sessionId] ?? []).catch((error) => {
-            onErrorRef.current(`Failed to save the conversation: ${String(error)}`);
-          });
-        }, SAVE_DEBOUNCE_MS),
+          save(sessionId);
+        }, TRANSCRIPT_SAVE_INTERVAL_MS),
       );
     },
-    [transcriptsRef, onErrorRef],
+    [save],
   );
   const scheduleSaveRef = useLatest(scheduleSave);
+
+  // Write what is still pending when the window goes away.
+  useEffect(() => {
+    const flush = () => {
+      const timers = timersRef.current;
+      timers.forEach((timer, sessionId) => {
+        clearTimeout(timer);
+        timers.delete(sessionId);
+        save(sessionId);
+      });
+    };
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, [save]);
 
   const ensureLoaded = useCallback(
     (sessionId: string) => {
