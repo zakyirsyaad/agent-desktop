@@ -15,7 +15,7 @@ import { useAgentAuth } from "./hooks/useAgentAuth";
 import { createSessionWorktree, removeSessionWorktree } from "./lib/session-worktree";
 import { EMPTY_DRAFT, spawnOptionsFor, titleFor } from "./lib/session-start";
 import { createPtyOutputStore } from "./lib/pty-output-store";
-import { isAwaitingPermission } from "./lib/acp-events";
+import { closeTurn, isAwaitingPermission } from "./lib/acp-events";
 import {
   folderNameOf,
   isAutoName,
@@ -436,7 +436,11 @@ export default function App() {
     }
     const session = sessionById(sessionId);
     const isRunning = session?.status === "running";
-    if (isRunning) void (isAcp(session) ? acp.stop(sessionId) : pty.stop(sessionId));
+    if (isRunning) {
+      void (isAcp(session) ? acp.stop(sessionId) : pty.stop(sessionId));
+      // A stopped agent ends no turn itself: requests it was waiting on are answered as closed.
+      updateMessages(sessionId, closeTurn);
+    }
     const now = Date.now();
     patchSession(sessionId, { archivedAt: now, pinned: false, ...(isRunning ? { status: "terminated", endedAt: now } : {}) });
     if (sessionId === activeSessionId) {
@@ -451,7 +455,7 @@ export default function App() {
     const sent = await (isAcp(session)
       ? acp.send(sessionId, message.text, message.attachments)
       : pty.send(sessionId, message.text));
-    if (sent && session && isFirstMessage && isAutoName(session.name)) {
+    if (sent && session && isFirstMessage && isAutoName(session.name) && !session.namedByUser) {
       patchSession(sessionId, { name: titleFor(message) });
     }
   };
@@ -459,7 +463,8 @@ export default function App() {
   /** Continues an ended ACP session: a fresh agent process loads it, then gets the message. */
   const resumeSession = (session: Session, message: FirstMessage) => {
     if (!session.acpSessionId) return;
-    patchSession(session.id, { status: "running", endedAt: null, exitCode: null });
+    // Continuing an archived session brings it back into the list.
+    patchSession(session.id, { status: "running", endedAt: null, exitCode: null, archivedAt: null });
     void acp.resume(session, session.acpSessionId, message, acpChoices);
   };
 

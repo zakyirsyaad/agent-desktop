@@ -3,7 +3,13 @@ import { Search, Plus, FolderPlus, ChevronRight, Bot } from "lucide-react";
 import type { AgentProfile, Session, Workspace } from "../types";
 import { NewSessionMenu } from "./sidebar/NewSessionMenu";
 import { SessionTree, type SessionListContext } from "./sidebar/SessionList";
-import { groupSessionsByWorkspace, type SessionGroup, type SessionNode } from "../lib/session-helpers";
+import {
+  folderNameOf,
+  groupSessionsByWorkspace,
+  workspacePathOf,
+  type SessionGroup,
+  type SessionNode,
+} from "../lib/session-helpers";
 
 export interface SidebarProps {
   workspaces: Workspace[];
@@ -168,11 +174,13 @@ export function Sidebar({
   const listed = sessions.filter((s) => !s.pinned && !s.archivedAt);
   const groups = searchGroups(groupSessionsByWorkspace(workspaces, listed), query);
   const asNodes = (list: Session[]) => list.map((session) => ({ session, children: [] }));
+  // Like a listed session, one is found by its own name or its project's.
+  const isFound = (s: Session) => matches(query, s.name, folderNameOf(workspacePathOf(s)), workspacePathOf(s));
   const pinned = sessions
-    .filter((s) => s.pinned && !s.archivedAt && matches(query, s.name))
+    .filter((s) => s.pinned && !s.archivedAt && isFound(s))
     .sort((a, b) => b.createdAt - a.createdAt);
   const archived = sessions
-    .filter((s) => s.archivedAt && matches(query, s.name))
+    .filter((s) => s.archivedAt && isFound(s))
     .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
   const detectedAgents = agents.filter((agent) => agent.detected);
   const toggle = (path: string) =>

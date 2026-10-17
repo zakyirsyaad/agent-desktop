@@ -351,4 +351,29 @@ describe("Session lifecycle", () => {
       expect((fakeStore().state.sessions as { id: string; pinned?: boolean }[]).find((s) => s.id === "s-old")?.pinned).toBe(true)
     );
   });
+
+  it("keeps a numbered name the user chose when the first message is sent", async () => {
+    fakeStore().state.sessions = [
+      { ...seedSession("s-mine", "Session #42", 1000), status: "running", namedByUser: true },
+      { ...seedSession("s-auto", "Session #7", 2000), status: "running" },
+    ];
+    await renderApp();
+    const sendFrom = async (name: string, text: string) => {
+      await act(async () => {
+        fireEvent.click(sidebar().getByText(name));
+      });
+      const composer = screen.getByRole("textbox", { name: "Prompt" });
+      await act(async () => {
+        fireEvent.change(composer, { target: { value: text } });
+        fireEvent.keyDown(composer, { key: "Enter" });
+      });
+    };
+
+    await sendFrom("Session #42", "first question");
+    await sendFrom("Session #7", "second question");
+
+    expect(sidebar().getByText("Session #42")).toBeDefined();
+    // A numbered name the app gave still takes its title from the first message.
+    expect(sidebar().getByText("second question")).toBeDefined();
+  });
 });

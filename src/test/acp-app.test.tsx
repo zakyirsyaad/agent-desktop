@@ -429,6 +429,70 @@ describe("ACP sessions in the app", () => {
     expect(within(screen.getByRole("complementary")).queryByText("Session #5")).toBeNull();
   });
 
+  it("unarchives an archived ACP session when the user continues it", async () => {
+    fakeStore().state.sessions = [
+      {
+        id: "s-old",
+        name: "Old parser work",
+        profileId: "qwen",
+        cwd: "/Users/test/developer/ai-perpetual-trading",
+        status: "terminated",
+        createdAt: 1,
+        transport: "acp",
+        acpSessionId: "qwen-old",
+        archivedAt: 5,
+      },
+    ];
+    const spy = await renderWithQwen();
+    const sidebar = within(screen.getByRole("complementary"));
+    await act(async () => {
+      fireEvent.click(sidebar.getByRole("button", { name: "Archived (1)" }));
+    });
+    await act(async () => {
+      fireEvent.click(sidebar.getByText("Old parser work"));
+    });
+
+    await send("next step");
+
+    await waitFor(() => expect(callsTo(spy, "acp_load_session")).toHaveLength(1));
+    expect(within(sidebar.getByRole("list", { name: /^Sessions in/ })).getByText("Old parser work")).toBeDefined();
+    expect(sidebar.queryByRole("button", { name: /^Archived/ })).toBeNull();
+  });
+
+  it("closes an open permission request when its session is archived", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("clean up");
+    await acpEvent({
+      sessionId,
+      kind: "permission",
+      requestId: "perm-9",
+      toolCall: { title: "Run rm -rf build", kind: "execute" },
+      options: [
+        { optionId: "proceed_once", name: "Allow", kind: "allow_once" },
+        { optionId: "cancel", name: "Reject", kind: "reject_once" },
+      ],
+    });
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
+    const row = within(screen.getByRole("complementary")).getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
+
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: `More actions for ${FIRST_MESSAGE}` }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+    });
+
+    const sidebar = within(screen.getByRole("complementary"));
+    await act(async () => {
+      fireEvent.click(sidebar.getByRole("button", { name: "Archived (1)" }));
+    });
+    await act(async () => {
+      fireEvent.click(sidebar.getByText(FIRST_MESSAGE));
+    });
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+  });
+
   it("reports a session that cannot be resumed and leaves it ended", async () => {
     fakeStore().state.sessions = [
       {

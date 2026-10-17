@@ -264,6 +264,15 @@ describe("Navigation and Layout Components", () => {
         expect(screen.queryByRole("textbox", { name: /^Rename/ })).toBeNull();
       });
 
+      it("finds pinned and archived sessions by their project's name", () => {
+        renderOrganized();
+
+        fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "titan" } });
+
+        expect(within(screen.getByRole("list", { name: "Pinned sessions" })).getByText("Pinned work")).toBeDefined();
+        expect(within(screen.getByRole("list", { name: "Archived sessions" })).getByText("Old work")).toBeDefined();
+      });
+
       it("finds pinned and archived sessions when searching", () => {
         renderOrganized();
 
