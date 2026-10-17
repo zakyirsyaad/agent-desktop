@@ -45,6 +45,8 @@ import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/s
 import { attentionBody, notifyIfAway } from "./lib/notify";
 import { buildForkHandoff, buildForkPrompt } from "./lib/fork-handoff";
 import { pickFiles } from "./lib/file-picker";
+import { formatAttachmentPath } from "./lib/attachments";
+import { useFileDrop } from "./hooks/useFileDrop";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerStateFor } from "./lib/composer-state";
@@ -61,6 +63,8 @@ const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
 const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
+// eslint-disable-next-line no-control-regex -- matching control characters is the point.
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 /** Shown in the session list: not archived. */
 const isListed = (session: Session) => !isArchived(session);
 
@@ -187,6 +191,25 @@ export default function App() {
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
   const isSessionBusy = (sessionId: string) =>
     isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) : pty.isBusy(sessionId);
+
+  /**
+   * Dropped files: typed into a live terminal agent, otherwise added to the
+   * message. A name with control characters is left out: a terminal would
+   * take them as keys (Enter, Ctrl-C), not as part of a path.
+   */
+  const handleDroppedFiles = (dropped: string[]) => {
+    const paths = dropped.filter((path) => !CONTROL_CHARACTER.test(path));
+    if (paths.length < dropped.length) {
+      setNotice("Left out a dropped file whose name has control characters.");
+    }
+    if (paths.length === 0) return;
+    if (activeSession?.status === "running" && !isAcp(activeSession)) {
+      void pty.sendRaw(activeSession.id, `${paths.map(formatAttachmentPath).join(" ")} `);
+    } else {
+      composerRef.current?.insertPaths(paths);
+    }
+  };
+  const isDraggingFiles = useFileDrop(handleDroppedFiles, reportError);
 
   const sidePanel = useSidePanel(
     filesFolder?.path,
@@ -373,6 +396,13 @@ export default function App() {
   const navigateTo = (sessionId: string | null) => {
     if (sessionId) handleSelectSession(sessionId);
   };
+
+  /** A workspace's files for @-mentions; a failure is reported and offers none. */
+  const loadWorkspaceFiles = (root: string): Promise<string[]> =>
+    invoke<string[]>("workspace_files", { root }).catch((error) => {
+      setNotice(`Could not list the files to mention: ${String(error)}`);
+      return [];
+    });
 
   const handleRevealFolder = () => {
     if (!filesFolder) return;
@@ -607,6 +637,11 @@ export default function App() {
         />
 
         <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
+          {isDraggingFiles && (
+            <div className="pointer-events-none absolute inset-3 z-40 flex items-center justify-center rounded-xl border-2 border-dashed border-amber-500/60 bg-black/70 text-sm text-amber-200">
+              Drop files to add them to your message
+            </div>
+          )}
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
           {authRequest && (
             <AuthPanel
@@ -673,6 +708,7 @@ export default function App() {
               handleRef={composerRef}
               commands={composerCommands}
               contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
+              mentions={filesFolder ? { root: filesFolder.path, loadFiles: () => loadWorkspaceFiles(filesFolder.path) } : undefined}
               folder={
                 isNewSessionDraft
                   ? {
