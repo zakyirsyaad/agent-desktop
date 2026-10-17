@@ -286,3 +286,15 @@ fn cuts_a_huge_diff_without_reading_it_all() {
     assert!(diff.contains("diff cut"), "the cut is said");
     fs::remove_dir_all(repo).ok();
 }
+
+#[test]
+fn shows_where_a_new_link_points_even_when_nothing_is_there() {
+    let repo = repo("dangling");
+    std::os::unix::fs::symlink("missing/target.md", repo.join("dangling"))
+        .expect("make a dangling link");
+
+    let diff = file_diff(&git_path(), &repo, "dangling").expect("diff");
+
+    assert!(diff.contains("+missing/target.md"), "{diff}");
+    fs::remove_dir_all(repo).ok();
+}

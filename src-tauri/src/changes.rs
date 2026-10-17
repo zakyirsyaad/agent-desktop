@@ -194,6 +194,16 @@ fn diff_base(git: &Path, toplevel: &Path) -> Result<String, String> {
         .map(|hash| hash.trim().to_string())
 }
 
+/// Where `path` points when it is a symbolic link, without following it.
+fn link_target(toplevel: &Path, path: &str) -> Option<String> {
+    let full = toplevel.join(path);
+    let is_link = full.symlink_metadata().ok()?.file_type().is_symlink();
+    is_link
+        .then(|| full.read_link().ok())
+        .flatten()
+        .map(|t| t.to_string_lossy().into_owned())
+}
+
 /// True when `path` resolves to a place inside `toplevel`, links followed.
 fn resolves_inside(toplevel: &Path, path: &str) -> bool {
     let (Ok(root), Ok(target)) = (toplevel.canonicalize(), toplevel.join(path).canonicalize())
@@ -204,8 +214,9 @@ fn resolves_inside(toplevel: &Path, path: &str) -> bool {
 }
 
 /// A changed file's unified diff against the last commit; a new file shows
-/// whole. Only a file git reports as changed is shown, and a new file only
-/// when it resolves inside the repository, so nothing outside can be read.
+/// whole, a new link where it points. Only a file git reports as changed is
+/// shown, and a new file's contents only when it resolves inside the
+/// repository, so nothing outside can be read.
 pub fn file_diff(git: &Path, dir: &Path, path: &str) -> Result<String, String> {
     let toplevel = toplevel_of(git, dir)?;
     let change = changes_at(git, &toplevel)?
@@ -214,6 +225,11 @@ pub fn file_diff(git: &Path, dir: &Path, path: &str) -> Result<String, String> {
         .ok_or_else(|| format!("{path} is not a changed file in this repository"))?;
     let (diff, is_cut) = match change.kind {
         ChangeKind::Untracked => {
+            // A new link shows where it points, as git stores it; its target,
+            // which may be missing or outside the repository, is never opened.
+            if let Some(target) = link_target(&toplevel, &change.path) {
+                return Ok(format!("@@ -0,0 +1 @@\n+{target}\n\\ Symbolic link: where it points, not what is there\n"));
+            }
             if !resolves_inside(&toplevel, &change.path) {
                 return Err(format!(
                     "{path} points outside the repository, so it is not shown"
