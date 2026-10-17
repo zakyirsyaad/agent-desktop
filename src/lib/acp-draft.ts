@@ -26,13 +26,13 @@ export type AcpChange = SafeModeChange;
  * last time, with the user's picks, and the safe mode the session will be
  * switched to when the user picked none.
  */
-/** The categories of setting a pick of is kept for the next session: the model. */
-const REMEMBERED_CATEGORIES = new Set(['model']);
+/** The settings a pick of is kept for the next session: the model and the reasoning effort. */
+const REMEMBERED_CATEGORIES = new Set(['model', 'thought_level']);
 
 /**
- * The user's picks plus the model they picked last, while the agent still
- * offers it: agents such as Qwen Code change the model for one session only,
- * so without this every new session would start on the agent's default.
+ * The user's picks plus the model and effort they picked last, while the
+ * agent still offers them: agents such as Qwen Code change these for one
+ * session only, so without this every new session would start on its defaults.
  */
 export function withPreferred(choices: AcpChoices, options: AgentOptions | undefined): AcpChoices {
   const preferred = Object.entries(options?.preferredConfig ?? {}).filter(([configId, value]) =>
@@ -82,7 +82,10 @@ export function changesToApply(
     const offered = info.modes.availableModes.some((m) => m.id === pickedMode);
     if (offered && pickedMode !== info.modes.currentModeId) changes.push({ kind: 'mode', modeId: pickedMode });
   }
-  for (const [configId, value] of Object.entries(choices.config)) {
+  // The model goes first: other choices, such as the effort, depend on it.
+  const isModel = (configId: string) => info.configOptions.find((o) => o.id === configId)?.category === 'model';
+  const picks = Object.entries(choices.config).sort(([a], [b]) => Number(isModel(b)) - Number(isModel(a)));
+  for (const [configId, value] of picks) {
     const option = info.configOptions.find((o) => o.id === configId);
     const offered = option?.options.some((o) => o.value === value);
     if (option && offered && option.currentValue !== value) changes.push({ kind: 'config', configId, value });

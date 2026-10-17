@@ -80,16 +80,40 @@ describe("the model picked last", () => {
     expect(withPreferred(NO_CHOICES, gone).config).toEqual({});
   });
 
-  it("remembers a model pick, not other settings", () => {
-    const withEffort: AgentOptions = {
-      ...qwen,
-      configOptions: [
-        ...qwen.configOptions,
-        { id: "reasoning_effort", name: "Effort", category: "thought_level", currentValue: "low", options: [{ value: "high", name: "High" }] },
-      ],
-    };
+  const withEffort: AgentOptions = {
+    ...qwen,
+    configOptions: [
+      ...qwen.configOptions,
+      {
+        id: "reasoning_effort",
+        name: "Effort",
+        category: "thought_level",
+        currentValue: "low",
+        options: [
+          { value: "low", name: "Low" },
+          { value: "high", name: "High" },
+        ],
+      },
+      { id: "mode", name: "Mode", category: "mode", currentValue: "default", options: [{ value: "yolo", name: "YOLO" }] },
+    ],
+  };
 
-    expect(rememberedChoice(withEffort, "model", "qwen3-max")).toEqual({ model: "qwen3-max" });
-    expect(rememberedChoice(withEffort, "reasoning_effort", "high")).toBeNull();
+  it("remembers model and effort picks, not other settings", () => {
+    const afterModel = rememberedChoice(withEffort, "model", "qwen3-max");
+    expect(afterModel).toEqual({ model: "qwen3-max" });
+    expect(rememberedChoice({ ...withEffort, preferredConfig: afterModel ?? {} }, "reasoning_effort", "high")).toEqual({
+      model: "qwen3-max",
+      reasoning_effort: "high",
+    });
+    expect(rememberedChoice(withEffort, "mode", "yolo")).toBeNull();
+  });
+
+  it("applies the model before the effort, whose choices depend on it", () => {
+    const choices = { config: { reasoning_effort: "high", model: "qwen3-max" } };
+
+    expect(changesToApply(withEffort, choices, false)).toEqual([
+      { kind: "config", configId: "model", value: "qwen3-max" },
+      { kind: "config", configId: "reasoning_effort", value: "high" },
+    ]);
   });
 });

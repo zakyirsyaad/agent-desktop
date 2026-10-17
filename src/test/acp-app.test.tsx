@@ -784,7 +784,22 @@ describe("ACP sessions in the app", () => {
         { value: "qwen3-max(openai)", name: "Qwen3 Max" },
       ],
     });
+    const effortOption = (currentValue: string) => ({
+      id: "reasoning_effort",
+      name: "Reasoning effort",
+      category: "thought_level",
+      type: "select",
+      currentValue,
+      options: [
+        { value: "low", name: "Low" },
+        { value: "high", name: "High" },
+      ],
+    });
+    // What the fake agent holds now, as Qwen would after each change.
+    const current = { model: "coder-model(qwen-oauth)", effort: "low" };
     function withModels() {
+      current.model = "coder-model(qwen-oauth)";
+      current.effort = "low";
       return vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
         const a = args as { sessionId?: string; value?: string } | undefined;
         if (cmd === "acp_start_session") {
@@ -793,10 +808,14 @@ describe("ACP sessions in the app", () => {
             agentCapabilities: {},
             modes: null,
             models: null,
-            configOptions: [modelOption("coder-model(qwen-oauth)")],
+            configOptions: [modelOption("coder-model(qwen-oauth)"), effortOption("low")],
           });
         }
-        if (cmd === "acp_set_config_option") return Promise.resolve([modelOption(String(a?.value))]);
+        if (cmd === "acp_set_config_option") {
+          const { configId } = args as { configId?: string };
+          current[configId === "model" ? "model" : "effort"] = String(a?.value);
+          return Promise.resolve([modelOption(current.model), effortOption(current.effort)]);
+        }
         return realInvoke(cmd, args);
       });
     }
@@ -845,6 +864,31 @@ describe("ACP sessions in the app", () => {
           model: "qwen3-max(openai)",
         })
       );
+    });
+
+    it("starts the next session with the effort picked last too", async () => {
+      await renderWithQwen();
+      const spy = withModels();
+      await startQwenSession(spy);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Effort: Low" }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("option", { name: "High" }));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+      });
+      expect(screen.getByRole("button", { name: "Effort: High" })).toBeDefined();
+      const before = (spy.mock.calls as unknown as InvokeCall[]).length;
+      await send("next task");
+      await waitFor(() => expect(callsTo(spy, "acp_prompt").length).toBeGreaterThan(1));
+
+      const later = (spy.mock.calls as unknown as InvokeCall[]).slice(before).map(([cmd, a]) => [cmd, (a as { value?: string })?.value]);
+      const setIndex = later.findIndex(([cmd, value]) => cmd === "acp_set_config_option" && value === "high");
+      expect(setIndex).toBeGreaterThanOrEqual(0);
+      expect(setIndex).toBeLessThan(later.findIndex(([cmd]) => cmd === "acp_prompt"));
     });
 
     it("applies a model picked before the session starts, before its first prompt", async () => {
