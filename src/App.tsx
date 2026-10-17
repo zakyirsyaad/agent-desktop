@@ -10,6 +10,8 @@ import { AuthPanel, type AuthStatus } from "./components/AuthPanel";
 import type { AuthMethod } from "./lib/acp-auth";
 import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
+import { ChangesPanel } from "./components/changes/ChangesPanel";
+import { useSessionChanges } from "./hooks/useSessionChanges";
 import { createPtyOutputStore } from "./lib/pty-output-store";
 import { isAwaitingPermission } from "./lib/acp-events";
 import {
@@ -95,7 +97,10 @@ export default function App() {
   const [isCreatingWorktree, setIsCreatingWorktree] = useState(false);
   const [acpChoices, setAcpChoices] = useState<AcpChoices>(NO_CHOICES);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isFilesOpen, setIsFilesOpen] = useState(false);
+  /** The panel shown right of the chat: the session's files or its uncommitted changes. */
+  const [sidePanel, setSidePanel] = useState<"files" | "changes" | null>(null);
+  /** Counts the active agent's finished turns, so the changes are read again after each. */
+  const [turnsEnded, setTurnsEnded] = useState(0);
   const composerRef = useRef<ComposerHandle>(null);
   const [ptyOutput] = useState(createPtyOutputStore);
   const [authRequest, setAuthRequest] = useState<AuthRequest | null>(null);
@@ -132,7 +137,8 @@ export default function App() {
   const workspaceDetails = useWorkspaceDetails(shownFolderPath, reportError);
   // Files and Reveal act on the folder the top bar names. The backend browses
   // every saved session's folder, so one gone from the recents keeps them.
-  const canUseWorktree = isNewSessionDraft && Boolean(workspaceDetails?.branch);
+  const isRepository = Boolean(workspaceDetails?.branch);
+  const canUseWorktree = isNewSessionDraft && isRepository;
   const filesFolder =
     workspaces.find((ws) => ws.path === shownFolderPath) ??
     (activeSession ? { name: folderNameOf(activeSession.cwd), path: activeSession.cwd } : undefined);
@@ -221,6 +227,17 @@ export default function App() {
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
   const isSessionBusy = (sessionId: string) =>
     isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) : pty.isBusy(sessionId);
+
+  const toggleSidePanel = (panel: "files" | "changes") =>
+    setSidePanel((current) => (current === panel ? null : panel));
+  // When the active agent stops working, what it changed is read again.
+  const isActiveBusy = Boolean(activeSessionId) && isSessionBusy(activeSessionId);
+  const wasActiveBusyRef = useRef(false);
+  useEffect(() => {
+    if (wasActiveBusyRef.current && !isActiveBusy) setTurnsEnded((n) => n + 1);
+    wasActiveBusyRef.current = isActiveBusy;
+  }, [isActiveBusy]);
+  const sessionChanges = useSessionChanges(filesFolder?.path, isRepository, turnsEnded, reportError);
   /**
    * Whether a session's agent waits for the user's answer. An ACP agent stays
    * busy while it asks; a terminal agent goes quiet on its y/n prompt, so for
@@ -574,8 +591,11 @@ export default function App() {
         canGoForward={navigation.canGoForward}
         onBack={() => navigateTo(isNewSessionDraft ? lastViewedSessionId : navigation.back())}
         onForward={() => navigateTo(navigation.forward())}
-        onToggleFiles={filesFolder ? () => setIsFilesOpen((prev) => !prev) : undefined}
-        isFilesOpen={isFilesOpen && Boolean(filesFolder)}
+        onToggleFiles={filesFolder ? () => toggleSidePanel("files") : undefined}
+        isFilesOpen={sidePanel === "files" && Boolean(filesFolder)}
+        onToggleChanges={filesFolder && isRepository ? () => toggleSidePanel("changes") : undefined}
+        isChangesOpen={sidePanel === "changes" && Boolean(filesFolder) && isRepository}
+        changeCount={sessionChanges.changes?.length}
         onPopout={activeSession ? handlePopout : undefined}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -697,12 +717,23 @@ export default function App() {
           </div>
 
         </article>
-        {isFilesOpen && filesFolder && (
+        {sidePanel === "changes" && filesFolder && isRepository && (
+          <ChangesPanel
+            key={filesFolder.path}
+            rootPath={filesFolder.path}
+            rootName={filesFolder.name}
+            branch={workspaceDetails?.branch ?? undefined}
+            changes={sessionChanges.changes}
+            onReload={sessionChanges.reload}
+            onClose={() => setSidePanel(null)}
+          />
+        )}
+        {sidePanel === "files" && filesFolder && (
           <FilesPanel
             key={filesFolder.path}
             rootPath={filesFolder.path}
             rootName={filesFolder.name}
-            onClose={() => setIsFilesOpen(false)}
+            onClose={() => setSidePanel(null)}
             onInsertPath={(path) => composerRef.current?.insertPaths([path])}
             onRevealRoot={handleRevealFolder}
           />

@@ -97,6 +97,42 @@ describe("Window chrome wiring", () => {
     expect(screen.getByRole("complementary", { name: "Files panel" }).textContent).toContain("old-project");
   });
 
+  it("counts the session's changes and shows them in a panel that takes turns with Files", async () => {
+    seedSessions();
+    const original = tauriInternals().invoke;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "session_changes"
+        ? Promise.resolve([
+            { path: "src/app.ts", oldPath: null, kind: "modified" },
+            { path: "notes.md", oldPath: null, kind: "untracked" },
+          ])
+        : original(cmd, args)
+    );
+    await renderApp();
+
+    const toggle = await header().findByRole("button", { name: "Toggle changes panel" });
+    expect(toggle.textContent).toContain("2");
+    await click(toggle);
+    const panel = within(screen.getByRole("complementary", { name: "Changes panel" }));
+    expect(panel.getByText("app.ts")).toBeDefined();
+
+    await click(header().getByRole("button", { name: "Toggle files panel" }));
+    expect(screen.queryByRole("complementary", { name: "Changes panel" })).toBeNull();
+    expect(screen.getByRole("complementary", { name: "Files panel" })).toBeDefined();
+  });
+
+  it("offers no changes panel for a folder that is not a git repository", async () => {
+    seedSessions();
+    const original = tauriInternals().invoke;
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "workspace_details" ? Promise.resolve({ location: "~/developer", branch: null }) : original(cmd, args)
+    );
+    await renderApp();
+
+    expect(header().queryByRole("button", { name: "Toggle changes panel" })).toBeNull();
+    expect(spy.mock.calls.some(([cmd]) => cmd === "session_changes")).toBe(false);
+  });
+
   it("goes back from a new session to the session viewed last", async () => {
     seedSessions();
     await renderApp();

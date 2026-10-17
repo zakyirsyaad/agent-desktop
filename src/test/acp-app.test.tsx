@@ -646,6 +646,18 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_prompt")[0][1]).toMatchObject({ text: "first" });
   });
 
+  it("reads the changes again when the agent's turn ends", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("edit the parser");
+    const reads = () => callsTo(spy, "session_changes").length;
+    const before = reads();
+
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
   it("shows the context the agent has used, as it reports it", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);
