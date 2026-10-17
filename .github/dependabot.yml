@@ -1,10 +1,14 @@
 # Weekly update pull requests, grouped so each ecosystem opens one at a time.
+# A version must be a week old first: a freshly published one may be a
+# compromised or broken release that is pulled within days.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       npm:
         patterns: ["*"]
@@ -13,6 +17,8 @@ updates:
     directory: /src-tauri
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       cargo:
         patterns: ["*"]
@@ -21,6 +27,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
