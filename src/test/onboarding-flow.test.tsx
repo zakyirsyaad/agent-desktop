@@ -79,9 +79,37 @@ describe("First run and project folders", () => {
     await click(sidebar().getByRole("button", { name: "Open folder" }));
     expect(sidebar().getByText("new-project")).toBeDefined();
     await click(screen.getByRole("button", { name: "+ New session" }));
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: "get started" } });
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Prompt" }), { key: "Enter" });
+    });
 
     const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { cwd: string };
     expect(args.cwd).toBe("/Users/test/code/new-project");
+  });
+
+  it("reads a newly opened folder only once the backend has registered it", async () => {
+    openDialog.mockResolvedValue("/Users/test/code/new-project");
+    await renderApp();
+    const original = tauriInternals().invoke;
+    let finishRegistering: () => void = () => {};
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "remember_workspace"
+        ? new Promise((resolve) => {
+            finishRegistering = () => resolve(undefined);
+          })
+        : original(cmd, args)
+    );
+    const detailsReads = () =>
+      spy.mock.calls.filter(([cmd, a]) => cmd === "workspace_details" && (a as { path?: string })?.path === "/Users/test/code/new-project");
+
+    await click(sidebar().getByRole("button", { name: "Open folder" }));
+    expect(detailsReads()).toHaveLength(0);
+
+    await act(async () => {
+      finishRegistering();
+    });
+    await waitFor(() => expect(detailsReads()).toHaveLength(1));
   });
 
   it("opens settings, saves a new default agent, and can rerun setup", async () => {

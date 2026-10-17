@@ -2,6 +2,7 @@ pub mod acp;
 pub mod env_resolver;
 pub mod files;
 pub mod fork_handoff;
+pub mod git_info;
 pub mod profiles;
 pub mod pty_session;
 pub mod spawn_plan;
@@ -272,6 +273,7 @@ pub fn run() {
             files::list_directory,
             files::open_path,
             files::remember_workspace,
+            git_info::workspace_details,
             user_profile::get_user_profile,
             write_fork_handoff,
             acp::commands::acp_start_session,

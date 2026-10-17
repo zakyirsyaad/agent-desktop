@@ -54,6 +54,62 @@ describe("Window chrome wiring", () => {
     expect(header().getByText("Alpha work")).toBeDefined();
   });
 
+  it("shows the folder and branch of the session itself, not of the last chosen workspace", async () => {
+    seedSessions();
+    await renderApp();
+
+    expect(header().getByText("Beta work")).toBeDefined();
+    expect(header().getByText("agent-desktop")).toBeDefined();
+    expect(await header().findByLabelText("Branch main")).toBeDefined();
+  });
+
+  it("opens the files of the folder the top bar names, which is the open session's", async () => {
+    seedSessions();
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+    await renderApp();
+    // Folding another folder's sessions does not move the session's folder.
+    await click(within(screen.getByRole("complementary")).getByRole("button", { name: "titan-investment" }));
+
+    await click(header().getByRole("button", { name: "Toggle files panel" }));
+
+    expect(header().getByText("agent-desktop")).toBeDefined();
+    expect(spy).toHaveBeenCalledWith(
+      "list_directory",
+      expect.objectContaining({ root: "/Users/test/developer/agent-desktop" }),
+      undefined,
+    );
+  });
+
+  it("keeps Files for a session whose folder has left the recents", async () => {
+    fakeStore().state.sessions = [
+      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/old-project", status: "terminated", createdAt: 1 },
+    ];
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+    await renderApp();
+
+    await click(header().getByRole("button", { name: "Toggle files panel" }));
+
+    expect(spy).toHaveBeenCalledWith(
+      "list_directory",
+      expect.objectContaining({ root: "/Users/test/developer/old-project" }),
+      undefined,
+    );
+    expect(screen.getByRole("complementary", { name: "Files panel" }).textContent).toContain("old-project");
+  });
+
+  it("goes back from a new session to the session viewed last", async () => {
+    seedSessions();
+    await renderApp();
+    const sessions = within(screen.getByRole("complementary"));
+    await click(sessions.getByText("Alpha work"));
+
+    await click(screen.getByRole("button", { name: "+ New session" }));
+    expect(screen.getByRole("heading", { name: "New session" })).toBeDefined();
+    await click(header().getByRole("button", { name: "Back" }));
+
+    expect(header().getByText("Alpha work")).toBeDefined();
+  });
+
   it("opens the workspace's files from the folder button, reveals it in Finder, and pops the session out", async () => {
     seedSessions();
     const spy = vi.spyOn(tauriInternals(), "invoke");
@@ -63,11 +119,11 @@ describe("Window chrome wiring", () => {
     const panel = within(screen.getByRole("complementary", { name: "Files panel" }));
     expect(spy).toHaveBeenCalledWith(
       "list_directory",
-      expect.objectContaining({ root: "/Users/test/developer/ai-perpetual-trading" }),
+      expect.objectContaining({ root: "/Users/test/developer/agent-desktop" }),
       undefined,
     );
     await click(panel.getByRole("button", { name: "Reveal in Finder" }));
-    expect(spy).toHaveBeenCalledWith("reveal_in_finder", { path: "/Users/test/developer/ai-perpetual-trading" }, undefined);
+    expect(spy).toHaveBeenCalledWith("reveal_in_finder", { path: "/Users/test/developer/agent-desktop" }, undefined);
 
     await click(header().getByRole("button", { name: "Toggle files panel" }));
     expect(screen.queryByRole("complementary", { name: "Files panel" })).toBeNull();

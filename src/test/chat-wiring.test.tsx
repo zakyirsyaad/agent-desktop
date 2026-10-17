@@ -144,6 +144,10 @@ describe("Chat wiring", () => {
     await renderApp();
     const spy = vi.spyOn(tauriInternals(), "invoke");
     await click(screen.getByRole("button", { name: "+ New session" }));
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: "get started" } });
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Prompt" }), { key: "Enter" });
+    });
     const [, spawnArgs] = callsTo(spy, "spawn_session")[0];
     const sidebar = within(screen.getByRole("complementary"));
     expect(sidebar.queryByLabelText("Agent working")).toBeNull();

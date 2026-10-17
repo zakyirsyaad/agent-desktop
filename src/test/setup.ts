@@ -144,6 +144,9 @@ if (typeof window !== "undefined") {
         if (cmd === "get_agent_profiles") {
           return Promise.resolve(structuredClone(fakeProfiles));
         }
+        if (cmd === "workspace_details") {
+          return Promise.resolve({ location: "~/developer", branch: "main" });
+        }
         return Promise.resolve(undefined);
       },
       transformCallback: (_cb: unknown, _once?: boolean) => nextCallbackId++,

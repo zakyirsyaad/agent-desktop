@@ -9,9 +9,11 @@ import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
 import { AuthPanel, type AuthStatus } from "./components/AuthPanel";
 import type { AuthMethod } from "./lib/acp-auth";
 import { TerminalView } from "./components/TerminalView";
+import { NewSessionView } from "./components/workspace/NewSessionView";
 import { createPtyOutputStore } from "./lib/pty-output-store";
 import { isAwaitingPermission } from "./lib/acp-events";
 import {
+  folderNameOf,
   isAutoName,
   mostRecentSessionId,
   nextSessionName,
@@ -29,6 +31,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { ProfileFooter } from "./components/ProfileFooter";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useUserProfile } from "./hooks/useUserProfile";
+import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
@@ -83,6 +86,8 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
+  /** The agent picked for the next new session; null means the default from Settings. */
+  const [pickedAgentId, setPickedAgentId] = useState<string | null>(null);
   const [acpChoices, setAcpChoices] = useState<AcpChoices>(NO_CHOICES);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isFilesOpen, setIsFilesOpen] = useState(false);
@@ -111,8 +116,20 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
-  const newSessionAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId);
+  const defaultAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId);
+  const newSessionAgentId =
+    agents.find((a) => a.id === pickedAgentId && a.detected)?.id ?? defaultAgentId;
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
+  // No session is selected: the window shows a new one, not started until its first message.
+  const isNewSessionDraft = !activeSession;
+  // A session shows the folder it runs in, even one no longer in the recents.
+  const shownFolderPath = activeSession?.cwd ?? activeWorkspacePath;
+  const workspaceDetails = useWorkspaceDetails(shownFolderPath, reportError);
+  // Files and Reveal act on the folder the top bar names. The backend browses
+  // every saved session's folder, so one gone from the recents keeps them.
+  const filesFolder =
+    workspaces.find((ws) => ws.path === shownFolderPath) ??
+    (activeSession ? { name: folderNameOf(activeSession.cwd), path: activeSession.cwd } : undefined);
 
   // An ended ACP session continues where it left off with its own agent.
   const isResumable =
@@ -252,9 +269,10 @@ export default function App() {
     else pty.start(session, spec.options ?? spawnOptionsFor(spec.agent, draft), first?.text);
   };
 
+  /** Starts a session in the active workspace with the agent picked for it. */
   const handleNewSession = (first?: FirstMessage) => {
     // The backend rejects relative and missing cwds, so never spawn without a path.
-    if (!activeWorkspace || !activeWorkspacePath) {
+    if (!activeWorkspace) {
       setNotice(NO_FOLDER_NOTICE);
       return;
     }
@@ -263,14 +281,31 @@ export default function App() {
       return;
     }
     rememberFolder(activeWorkspace);
+    setPickedAgentId(null);
     startSession(
       {
         agent: newSessionAgent,
-        cwd: activeWorkspacePath,
+        cwd: activeWorkspace.path,
         name: first ? titleFor(first) : nextSessionName(sessions),
       },
       first,
     );
+  };
+
+  /** Makes `path` the active workspace; a folder only old sessions still use is added back to the recents. */
+  const chooseFolder = (path: string) => {
+    if (workspaces.some((ws) => ws.path === path)) selectWorkspace(path);
+    else rememberFolder({ name: folderNameOf(path), path });
+  };
+
+  /**
+   * Shows a new, empty session: the folder and agent can still be changed in
+   * the composer, and the agent starts with the first message.
+   */
+  const openNewSession = (path?: string, agentId?: string) => {
+    if (path) chooseFolder(path);
+    setPickedAgentId(agentId ?? null);
+    setActiveSessionId("");
   };
 
   /**
@@ -331,6 +366,8 @@ export default function App() {
 
   const handleSelectSession = (sessionId: string) => {
     setActiveSessionId(sessionId);
+    // An agent picked for a new session that was never started is forgotten.
+    setPickedAgentId(null);
     const selected = sessionById(sessionId);
     if (selected && workspaces.some((ws) => ws.path === selected.cwd)) selectWorkspace(selected.cwd);
   };
@@ -340,8 +377,8 @@ export default function App() {
   };
 
   const handleRevealFolder = () => {
-    if (!activeWorkspacePath) return;
-    invoke("reveal_in_finder", { path: activeWorkspacePath }).catch((error) => {
+    if (!filesFolder) return;
+    invoke("reveal_in_finder", { path: filesFolder.path }).catch((error) => {
       setNotice(`Could not open the folder: ${String(error)}`);
     });
   };
@@ -434,6 +471,10 @@ export default function App() {
     },
   });
 
+  // A new session is not in the history: Back from it returns to the session viewed last.
+  const lastViewedSessionId = navigation.current && sessionById(navigation.current) ? navigation.current : null;
+  const canGoBack = isNewSessionDraft ? lastViewedSessionId !== null : navigation.canGoBack;
+
   const currentMessages = transcripts[activeSessionId] ?? [];
   const canStartSession = Boolean(activeWorkspacePath && newSessionAgent);
   const composer = composerStateFor({
@@ -477,13 +518,15 @@ export default function App() {
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
       <TopBar
         sessionName={activeSession?.name}
-        workspaceName={activeWorkspace?.name}
-        canGoBack={navigation.canGoBack}
+        workspaceName={activeSession ? folderNameOf(activeSession.cwd) : activeWorkspace?.name}
+        workspacePath={shownFolderPath}
+        branch={workspaceDetails?.branch ?? undefined}
+        canGoBack={canGoBack}
         canGoForward={navigation.canGoForward}
-        onBack={() => navigateTo(navigation.back())}
+        onBack={() => navigateTo(isNewSessionDraft ? lastViewedSessionId : navigation.back())}
         onForward={() => navigateTo(navigation.forward())}
-        onToggleFiles={activeWorkspacePath ? () => setIsFilesOpen((prev) => !prev) : undefined}
-        isFilesOpen={isFilesOpen && Boolean(activeWorkspacePath)}
+        onToggleFiles={filesFolder ? () => setIsFilesOpen((prev) => !prev) : undefined}
+        isFilesOpen={isFilesOpen && Boolean(filesFolder)}
         onPopout={activeSession ? handlePopout : undefined}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -495,9 +538,10 @@ export default function App() {
           sessions={sessions}
           activeSessionId={activeSessionId}
           agents={agents}
-          onNewSession={() => handleNewSession()}
+          onNewSession={() => openNewSession()}
           onSelectSession={handleSelectSession}
-          onSelectWorkspace={selectWorkspace}
+          onNewSessionIn={openNewSession}
+          defaultAgentId={defaultAgentId ?? undefined}
           onOpenFolder={() => void openFolder()}
           isSessionBusy={isSessionBusy}
           isSessionWaiting={isSessionWaiting}
@@ -545,6 +589,12 @@ export default function App() {
               onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
               isWorking={isSessionBusy(activeSessionId) && !isAwaitingPermission(currentMessages)}
             />
+          ) : isNewSessionDraft ? (
+            <NewSessionView
+              workspace={activeWorkspace}
+              details={workspaceDetails}
+              agentName={newSessionAgent?.name}
+            />
           ) : (
             <EmptySessionState />
           )}
@@ -572,15 +622,29 @@ export default function App() {
               handleRef={composerRef}
               commands={composerCommands}
               contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
+              folder={
+                isNewSessionDraft
+                  ? { folders: workspaces, selectedPath: activeWorkspacePath, onSelect: chooseFolder, onOpenFolder: () => void openFolder() }
+                  : undefined
+              }
+              agent={
+                isNewSessionDraft && newSessionAgent
+                  ? {
+                      options: agents.filter((a) => a.detected).map((a) => ({ value: a.id, label: a.name })),
+                      selected: newSessionAgent.id,
+                      onChange: (agentId) => setPickedAgentId(agentId ?? null),
+                    }
+                  : undefined
+              }
             />
           </div>
 
         </article>
-        {isFilesOpen && activeWorkspace && activeWorkspacePath && (
+        {isFilesOpen && filesFolder && (
           <FilesPanel
-            key={activeWorkspacePath}
-            rootPath={activeWorkspacePath}
-            rootName={activeWorkspace.name}
+            key={filesFolder.path}
+            rootPath={filesFolder.path}
+            rootName={filesFolder.name}
             onClose={() => setIsFilesOpen(false)}
             onInsertPath={(path) => composerRef.current?.insertPaths([path])}
             onRevealRoot={handleRevealFolder}

@@ -41,10 +41,19 @@ async function renderApp() {
   });
 }
 
+/** The message `startNewSession` starts a session with, which also names it. */
+const FIRST_MESSAGE = "get started";
+
+/** Starts a session the way the user does: New, then a first message. */
 async function startNewSession(): Promise<string> {
   const spy = vi.spyOn(tauriInternals(), "invoke");
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+  });
+  const composer = screen.getByRole("textbox", { name: "Prompt" });
+  await act(async () => {
+    fireEvent.change(composer, { target: { value: FIRST_MESSAGE } });
+    fireEvent.keyDown(composer, { key: "Enter" });
   });
   const spawnCall = spy.mock.calls.find(([cmd]) => cmd === "spawn_session");
   return (spawnCall?.[1] as { sessionId: string }).sessionId;
@@ -104,7 +113,7 @@ describe("Session lifecycle", () => {
   it("offers Stop only while the agent works, and stops its turn with Ctrl+C", async () => {
     await renderApp();
     const sessionId = await startNewSession();
-    const row = () => sessionRow("Session #1");
+    const row = () => sessionRow(FIRST_MESSAGE);
     expect(within(row()).queryByRole("button", { name: "Stop session" })).toBeNull();
     expect(within(row()).queryByLabelText("Agent working")).toBeNull();
 
@@ -132,7 +141,7 @@ describe("Session lifecycle", () => {
       const [saved] = fakeStore().state.sessions as { status: string }[];
       expect(saved.status).toBe("terminated");
     });
-    expect(within(sessionRow("Session #1")).getByRole("button", { name: "Delete session" })).toBeDefined();
+    expect(within(sessionRow(FIRST_MESSAGE)).getByRole("button", { name: "Delete session" })).toBeDefined();
   });
 
   it("stops a live session's agent before deleting it", async () => {
@@ -141,14 +150,14 @@ describe("Session lifecycle", () => {
     const spy = vi.spyOn(tauriInternals(), "invoke");
 
     await act(async () => {
-      fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Delete session" }));
+      fireEvent.click(within(sessionRow(FIRST_MESSAGE)).getByRole("button", { name: "Delete session" }));
     });
     await act(async () => {
-      fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Confirm delete" }));
+      fireEvent.click(within(sessionRow(FIRST_MESSAGE)).getByRole("button", { name: "Confirm delete" }));
     });
 
     expect(spy).toHaveBeenCalledWith("terminate_session", { sessionId }, undefined);
-    expect(sidebar().queryByText("Session #1")).toBeNull();
+    expect(sidebar().queryByText(FIRST_MESSAGE)).toBeNull();
   });
 
   it("does not bring back a deleted terminal session's transcript from its last output", async () => {
@@ -157,10 +166,10 @@ describe("Session lifecycle", () => {
     const spy = vi.spyOn(tauriInternals(), "invoke");
 
     await act(async () => {
-      fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Delete session" }));
+      fireEvent.click(within(sessionRow(FIRST_MESSAGE)).getByRole("button", { name: "Delete session" }));
     });
     await act(async () => {
-      fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Confirm delete" }));
+      fireEvent.click(within(sessionRow(FIRST_MESSAGE)).getByRole("button", { name: "Confirm delete" }));
     });
     await act(async () => {
       listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Goodbye\r\n" } });
@@ -188,7 +197,7 @@ describe("Session lifecycle", () => {
       listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Allow this action? [y/n]: " } });
     });
 
-    expect(within(sessionRow("Session #1")).getByLabelText("Waiting for your answer")).toBeDefined();
+    expect(within(sessionRow(FIRST_MESSAGE)).getByLabelText("Waiting for your answer")).toBeDefined();
   });
 
   it("asks to confirm before deleting a session and its history", async () => {

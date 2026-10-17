@@ -2,6 +2,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Folder,
+  GitBranch,
   ExternalLink,
   MoreHorizontal,
   Terminal
@@ -21,6 +22,10 @@ export const TOP_BAR_TRAFFIC_LIGHT_INSET_PX = 78;
 export interface TopBarProps {
   sessionName?: string;
   workspaceName?: string;
+  /** Shown as the workspace badge's tooltip. */
+  workspacePath?: string;
+  /** The workspace's git branch, shown next to it when it is a repository. */
+  branch?: string;
   isTerminalOpen?: boolean;
   /** Shows or hides the terminal drawer; the button is hidden when absent. */
   onToggleTerminal?: () => void;
@@ -39,6 +44,8 @@ export interface TopBarProps {
 export function TopBar({
   sessionName,
   workspaceName,
+  workspacePath,
+  branch,
   isTerminalOpen = false,
   onToggleTerminal,
   canGoBack = false,
@@ -106,9 +113,20 @@ export function TopBar({
         {workspaceName && (
           <span
             data-tauri-drag-region
+            title={workspacePath}
             className="rounded-md bg-neutral-900/90 border border-neutral-800 px-2 py-0.5 text-[11px] font-mono text-neutral-400 truncate"
           >
             {workspaceName}
+          </span>
+        )}
+        {workspaceName && branch && (
+          <span
+            data-tauri-drag-region
+            aria-label={`Branch ${branch}`}
+            className="flex shrink-0 items-center gap-1 text-[11px] font-mono text-neutral-500"
+          >
+            <GitBranch size={11} aria-hidden="true" />
+            <span className="max-w-[140px] truncate">{branch}</span>
           </span>
         )}
         {!sessionName && !workspaceName && (

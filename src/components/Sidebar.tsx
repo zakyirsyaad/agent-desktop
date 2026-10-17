@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Search, Plus, Folder, FolderPlus, GitBranch, GitFork, Bot, Square, Trash2 } from "lucide-react";
+import { Search, Plus, FolderPlus, ChevronRight, Bot, Square, Trash2 } from "lucide-react";
 import type { AgentProfile, Session, Workspace } from "../types";
-import { groupSessionsByFolder } from "../lib/session-helpers";
+import { NewSessionMenu } from "./sidebar/NewSessionMenu";
+import { groupSessionsByWorkspace, type SessionGroup, type SessionNode } from "../lib/session-helpers";
 
 export interface SidebarProps {
   workspaces: Workspace[];
@@ -11,7 +12,10 @@ export interface SidebarProps {
   agents: AgentProfile[];
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
-  onSelectWorkspace: (path: string) => void;
+  /** Opens a new session in that folder with that agent; each workspace's + button is hidden when absent. */
+  onNewSessionIn?: (path: string, agentId: string) => void;
+  /** The agent the + menu marks as the default. */
+  defaultAgentId?: string;
   /** Opens the native folder dialog; the button is hidden when absent. */
   onOpenFolder?: () => void;
   /** True while a session's agent is working on a turn. */
@@ -36,6 +40,7 @@ function matches(query: string, ...values: string[]): boolean {
 
 interface SessionRowProps {
   session: Session;
+  agentName?: string;
   isActive: boolean;
   isBusy: boolean;
   isWaiting: boolean;
@@ -44,9 +49,9 @@ interface SessionRowProps {
   onDelete?: () => void;
 }
 
-function SessionRow({ session, isActive, isBusy, isWaiting, onSelect, onStop, onDelete }: SessionRowProps) {
+function SessionRow({ session, agentName, isActive, isBusy, isWaiting, onSelect, onStop, onDelete }: SessionRowProps) {
   return (
-    <li
+    <div
       className={`group flex items-center rounded-md transition-colors ${
         isActive
           ? "bg-neutral-800/90 text-neutral-100 font-medium"
@@ -56,16 +61,10 @@ function SessionRow({ session, isActive, isBusy, isWaiting, onSelect, onStop, on
       <button
         type="button"
         onClick={onSelect}
+        title={agentName ? `${session.name} · ${agentName}` : session.name}
         className="flex-1 min-w-0 flex items-center justify-between px-2 py-1.5 text-left"
       >
-        <div className="flex items-center gap-2 truncate">
-          {session.forkedFrom ? (
-            <GitFork size={13} className="text-purple-400 shrink-0" />
-          ) : (
-            <GitBranch size={13} className="text-neutral-500 shrink-0" />
-          )}
-          <span className="truncate">{session.name}</span>
-        </div>
+        <span className="truncate">{session.name}</span>
         {isWaiting ? (
           <span
             role="status"
@@ -94,6 +93,95 @@ function SessionRow({ session, isActive, isBusy, isWaiting, onSelect, onStop, on
         </button>
       )}
       {!isBusy && onDelete && <DeleteButton onDelete={onDelete} />}
+    </div>
+  );
+}
+
+/** What every row in the tree needs besides its own session. */
+interface SessionTreeContext {
+  activeSessionId?: string;
+  agentNameOf: (profileId: string) => string | undefined;
+  isSessionBusy: (sessionId: string) => boolean;
+  isSessionWaiting: (sessionId: string) => boolean;
+  onSelectSession: (sessionId: string) => void;
+  onStopSession?: (sessionId: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+}
+
+/** Sessions with their forks nested beneath them, joined by a guide line. */
+function SessionTree({ nodes, label, context, isNested = false }: {
+  nodes: SessionNode[];
+  label: string;
+  context: SessionTreeContext;
+  isNested?: boolean;
+}) {
+  const { onStopSession, onDeleteSession } = context;
+  return (
+    <ul
+      aria-label={label}
+      className={isNested ? "ml-3 mt-0.5 space-y-0.5 border-l border-neutral-800 pl-1.5" : "space-y-0.5"}
+    >
+      {nodes.map(({ session, children }) => (
+        <li key={session.id}>
+          <SessionRow
+            session={session}
+            agentName={context.agentNameOf(session.profileId)}
+            isActive={session.id === context.activeSessionId}
+            isBusy={context.isSessionBusy(session.id)}
+            isWaiting={context.isSessionWaiting(session.id)}
+            onSelect={() => context.onSelectSession(session.id)}
+            onStop={onStopSession ? () => onStopSession(session.id) : undefined}
+            onDelete={onDeleteSession ? () => onDeleteSession(session.id) : undefined}
+          />
+          {children.length > 0 && (
+            <SessionTree nodes={children} label={`Forks of ${session.name}`} context={context} isNested />
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+interface WorkspaceGroupProps {
+  group: SessionGroup;
+  isActive: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+  /** The + button's menu; hidden when absent. */
+  newSessionMenu?: ReactNode;
+  context: SessionTreeContext;
+}
+
+/** A folder's heading, which folds its sessions away, and its sessions. */
+function WorkspaceGroup({ group, isActive, isExpanded, onToggle, newSessionMenu, context }: WorkspaceGroupProps) {
+  return (
+    <li>
+      <div className="group/ws flex items-center">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={isExpanded}
+          title={group.path}
+          className={`flex-1 min-w-0 flex items-center gap-1 rounded px-1.5 py-1 text-left text-[12px] transition-colors hover:text-neutral-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-600 ${
+            isActive ? "text-neutral-300" : "text-neutral-500"
+          }`}
+        >
+          <span className="truncate">{group.name}</span>
+          <ChevronRight
+            size={12}
+            aria-hidden="true"
+            className={`shrink-0 transition-transform ${
+              isExpanded ? "rotate-90 opacity-0 group-hover/ws:opacity-100" : ""
+            }`}
+          />
+        </button>
+        {newSessionMenu}
+      </div>
+      {isExpanded && group.sessions.length > 0 && (
+        <div className="mt-0.5">
+          <SessionTree nodes={group.sessions} label={`Sessions in ${group.name}`} context={context} />
+        </div>
+      )}
     </li>
   );
 }
@@ -171,6 +259,28 @@ function DetectedAgents({ agents }: { agents: AgentProfile[] }) {
   );
 }
 
+/** True when the session or one of its forks matches the search. */
+function nodeMatches(node: SessionNode, query: string): boolean {
+  return matches(query, node.session.name) || node.children.some((child) => nodeMatches(child, query));
+}
+
+/** Keeps the sessions that match, with the sources of matching forks so the tree stays readable. */
+function filterNodes(nodes: SessionNode[], query: string): SessionNode[] {
+  return nodes
+    .filter((node) => nodeMatches(node, query))
+    .map((node) => ({ ...node, children: filterNodes(node.children, query) }));
+}
+
+/** The groups to show for a search: a folder that matches keeps all its sessions. */
+function searchGroups(groups: SessionGroup[], query: string): SessionGroup[] {
+  if (query === "") return groups;
+  return groups
+    .map((group) =>
+      matches(query, group.name, group.path) ? group : { ...group, sessions: filterNodes(group.sessions, query) },
+    )
+    .filter((group) => group.sessions.length > 0 || matches(query, group.name, group.path));
+}
+
 export function Sidebar({
   workspaces,
   activeWorkspacePath,
@@ -179,7 +289,8 @@ export function Sidebar({
   agents,
   onNewSession,
   onSelectSession,
-  onSelectWorkspace,
+  onNewSessionIn,
+  defaultAgentId,
   onOpenFolder,
   isSessionBusy = () => false,
   isSessionWaiting = () => false,
@@ -188,14 +299,26 @@ export function Sidebar({
   footer,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [collapsedPaths, setCollapsedPaths] = useState<ReadonlySet<string>>(() => new Set());
   const query = searchQuery.trim().toLowerCase();
 
-  const filteredWorkspaces = workspaces.filter((ws) => matches(query, ws.name, ws.path));
-  const sessionGroups = groupSessionsByFolder(
-    sessions.filter((s) => matches(query, s.name, s.cwd)),
-    activeWorkspacePath,
-  );
-  const sessionCount = sessionGroups.reduce((total, g) => total + g.sessions.length, 0);
+  const groups = searchGroups(groupSessionsByWorkspace(workspaces, sessions), query);
+  const detectedAgents = agents.filter((agent) => agent.detected);
+  const toggle = (path: string) =>
+    setCollapsedPaths((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
+  const context: SessionTreeContext = {
+    activeSessionId,
+    agentNameOf: (profileId) => agents.find((agent) => agent.id === profileId)?.name,
+    isSessionBusy,
+    isSessionWaiting,
+    onSelectSession,
+    onStopSession,
+    onDeleteSession,
+  };
 
   return (
     <aside className="w-64 flex flex-col justify-between border-r border-neutral-800/80 bg-[#0d0d0d] select-none text-xs text-neutral-300">
@@ -227,81 +350,49 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-4">
-        <div>
-          <div className={SECTION_HEADER}>
-            <span>Workspaces</span>
-            {onOpenFolder ? (
-              <button
-                type="button"
-                aria-label="Open folder"
-                title="Open a project folder"
-                onClick={onOpenFolder}
-                className="rounded p-0.5 text-neutral-500 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-600"
-              >
-                <FolderPlus size={13} />
-              </button>
-            ) : (
-              <span className="text-[10px] text-neutral-600">{filteredWorkspaces.length}</span>
-            )}
-          </div>
-          {filteredWorkspaces.length === 0 && (
-            <p className="px-2 py-1 text-[11px] text-neutral-500">No folders yet. Open one to start.</p>
+      <div className="flex-1 overflow-y-auto p-3">
+        <div className={SECTION_HEADER}>
+          <span>Workspaces</span>
+          {onOpenFolder && (
+            <button
+              type="button"
+              aria-label="Open folder"
+              title="Open a project folder"
+              onClick={onOpenFolder}
+              className="rounded p-0.5 text-neutral-500 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-600"
+            >
+              <FolderPlus size={13} />
+            </button>
           )}
-          <ul aria-label="Workspaces" className="space-y-0.5">
-            {filteredWorkspaces.map((ws) => {
-              const isActive = ws.path === activeWorkspacePath;
-              return (
-                <li key={ws.path}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectWorkspace(ws.path)}
-                    title={ws.path}
-                    className={`w-full flex items-center justify-between rounded-md px-2 py-1.5 text-left transition-colors ${
-                      isActive
-                        ? "bg-neutral-800 text-neutral-100 font-medium"
-                        : "text-neutral-400 hover:bg-neutral-900/60 hover:text-neutral-200"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 truncate">
-                      <Folder size={13} className={isActive ? "text-amber-500" : "text-neutral-500"} />
-                      <span className="truncate">{ws.name}</span>
-                    </div>
-                    {isActive && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0 ml-1" />}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
         </div>
-
-        <div>
-          <div className={SECTION_HEADER}>
-            <span>Sessions</span>
-            <span className="text-[10px] text-neutral-600">{sessionCount}</span>
-          </div>
-          {sessionGroups.map((group) => (
-            <div key={group.path} className="mb-2">
-              <div className="px-2 pb-0.5 text-[10px] text-neutral-500 truncate" title={group.path}>
-                {group.name}
-              </div>
-              <ul aria-label={`Sessions in ${group.name}`} className="space-y-0.5">
-                {group.sessions.map((s) => (
-                  <SessionRow
-                    key={s.id}
-                    session={s}
-                    isActive={s.id === activeSessionId}
-                    isBusy={isSessionBusy(s.id)}
-                    isWaiting={isSessionWaiting(s.id)}
-                    onSelect={() => onSelectSession(s.id)}
-                    onStop={onStopSession ? () => onStopSession(s.id) : undefined}
-                    onDelete={onDeleteSession ? () => onDeleteSession(s.id) : undefined}
+        {groups.length === 0 && (
+          <p className="px-2 py-1 text-[11px] text-neutral-500">
+            {query ? "Nothing matches your search." : "No folders yet. Open one to start."}
+          </p>
+        )}
+        <ul aria-label="Workspaces" className="space-y-3">
+          {groups.map((group) => (
+            <WorkspaceGroup
+              key={group.path}
+              group={group}
+              isActive={group.path === activeWorkspacePath}
+              // A search shows every match, folded or not.
+              isExpanded={query !== "" || !collapsedPaths.has(group.path)}
+              onToggle={() => toggle(group.path)}
+              newSessionMenu={
+                onNewSessionIn && (
+                  <NewSessionMenu
+                    folderName={group.name}
+                    agents={detectedAgents}
+                    defaultAgentId={defaultAgentId}
+                    onPick={(agentId) => onNewSessionIn(group.path, agentId)}
                   />
-                ))}
-              </ul>
-            </div>
+                )
+              }
+              context={context}
+            />
           ))}
-        </div>
+        </ul>
       </div>
 
       <DetectedAgents agents={agents} />

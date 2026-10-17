@@ -191,4 +191,33 @@ describe("ComposerDock", () => {
 
     expect(screen.queryByRole("button", { name: "Add attachment" })).toBeNull();
   });
+
+  it("reopens the folder list unfiltered after it was dismissed with a search typed", () => {
+    const folders = [
+      { name: "api", path: "/w/api" },
+      { name: "web", path: "/w/web" },
+    ];
+    render(<ComposerDock onSendMessage={() => {}} folder={{ folders, selectedPath: "/w/api", onSelect: () => {} }} />);
+    const chip = screen.getByRole("button", { name: "Folder: api" });
+
+    fireEvent.click(chip);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search folders" }), { target: { value: "xyz" } });
+    expect(screen.getByText("No folder matches.")).toBeDefined();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("dialog", { name: "Choose a folder" })).toBeNull();
+    fireEvent.click(chip);
+
+    expect((screen.getByRole("textbox", { name: "Search folders" }) as HTMLInputElement).value).toBe("");
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["api", "web"]);
+  });
+
+  it("closes an open dropdown with Escape", () => {
+    render(<ComposerDock onSendMessage={() => {}} controls={controls()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Model:/ }));
+    expect(screen.getByRole("listbox", { name: "Model" })).toBeDefined();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+  });
 });

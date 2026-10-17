@@ -49,14 +49,6 @@ async function renderWithQwen() {
   return spy;
 }
 
-async function startQwenSession(spy: { mock: { calls: unknown[][] } }) {
-  await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
-  });
-  const [, args] = callsTo(spy, "acp_start_session")[0];
-  return String(args?.sessionId);
-}
-
 function prompt(): HTMLTextAreaElement {
   return screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
 }
@@ -66,6 +58,24 @@ async function send(text: string) {
     fireEvent.change(prompt(), { target: { value: text } });
     fireEvent.keyDown(prompt(), { key: "Enter" });
   });
+}
+
+/** The message `startQwenSession` starts a session with. */
+const FIRST_MESSAGE = "get started";
+
+/**
+ * Starts a session the way the user does, New and then a first message, and
+ * ends that first turn, so the session waits for the test's own messages.
+ */
+async function startQwenSession(spy: { mock: { calls: unknown[][] } }) {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+  });
+  await send(FIRST_MESSAGE);
+  await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
+  const sessionId = String(callsTo(spy, "acp_start_session")[0][1]?.sessionId);
+  await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+  return sessionId;
 }
 
 describe("ACP sessions in the app", () => {
@@ -177,7 +187,7 @@ describe("ACP sessions in the app", () => {
     await acpEvent({ sessionId, kind: "exit", code: 1 });
 
     const sidebar = within(screen.getByRole("complementary"));
-    const row = sidebar.getByText("Session #1").closest("li") as HTMLElement;
+    const row = sidebar.getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
     expect(within(row).getByRole("button", { name: "Delete session" })).toBeDefined();
   });
 
@@ -224,13 +234,13 @@ describe("ACP sessions in the app", () => {
     const [, forkArgs] = callsTo(spy, "acp_fork_session")[0];
     expect(forkArgs).toMatchObject({ sourceSessionId: sessionId, cwd: "/Users/test/developer/ai-perpetual-trading" });
     expect(callsTo(spy, "write_fork_handoff")).toHaveLength(0);
-    expect(within(screen.getByRole("complementary")).getByText("plan it (fork)")).toBeDefined();
+    expect(within(screen.getByRole("complementary")).getByText(`${FIRST_MESSAGE} (fork)`)).toBeDefined();
   });
 
   it("stops a live ACP agent when its session is deleted and ignores its late events", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);
-    const row = within(screen.getByRole("complementary")).getByText("Session #1").closest("li") as HTMLElement;
+    const row = within(screen.getByRole("complementary")).getByText(FIRST_MESSAGE).closest("li") as HTMLElement;
 
     await act(async () => {
       fireEvent.click(within(row).getByRole("button", { name: "Delete session" }));
@@ -344,7 +354,8 @@ describe("ACP sessions in the app", () => {
 
     await send("second");
 
-    expect(callsTo(spy, "acp_prompt")).toHaveLength(1);
+    // The session's first message and "first"; "second" waits.
+    expect(callsTo(spy, "acp_prompt")).toHaveLength(2);
     expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("second");
   });
 
@@ -488,18 +499,20 @@ describe("ACP sessions in the app", () => {
     expect(sidebar.getByText("Parser walkthrough")).toBeDefined();
   });
 
-  it("renames a numbered session on its first message only", async () => {
+  it("names a new session after its first message and keeps that name", async () => {
     const spy = await renderWithQwen();
-    await startQwenSession(spy);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
     const sidebar = within(screen.getByRole("complementary"));
-    expect(sidebar.getByText("Session #1")).toBeDefined();
 
     await send("first question");
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
     await acpEvent({ sessionId: String(callsTo(spy, "acp_start_session")[0][1]?.sessionId), kind: "turn-end", stopReason: "end_turn" });
     await send("second question");
 
     expect(sidebar.getByText("first question")).toBeDefined();
-    expect(sidebar.queryByText("Session #1")).toBeNull();
+    expect(sidebar.queryByText(/^Session #/)).toBeNull();
     expect(sidebar.queryByText("second question")).toBeNull();
   });
 
@@ -549,7 +562,7 @@ describe("ACP sessions in the app", () => {
     });
     await send("what is wrong here?");
 
-    expect(callsTo(spy, "acp_prompt")[0][1]).toMatchObject({
+    expect(callsTo(spy, "acp_prompt").at(-1)?.[1]).toMatchObject({
       text: "what is wrong here?",
       attachments: ["/Users/test/shot.png"],
     });
@@ -570,6 +583,7 @@ describe("ACP sessions in the app", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
     });
+    await send(FIRST_MESSAGE);
     const sessionId = String(callsTo(spy, "acp_start_session")[0][1]?.sessionId);
 
     await acpEvent({
@@ -650,6 +664,7 @@ describe("ACP sessions in the app", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
     });
+    await send(FIRST_MESSAGE);
 
     expect(screen.getByTestId("agent-working")).toBeDefined();
     expect(screen.queryByRole("heading", { name: "No session yet" })).toBeNull();
