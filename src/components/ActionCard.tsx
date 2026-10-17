@@ -1,5 +1,5 @@
 import { Check, X, Wrench, AlertTriangle } from "lucide-react";
-import type { ActionCard as ActionCardType } from "../types";
+import type { ActionCard as ActionCardType, PermissionChoice } from "../types";
 
 /**
  * Approval card for an agent prompt. It deliberately offers no in-place command
@@ -11,13 +11,62 @@ export interface ActionCardProps {
   card: ActionCardType;
   onApprove: (key: string) => void;
   onReject: (key: string) => void;
+  /** Picks one of the agent's own options (ACP permission requests). */
+  onChoose?: (optionId: string) => void;
   disabled?: boolean;
+}
+
+const CHOICE_BUTTON =
+  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors border";
+
+function choiceTone(kind: string): string {
+  return kind.startsWith("allow")
+    ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-600"
+    : "bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border-neutral-700";
+}
+
+/** The agent's own answers to its permission request, or the one that was picked. */
+function PermissionChoices({
+  card,
+  disabled,
+  onChoose,
+}: {
+  card: ActionCardType;
+  disabled: boolean;
+  onChoose?: (optionId: string) => void;
+}) {
+  const options: PermissionChoice[] = card.options ?? [];
+  if (card.status !== "pending") {
+    const chosen = options.find((o) => o.optionId === card.chosenOptionId);
+    return (
+      <p className="mt-4 border-t border-neutral-800/60 pt-2 text-xs text-neutral-400">
+        {chosen ? `You chose: ${chosen.name}` : "This request was not answered."}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-neutral-800/60 pt-2">
+      {options.map((option) => (
+        <button
+          key={option.optionId}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChoose?.(option.optionId)}
+          className={`${CHOICE_BUTTON} ${choiceTone(option.kind)} disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          {option.kind.startsWith("allow") ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+          {option.name}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function ActionCard({
   card,
   onApprove,
   onReject,
+  onChoose,
   disabled = false,
 }: ActionCardProps) {
   const isResolved = card.status === "approved" || card.status === "rejected";
@@ -67,44 +116,50 @@ export function ActionCard({
         </div>
       )}
 
-      {/* Action Buttons */}
-      <div className="mt-4 flex items-center justify-between gap-2 pt-2 border-t border-neutral-800/60">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleApprove}
-            disabled={isDisabled}
-            aria-label={card.status === "approved" ? "Approved" : "Approve"}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors ${
-              card.status === "approved"
-                ? "bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 cursor-not-allowed opacity-80"
-                : isDisabled
-                ? "bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700/50"
-                : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm hover:shadow"
-            }`}
-          >
-            <Check className="h-3.5 w-3.5" />
-            {card.status === "approved" ? "Approved" : "✓ Approve"}
-          </button>
+      {card.options && card.options.length > 0 ? (
+        <PermissionChoices card={card} disabled={disabled} onChoose={onChoose} />
+      ) : (
+        <>
+        {/* Action Buttons */}
+        <div className="mt-4 flex items-center justify-between gap-2 pt-2 border-t border-neutral-800/60">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleApprove}
+              disabled={isDisabled}
+              aria-label={card.status === "approved" ? "Approved" : "Approve"}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors ${
+                card.status === "approved"
+                  ? "bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 cursor-not-allowed opacity-80"
+                  : isDisabled
+                  ? "bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700/50"
+                  : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm hover:shadow"
+              }`}
+            >
+              <Check className="h-3.5 w-3.5" />
+              {card.status === "approved" ? "Approved" : "✓ Approve"}
+            </button>
 
-          <button
-            type="button"
-            onClick={handleReject}
-            disabled={isDisabled}
-            aria-label={card.status === "rejected" ? "Rejected" : "Reject"}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              card.status === "rejected"
-                ? "bg-rose-950/60 text-rose-400 border border-rose-800/50 cursor-not-allowed opacity-80"
-                : isDisabled
-                ? "bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700/50"
-                : "bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700"
-            }`}
-          >
-            <X className="h-3.5 w-3.5" />
-            {card.status === "rejected" ? "Rejected" : "✕ Reject"}
-          </button>
+            <button
+              type="button"
+              onClick={handleReject}
+              disabled={isDisabled}
+              aria-label={card.status === "rejected" ? "Rejected" : "Reject"}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                card.status === "rejected"
+                  ? "bg-rose-950/60 text-rose-400 border border-rose-800/50 cursor-not-allowed opacity-80"
+                  : isDisabled
+                  ? "bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700/50"
+                  : "bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700"
+              }`}
+            >
+              <X className="h-3.5 w-3.5" />
+              {card.status === "rejected" ? "Rejected" : "✕ Reject"}
+            </button>
+          </div>
         </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

@@ -6,12 +6,18 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { Terminal as TerminalIcon, X, Trash2, Copy, Check } from "lucide-react";
 import type { PtyOutputPayload } from "../types";
+import { XTERM_OPTIONS } from "../lib/xterm-options";
+
+export const NO_SESSION_MESSAGE = "No running session. Start one to see its terminal.";
 
 export interface TerminalDrawerProps {
   isOpen: boolean;
   sessionId: string;
   sessionName?: string;
-  pid?: number | null;
+  /** True while the session's agent process is running. */
+  isLive?: boolean;
+  /** Shown instead of a terminal when there is none to show. */
+  emptyMessage?: string;
   onClose: () => void;
   onSendInput?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
@@ -20,8 +26,9 @@ export interface TerminalDrawerProps {
 export function TerminalDrawer({
   isOpen,
   sessionId,
-  sessionName = "Session",
-  pid = null,
+  sessionName,
+  isLive = false,
+  emptyMessage = NO_SESSION_MESSAGE,
   onClose,
   onSendInput,
   onResize,
@@ -30,6 +37,9 @@ export function TerminalDrawer({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [copied, setCopied] = useState(false);
+  // Without a running session there is nothing to attach to: xterm would still
+  // emit query replies as input, and those must not reach an unknown session.
+  const hasTerminal = isLive && sessionId !== "";
 
   // Parents pass fresh callback identities on every render (App re-renders per PTY chunk).
   // Read them through refs so a re-render never disposes the terminal and its scrollback.
@@ -41,39 +51,9 @@ export function TerminalDrawer({
   });
 
   useEffect(() => {
-    if (!isOpen || !containerRef.current) return;
+    if (!isOpen || !hasTerminal || !containerRef.current) return;
 
-    // Initialize xterm instance with dark luxury palette
-    const terminal = new Terminal({
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontSize: 12,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-      theme: {
-        background: "#000000",
-        foreground: "#f5f5f5",
-        cursor: "#f59e0b",
-        selectionBackground: "rgba(245, 158, 11, 0.3)",
-        black: "#1e1e1e",
-        red: "#ef4444",
-        green: "#10b981",
-        yellow: "#f59e0b",
-        blue: "#3b82f6",
-        magenta: "#ec4899",
-        cyan: "#06b6d4",
-        white: "#e5e5e5",
-        brightBlack: "#4b5563",
-        brightRed: "#f87171",
-        brightGreen: "#34d399",
-        brightYellow: "#fbbf24",
-        brightBlue: "#60a5fa",
-        brightMagenta: "#f472b6",
-        brightCyan: "#22d3ee",
-        brightWhite: "#ffffff",
-      },
-      scrollback: 5000,
-      convertEol: true,
-    });
+    const terminal = new Terminal(XTERM_OPTIONS);
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -154,7 +134,7 @@ export function TerminalDrawer({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [isOpen, sessionId]);
+  }, [isOpen, sessionId, hasTerminal]);
 
   if (!isOpen) return null;
 
@@ -190,13 +170,14 @@ export function TerminalDrawer({
       <div className="flex h-9 items-center justify-between border-b border-neutral-800/80 bg-[#0a0a0a] px-3 text-xs">
         <div className="flex items-center space-x-2">
           <TerminalIcon size={14} className="text-amber-400" />
-          <span className="font-mono font-medium text-neutral-200">
-            📟 Raw Terminal Stream {pid ? `[PID: ${pid}]` : `[${sessionName}]`}
-          </span>
-          <span className="flex h-2 w-2 relative">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-          </span>
+          <span className="font-mono font-medium text-neutral-200">Terminal</span>
+          {sessionName && <span className="truncate font-mono text-neutral-500">{sessionName}</span>}
+          {isLive && (
+            <span className="flex h-2 w-2 relative" role="status" aria-label="Agent running">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+          )}
         </div>
 
         {/* Drawer Action Controls */}
@@ -204,7 +185,8 @@ export function TerminalDrawer({
           <button
             type="button"
             onClick={handleClear}
-            className="flex items-center gap-1 rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            disabled={!hasTerminal}
+            className="flex items-center gap-1 rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus:outline-none focus:ring-1 focus:ring-neutral-700"
             aria-label="Clear output"
             title="Clear terminal output"
           >
@@ -215,7 +197,8 @@ export function TerminalDrawer({
           <button
             type="button"
             onClick={handleCopy}
-            className="flex items-center gap-1 rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            disabled={!hasTerminal}
+            className="flex items-center gap-1 rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus:outline-none focus:ring-1 focus:ring-neutral-700"
             aria-label="Copy output"
             title="Copy terminal contents"
           >
@@ -238,11 +221,18 @@ export function TerminalDrawer({
       </div>
 
       {/* Terminal Viewport Container */}
-      <div
-        ref={containerRef}
-        data-testid="xterm-terminal-container"
-        className="flex-1 w-full overflow-hidden p-2 bg-[#000000]"
-      />
+      {hasTerminal ? (
+        <div
+          ref={containerRef}
+          data-testid="xterm-terminal-container"
+          className="flex-1 w-full overflow-hidden p-2 bg-[#000000]"
+        />
+      ) : (
+        <div className="flex flex-1 items-center justify-center gap-2 bg-[#000000] text-xs text-neutral-500">
+          <TerminalIcon size={14} className="text-neutral-600" aria-hidden="true" />
+          <span>{emptyMessage}</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,39 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { TopBar } from "../components/TopBar";
 import { Sidebar } from "../components/Sidebar";
 import App from "../App";
 import type { AgentProfile, Session } from "../types";
+import { fakeProfiles, makeProfile } from "./fixtures/agents";
 
 describe("Navigation and Layout Components", () => {
-  const mockProfiles: AgentProfile[] = [
-    {
-      id: "claude-code",
-      name: "Claude Code",
-      command: "claude",
-      detected: true,
-      detected_path: "/opt/homebrew/bin/claude",
-      models: ["claude-opus-5-5", "claude-sonnet-5-5"],
-      effort_levels: ["Low", "Medium", "High"],
-    },
-    {
-      id: "omp",
-      name: "Oh-My-Pi",
-      command: "omp",
-      detected: true,
-      detected_path: "/usr/local/bin/omp",
-      models: ["gemini-3.8-flash-tiered"],
-      effort_levels: ["Low", "High"],
-    },
-    {
-      id: "aider",
-      name: "Aider",
-      command: "aider",
-      detected: false,
-      models: ["gpt-5"],
-      effort_levels: [],
-    },
-  ];
+  const mockProfiles: AgentProfile[] = fakeProfiles;
 
   const mockSessions: Session[] = [
     {
@@ -55,7 +29,7 @@ describe("Navigation and Layout Components", () => {
   ];
 
   describe("TopBar", () => {
-    it("renders macOS traffic lights, session breadcrumb, workspace badge, and action buttons", () => {
+    it("renders the session breadcrumb, workspace badge, and terminal toggle", () => {
       const onToggleTerminal = vi.fn();
 
       render(
@@ -71,7 +45,7 @@ describe("Navigation and Layout Components", () => {
       expect(screen.getByText("New session (fork)")).toBeDefined();
       expect(screen.getByText("ai-perpetual-trading")).toBeDefined();
 
-      // Terminal toggle button (>_)
+      // Terminal toggle button
       const terminalBtn = screen.getByRole("button", { name: /toggle terminal/i });
       expect(terminalBtn).toBeDefined();
       fireEvent.click(terminalBtn);
@@ -94,58 +68,103 @@ describe("Navigation and Layout Components", () => {
   });
 
   describe("Sidebar", () => {
-    it("renders search input, + New session button, workspaces, sessions, agents, and profile footer", () => {
+    const workspaces = [
+      { name: "ai-perpetual-trading", path: "/Users/mac/ai-perpetual-trading" },
+      { name: "titan-investment", path: "/Users/mac/titan-investment" },
+    ];
+
+    it("renders workspaces, sessions grouped by folder, agents, and the given footer", () => {
       const onNewSession = vi.fn();
       const onSelectSession = vi.fn();
       const onSelectWorkspace = vi.fn();
 
       render(
         <Sidebar
-          workspaces={["ai-perpetual-trading", "titan-investment"]}
-          activeWorkspace="ai-perpetual-trading"
+          workspaces={workspaces}
+          activeWorkspacePath="/Users/mac/ai-perpetual-trading"
           sessions={mockSessions}
           activeSessionId="s-1"
           agents={mockProfiles}
           onNewSession={onNewSession}
           onSelectSession={onSelectSession}
           onSelectWorkspace={onSelectWorkspace}
+          footer={<span>footer content</span>}
         />
       );
 
-      // Search input and new session button
-      expect(screen.getByPlaceholderText(/search/i)).toBeDefined();
-      const newSessionBtn = screen.getByRole("button", { name: /\+ new/i });
-      expect(newSessionBtn).toBeDefined();
-      fireEvent.click(newSessionBtn);
+      fireEvent.click(screen.getByRole("button", { name: /\+ new/i }));
       expect(onNewSession).toHaveBeenCalledTimes(1);
 
-      // Workspaces list
-      const wsItem = screen.getByText("ai-perpetual-trading");
-      expect(wsItem).toBeDefined();
-      fireEvent.click(screen.getByText("titan-investment"));
-      expect(onSelectWorkspace).toHaveBeenCalledWith("titan-investment");
+      const workspaceList = within(screen.getByRole("list", { name: "Workspaces" }));
+      fireEvent.click(workspaceList.getByText("titan-investment"));
+      expect(onSelectWorkspace).toHaveBeenCalledWith("/Users/mac/titan-investment");
 
-      // Sessions list
-      expect(screen.getByText("New session (fork)")).toBeDefined();
-      expect(screen.getByText("Market analyzer refactor")).toBeDefined();
-      fireEvent.click(screen.getByText("Market analyzer refactor"));
+      const titanSessions = within(screen.getByRole("list", { name: "Sessions in titan-investment" }));
+      fireEvent.click(titanSessions.getByText("Market analyzer refactor"));
       expect(onSelectSession).toHaveBeenCalledWith("s-2");
 
-      // Detected agents with green indicators
-      expect(screen.getByText("Claude Code")).toBeDefined();
-      expect(screen.getByText("Oh-My-Pi")).toBeDefined();
-      expect(screen.getByText("Aider")).toBeDefined();
+      const agentList = within(screen.getByRole("list", { name: "Detected agents" }));
+      expect(agentList.getByText("Claude Code")).toBeDefined();
+      // Aider is not installed in the fixtures, so it is not listed at all.
+      expect(screen.queryByText("Aider")).toBeNull();
+      expect(screen.getByText("footer content")).toBeDefined();
+      expect(screen.queryByText(/iwang/i)).toBeNull();
+    });
 
-      // Profile footer
-      expect(screen.getByText(/pro/i)).toBeDefined();
-      expect(screen.getByText(/iwang/i)).toBeDefined();
+    function renderWithAgents(agents: AgentProfile[]) {
+      return render(
+        <Sidebar
+          workspaces={workspaces}
+          sessions={mockSessions}
+          agents={agents}
+          onNewSession={() => {}}
+          onSelectSession={() => {}}
+          onSelectWorkspace={() => {}}
+          footer={<span>footer content</span>}
+        />
+      );
+    }
+
+    it("lists only detected agents, without a Not found status", () => {
+      renderWithAgents([
+        makeProfile({ id: "claude-code", name: "Claude Code", detected: true }),
+        makeProfile({ id: "aider", name: "Aider", detected: false }),
+        makeProfile({ id: "omp", name: "Oh-My-Pi", detected: true }),
+      ]);
+
+      const items = within(screen.getByRole("list", { name: "Detected agents" })).getAllByRole("listitem");
+      expect(items.map((item) => item.textContent)).toEqual([
+        expect.stringContaining("Claude Code"),
+        expect.stringContaining("Oh-My-Pi"),
+      ]);
+      expect(screen.queryByText("Aider")).toBeNull();
+      expect(screen.queryByText("Not found")).toBeNull();
+    });
+
+    it("pins detected agents directly above the footer, outside the scrolling area", () => {
+      renderWithAgents([makeProfile({ id: "claude-code", name: "Claude Code", detected: true })]);
+
+      const section = screen.getByRole("region", { name: "Detected agents" });
+      const footer = screen.getByText("footer content");
+
+      expect(section.closest(".overflow-y-auto")).toBeNull();
+      expect(screen.getByRole("list", { name: "Workspaces" }).closest(".overflow-y-auto")).not.toBeNull();
+      expect(section.nextElementSibling?.contains(footer)).toBe(true);
+    });
+
+    it("hides the agents section when no agent is detected", () => {
+      renderWithAgents([makeProfile({ id: "aider", name: "Aider", detected: false })]);
+
+      expect(screen.queryByRole("region", { name: "Detected agents" })).toBeNull();
+      expect(screen.queryByText(/Detected Agents/i)).toBeNull();
+      expect(screen.getByText("footer content")).toBeDefined();
     });
 
     it("filters sessions and workspaces when searching", () => {
       render(
         <Sidebar
-          workspaces={["ai-perpetual-trading", "titan-investment"]}
-          activeWorkspace="ai-perpetual-trading"
+          workspaces={workspaces}
+          activeWorkspacePath="/Users/mac/ai-perpetual-trading"
           sessions={mockSessions}
           activeSessionId="s-1"
           agents={mockProfiles}
@@ -155,32 +174,25 @@ describe("Navigation and Layout Components", () => {
         />
       );
 
-      const searchInput = screen.getByPlaceholderText(/search/i);
-      fireEvent.change(searchInput, { target: { value: "titan" } });
+      fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "titan" } });
 
-      // titan-investment workspace should remain, ai-perpetual-trading filtered out
-      expect(screen.getByText("titan-investment")).toBeDefined();
-      expect(screen.queryByText("ai-perpetual-trading")).toBeNull();
+      const workspaceList = within(screen.getByRole("list", { name: "Workspaces" }));
+      expect(workspaceList.getByText("titan-investment")).toBeDefined();
+      expect(workspaceList.queryByText("ai-perpetual-trading")).toBeNull();
+      expect(screen.queryByRole("list", { name: "Sessions in ai-perpetual-trading" })).toBeNull();
     });
   });
 
   describe("App Integration", () => {
-    it("renders TopBar and Sidebar inside App with functional terminal drawer toggle", async () => {
+    it("renders TopBar and Sidebar inside App, without the popout-only terminal drawer toggle", async () => {
       await act(async () => {
         render(<App />);
       });
 
       expect(screen.getAllByText(/ai-perpetual-trading/i).length).toBeGreaterThan(0);
       expect(screen.getByPlaceholderText(/search/i)).toBeDefined();
-
-      // Verify toggle button works in App
-      const toggleBtn = screen.getByRole("button", { name: /toggle terminal/i });
-      expect(toggleBtn).toBeDefined();
-      await act(async () => {
-        fireEvent.click(toggleBtn);
-      });
-      // Drawer or state reflected
-      expect(toggleBtn.getAttribute("aria-pressed")).toBe("true");
+      // Terminal agents show their screen as the main view, so the main window has no drawer.
+      expect(screen.queryByRole("button", { name: /toggle terminal/i })).toBeNull();
     });
   });
 });

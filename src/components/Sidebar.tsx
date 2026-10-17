@@ -1,54 +1,164 @@
-import { useState } from "react";
-import {
-  Search,
-  Plus,
-  Folder,
-  Settings,
-  GitBranch,
-  GitFork,
-  Bot
-} from "lucide-react";
-import type { AgentProfile, Session } from "../types";
+import { useState, type ReactNode } from "react";
+import { Search, Plus, Folder, FolderPlus, GitBranch, GitFork, Bot, Square, Trash2 } from "lucide-react";
+import type { AgentProfile, Session, Workspace } from "../types";
+import { groupSessionsByFolder } from "../lib/session-helpers";
 
 export interface SidebarProps {
-  workspaces: string[];
-  activeWorkspace?: string;
+  workspaces: Workspace[];
+  activeWorkspacePath?: string;
   sessions: Session[];
   activeSessionId?: string;
   agents: AgentProfile[];
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
-  onSelectWorkspace: (workspace: string) => void;
+  onSelectWorkspace: (path: string) => void;
+  /** Opens the native folder dialog; the button is hidden when absent. */
+  onOpenFolder?: () => void;
+  /** True while a session's agent is working on a turn. */
+  isSessionBusy?: (sessionId: string) => boolean;
+  /** Stops the agent's current turn; offered only while it works. */
+  onStopSession?: (sessionId: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  /** Bottom bar content, e.g. the user's profile. */
+  footer?: ReactNode;
+}
+
+const SECTION_HEADER =
+  "flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-1.5 px-1";
+const ROW_ACTION =
+  "mr-1 rounded p-1 text-neutral-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-300 focus:outline-none focus:ring-1 focus:ring-neutral-600";
+
+function matches(query: string, ...values: string[]): boolean {
+  return query === "" || values.some((v) => v.toLowerCase().includes(query));
+}
+
+interface SessionRowProps {
+  session: Session;
+  isActive: boolean;
+  isBusy: boolean;
+  onSelect: () => void;
+  onStop?: () => void;
+  onDelete?: () => void;
+}
+
+function SessionRow({ session, isActive, isBusy, onSelect, onStop, onDelete }: SessionRowProps) {
+  return (
+    <li
+      className={`group flex items-center rounded-md transition-colors ${
+        isActive
+          ? "bg-neutral-800/90 text-neutral-100 font-medium"
+          : "text-neutral-400 hover:bg-neutral-900/60 hover:text-neutral-200"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex-1 min-w-0 flex items-center justify-between px-2 py-1.5 text-left"
+      >
+        <div className="flex items-center gap-2 truncate">
+          {session.forkedFrom ? (
+            <GitFork size={13} className="text-purple-400 shrink-0" />
+          ) : (
+            <GitBranch size={13} className="text-neutral-500 shrink-0" />
+          )}
+          <span className="truncate">{session.name}</span>
+        </div>
+        {isBusy && (
+          <span
+            role="status"
+            aria-label="Agent working"
+            title="The agent is working"
+            className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0 ml-1 animate-pulse"
+          />
+        )}
+      </button>
+      {isBusy && onStop && (
+        <button
+          type="button"
+          aria-label="Stop session"
+          title="Stop the agent's current turn"
+          onClick={onStop}
+          className={ROW_ACTION}
+        >
+          <Square size={11} />
+        </button>
+      )}
+      {!isBusy && onDelete && (
+        <button
+          type="button"
+          aria-label="Delete session"
+          title="Delete session"
+          onClick={onDelete}
+          className={ROW_ACTION}
+        >
+          <Trash2 size={12} />
+        </button>
+      )}
+    </li>
+  );
+}
+
+/** Installed agents, pinned above the footer; renders nothing when none are detected. */
+function DetectedAgents({ agents }: { agents: AgentProfile[] }) {
+  const detected = agents.filter((agent) => agent.detected);
+  if (detected.length === 0) return null;
+  return (
+    <section aria-label="Detected agents" className="border-t border-neutral-800/60 px-3 pt-2.5 pb-2">
+      <div className={SECTION_HEADER}>
+        <span>Detected Agents</span>
+        <span className="text-[10px] text-neutral-600">{detected.length}</span>
+      </div>
+      <ul aria-label="Detected agents" className="space-y-0.5">
+        {detected.map((agent) => (
+          <li
+            key={agent.id}
+            title={agent.detected_path ?? undefined}
+            className="flex items-center justify-between rounded-md px-2 py-1 text-neutral-300 hover:bg-neutral-900/40"
+          >
+            <div className="flex items-center gap-2 truncate">
+              <Bot size={13} aria-hidden="true" className="text-emerald-400" />
+              <span className="truncate">{agent.name}</span>
+            </div>
+            <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
+              Ready
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 export function Sidebar({
   workspaces,
-  activeWorkspace,
+  activeWorkspacePath,
   sessions,
   activeSessionId,
   agents,
   onNewSession,
   onSelectSession,
   onSelectWorkspace,
+  onOpenFolder,
+  isSessionBusy = () => false,
+  onStopSession,
+  onDeleteSession,
+  footer,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const query = searchQuery.trim().toLowerCase();
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-
-  const filteredWorkspaces = workspaces.filter((ws) =>
-    ws.toLowerCase().includes(normalizedQuery)
+  const filteredWorkspaces = workspaces.filter((ws) => matches(query, ws.name, ws.path));
+  const sessionGroups = groupSessionsByFolder(
+    sessions.filter((s) => matches(query, s.name, s.cwd)),
+    activeWorkspacePath,
   );
-
-  const filteredSessions = sessions.filter((s) =>
-    s.name.toLowerCase().includes(normalizedQuery) ||
-    s.cwd.toLowerCase().includes(normalizedQuery)
-  );
+  const sessionCount = sessionGroups.reduce((total, g) => total + g.sessions.length, 0);
 
   return (
     <aside className="w-64 flex flex-col justify-between border-r border-neutral-800/80 bg-[#0d0d0d] select-none text-xs text-neutral-300">
-      {/* Top Section: Search & New Session */}
       <div className="p-3 border-b border-neutral-800/60">
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search
               size={13}
@@ -59,6 +169,7 @@ export function Sidebar({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search..."
+              aria-label="Search workspaces and sessions"
               className="w-full rounded-md bg-neutral-900/90 border border-neutral-800/80 py-1.5 pl-8 pr-3 text-xs text-neutral-200 placeholder-neutral-500 outline-none focus:border-neutral-700 focus:ring-1 focus:ring-neutral-700"
             />
           </div>
@@ -74,22 +185,36 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Center Scrollable List: Workspaces, Sessions, Agents */}
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
-        {/* Workspaces List */}
         <div>
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-1.5 px-1">
+          <div className={SECTION_HEADER}>
             <span>Workspaces</span>
-            <span className="text-[10px] text-neutral-600">{filteredWorkspaces.length}</span>
+            {onOpenFolder ? (
+              <button
+                type="button"
+                aria-label="Open folder"
+                title="Open a project folder"
+                onClick={onOpenFolder}
+                className="rounded p-0.5 text-neutral-500 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-600"
+              >
+                <FolderPlus size={13} />
+              </button>
+            ) : (
+              <span className="text-[10px] text-neutral-600">{filteredWorkspaces.length}</span>
+            )}
           </div>
-          <ul className="space-y-0.5">
+          {filteredWorkspaces.length === 0 && (
+            <p className="px-2 py-1 text-[11px] text-neutral-500">No folders yet. Open one to start.</p>
+          )}
+          <ul aria-label="Workspaces" className="space-y-0.5">
             {filteredWorkspaces.map((ws) => {
-              const isActive = ws === activeWorkspace;
+              const isActive = ws.path === activeWorkspacePath;
               return (
-                <li key={ws}>
+                <li key={ws.path}>
                   <button
                     type="button"
-                    onClick={() => onSelectWorkspace(ws)}
+                    onClick={() => onSelectWorkspace(ws.path)}
+                    title={ws.path}
                     className={`w-full flex items-center justify-between rounded-md px-2 py-1.5 text-left transition-colors ${
                       isActive
                         ? "bg-neutral-800 text-neutral-100 font-medium"
@@ -98,11 +223,9 @@ export function Sidebar({
                   >
                     <div className="flex items-center gap-2 truncate">
                       <Folder size={13} className={isActive ? "text-amber-500" : "text-neutral-500"} />
-                      <span className="truncate">{ws}</span>
+                      <span className="truncate">{ws.name}</span>
                     </div>
-                    {isActive && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0 ml-1" />
-                    )}
+                    {isActive && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0 ml-1" />}
                   </button>
                 </li>
               );
@@ -110,100 +233,36 @@ export function Sidebar({
           </ul>
         </div>
 
-        {/* Sessions & Branches List */}
         <div>
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-1.5 px-1">
+          <div className={SECTION_HEADER}>
             <span>Sessions</span>
-            <span className="text-[10px] text-neutral-600">{filteredSessions.length}</span>
+            <span className="text-[10px] text-neutral-600">{sessionCount}</span>
           </div>
-          <ul className="space-y-0.5">
-            {filteredSessions.map((s) => {
-              const isActive = s.id === activeSessionId;
-              const isFork = s.name.toLowerCase().includes("fork");
-              return (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectSession(s.id)}
-                    className={`w-full flex items-center justify-between rounded-md px-2 py-1.5 text-left transition-colors ${
-                      isActive
-                        ? "bg-neutral-800/90 text-neutral-100 font-medium"
-                        : "text-neutral-400 hover:bg-neutral-900/60 hover:text-neutral-200"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 truncate">
-                      {isFork ? (
-                        <GitFork size={13} className="text-purple-400 shrink-0" />
-                      ) : (
-                        <GitBranch size={13} className="text-neutral-500 shrink-0" />
-                      )}
-                      <span className="truncate">{s.name}</span>
-                    </div>
-                    {s.status === "running" && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0 ml-1 animate-pulse" />
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-
-        {/* Detected Agents */}
-        <div>
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-1.5 px-1">
-            <span>Detected Agents</span>
-            <span className="text-[10px] text-neutral-600">{agents.length}</span>
-          </div>
-          <ul className="space-y-0.5">
-            {agents.map((agent) => (
-              <li
-                key={agent.id}
-                className="flex items-center justify-between rounded-md px-2 py-1 text-neutral-300 hover:bg-neutral-900/40"
-              >
-                <div className="flex items-center gap-2 truncate">
-                  <Bot size={13} className={agent.detected ? "text-emerald-400" : "text-neutral-600"} />
-                  <span className="truncate">{agent.name}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px]">
-                  {agent.detected ? (
-                    <span className="flex items-center gap-1 text-emerald-400 font-medium">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
-                      Ready
-                    </span>
-                  ) : (
-                    <span className="text-neutral-600">Not found</span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
+          {sessionGroups.map((group) => (
+            <div key={group.path} className="mb-2">
+              <div className="px-2 pb-0.5 text-[10px] text-neutral-500 truncate" title={group.path}>
+                {group.name}
+              </div>
+              <ul aria-label={`Sessions in ${group.name}`} className="space-y-0.5">
+                {group.sessions.map((s) => (
+                  <SessionRow
+                    key={s.id}
+                    session={s}
+                    isActive={s.id === activeSessionId}
+                    isBusy={isSessionBusy(s.id)}
+                    onSelect={() => onSelectSession(s.id)}
+                    onStop={onStopSession ? () => onStopSession(s.id) : undefined}
+                    onDelete={onDeleteSession ? () => onDeleteSession(s.id) : undefined}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Bottom Profile Footer Bar */}
-      <footer className="p-3 border-t border-neutral-800/80 bg-[#0a0a0a] flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-800 text-[11px] font-semibold text-neutral-200 border border-neutral-700/60">
-            IN
-          </div>
-          <div className="flex flex-col">
-            <div className="flex items-center gap-1">
-              <span className="font-medium text-neutral-200">Iwang</span>
-              <span className="text-neutral-500">•</span>
-              <span className="text-[10px] text-amber-400/90 font-medium bg-amber-400/10 px-1 rounded">Pro</span>
-            </div>
-            <span className="text-[10px] text-neutral-500">Agent Desktop v0.1.0</span>
-          </div>
-        </div>
-        <button
-          type="button"
-          aria-label="Settings"
-          className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-        >
-          <Settings size={14} />
-        </button>
-      </footer>
+      <DetectedAgents agents={agents} />
+      {footer && <div className="border-t border-neutral-800/80 bg-[#0a0a0a]">{footer}</div>}
     </aside>
   );
 }

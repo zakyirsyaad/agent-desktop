@@ -1,301 +1,165 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { ComposerDock } from "../components/ComposerDock";
-import type { AgentProfile } from "../types";
+import type { ComposerControls } from "../lib/composer-controls";
 
-describe("ComposerDock Component", () => {
-  const mockAgent: AgentProfile = {
-    id: "claude-code",
-    name: "Claude Code",
-    command: "claude",
-    detected: true,
-    models: ["Sonnet 5.5", "Opus 5.5", "Haiku 4.5"],
-    effort_levels: ["Low", "Medium", "High"],
+function prompt(): HTMLTextAreaElement {
+  return screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
+}
+
+function controls(overrides: Partial<ComposerControls> = {}): ComposerControls {
+  return {
+    permission: {
+      options: [
+        { value: "default", label: "Default" },
+        { value: "yolo", label: "YOLO" },
+      ],
+      selected: "default",
+      onChange: vi.fn(),
+    },
+    model: {
+      options: [
+        { value: undefined, label: "Default model" },
+        { value: "opus", label: "opus" },
+      ],
+      selected: undefined,
+      onChange: vi.fn(),
+    },
+    ...overrides,
   };
+}
 
-  it("renders usage/token banner with text, Upgrade button, and dismiss button", () => {
-    const onDismissBanner = vi.fn();
-    render(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={false}
-        onSendMessage={() => {}}
-        onModelChange={() => {}}
-        onEffortChange={() => {}}
-        onPermissionModeChange={() => {}}
-        bannerMessage="Approaching weekly usage limit • Resets Fri, Oct 16, 5:00 AM"
-        onDismissBanner={onDismissBanner}
-      />
-    );
+describe("ComposerDock", () => {
+  it("renders no usage banner, Upgrade or voice controls (no data source exists for them)", () => {
+    render(<ComposerDock controls={controls()} onSendMessage={() => {}} />);
 
-    expect(
-      screen.getByText(/Approaching weekly usage limit • Resets Fri, Oct 16, 5:00 AM/i)
-    ).toBeDefined();
-    expect(screen.getByRole("button", { name: /upgrade/i })).toBeDefined();
-
-    const dismissBtn = screen.getByRole("button", { name: /dismiss banner/i });
-    expect(dismissBtn).toBeDefined();
-    fireEvent.click(dismissBtn);
-    expect(onDismissBanner).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/usage limit/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /upgrade/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /voice dictation/i })).toBeNull();
   });
 
-  it("submits message on Enter without Shift and clears input", () => {
-    const onSendMessage = vi.fn();
+  describe("sending", () => {
+    it("submits on Enter without Shift and clears the input", () => {
+      const onSendMessage = vi.fn();
+      render(<ComposerDock onSendMessage={onSendMessage} />);
 
-    render(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={false}
-        onSendMessage={onSendMessage}
-        onModelChange={() => {}}
-        onEffortChange={() => {}}
-        onPermissionModeChange={() => {}}
-      />
-    );
+      fireEvent.change(prompt(), { target: { value: "  fix the build  " } });
+      fireEvent.keyDown(prompt(), { key: "Enter" });
 
-    const textarea = screen.getByPlaceholderText(/Type \/ for commands/i) as HTMLTextAreaElement;
-    expect(textarea).toBeDefined();
+      expect(onSendMessage).toHaveBeenCalledWith("fix the build");
+      expect(prompt().value).toBe("");
+    });
 
-    fireEvent.change(textarea, { target: { value: "Hello Claude agent" } });
-    expect(textarea.value).toBe("Hello Claude agent");
+    it("keeps Shift+Enter for a newline instead of sending", () => {
+      const onSendMessage = vi.fn();
+      render(<ComposerDock onSendMessage={onSendMessage} />);
 
-    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+      fireEvent.change(prompt(), { target: { value: "line one" } });
+      fireEvent.keyDown(prompt(), { key: "Enter", shiftKey: true });
 
-    expect(onSendMessage).toHaveBeenCalledWith("Hello Claude agent");
-    expect(textarea.value).toBe("");
+      expect(onSendMessage).not.toHaveBeenCalled();
+    });
+
+    it("sends with the Send button and ignores whitespace-only input", () => {
+      const onSendMessage = vi.fn();
+      render(<ComposerDock onSendMessage={onSendMessage} />);
+
+      fireEvent.change(prompt(), { target: { value: "   " } });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+      expect(onSendMessage).not.toHaveBeenCalled();
+
+      fireEvent.change(prompt(), { target: { value: "run tests" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+      expect(onSendMessage).toHaveBeenCalledWith("run tests");
+    });
   });
 
-  it("allows multiline input on Shift+Enter without sending", () => {
-    const onSendMessage = vi.fn();
+  describe("controls", () => {
+    it("shows the given permission choices and reports a pick", () => {
+      const c = controls();
+      render(<ComposerDock controls={c} onSendMessage={() => {}} />);
 
-    render(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={false}
-        onSendMessage={onSendMessage}
-        onModelChange={() => {}}
-        onEffortChange={() => {}}
-        onPermissionModeChange={() => {}}
-      />
-    );
+      fireEvent.click(screen.getByRole("button", { name: /permission mode: default/i }));
+      fireEvent.click(screen.getByRole("option", { name: "YOLO" }));
 
-    const textarea = screen.getByPlaceholderText(/Type \/ for commands/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "Line 1" } });
-    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+      expect(c.permission?.onChange).toHaveBeenCalledWith("yolo");
+    });
 
-    expect(onSendMessage).not.toHaveBeenCalled();
-    expect(textarea.value).toBe("Line 1");
+    it("warns visually when a risky mode is selected", () => {
+      const c = controls();
+      const { rerender } = render(<ComposerDock controls={c} onSendMessage={() => {}} />);
+      expect(screen.queryByTestId("risky-permission-icon")).toBeNull();
+
+      rerender(
+        <ComposerDock
+          controls={{ ...c, permission: { ...c.permission!, selected: "yolo" } }}
+          onSendMessage={() => {}}
+        />
+      );
+      expect(screen.getByTestId("risky-permission-icon")).toBeDefined();
+    });
+
+    it("reports a model pick, including the default that passes no flag", () => {
+      const c = controls();
+      render(<ComposerDock controls={c} onSendMessage={() => {}} />);
+
+      fireEvent.click(screen.getByRole("button", { name: /model: default model/i }));
+      fireEvent.click(screen.getByRole("option", { name: "opus" }));
+
+      expect(c.model?.onChange).toHaveBeenCalledWith("opus");
+    });
+
+    it("renders only the controls it is given", () => {
+      render(<ComposerDock controls={{ model: controls().model }} onSendMessage={() => {}} />);
+
+      expect(screen.queryByRole("button", { name: /permission mode/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^effort:/i })).toBeNull();
+      expect(screen.getByRole("button", { name: /^model:/i })).toBeDefined();
+    });
+
+    it("locks the controls with an explanation when asked", () => {
+      render(<ComposerDock controls={controls()} optionsLocked onSendMessage={() => {}} />);
+
+      const model = screen.getByRole("button", { name: /^model:/i }) as HTMLButtonElement;
+      expect(model.disabled).toBe(true);
+      expect(model.title).toMatch(/new session/i);
+    });
   });
 
-  it("submits message when clicking Send button", () => {
-    const onSendMessage = vi.fn();
+  describe("while the agent works", () => {
+    it("shows the thinking indicator and a Stop button in place of Send", () => {
+      const onStop = vi.fn();
+      render(<ComposerDock isThinking onStop={onStop} onSendMessage={() => {}} />);
 
-    render(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={false}
-        onSendMessage={onSendMessage}
-        onModelChange={() => {}}
-        onEffortChange={() => {}}
-        onPermissionModeChange={() => {}}
-      />
-    );
+      expect(screen.getByTestId("thinking-indicator-ring")).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+      expect(onStop).toHaveBeenCalledTimes(1);
+    });
 
-    const textarea = screen.getByPlaceholderText(/Type \/ for commands/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "Send button test" } });
+    it("shows neither indicator nor Stop when idle", () => {
+      render(<ComposerDock onStop={() => {}} onSendMessage={() => {}} />);
 
-    const sendBtn = screen.getByRole("button", { name: /send message/i });
-    expect(sendBtn).toBeDefined();
-    fireEvent.click(sendBtn);
-
-    expect(onSendMessage).toHaveBeenCalledWith("Send button test");
-    expect(textarea.value).toBe("");
+      expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Stop agent" })).toBeNull();
+    });
   });
 
-  it("does not send empty or whitespace-only messages", () => {
-    const onSendMessage = vi.fn();
+  it("inserts picked attachment paths into the prompt, quoting paths with spaces", async () => {
+    const onAttach = vi.fn().mockResolvedValue(["/repo/src/app.ts", "/repo/my notes.md"]);
+    render(<ComposerDock onSendMessage={() => {}} onAttach={onAttach} />);
 
-    render(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={false}
-        onSendMessage={onSendMessage}
-        onModelChange={() => {}}
-        onEffortChange={() => {}}
-        onPermissionModeChange={() => {}}
-      />
-    );
+    fireEvent.change(prompt(), { target: { value: "review" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add attachment" }));
+    });
 
-    const textarea = screen.getByPlaceholderText(/Type \/ for commands/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "   " } });
-    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
-
-    expect(onSendMessage).not.toHaveBeenCalled();
-
-    const sendBtn = screen.getByRole("button", { name: /send message/i });
-    fireEvent.click(sendBtn);
-    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(prompt().value).toBe('review /repo/src/app.ts "/repo/my notes.md" ');
   });
 
-  it("renders and updates Permission Mode dropdown ('Bypass permissions' vs 'Ask every time')", () => {
-    const onPermissionModeChange = vi.fn();
+  it("hides the attachment button when no picker is wired", () => {
+    render(<ComposerDock onSendMessage={() => {}} />);
 
-    render(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={false}
-        onSendMessage={() => {}}
-        onModelChange={() => {}}
-        onEffortChange={() => {}}
-        onPermissionModeChange={onPermissionModeChange}
-      />
-    );
-
-    // Initial button displays Bypass permissions
-    const permBtn = screen.getByRole("button", { name: /permission mode/i });
-    expect(permBtn).toBeDefined();
-    expect(screen.getByText("Bypass permissions")).toBeDefined();
-
-    // Click to open dropdown
-    fireEvent.click(permBtn);
-
-    const askOption = screen.getByRole("button", { name: /select ask every time/i });
-    expect(askOption).toBeDefined();
-    fireEvent.click(askOption);
-
-    expect(onPermissionModeChange).toHaveBeenCalledWith("ask");
-  });
-
-  it("dynamically populates models from activeAgent and calls onModelChange", () => {
-    const onModelChange = vi.fn();
-
-    render(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={false}
-        onSendMessage={() => {}}
-        onModelChange={onModelChange}
-        onEffortChange={() => {}}
-        onPermissionModeChange={() => {}}
-      />
-    );
-
-    const modelBtn = screen.getByRole("button", { name: /model selector/i });
-    expect(modelBtn).toBeDefined();
-    expect(screen.getByText("Sonnet 5.5")).toBeDefined();
-
-    fireEvent.click(modelBtn);
-
-    const opusOption = screen.getByRole("button", { name: /select model opus 5\.5/i });
-    expect(opusOption).toBeDefined();
-    fireEvent.click(opusOption);
-
-    expect(onModelChange).toHaveBeenCalledWith("Opus 5.5");
-  });
-
-  it("renders effort dropdown ('High', 'Medium', 'Low') and calls onEffortChange", () => {
-    const onEffortChange = vi.fn();
-
-    render(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={false}
-        onSendMessage={() => {}}
-        onModelChange={() => {}}
-        onEffortChange={onEffortChange}
-        onPermissionModeChange={() => {}}
-      />
-    );
-
-    const effortBtn = screen.getByRole("button", { name: /effort selector/i });
-    expect(effortBtn).toBeDefined();
-    expect(screen.getByText("High")).toBeDefined();
-
-    fireEvent.click(effortBtn);
-
-    const medOption = screen.getByRole("button", { name: /select effort medium/i });
-    expect(medOption).toBeDefined();
-    fireEvent.click(medOption);
-
-    expect(onEffortChange).toHaveBeenCalledWith("Medium");
-  });
-
-  it("renders animated thinking indicator ring when isThinking is true", () => {
-    const { rerender } = render(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={false}
-        onSendMessage={() => {}}
-        onModelChange={() => {}}
-        onEffortChange={() => {}}
-        onPermissionModeChange={() => {}}
-      />
-    );
-
-    expect(screen.queryByTestId("thinking-indicator-ring")).toBeNull();
-
-    rerender(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={true}
-        onSendMessage={() => {}}
-        onModelChange={() => {}}
-        onEffortChange={() => {}}
-        onPermissionModeChange={() => {}}
-      />
-    );
-
-    const ring = screen.getByTestId("thinking-indicator-ring");
-    expect(ring).toBeDefined();
-    expect(ring.className).toContain("animate-spin");
-  });
-
-  it("renders attachment (+) and voice (🎤) buttons", () => {
-    render(
-      <ComposerDock
-        activeAgent={mockAgent}
-        selectedModel="Sonnet 5.5"
-        selectedEffort="High"
-        permissionMode="bypass"
-        isThinking={false}
-        onSendMessage={() => {}}
-        onModelChange={() => {}}
-        onEffortChange={() => {}}
-        onPermissionModeChange={() => {}}
-      />
-    );
-
-    expect(screen.getByRole("button", { name: /add attachment/i })).toBeDefined();
-    expect(screen.getByRole("button", { name: /voice dictation/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Add attachment" })).toBeNull();
   });
 });

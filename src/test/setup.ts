@@ -1,5 +1,116 @@
 // Global test setup for Vitest (JSDOM environment mocks)
 
+import { afterEach } from "vitest";
+import { fakeProfiles } from "./fixtures/agents";
+
+/**
+ * In-memory stand-in for the backend store commands. Tests seed it through
+ * `window.__FAKE_TAURI_STORE__` and it is reset after every test.
+ */
+export interface FakeTauriStore {
+  state: {
+    version: number;
+    settings: { defaultAgentId: string | null; onboardingCompleted: boolean };
+    recentFolders: unknown[];
+    sessions: unknown[];
+    agentOptions?: Record<string, unknown>;
+  };
+  transcripts: Record<string, unknown[]>;
+}
+
+/**
+ * Default: a returning user who finished onboarding and has three recent
+ * folders (newest first). Onboarding tests flip `onboardingCompleted` back.
+ */
+function emptyFakeStore(): FakeTauriStore {
+  return {
+    state: {
+      version: 1,
+      settings: { defaultAgentId: null, onboardingCompleted: true },
+      recentFolders: [
+        { name: "ai-perpetual-trading", path: "/Users/test/developer/ai-perpetual-trading", lastOpenedAt: 3000 },
+        { name: "titan-investment", path: "/Users/test/developer/titan-investment", lastOpenedAt: 2000 },
+        { name: "agent-desktop", path: "/Users/test/developer/agent-desktop", lastOpenedAt: 1000 },
+      ],
+      sessions: [],
+    },
+    transcripts: {},
+  };
+}
+
+type StoreArgs = { state?: FakeTauriStore["state"]; sessionId?: string; messages?: unknown[] };
+
+function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<unknown> | null {
+  const store = (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__;
+  switch (cmd) {
+    case "load_app_state":
+      return Promise.resolve(structuredClone(store.state));
+    case "save_app_state":
+      store.state = structuredClone(args?.state ?? store.state);
+      return Promise.resolve(undefined);
+    case "load_transcript":
+      return Promise.resolve(structuredClone(store.transcripts[args?.sessionId ?? ""] ?? []));
+    case "save_transcript":
+      store.transcripts[args?.sessionId ?? ""] = structuredClone(args?.messages ?? []);
+      return Promise.resolve(undefined);
+    case "delete_transcript":
+      delete store.transcripts[args?.sessionId ?? ""];
+      return Promise.resolve(undefined);
+    case "acp_start_session":
+    case "acp_fork_session":
+    case "acp_load_session":
+      // Shaped like Qwen Code's real answer; it starts in YOLO like the user's own config.
+      return Promise.resolve({
+        acpSessionId:
+          (args as { acpSessionId?: string })?.acpSessionId ?? `acp-${(args as { sessionId?: string })?.sessionId}`,
+        agentCapabilities: { sessionCapabilities: { fork: {} } },
+        modes: {
+          currentModeId: "yolo",
+          availableModes: [
+            { id: "default", name: "Default" },
+            { id: "yolo", name: "YOLO" },
+          ],
+        },
+        models: null,
+        configOptions: [],
+      });
+    case "acp_set_config_option":
+      return Promise.resolve([]);
+    case "acp_prompt":
+    case "acp_cancel":
+    case "acp_respond_permission":
+    case "acp_set_mode":
+    case "acp_stop_session":
+      return Promise.resolve(undefined);
+    case "write_fork_handoff":
+      return Promise.resolve(`/fake/app-data/handoffs/${(args as { handoffId?: string })?.handoffId}.md`);
+    case "get_user_profile":
+      return Promise.resolve({ name: "Test User", email: "test@example.com" });
+    case "plugin:app|version":
+      return Promise.resolve("0.1.0");
+    case "list_directory":
+      return Promise.resolve([]);
+    case "open_path":
+    case "remember_workspace":
+    case "open_session_window":
+    case "reveal_in_finder":
+    case "terminate_session":
+    case "spawn_session":
+    case "send_input":
+    case "resize_session":
+      return Promise.resolve(undefined);
+    default:
+      return null;
+  }
+}
+
+if (typeof window !== "undefined") {
+  (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
+  afterEach(() => {
+    (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
+  });
+}
+
 if (typeof window !== "undefined") {
   // Provide mock for Tauri invoke and event system if not running in real Tauri webview
   let nextCallbackId = 1;
@@ -16,7 +127,11 @@ if (typeof window !== "undefined") {
 
   if (!win.__TAURI_INTERNALS__) {
     win.__TAURI_INTERNALS__ = {
-      invoke: (cmd: string, _args?: unknown) => {
+      invoke: (cmd: string, args?: unknown) => {
+        const storeResult = handleStoreCommand(cmd, args as StoreArgs | undefined);
+        if (storeResult) {
+          return storeResult;
+        }
         if (cmd === "list_workspaces") {
           return Promise.resolve([
             { name: "ai-perpetual-trading", path: "/Users/test/developer/ai-perpetual-trading" },
@@ -25,34 +140,7 @@ if (typeof window !== "undefined") {
           ]);
         }
         if (cmd === "get_agent_profiles") {
-          return Promise.resolve([
-            {
-              id: "claude-code",
-              name: "Claude Code",
-              command: "claude",
-              detected: true,
-              detected_path: "/opt/homebrew/bin/claude",
-              models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"],
-              effort_levels: ["Low", "Medium", "High"],
-            },
-            {
-              id: "omp",
-              name: "Oh-My-Pi",
-              command: "omp",
-              detected: true,
-              detected_path: "/usr/local/bin/omp",
-              models: ["gemini-3.8-flash-tiered"],
-              effort_levels: ["Low", "High"],
-            },
-            {
-              id: "aider",
-              name: "Aider",
-              command: "aider",
-              detected: false,
-              models: ["gpt-5"],
-              effort_levels: [],
-            },
-          ]);
+          return Promise.resolve(structuredClone(fakeProfiles));
         }
         return Promise.resolve(undefined);
       },

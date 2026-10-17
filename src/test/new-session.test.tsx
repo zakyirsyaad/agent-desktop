@@ -47,6 +47,50 @@ describe("New session spawning", () => {
     expect(cwd.endsWith("/ai-perpetual-trading")).toBe(true);
   });
 
+  it("spawns by agent profile and options, never by a raw command", async () => {
+    const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
+
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+
+    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as {
+      profileId: string;
+      command?: string;
+      options: { permissionMode: string; agentSessionId?: string };
+    };
+    expect(args.profileId).toBe("claude-code");
+    expect(args.command).toBeUndefined();
+    expect(args.options.permissionMode).toBe("ask");
+    // Claude Code takes --session-id, so the app assigns one up front for native forks later.
+    expect(args.options.agentSessionId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("starts the next session with the model picked in the composer", async () => {
+    const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
+    await act(async () => {
+      render(<App />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^model:/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "opus" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+
+    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as {
+      options: { model?: string };
+    };
+    expect(args.options.model).toBe("opus");
+  });
+
   it("surfaces an alert when the backend rejects the spawn cwd", async () => {
     stubInvoke({
       spawn_session: () =>
@@ -65,8 +109,10 @@ describe("New session spawning", () => {
     expect(screen.getByRole("alert").textContent).toContain("Failed to start");
   });
 
-  it("warns instead of spawning when no workspace folder was discovered", async () => {
-    const invokeSpy = stubInvoke({ list_workspaces: () => Promise.resolve([]) });
+  it("warns instead of spawning when no project folder has been opened", async () => {
+    (window as unknown as { __FAKE_TAURI_STORE__: { state: { recentFolders: unknown[] } } })
+      .__FAKE_TAURI_STORE__.state.recentFolders = [];
+    const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
 
     await act(async () => {
       render(<App />);
@@ -75,7 +121,7 @@ describe("New session spawning", () => {
       fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
     });
 
-    expect(screen.getByRole("alert").textContent).toContain("No workspace folder found");
+    expect(screen.getByRole("alert").textContent).toContain("Open a project folder first");
     expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")).toBeUndefined();
   });
 });

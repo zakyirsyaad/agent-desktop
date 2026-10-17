@@ -1,13 +1,24 @@
+pub mod acp;
 pub mod env_resolver;
+pub mod files;
+pub mod fork_handoff;
 pub mod profiles;
 pub mod pty_session;
+pub mod spawn_plan;
+pub mod store;
+pub mod user_profile;
+pub mod windows;
 pub mod workspaces;
 
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
+use acp::commands::{event_payload, ACP_EVENT};
+use acp::manager::AcpManager;
 use profiles::{get_available_agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
+use spawn_plan::{build_spawn_plan, SpawnOptions};
+use store::{AppStore, PersistedState};
 use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -21,21 +32,36 @@ use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 // blocks on a full PTY input buffer. Marking it `async` would run keystrokes on
 // a thread pool, where concurrent calls could reach the PTY out of order.
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
+/// Starts an agent session for a known profile.
+///
+/// The webview picks a `profile_id` plus [`SpawnOptions`]; it never supplies a
+/// command or raw args. The backend resolves the profile, builds a validated
+/// plan, and spawns that — so an unknown profile, an undetected CLI, or an
+/// option the CLI does not support all fail here instead of reaching a shell.
 #[tauri::command(async)]
 fn spawn_session(
     _app: AppHandle,
     state: State<'_, PtySessionManager>,
     session_id: String,
     cwd: String,
-    command: String,
-    args: Vec<String>,
+    profile_id: String,
+    options: SpawnOptions,
 ) -> Result<(), String> {
-    state.start_session(&session_id, &cwd, &command, &args)
+    let profile = get_available_agent_profiles()
+        .into_iter()
+        .find(|profile| profile.id == profile_id)
+        .ok_or_else(|| format!("Unknown agent profile '{}'", profile_id))?;
+
+    if !profile.detected {
+        return Err(format!(
+            "{} is not installed ('{}' was not found on PATH)",
+            profile.name, profile.command
+        ));
+    }
+
+    let plan = build_spawn_plan(&profile, &options)?;
+
+    state.start_session(&session_id, &cwd, &plan.command, &plan.args, &plan.env)
 }
 
 #[tauri::command]
@@ -81,6 +107,64 @@ fn terminate_session(
     state.kill_session(&session_id)
 }
 
+/// Loads the persisted app state, or the default state on a first launch.
+///
+/// Reads the state file from disk, so it stays off the main thread.
+#[tauri::command(async)]
+fn load_app_state(store: State<'_, AppStore>) -> Result<PersistedState, String> {
+    store.load_state()
+}
+
+/// Persists the app state atomically, replacing the previous file.
+#[tauri::command(async)]
+fn save_app_state(store: State<'_, AppStore>, state: PersistedState) -> Result<(), String> {
+    store.save_state(&state)
+}
+
+/// Loads a session's chat transcript, empty when the session has no messages yet.
+#[tauri::command(async)]
+fn load_transcript(
+    store: State<'_, AppStore>,
+    session_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    store.load_transcript(&session_id)
+}
+
+/// Saves a session's chat transcript, replacing the previous copy atomically.
+#[tauri::command(async)]
+fn save_transcript(
+    store: State<'_, AppStore>,
+    session_id: String,
+    messages: Vec<serde_json::Value>,
+) -> Result<(), String> {
+    store.save_transcript(&session_id, &messages)
+}
+
+/// Deletes a session's chat transcript; an already-missing transcript succeeds.
+#[tauri::command(async)]
+fn delete_transcript(store: State<'_, AppStore>, session_id: String) -> Result<(), String> {
+    store.delete_transcript(&session_id)
+}
+
+/// Writes a fork handoff document under the app data dir and returns its absolute path.
+///
+/// The frontend then starts a new session whose first prompt points the agent at it.
+#[tauri::command(async)]
+fn write_fork_handoff(
+    app: AppHandle,
+    handoff_id: String,
+    content: String,
+) -> Result<String, String> {
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Cannot locate the app data dir: {e}"))?;
+    let path = fork_handoff::write_handoff(&root, &handoff_id, &content)?;
+    path.into_os_string()
+        .into_string()
+        .map_err(|p| format!("Handoff path is not valid UTF-8: {}", p.to_string_lossy()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_handle_holder: Arc<std::sync::Mutex<Option<AppHandle>>> =
@@ -120,12 +204,32 @@ pub fn run() {
         }
     }));
 
+    let acp_holder = Arc::clone(&app_handle_holder);
+    let acp_manager = AcpManager::new(Box::new(move |event| {
+        if let Some(app) = acp_holder.lock().ok().and_then(|guard| guard.clone()) {
+            let _ = app.emit(ACP_EVENT, event_payload(&event));
+        }
+    }));
+
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(manager)
+        .manage(acp_manager)
         .setup(move |app| {
             if let Ok(mut guard) = app_handle_holder.lock() {
                 *guard = Some(app.handle().clone());
             }
+
+            // Persistence lives in the platform app-data directory, which only
+            // exists once the app handle does, so the store is built here.
+            let data_dir = app.path().app_data_dir().map_err(|e| {
+                format!(
+                    "Failed to resolve the app data directory for persisted state: {}",
+                    e
+                )
+            })?;
+            app.manage(AppStore::new(data_dir));
+
             // Warm the login-shell environment off the main thread so the first
             // session spawn and profile scan do not pay for it.
             std::thread::spawn(|| {
@@ -134,13 +238,34 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             get_agent_profiles,
             list_workspaces,
             spawn_session,
             send_input,
             resize_session,
-            terminate_session
+            terminate_session,
+            load_app_state,
+            save_app_state,
+            load_transcript,
+            save_transcript,
+            delete_transcript,
+            windows::open_session_window,
+            windows::reveal_in_finder,
+            files::list_directory,
+            files::open_path,
+            files::remember_workspace,
+            user_profile::get_user_profile,
+            write_fork_handoff,
+            acp::commands::acp_start_session,
+            acp::commands::acp_load_session,
+            acp::commands::acp_authenticate,
+            acp::commands::acp_fork_session,
+            acp::commands::acp_prompt,
+            acp::commands::acp_cancel,
+            acp::commands::acp_respond_permission,
+            acp::commands::acp_set_mode,
+            acp::commands::acp_set_config_option,
+            acp::commands::acp_stop_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

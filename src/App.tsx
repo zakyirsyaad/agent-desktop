@@ -1,495 +1,555 @@
-import { useState, useEffect, useRef } from "react";
-import { Sparkles, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas } from "./components/ChatCanvas";
-import { ComposerDock } from "./components/ComposerDock";
-import { TerminalDrawer } from "./components/TerminalDrawer";
-import { StreamParser } from "./lib/stream-parser";
-import { applyParsedEvents } from "./lib/apply-parsed-events";
-import type {
-  AgentProfile,
-  ChatMessage,
-  Session,
-  PermissionMode,
-  PtyOutputPayload,
-  Workspace,
-} from "./types";
+import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
+import { FilesPanel } from "./components/FilesPanel";
+import { EmptySessionState, NoticeBanner } from "./components/AppPlaceholders";
+import { AuthPanel, type AuthStatus } from "./components/AuthPanel";
+import type { AuthMethod } from "./lib/acp-auth";
+import { TerminalView } from "./components/TerminalView";
+import { createPtyOutputStore } from "./lib/pty-output-store";
+import {
+  isAutoName,
+  mostRecentSessionId,
+  nextSessionName,
+  patchSessionIn,
+  removeSessionFrom,
+  titleFromPrompt,
+} from "./lib/session-helpers";
+import { createId } from "./lib/ids";
+import { usePersistedState } from "./hooks/usePersistedState";
+import { useTranscripts } from "./hooks/useTranscripts";
+import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
+import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
+import { Onboarding, type OnboardingResult } from "./components/Onboarding";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { ProfileFooter } from "./components/ProfileFooter";
+import { useNavigationHistory } from "./hooks/useNavigationHistory";
+import { useUserProfile } from "./hooks/useUserProfile";
+import { usePopoutHost } from "./hooks/usePopoutHost";
+import type { PopoutAction } from "./lib/popout-bridge";
+import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
+import { useAcpEngine, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
+import { buildForkHandoff, buildForkPrompt } from "./lib/fork-handoff";
+import { pickFiles } from "./lib/file-picker";
+import { fileNameOf } from "./lib/attachments";
+import { resolveDefaultAgentId } from "./lib/agent-readiness";
+import type { SessionDraft } from "./lib/composer-controls";
+import { composerStateFor } from "./lib/composer-state";
+import { NO_CHOICES, type AcpChoices, type AgentOptions } from "./lib/acp-draft";
+import type { AgentProfile, ChatMessage, Session, Settings, SpawnOptions } from "./types";
+import { DEFAULT_PERMISSION_MODE, TRANSPORT_ACP } from "./types";
+
+const NO_WORKSPACE_PLACEHOLDER = "Open a folder and install an agent to start";
+const NEW_SESSION_PLACEHOLDER = "Message the agent to start a new session...";
+const RESUME_PLACEHOLDER = "Message the agent to continue this session...";
+const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
+const NO_AGENT_NOTICE =
+  "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
+
+/** An agent waiting for the user to sign in, and how far that got. */
+interface AuthRequest {
+  profileId: string;
+  cwd: string;
+  methods: AuthMethod[];
+  status: AuthStatus;
+  error?: string;
+}
+
+const EMPTY_DRAFT: SessionDraft = { permissionMode: DEFAULT_PERMISSION_MODE };
+
+function spawnOptionsFor(agent: AgentProfile, draft: SessionDraft): SpawnOptions {
+  return {
+    model: draft.model,
+    effort: draft.effort,
+    permissionMode: draft.permissionMode,
+    // Agents with a session-id flag get an id we choose, so they can be forked natively later.
+    agentSessionId: agent.session_id_arg ? crypto.randomUUID() : undefined,
+  };
+}
+
+const isAcp = (session: Session | undefined) => session?.transport === TRANSPORT_ACP;
+
+/** A session title from a message, or from its first file when it has no text. */
+function titleFor({ text, attachments }: FirstMessage): string {
+  return titleFromPrompt(text || fileNameOf(attachments?.[0] ?? ""));
+}
 
 export default function App() {
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-
-  // Real workspaces discovered from disk on mount; `activeWorkspace` holds the
-  // selected name and its `path` is the spawn cwd.
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeWorkspace, setActiveWorkspace] = useState<string>("");
-  const activeWorkspacePath = workspaces.find((ws) => ws.name === activeWorkspace)?.path;
-
-  // Transient error surfaced to the user instead of being swallowed.
   const [notice, setNotice] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState("");
+  const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
+  const [acpChoices, setAcpChoices] = useState<AcpChoices>(NO_CHOICES);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isFilesOpen, setIsFilesOpen] = useState(false);
+  const composerRef = useRef<ComposerHandle>(null);
+  const [ptyOutput] = useState(createPtyOutputStore);
+  const [authRequest, setAuthRequest] = useState<AuthRequest | null>(null);
 
-  // Default mock sessions
-  const [sessions, setSessions] = useState<Session[]>([
-    {
-      id: "s-1",
-      name: "New session (fork)",
-      profileId: "claude-code",
-      cwd: "/Users/mac/ai-perpetual-trading",
-      status: "running",
-      model: "claude-sonnet-5-5",
-      effort: "High",
-      permissionMode: "bypass",
-      createdAt: Date.now() - 3600000,
+  const reportError = useCallback((message: string) => setNotice(message), []);
+  const { state, isLoaded, updateState } = usePersistedState(reportError);
+  const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
+  const { agents, refresh: refreshAgents } = useAgentProfiles(reportError);
+  const suggestedFolders = useSuggestedFolders();
+  const userProfile = useUserProfile();
+  const navigation = useNavigationHistory();
+  const {
+    workspaces,
+    activeWorkspace,
+    activeWorkspacePath,
+    selectWorkspace,
+    rememberFolder,
+    openFolder,
+    removeFolder,
+  } = useWorkspaceSelection(state, isLoaded, updateState, reportError);
+
+  const sessions = state.sessions;
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
+  const isActiveRunning = activeSession?.status === "running";
+  const newSessionAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId);
+  const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
+
+  // An ended ACP session continues where it left off with its own agent.
+  const isResumable =
+    isAcp(activeSession) &&
+    activeSession?.status !== "running" &&
+    Boolean(activeSession?.acpSessionId) &&
+    activeAgent?.detected === true;
+  const draftAgent = isResumable ? activeAgent : newSessionAgent;
+
+  // A model or effort chosen for one agent means nothing to another one.
+  useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
+  useEffect(() => setAcpChoices(NO_CHOICES), [draftAgent?.id]);
+
+  // Once saved sessions are loaded, show the most recent one.
+  useEffect(() => {
+    if (isLoaded) setActiveSessionId((current) => current || mostRecentSessionId(state.sessions));
+    // Only on the load transition; later session changes must not move the selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded]);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    ensureLoaded(activeSessionId);
+    navigation.visit(activeSessionId);
+  }, [activeSessionId, ensureLoaded, navigation.visit]);
+
+  const patchSession = useCallback(
+    (sessionId: string, patch: Partial<Session>) =>
+      updateState((prev) => patchSessionIn(prev, sessionId, patch)),
+    [updateState],
+  );
+
+  const rememberAgentOptions = (profileId: string, options: Partial<AgentOptions>) =>
+    updateState((prev) => {
+      const known = prev.agentOptions?.[profileId] ?? { modes: null, configOptions: [] };
+      return { ...prev, agentOptions: { ...prev.agentOptions, [profileId]: { ...known, ...options } } };
+    });
+
+  const engineDeps = { sessions, agents, updateMessages, patchSession, reportError };
+  const pty = usePtyEngine({ ...engineDeps, output: ptyOutput });
+  const acp = useAcpEngine({
+    ...engineDeps,
+    rememberOptions: rememberAgentOptions,
+    onAuthRequired: (profileId, cwd, methods, unsent) => {
+      setAuthRequest({ profileId, cwd, methods, status: "idle" });
+      if (unsent) composerRef.current?.restore(unsent.text, unsent.attachments);
     },
-    {
-      id: "s-2",
-      name: "Market analyzer refactor",
-      profileId: "omp",
-      cwd: "/Users/mac/titan-investment",
-      status: "idle",
-      model: "gemini-3.8-flash-tiered",
-      effort: "High",
-      permissionMode: "ask",
-      createdAt: Date.now() - 7200000,
-    },
-    {
-      id: "s-3",
-      name: "Claude Code Session #1",
-      profileId: "claude-code",
-      cwd: "/Users/mac/agent-desktop",
-      status: "idle",
-      model: "claude-opus-5-5",
-      effort: "Medium",
-      permissionMode: "bypass",
-      createdAt: Date.now() - 10800000,
-    },
-  ]);
-  const [activeSessionId, setActiveSessionId] = useState<string>("s-1");
-
-  // Mock messages per session for rich chat canvas display
-  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({
-    "s-1": [
-      {
-        id: "m-1",
-        role: "user",
-        content: "Please inspect the codebase structure and check if any build scripts require permission.",
-        timestamp: Date.now() - 3600000,
-      },
-      {
-        id: "m-2",
-        role: "agent",
-        content: `# Codebase Inspection Summary
-
-I reviewed the project layout. Here is the operational workflow:
-
-1. **Backend PTY engine**: Uses \`portable-pty\` to manage asynchronous stream IO.
-2. **Environment resolution**: Spawns user login shell to load authentic paths.
-3. **Frontend replication**: Recreates Claude Code Desktop with dark aesthetics and Action Cards.
-
-To verify the test suite, please run:
-
-\`\`\`bash
-pnpm test
-\`\`\`
-
-Would you like me to execute this action?`,
-        timestamp: Date.now() - 3500000,
-        tools: [
-          {
-            id: "t-1",
-            name: "Glob",
-            args: 'pattern: "src/**/*.ts*"',
-            status: "completed",
-          },
-          {
-            id: "t-2",
-            name: "Bash",
-            args: "cargo test --workspace",
-            status: "completed",
-          },
-        ],
-        actionCard: {
-          id: "act-1",
-          sessionId: "s-1",
-          title: "⚠️ Agent Action Approval Required",
-          prompt: "Execute `pnpm test` across the workspace?",
-          commandSnippet: "pnpm test",
-          toolName: "Bash",
-          status: "pending",
-          approvalKey: "y\n",
-          rejectKey: "n\n",
-          timestamp: Date.now() - 3400000,
-        },
-      },
-    ],
   });
 
-  // Detected agent profiles
-  const [agents, setAgents] = useState<AgentProfile[]>([
-    {
-      id: "claude-code",
-      name: "Claude Code",
-      command: "claude",
-      detected: true,
-      detected_path: "/opt/homebrew/bin/claude",
-      models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"],
-      effort_levels: ["Low", "Medium", "High"],
-    },
-    {
-      id: "omp",
-      name: "Oh-My-Pi",
-      command: "omp",
-      detected: true,
-      detected_path: "/usr/local/bin/omp",
-      models: ["gemini-3.8-flash-tiered"],
-      effort_levels: ["Low", "High"],
-    },
-    {
-      id: "aider",
-      name: "Aider",
-      command: "aider",
-      detected: false,
-      models: ["gpt-5"],
-      effort_levels: [],
-    },
-  ]);
-
-  // Map of StreamParser per session
-  const parsersRef = useRef<Map<string, StreamParser>>(new Map());
-
-  const getOrCreateParser = (sessionId: string, profile?: AgentProfile): StreamParser => {
-    let parser = parsersRef.current.get(sessionId);
-    if (!parser) {
-      parser = new StreamParser({
-        approvalPattern: profile?.approval_pattern ?? undefined,
-      });
-      parsersRef.current.set(sessionId, parser);
-    }
-    return parser;
+  /** Signs in in the agent itself (e.g. it opens a browser); the user then sends again. */
+  const handleSignIn = (methodId: string) => {
+    if (!authRequest) return;
+    const { profileId, cwd } = authRequest;
+    setAuthRequest({ ...authRequest, status: "signing-in", error: undefined });
+    invoke("acp_authenticate", { profileId, cwd, methodId })
+      .then(() => setAuthRequest((prev) => prev && { ...prev, status: "signed-in" }))
+      .catch((error) => setAuthRequest((prev) => prev && { ...prev, status: "failed", error: String(error) }));
   };
 
-  // Discover installed agent profiles on mount
-  useEffect(() => {
-    invoke<AgentProfile[]>("get_agent_profiles")
-      .then((profiles) => {
-        if (profiles && Array.isArray(profiles) && profiles.length > 0) {
-          setAgents(profiles);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
+  const isSessionBusy = (sessionId: string) =>
+    isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) : pty.isBusy(sessionId);
 
-  // Discover real project folders on mount. The backend refuses to spawn into a
-  // cwd that is not an existing directory, so the UI must only ever offer paths
-  // it read from disk.
-  useEffect(() => {
-    invoke<Workspace[]>("list_workspaces")
-      .then((discovered) => {
-        const found = Array.isArray(discovered) ? discovered : [];
-        setWorkspaces(found);
-        if (found.length > 0) {
-          setActiveWorkspace(found[0].name);
-        }
-      })
-      .catch((error) => {
-        setNotice(`Failed to load workspaces: ${String(error)}`);
-      });
-  }, []);
+  interface SessionSpec {
+    id?: string;
+    agent: AgentProfile;
+    cwd: string;
+    name: string;
+    /** Terminal agents only: the CLI flags to start with. */
+    options?: SpawnOptions;
+    forkedFrom?: string;
+    initialMessages?: ChatMessage[];
+  }
 
-  // Listen to Tauri PTY output events and feed into session parser
-  useEffect(() => {
-    let unlistenOutput: UnlistenFn | null = null;
-    let isCancelled = false;
-
-    listen<PtyOutputPayload>("pty-output", (event) => {
-      const payload = event.payload;
-      if (!payload?.session_id || !payload?.data) return;
-
-      const sid = payload.session_id;
-      const targetSession = sessions.find((s) => s.id === sid);
-      const targetProfile = agents.find((a) => a.id === targetSession?.profileId);
-      const parser = getOrCreateParser(sid, targetProfile);
-      const parsedEvents = parser.feed(payload.data);
-
-      if (parsedEvents.length === 0) return;
-
-      setMessages((prev) => ({
-        ...prev,
-        [sid]: applyParsedEvents(prev[sid] ?? [], parsedEvents, {
-          sessionId: sid,
-          profile: targetProfile,
-          now: Date.now(),
-          createId: (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        }),
-      }));
-    })
-      .then((unlisten) => {
-        if (isCancelled) {
-          unlisten();
-        } else {
-          unlistenOutput = unlisten;
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      isCancelled = true;
-      if (unlistenOutput) {
-        unlistenOutput();
-      }
+  /** Records a new session and shows it; the agent is started by its engine. */
+  const recordSession = ({ id, agent, cwd, name, options, forkedFrom, initialMessages }: SessionSpec): Session => {
+    const session: Session = {
+      id: id ?? createId("s"),
+      name,
+      profileId: agent.id,
+      cwd,
+      status: "running",
+      createdAt: Date.now(),
+      model: options?.model,
+      effort: options?.effort,
+      permissionMode: options?.permissionMode,
+      agentSessionId: options?.agentSessionId ?? null,
+      forkedFrom: forkedFrom ?? null,
+      transport: agent.transport,
     };
-  }, [agents, sessions]);
+    updateState((prev) => ({ ...prev, sessions: [session, ...prev.sessions] }));
+    if (initialMessages) updateMessages(session.id, () => initialMessages);
+    setActiveSessionId(session.id);
+    return session;
+  };
 
-  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
-  const activeAgent = agents.find((a) => a.id === activeSession?.profileId) ?? agents[0];
+  /** A terminal agent gets only the text: its files are already typed into it. */
+  const startSession = (spec: SessionSpec, first?: FirstMessage) => {
+    const session = recordSession(spec);
+    if (isAcp(session)) void acp.start(session, first, acpChoices);
+    else pty.start(session, spec.options ?? spawnOptionsFor(spec.agent, draft), first?.text);
+  };
 
-  const handleNewSession = () => {
-    // The backend rejects relative and missing cwds, so never spawn without a
-    // resolved path — tell the user why the button did nothing instead.
-    if (!activeWorkspacePath) {
-      setNotice(
-        "No workspace folder found. Add a project folder under ~/developer and restart the app."
-      );
+  const handleNewSession = (first?: FirstMessage) => {
+    // The backend rejects relative and missing cwds, so never spawn without a path.
+    if (!activeWorkspace || !activeWorkspacePath) {
+      setNotice(NO_FOLDER_NOTICE);
+      return;
+    }
+    if (!newSessionAgent) {
+      setNotice(NO_AGENT_NOTICE);
+      return;
+    }
+    rememberFolder(activeWorkspace);
+    startSession(
+      {
+        agent: newSessionAgent,
+        cwd: activeWorkspacePath,
+        name: first ? titleFor(first) : nextSessionName(sessions),
+      },
+      first,
+    );
+  };
+
+  /**
+   * Forks the active session at `messageId`. From the latest message, an ACP
+   * agent that supports it forks its own live session, and Claude Code in a
+   * terminal resumes and forks its session natively. Otherwise the
+   * conversation is written to a handoff file and the new agent is asked, in
+   * one line, to read it.
+   */
+  const handleFork = async (messageId: string) => {
+    const source = activeSession;
+    const agent = agents.find((a) => a.id === source?.profileId);
+    if (!source || !agent?.detected) {
+      setNotice("The agent for this session is not installed, so it cannot be forked.");
+      return;
+    }
+    const messages = transcripts[source.id] ?? [];
+    const index = messages.findIndex((m) => m.id === messageId);
+    if (index < 0) return;
+
+    const isLatest = index === messages.length - 1;
+    const baseOptions: SessionDraft = {
+      model: source.model,
+      effort: source.effort,
+      permissionMode: source.permissionMode ?? DEFAULT_PERMISSION_MODE,
+    };
+    const spec: SessionSpec = {
+      id: createId("s"),
+      agent,
+      cwd: source.cwd,
+      name: `${source.name} (fork)`,
+      forkedFrom: source.id,
+      initialMessages: messages.slice(0, index + 1),
+    };
+    // A native fork needs the source agent alive; after it exited, fall back to a handoff.
+    if (isAcp(source) && source.status === "running" && isLatest && acp.canFork(source.id)) {
+      void acp.fork(source.id, recordSession(spec));
+      return;
+    }
+    if (!isAcp(source) && agent.fork_support === "native" && isLatest && source.agentSessionId) {
+      startSession({ ...spec, options: { ...baseOptions, forkFromAgentSessionId: source.agentSessionId } });
       return;
     }
 
-    const newSessionId = `s-${Date.now()}`;
-    const agentToSpawn = activeAgent ?? agents[0];
-    const newSession: Session = {
-      id: newSessionId,
-      name: `Session #${sessions.length + 1}`,
-      profileId: agentToSpawn?.id || "claude-code",
-      cwd: activeWorkspacePath,
-      status: "running",
-      createdAt: Date.now(),
-    };
-    setSessions((prev) => [newSession, ...prev]);
-    setActiveSessionId(newSessionId);
-
-    // Call spawn_session on Tauri backend
-    if (agentToSpawn && agentToSpawn.command) {
-      invoke("spawn_session", {
-        sessionId: newSessionId,
-        cwd: activeWorkspacePath,
-        command: agentToSpawn.command,
-        args: [],
-      }).catch((error) => {
-        // The PTY never came up, so the session cannot be "running" forever.
-        setSessions((prev) =>
-          prev.map((s) =>
-            s.id === newSessionId ? { ...s, status: "terminated" as const } : s
-          )
-        );
-        setNotice(`Failed to start ${agentToSpawn.name}: ${String(error)}`);
+    try {
+      const content = buildForkHandoff(messages, messageId, {
+        sourceSessionName: source.name,
+        agentName: agent.name,
+        cwd: source.cwd,
+        createdAt: Date.now(),
       });
+      const handoffPath = await invoke<string>("write_fork_handoff", { handoffId: spec.id, content });
+      startSession({ ...spec, options: spawnOptionsFor(agent, baseOptions) }, { text: buildForkPrompt(handoffPath) });
+    } catch (error) {
+      setNotice(`Could not fork the session: ${String(error)}`);
     }
   };
 
   const handleSelectSession = (sessionId: string) => {
     setActiveSessionId(sessionId);
-    const selected = sessions.find((s) => s.id === sessionId);
-    if (selected) {
-      // If session belongs to known workspace, switch workspace too
-      const matchingWs = workspaces.find((ws) => ws.path === selected.cwd);
-      if (matchingWs) {
-        setActiveWorkspace(matchingWs.name);
-      }
+    const selected = sessionById(sessionId);
+    if (selected && workspaces.some((ws) => ws.path === selected.cwd)) selectWorkspace(selected.cwd);
+  };
+
+  const navigateTo = (sessionId: string | null) => {
+    if (sessionId) handleSelectSession(sessionId);
+  };
+
+  const handleRevealFolder = () => {
+    if (!activeWorkspacePath) return;
+    invoke("reveal_in_finder", { path: activeWorkspacePath }).catch((error) => {
+      setNotice(`Could not open the folder: ${String(error)}`);
+    });
+  };
+
+  const handlePopout = () => {
+    if (!activeSession) return;
+    invoke("open_session_window", { sessionId: activeSession.id }).catch((error) => {
+      setNotice(`Could not open a new window: ${String(error)}`);
+    });
+  };
+
+  const updateSettings = (patch: Partial<Settings>) =>
+    updateState((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }));
+
+  const handleOnboardingComplete = ({ defaultAgentId, folder }: OnboardingResult) => {
+    updateSettings({ onboardingCompleted: true, defaultAgentId });
+    rememberFolder(folder);
+  };
+
+  const handleRunOnboarding = () => {
+    setIsSettingsOpen(false);
+    updateSettings({ onboardingCompleted: false });
+  };
+
+  /** Stops the agent's current turn; the session stays open for the next message. */
+  const handleInterrupt = (sessionId: string) => {
+    if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
+    else pty.interrupt(sessionId);
+  };
+
+  const handleDeleteSession = (sessionId: string) => {
+    const session = sessionById(sessionId);
+    if (session?.status === "running") {
+      if (isAcp(session)) acp.stop(sessionId);
+      else pty.stop(sessionId);
+    }
+    pty.forget(sessionId);
+    navigation.remove(sessionId);
+    updateState((prev) => removeSessionFrom(prev, sessionId));
+    removeTranscript(sessionId);
+    if (sessionId === activeSessionId) {
+      setActiveSessionId(mostRecentSessionId(sessions.filter((s) => s.id !== sessionId)));
     }
   };
 
-  const handleSelectWorkspace = (workspace: string) => {
-    setActiveWorkspace(workspace);
+  const sendTo = async (sessionId: string, message: FirstMessage) => {
+    const session = sessionById(sessionId);
+    // A numbered session takes its title from the first thing the user asks.
+    const isFirstMessage = !(transcripts[sessionId]?.some((m) => m.role === "user") ?? false);
+    const sent = await (isAcp(session)
+      ? acp.send(sessionId, message.text, message.attachments)
+      : pty.send(sessionId, message.text));
+    if (sent && session && isFirstMessage && isAutoName(session.name)) {
+      patchSession(sessionId, { name: titleFor(message) });
+    }
   };
 
-  const handleToggleTerminal = () => {
-    setIsTerminalOpen((prev) => !prev);
+  /** Continues an ended ACP session: a fresh agent process loads it, then gets the message. */
+  const resumeSession = (session: Session, message: FirstMessage) => {
+    if (!session.acpSessionId) return;
+    patchSession(session.id, { status: "running", endedAt: null, exitCode: null });
+    void acp.resume(session, session.acpSessionId, message, acpChoices);
   };
 
-  /**
-   * Raw PTY input forwarding: dispatches keystrokes/data straight to backend PTY via Tauri send_input.
-   */
-  const handleSendPtyInput = (input: string) => {
-    invoke("send_input", { sessionId: activeSessionId, data: input }).catch((error) => {
-      setNotice(`Failed to send input: ${String(error)}`);
-    });
+  /** Sends to the active session, continues it when it can be resumed, or starts a new one. */
+  const handleSendMessage = (text: string, attachments?: string[]) => {
+    const message = { text, attachments };
+    if (activeSession && isActiveRunning) void sendTo(activeSession.id, message);
+    else if (activeSession && isResumable) resumeSession(activeSession, message);
+    else handleNewSession(message);
   };
 
-  /**
-   * Action Card approval handling: updates message status and forwards only the approval key to PTY.
-   */
-  const handleActionApprove = (key: string, cardId?: string) => {
-    setMessages((prev) => {
-      const sessionMsgs = prev[activeSessionId] ?? [];
-      const updated = sessionMsgs.map((msg) => {
-        if (!msg.actionCard) return msg;
-        if (cardId && msg.actionCard.id !== cardId) return msg;
-        return {
-          ...msg,
-          actionCard: {
-            ...msg.actionCard,
-            status: "approved" as const,
-          },
-        };
-      });
-      return {
-        ...prev,
-        [activeSessionId]: updated,
-      };
-    });
+  const chooseOption = (sessionId: string, cardId: string, optionId: string) =>
+    acp.chooseOption(sessionId, transcripts[sessionId], cardId, optionId);
 
-    handleSendPtyInput(key);
-  };
+  usePopoutHost({
+    sessions,
+    transcripts,
+    ensureLoaded,
+    onAction: (sessionId: string, action: PopoutAction) => {
+      if (action.kind === "send") void sendTo(sessionId, { text: action.text });
+      else if (action.kind === "choose-option") chooseOption(sessionId, action.cardId, action.optionId);
+      else pty.resolveCard(sessionId, action.key, action.cardId, action.status);
+    },
+  });
 
-  const handleActionReject = (key: string, cardId?: string) => {
-    setMessages((prev) => {
-      const sessionMsgs = prev[activeSessionId] ?? [];
-      const updated = sessionMsgs.map((msg) => {
-        if (!msg.actionCard) return msg;
-        if (cardId && msg.actionCard.id !== cardId) return msg;
-        return {
-          ...msg,
-          actionCard: {
-            ...msg.actionCard,
-            status: "rejected" as const,
-          },
-        };
-      });
-      return {
-        ...prev,
-        [activeSessionId]: updated,
-      };
-    });
+  const currentMessages = transcripts[activeSessionId] ?? [];
+  const canStartSession = Boolean(activeWorkspacePath && newSessionAgent);
+  const composer = composerStateFor({
+    session: activeSession,
+    sessionAgent: activeAgent,
+    draftAgent,
+    draft,
+    setDraft,
+    acpChoices,
+    setAcpChoices,
+    agentOptions: state.agentOptions,
+    acp,
+  });
+  const isActiveTerminal = isActiveRunning && !isAcp(activeSession);
+  // A terminal agent shows its real screen: live, or the last one while it is still in memory.
+  const showsTerminal =
+    Boolean(activeSession) && !isAcp(activeSession) && (isActiveRunning || ptyOutput.has(activeSessionId));
+  // A live ACP session's own commands; before it runs, the ones its agent offered last time.
+  const composerCommands = isActiveRunning
+    ? isAcp(activeSession)
+      ? acp.info[activeSessionId]?.commands
+      : undefined
+    : draftAgent?.transport === TRANSPORT_ACP
+      ? state.agentOptions?.[draftAgent.id]?.commands
+      : undefined;
 
-    handleSendPtyInput(key);
-  };
-
-  const handleSendMessage = (messageText: string) => {
-    const newMessage: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      role: "user",
-      content: messageText,
-      timestamp: Date.now(),
-    };
-
-    setMessages((prev) => ({
-      ...prev,
-      [activeSessionId]: [...(prev[activeSessionId] ?? []), newMessage],
-    }));
-
-    // Forwards input directly to backend PTY send_input
-    handleSendPtyInput(`${messageText}\n`);
-  };
-
-  const handleModelChange = (newModel: string) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === activeSessionId ? { ...s, model: newModel } : s))
+  if (isLoaded && !state.settings.onboardingCompleted) {
+    return (
+      <Onboarding
+        agents={agents}
+        recentFolders={workspaces}
+        suggestedFolders={suggestedFolders}
+        onRecheckAgents={refreshAgents}
+        onPickFolder={openFolder}
+        onComplete={handleOnboardingComplete}
+      />
     );
-  };
-
-  const handleEffortChange = (newEffort: string) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === activeSessionId ? { ...s, effort: newEffort } : s))
-    );
-  };
-
-  const handlePermissionModeChange = (newMode: PermissionMode) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === activeSessionId ? { ...s, permissionMode: newMode } : s))
-    );
-  };
-
-  const currentMessages = messages[activeSessionId] ?? [];
+  }
 
   return (
     <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
-      {/* Top Bar Window Bar */}
       <TopBar
-        sessionName={activeSession?.name ?? "Claude Code Session #1"}
-        workspaceName={activeWorkspace}
-        isTerminalOpen={isTerminalOpen}
-        onToggleTerminal={handleToggleTerminal}
+        sessionName={activeSession?.name}
+        workspaceName={activeWorkspace?.name}
+        canGoBack={navigation.canGoBack}
+        canGoForward={navigation.canGoForward}
+        onBack={() => navigateTo(navigation.back())}
+        onForward={() => navigateTo(navigation.forward())}
+        onToggleFiles={activeWorkspacePath ? () => setIsFilesOpen((prev) => !prev) : undefined}
+        isFilesOpen={isFilesOpen && Boolean(activeWorkspacePath)}
+        onPopout={activeSession ? handlePopout : undefined}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      {/* Main Workspace Body */}
       <section className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar */}
         <Sidebar
-          workspaces={workspaces.map((ws) => ws.name)}
-          activeWorkspace={activeWorkspace}
+          workspaces={workspaces}
+          activeWorkspacePath={activeWorkspacePath}
           sessions={sessions}
           activeSessionId={activeSessionId}
           agents={agents}
-          onNewSession={handleNewSession}
+          onNewSession={() => handleNewSession()}
           onSelectSession={handleSelectSession}
-          onSelectWorkspace={handleSelectWorkspace}
+          onSelectWorkspace={selectWorkspace}
+          onOpenFolder={() => void openFolder()}
+          isSessionBusy={isSessionBusy}
+          onStopSession={handleInterrupt}
+          onDeleteSession={handleDeleteSession}
+          footer={
+            <ProfileFooter
+              name={userProfile.name}
+              email={userProfile.email}
+              version={userProfile.version}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+            />
+          }
         />
 
-        {/* Chat / Canvas Area */}
         <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
-          {notice && (
-            <div
-              role="alert"
-              className="border-rose-800/60 bg-rose-950/40 text-rose-200 text-xs rounded-lg px-3 py-2 mx-6 mt-3 flex justify-between items-center"
-            >
-              <span className="break-words">{notice}</span>
-              <button
-                type="button"
-                onClick={() => setNotice(null)}
-                aria-label="Dismiss notice"
-                className="shrink-0 ml-3 rounded p-0.5 text-rose-300 hover:text-rose-100 focus:outline-none focus:ring-1 focus:ring-rose-700"
-              >
-                <X size={13} />
-              </button>
-            </div>
+          {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
+          {authRequest && (
+            <AuthPanel
+              agentName={agents.find((a) => a.id === authRequest.profileId)?.name ?? authRequest.profileId}
+              methods={authRequest.methods}
+              status={authRequest.status}
+              error={authRequest.error}
+              onSignIn={handleSignIn}
+              onDismiss={() => setAuthRequest(null)}
+            />
           )}
-          {currentMessages.length > 0 ? (
+          {showsTerminal ? (
+            <TerminalView
+              sessionId={activeSessionId}
+              output={ptyOutput}
+              isLive={isActiveTerminal}
+              onInput={(data) => void pty.sendRaw(activeSessionId, data)}
+              onResize={(cols, rows) => pty.resize(activeSessionId, cols, rows)}
+            />
+          ) : activeSession && currentMessages.length > 0 ? (
             <ChatCanvas
               messages={currentMessages}
-              onSendPtyInput={handleSendPtyInput}
-              onApproveAction={handleActionApprove}
-              onRejectAction={handleActionReject}
+              agentName={activeAgent?.name}
+              onForkBranch={(messageId) => void handleFork(messageId)}
+              onSendPtyInput={(input) => void pty.sendRaw(activeSessionId, input)}
+              onApproveAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "approved")}
+              onRejectAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "rejected")}
+              onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
             />
           ) : (
-            <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center text-center">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-neutral-900 border border-neutral-800 text-amber-500">
-                <Sparkles size={24} />
-              </div>
-              <h1 className="text-xl font-medium text-neutral-100">Agent Desktop GUI</h1>
-              <p className="mt-1 max-w-sm text-sm text-neutral-400">
-                Generic terminal coding agent wrapper with authentic shell environment and interactive action cards.
-              </p>
-            </div>
+            <EmptySessionState />
           )}
 
-          {/* Floating Composer Dock */}
-          <div className="p-4 flex justify-center">
+          {/* A live terminal agent takes input in its own screen. */}
+          <div className={isActiveTerminal ? "hidden" : "p-4 flex justify-center"}>
             <ComposerDock
-              activeAgent={activeAgent}
-              selectedModel={activeSession?.model}
-              selectedEffort={activeSession?.effort}
-              permissionMode={activeSession?.permissionMode ?? "bypass"}
-              isThinking={activeSession?.status === "running"}
-              bannerMessage="Approaching weekly usage limit • Resets Fri, Oct 16, 5:00 AM"
+              controls={composer.controls}
+              optionsLocked={composer.locked}
+              isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
+              onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
+              disabled={!isActiveRunning && !isResumable && !canStartSession}
+              placeholder={
+                isActiveRunning
+                  ? undefined
+                  : isResumable
+                    ? RESUME_PLACEHOLDER
+                    : canStartSession
+                      ? NEW_SESSION_PLACEHOLDER
+                      : NO_WORKSPACE_PLACEHOLDER
+              }
               onSendMessage={handleSendMessage}
-              onModelChange={handleModelChange}
-              onEffortChange={handleEffortChange}
-              onPermissionModeChange={handlePermissionModeChange}
+              attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}
+              onAttach={pickFiles}
+              handleRef={composerRef}
+              commands={composerCommands}
             />
           </div>
 
-          {/* Collapsible Raw Terminal Drawer */}
-          <TerminalDrawer
-            isOpen={isTerminalOpen}
-            sessionId={activeSessionId}
-            sessionName={activeSession?.name}
-            pid={activeSession?.pid}
-            onClose={() => setIsTerminalOpen(false)}
-            onSendInput={handleSendPtyInput}
-          />
         </article>
+        {isFilesOpen && activeWorkspace && activeWorkspacePath && (
+          <FilesPanel
+            key={activeWorkspacePath}
+            rootPath={activeWorkspacePath}
+            rootName={activeWorkspace.name}
+            onClose={() => setIsFilesOpen(false)}
+            onInsertPath={(path) => composerRef.current?.insertPaths([path])}
+            onRevealRoot={handleRevealFolder}
+          />
+        )}
       </section>
+      {isSettingsOpen && (
+        <SettingsPanel
+          agents={agents}
+          defaultAgentId={state.settings.defaultAgentId}
+          recentFolders={workspaces}
+          onChangeDefaultAgent={(defaultAgentId) => updateSettings({ defaultAgentId })}
+          onRemoveRecentFolder={removeFolder}
+          onRunOnboarding={handleRunOnboarding}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
     </main>
   );
 }

@@ -34,7 +34,7 @@ struct SessionHandle {
 ///
 /// `portable-pty` silently falls back to `$HOME` when the requested cwd is not a
 /// directory, which would start the agent in the wrong project without any error.
-fn validate_cwd(cwd: &str) -> Result<(), String> {
+pub(crate) fn validate_cwd(cwd: &str) -> Result<(), String> {
     let path = Path::new(cwd);
     if !path.is_absolute() {
         return Err(format!("Working directory must be an absolute path, got '{}'", cwd));
@@ -74,6 +74,9 @@ impl PtySessionManager {
     /// Spawns `command` with `args` in `cwd`, inheriting the user's authentic shell environment
     /// via `crate::env_resolver::cached_user_env()`.
     ///
+    /// `extra_env` is applied after the user environment and before `TERM`, so a
+    /// spawn plan can override an inherited value while `TERM` stays fixed.
+    ///
     /// A background thread is spawned to read output chunks and dispatch `PtyEvent::Output`.
     /// When the process terminates or output closes, `PtyEvent::Exit` is dispatched.
     pub fn start_session(
@@ -82,6 +85,7 @@ impl PtySessionManager {
         cwd: &str,
         command: &str,
         args: &[String],
+        extra_env: &[(String, String)],
     ) -> Result<(), String> {
         validate_cwd(cwd)?;
 
@@ -105,6 +109,11 @@ impl PtySessionManager {
             for (k, v) in env_vars {
                 cmd.env(k, v);
             }
+        }
+
+        // Plan-derived variables win over the inherited environment.
+        for (k, v) in extra_env {
+            cmd.env(k, v);
         }
 
         // Set TERM if not already specified
