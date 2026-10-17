@@ -37,10 +37,16 @@ struct SessionHandle {
 pub(crate) fn validate_cwd(cwd: &str) -> Result<(), String> {
     let path = Path::new(cwd);
     if !path.is_absolute() {
-        return Err(format!("Working directory must be an absolute path, got '{}'", cwd));
+        return Err(format!(
+            "Working directory must be an absolute path, got '{}'",
+            cwd
+        ));
     }
     if !path.is_dir() {
-        return Err(format!("Working directory '{}' is not an existing directory", cwd));
+        return Err(format!(
+            "Working directory '{}' is not an existing directory",
+            cwd
+        ));
     }
     Ok(())
 }
@@ -203,20 +209,21 @@ impl PtySessionManager {
                         }
                         Ok(n) => {
                             let total = leftover_len + n;
-                            let (valid_bytes, remaining_bytes) = match std::str::from_utf8(&buf[..total]) {
-                                Ok(_) => (total, 0),
-                                Err(e) => {
-                                    let valid_up_to = e.valid_up_to();
-                                    if e.error_len().is_none() {
-                                        // Incomplete UTF-8 sequence at the end of the buffer
-                                        let rem = total - valid_up_to;
-                                        (valid_up_to, rem)
-                                    } else {
-                                        // Invalid byte sequence encountered; flush whole buffer lossily
-                                        (total, 0)
+                            let (valid_bytes, remaining_bytes) =
+                                match std::str::from_utf8(&buf[..total]) {
+                                    Ok(_) => (total, 0),
+                                    Err(e) => {
+                                        let valid_up_to = e.valid_up_to();
+                                        if e.error_len().is_none() {
+                                            // Incomplete UTF-8 sequence at the end of the buffer
+                                            let rem = total - valid_up_to;
+                                            (valid_up_to, rem)
+                                        } else {
+                                            // Invalid byte sequence encountered; flush whole buffer lossily
+                                            (total, 0)
+                                        }
                                     }
-                                }
-                            };
+                                };
 
                             if valid_bytes > 0 {
                                 let text = String::from_utf8_lossy(&buf[..valid_bytes]).to_string();
@@ -333,7 +340,9 @@ impl PtySessionManager {
             .lock()
             .map(|sessions| sessions.keys().cloned().collect())
             .unwrap_or_default();
-        ids.iter().filter(|id| self.kill_session(id).is_ok()).count()
+        ids.iter()
+            .filter(|id| self.kill_session(id).is_ok())
+            .count()
     }
 
     /// Kills the running child process and cleans up the session.

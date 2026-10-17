@@ -69,6 +69,11 @@ export function folderNameOf(path: string): string {
 
 const newestFirst = (a: Session, b: Session) => b.createdAt - a.createdAt;
 
+/** The workspace a session belongs to: the one its worktree was made from, or its folder. */
+export function workspacePathOf(session: Session): string {
+  return session.worktree?.repoPath ?? session.cwd;
+}
+
 /** One folder's sessions as a tree: a fork sits under its source when that is in the same folder. */
 function forkTree(sessions: readonly Session[]): SessionNode[] {
   const ids = new Set(sessions.map((s) => s.id));
@@ -110,10 +115,11 @@ export function groupSessionsByWorkspace(
   const byPath = new Map<string, Session[]>();
   const newestIn = new Map<string, number>();
   for (const session of sessions) {
-    const list = byPath.get(session.cwd);
+    const path = workspacePathOf(session);
+    const list = byPath.get(path);
     if (list) list.push(session);
-    else byPath.set(session.cwd, [session]);
-    newestIn.set(session.cwd, Math.max(newestIn.get(session.cwd) ?? -Infinity, session.createdAt));
+    else byPath.set(path, [session]);
+    newestIn.set(path, Math.max(newestIn.get(path) ?? -Infinity, session.createdAt));
   }
   const known = new Set(workspaces.map((ws) => ws.path));
   const others = [...byPath.keys()]

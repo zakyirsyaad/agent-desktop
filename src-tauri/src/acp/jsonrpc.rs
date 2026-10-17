@@ -18,7 +18,11 @@ pub enum Incoming {
         result: Result<Value, Value>,
     },
     /// The agent asks us to do something and waits for our response.
-    Request { id: Value, method: String, params: Value },
+    Request {
+        id: Value,
+        method: String,
+        params: Value,
+    },
     /// Fire-and-forget message from the agent, e.g. `session/update`.
     Notification { method: String, params: Value },
 }
@@ -59,7 +63,10 @@ pub fn parse_incoming(line: &str) -> Result<Incoming, String> {
         .ok_or_else(|| "Agent message is not a JSON object".to_string())?;
 
     let params = object.get("params").cloned().unwrap_or(Value::Null);
-    match (object.get("method").and_then(Value::as_str), object.get("id")) {
+    match (
+        object.get("method").and_then(Value::as_str),
+        object.get("id"),
+    ) {
         (Some(method), Some(id)) => Ok(Incoming::Request {
             id: id.clone(),
             method: method.to_string(),

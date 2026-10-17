@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { ChatMessage, PersistedState, Session } from '../types';
+import type { ChatMessage, PersistedState, Session, SessionWorktree } from '../types';
 import type { AgentOptions } from './acp-draft';
 import { toCommands, toConfigOptions, toModes } from '../hooks/useAcpSessions';
 
@@ -28,6 +28,22 @@ function isSession(value: unknown): value is Session {
     typeof value.status === 'string' &&
     typeof value.createdAt === 'number'
   );
+}
+
+function isWorktree(value: unknown): value is SessionWorktree {
+  return (
+    isObject(value) &&
+    typeof value.repoPath === 'string' &&
+    typeof value.path === 'string' &&
+    typeof value.branch === 'string'
+  );
+}
+
+/** A session with a malformed worktree keeps everything else. */
+function withValidWorktree(session: Session): Session {
+  if (session.worktree == null || isWorktree(session.worktree)) return session;
+  const { worktree: _dropped, ...rest } = session;
+  return rest;
 }
 
 function toAgentOptions(raw: unknown): Record<string, AgentOptions> {
@@ -67,7 +83,7 @@ export function normalizePersistedState(raw: unknown): PersistedState {
             isObject(f) && typeof f.name === 'string' && typeof f.path === 'string',
         )
       : [],
-    sessions: Array.isArray(raw.sessions) ? raw.sessions.filter(isSession) : [],
+    sessions: Array.isArray(raw.sessions) ? raw.sessions.filter(isSession).map(withValidWorktree) : [],
     agentOptions: toAgentOptions(raw.agentOptions),
   };
 }

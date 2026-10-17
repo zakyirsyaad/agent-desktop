@@ -10,6 +10,7 @@ pub mod store;
 pub mod user_profile;
 pub mod windows;
 pub mod workspaces;
+pub mod worktrees;
 
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -121,7 +122,10 @@ fn terminate_session(
 /// UI knows none of them and shows their sessions as ended, so they would
 /// only linger, holding sessions the UI may resume in a new process.
 #[tauri::command]
-fn end_orphaned_sessions(pty: State<'_, PtySessionManager>, acp: State<'_, acp::manager::AcpManager>) -> usize {
+fn end_orphaned_sessions(
+    pty: State<'_, PtySessionManager>,
+    acp: State<'_, acp::manager::AcpManager>,
+) -> usize {
     pty.kill_all() + acp.stop_all()
 }
 
@@ -274,6 +278,8 @@ pub fn run() {
             files::open_path,
             files::remember_workspace,
             git_info::workspace_details,
+            worktrees::create_session_worktree,
+            worktrees::remove_session_worktree,
             user_profile::get_user_profile,
             write_fork_handoff,
             acp::commands::acp_start_session,

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Search, Plus, FolderPlus, ChevronRight, Bot, Square, Trash2 } from "lucide-react";
+import { Search, Plus, FolderPlus, ChevronRight, Bot, GitBranch, Square, Trash2 } from "lucide-react";
 import type { AgentProfile, Session, Workspace } from "../types";
 import { NewSessionMenu } from "./sidebar/NewSessionMenu";
 import { groupSessionsByWorkspace, type SessionGroup, type SessionNode } from "../lib/session-helpers";
@@ -61,10 +61,15 @@ function SessionRow({ session, agentName, isActive, isBusy, isWaiting, onSelect,
       <button
         type="button"
         onClick={onSelect}
-        title={agentName ? `${session.name} · ${agentName}` : session.name}
+        title={[session.name, agentName, session.worktree?.branch].filter(Boolean).join(" · ")}
         className="flex-1 min-w-0 flex items-center justify-between px-2 py-1.5 text-left"
       >
-        <span className="truncate">{session.name}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          {session.worktree && (
+            <GitBranch size={11} aria-label="In its own worktree" className="shrink-0 text-amber-500/80" />
+          )}
+          <span className="truncate">{session.name}</span>
+        </span>
         {isWaiting ? (
           <span
             role="status"

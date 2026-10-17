@@ -158,6 +158,71 @@ describe("New session spawning", () => {
     expect(args.profileId).toBe("claude-code");
   });
 
+  it("runs a new session in its own worktree when Worktree is on", async () => {
+    const invokeSpy = stubInvoke({
+      create_session_worktree: () =>
+        Promise.resolve({
+          path: "/data/worktrees/ai-perpetual-trading/get-started",
+          cwd: "/data/worktrees/ai-perpetual-trading/get-started",
+          branch: "agent/get-started",
+        }),
+    });
+    await act(async () => {
+      render(<App />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("switch", { name: "Worktree" }));
+    });
+    await sendFirst();
+
+    const created = invokeSpy.mock.calls.find(([cmd]) => cmd === "create_session_worktree")?.[1];
+    expect(created).toEqual({ repoPath: "/Users/test/developer/ai-perpetual-trading", title: "get started" });
+    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { cwd: string };
+    expect(args.cwd).toBe("/data/worktrees/ai-perpetual-trading/get-started");
+    // The session is listed under the workspace it was made from.
+    const sessions = within(await screen.findByRole("list", { name: "Sessions in ai-perpetual-trading" }));
+    expect(sessions.getByTitle(/agent\/get-started/)).toBeDefined();
+  });
+
+  it("keeps the message and starts nothing when the worktree cannot be made", async () => {
+    const invokeSpy = stubInvoke({
+      create_session_worktree: () => Promise.reject("ai-perpetual-trading is not a git repository"),
+    });
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("switch", { name: "Worktree" }));
+    });
+
+    await sendFirst("fix the login");
+
+    expect(screen.getByRole("alert").textContent).toContain("not a git repository");
+    expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("fix the login");
+    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")).toBeUndefined();
+  });
+
+  it("offers Worktree only for a folder that is a git repository", async () => {
+    stubInvoke({ workspace_details: () => Promise.resolve({ location: "~/developer", branch: null }) });
+    await act(async () => {
+      render(<App />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+
+    expect(screen.getByRole("dialog", { name: "Choose a folder" })).toBeDefined();
+    expect(screen.queryByRole("switch", { name: "Worktree" })).toBeNull();
+  });
+
   it("spawns by agent profile and options, never by a raw command", async () => {
     const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
 

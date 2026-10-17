@@ -136,7 +136,10 @@ fn run_with_timeout(program: &str, args: &[&str], timeout: Duration) -> Result<S
             None if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("Login shell {} timed out after {:?}", program, timeout));
+                return Err(format!(
+                    "Login shell {} timed out after {:?}",
+                    program, timeout
+                ));
             }
             None => thread::sleep(EXIT_POLL_INTERVAL),
         }
@@ -365,9 +368,16 @@ mod tests {
     #[test]
     fn re_resolve_replaces_the_cached_result_for_later_callers() {
         let cell = Mutex::new(None);
-        let stale = resolve_once(&cell, || Ok(HashMap::from([("PATH".to_string(), "/old".to_string())])));
+        let stale = resolve_once(&cell, || {
+            Ok(HashMap::from([("PATH".to_string(), "/old".to_string())]))
+        });
 
-        let fresh = re_resolve(&cell, || Ok(HashMap::from([("PATH".to_string(), "/old:/new".to_string())])));
+        let fresh = re_resolve(&cell, || {
+            Ok(HashMap::from([(
+                "PATH".to_string(),
+                "/old:/new".to_string(),
+            )]))
+        });
         let later = resolve_once(&cell, || Err("must not resolve again".to_string()));
 
         assert_eq!(stale.unwrap()["PATH"], "/old");
@@ -377,7 +387,10 @@ mod tests {
 
     #[test]
     fn re_resolve_does_not_block_readers_while_the_shell_runs() {
-        let cell = Mutex::new(Some(Ok(HashMap::from([("PATH".to_string(), "/old".to_string())]))));
+        let cell = Mutex::new(Some(Ok(HashMap::from([(
+            "PATH".to_string(),
+            "/old".to_string(),
+        )]))));
 
         thread::scope(|scope| {
             let refresh = scope.spawn(|| {
@@ -389,7 +402,10 @@ mod tests {
             thread::sleep(Duration::from_millis(50));
             let started = Instant::now();
             let during = resolve_once(&cell, || Err("must not resolve".to_string()));
-            assert!(started.elapsed() < Duration::from_millis(150), "a reader waited for the shell");
+            assert!(
+                started.elapsed() < Duration::from_millis(150),
+                "a reader waited for the shell"
+            );
             assert_eq!(during.unwrap()["PATH"], "/old");
             refresh.join().unwrap().unwrap();
         });
@@ -398,7 +414,10 @@ mod tests {
     #[test]
     fn re_resolve_keeps_a_good_environment_when_the_re_read_fails() {
         let cell = Mutex::new(None);
-        resolve_once(&cell, || Ok(HashMap::from([("PATH".to_string(), "/good".to_string())]))).unwrap();
+        resolve_once(&cell, || {
+            Ok(HashMap::from([("PATH".to_string(), "/good".to_string())]))
+        })
+        .unwrap();
 
         let after = re_resolve(&cell, || Err("login shell timed out".to_string()));
 

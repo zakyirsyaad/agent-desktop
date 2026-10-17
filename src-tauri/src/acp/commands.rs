@@ -19,15 +19,24 @@ pub fn event_payload(event: &AcpEvent) -> Value {
         AcpEvent::Update { session_id, update } => {
             json!({ "sessionId": session_id, "kind": "update", "update": update })
         }
-        AcpEvent::PermissionRequest { session_id, request_id, params } => json!({
+        AcpEvent::PermissionRequest {
+            session_id,
+            request_id,
+            params,
+        } => json!({
             "sessionId": session_id,
             "kind": "permission",
             "requestId": request_id,
             "toolCall": params["toolCall"],
             "options": params["options"],
         }),
-        AcpEvent::TurnEnded { session_id, stop_reason } => match stop_reason {
-            Ok(reason) => json!({ "sessionId": session_id, "kind": "turn-end", "stopReason": reason }),
+        AcpEvent::TurnEnded {
+            session_id,
+            stop_reason,
+        } => match stop_reason {
+            Ok(reason) => {
+                json!({ "sessionId": session_id, "kind": "turn-end", "stopReason": reason })
+            }
             Err(error) => json!({ "sessionId": session_id, "kind": "turn-end", "error": error }),
         },
         AcpEvent::Exited { session_id, code } => {
@@ -43,7 +52,10 @@ fn launch_for(profile_id: &str) -> Result<AcpLaunch, String> {
         .find(|p| p.id == profile_id)
         .ok_or_else(|| format!("Unknown agent profile '{}'", profile_id))?;
     if profile.transport != TRANSPORT_ACP {
-        return Err(format!("{} does not support the Agent Client Protocol", profile.name));
+        return Err(format!(
+            "{} does not support the Agent Client Protocol",
+            profile.name
+        ));
     }
     if !profile.detected {
         return Err(format!("{} is not installed", profile.name));
@@ -53,8 +65,14 @@ fn launch_for(profile_id: &str) -> Result<AcpLaunch, String> {
         .ok_or_else(|| format!("Could not locate the program that runs {}", profile.name))?;
     // A GUI app does not inherit the login shell's PATH, so hand the agent the
     // user's real environment (nvm, Homebrew, ...).
-    let env = cached_user_env().map(|m| m.into_iter().collect()).unwrap_or_default();
-    Ok(AcpLaunch { program, args: profile.acp_args, env })
+    let env = cached_user_env()
+        .map(|m| m.into_iter().collect())
+        .unwrap_or_default();
+    Ok(AcpLaunch {
+        program,
+        args: profile.acp_args,
+        env,
+    })
 }
 
 #[tauri::command(async)]
@@ -87,7 +105,12 @@ pub fn acp_load_session(
     profile_id: String,
     acp_session_id: String,
 ) -> Result<StartedSession, String> {
-    manager.load(&session_id, &cwd, &launch_for(&profile_id)?, &acp_session_id)
+    manager.load(
+        &session_id,
+        &cwd,
+        &launch_for(&profile_id)?,
+        &acp_session_id,
+    )
 }
 
 #[tauri::command(async)]
@@ -126,7 +149,11 @@ pub fn acp_respond_permission(
 }
 
 #[tauri::command(async)]
-pub fn acp_set_mode(manager: State<'_, AcpManager>, session_id: String, mode_id: String) -> Result<(), String> {
+pub fn acp_set_mode(
+    manager: State<'_, AcpManager>,
+    session_id: String,
+    mode_id: String,
+) -> Result<(), String> {
     manager.set_mode(&session_id, &mode_id)
 }
 
@@ -177,10 +204,16 @@ mod tests {
 
     #[test]
     fn turn_end_events_report_the_stop_reason_or_the_error() {
-        let ok = event_payload(&AcpEvent::TurnEnded { session_id: "s".into(), stop_reason: Ok("end_turn".into()) });
+        let ok = event_payload(&AcpEvent::TurnEnded {
+            session_id: "s".into(),
+            stop_reason: Ok("end_turn".into()),
+        });
         assert_eq!(ok["stopReason"], "end_turn");
 
-        let failed = event_payload(&AcpEvent::TurnEnded { session_id: "s".into(), stop_reason: Err("boom".into()) });
+        let failed = event_payload(&AcpEvent::TurnEnded {
+            session_id: "s".into(),
+            stop_reason: Err("boom".into()),
+        });
         assert_eq!(failed["error"], "boom");
         assert!(failed.get("stopReason").is_none());
     }

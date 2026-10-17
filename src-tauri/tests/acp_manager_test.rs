@@ -10,13 +10,19 @@ const WAIT: Duration = Duration::from_secs(10);
 fn fake_agent() -> AcpLaunch {
     AcpLaunch {
         program: "node".to_string(),
-        args: vec![format!("{}/tests/fixtures/fake_acp_agent.mjs", env!("CARGO_MANIFEST_DIR"))],
+        args: vec![format!(
+            "{}/tests/fixtures/fake_acp_agent.mjs",
+            env!("CARGO_MANIFEST_DIR")
+        )],
         env: vec![],
     }
 }
 
 fn cwd() -> String {
-    std::env::current_dir().unwrap().to_string_lossy().to_string()
+    std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .to_string()
 }
 
 fn manager() -> (Arc<AcpManager>, Receiver<AcpEvent>) {
@@ -30,7 +36,9 @@ fn manager() -> (Arc<AcpManager>, Receiver<AcpEvent>) {
 /// Waits for the first event matching `predicate`, skipping others.
 fn wait_for(rx: &Receiver<AcpEvent>, predicate: impl Fn(&AcpEvent) -> bool) -> AcpEvent {
     loop {
-        let event = rx.recv_timeout(WAIT).expect("timed out waiting for an ACP event");
+        let event = rx
+            .recv_timeout(WAIT)
+            .expect("timed out waiting for an ACP event");
         if predicate(&event) {
             return event;
         }
@@ -80,12 +88,21 @@ fn round_trips_a_permission_request() {
     manager.prompt("s-1", "permission", &[]).unwrap();
 
     let request = wait_for(&rx, |e| matches!(e, AcpEvent::PermissionRequest { .. }));
-    let AcpEvent::PermissionRequest { session_id, request_id, params } = request else { unreachable!() };
+    let AcpEvent::PermissionRequest {
+        session_id,
+        request_id,
+        params,
+    } = request
+    else {
+        unreachable!()
+    };
     assert_eq!(session_id, "s-1");
     assert_eq!(params["toolCall"]["title"], "Run rm -rf build");
     assert_eq!(params["options"].as_array().unwrap().len(), 2);
 
-    manager.respond_permission("s-1", &request_id, Some("allow")).unwrap();
+    manager
+        .respond_permission("s-1", &request_id, Some("allow"))
+        .unwrap();
 
     let chunk = wait_for(&rx, |e| agent_text(e).is_some());
     assert_eq!(agent_text(&chunk).as_deref(), Some("allowed:allow"));
@@ -101,7 +118,9 @@ fn cancelling_a_turn_ends_it_as_cancelled() {
     manager.cancel("s-1").unwrap();
 
     let ended = wait_for(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
-    assert!(matches!(ended, AcpEvent::TurnEnded { stop_reason: Ok(ref r), .. } if r == "cancelled"));
+    assert!(
+        matches!(ended, AcpEvent::TurnEnded { stop_reason: Ok(ref r), .. } if r == "cancelled")
+    );
     manager.stop("s-1");
 }
 
@@ -128,7 +147,13 @@ fn reports_an_agent_that_exits_mid_turn() {
     manager.prompt("s-1", "crash", &[]).unwrap();
 
     let ended = wait_for(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
-    assert!(matches!(ended, AcpEvent::TurnEnded { stop_reason: Err(_), .. }));
+    assert!(matches!(
+        ended,
+        AcpEvent::TurnEnded {
+            stop_reason: Err(_),
+            ..
+        }
+    ));
     let exited = wait_for(&rx, |e| matches!(e, AcpEvent::Exited { .. }));
     assert!(matches!(exited, AcpEvent::Exited { ref session_id, .. } if session_id == "s-1"));
 }
@@ -140,10 +165,13 @@ fn sets_the_session_mode() {
 
     manager.set_mode("s-1", "yolo").unwrap();
 
-    let update = wait_for(&rx, |e| {
-        matches!(e, AcpEvent::Update { update, .. } if update["sessionUpdate"] == "current_mode_update")
-    });
-    let AcpEvent::Update { update, .. } = update else { unreachable!() };
+    let update = wait_for(
+        &rx,
+        |e| matches!(e, AcpEvent::Update { update, .. } if update["sessionUpdate"] == "current_mode_update"),
+    );
+    let AcpEvent::Update { update, .. } = update else {
+        unreachable!()
+    };
     assert_eq!(update["currentModeId"], Value::from("yolo"));
     manager.stop("s-1");
 }
@@ -153,7 +181,11 @@ fn rejects_bad_starts_and_unknown_sessions() {
     let (manager, _rx) = manager();
 
     assert!(manager.start("s-1", "relative/dir", &fake_agent()).is_err());
-    let missing = AcpLaunch { program: "/nonexistent/agent".into(), args: vec![], env: vec![] };
+    let missing = AcpLaunch {
+        program: "/nonexistent/agent".into(),
+        args: vec![],
+        env: vec![],
+    };
     assert!(manager.start("s-2", &cwd(), &missing).is_err());
     assert!(manager.prompt("nope", "hi", &[]).is_err());
 }
@@ -183,7 +215,9 @@ fn loads_an_earlier_session_without_replaying_its_history_to_the_app() {
     manager.prompt("s-resumed", "hi again", &[]).unwrap();
     let first_text = wait_for(&rx, |e| agent_text(e).is_some());
     assert_eq!(agent_text(&first_text).as_deref(), Some("echo: hi again"));
-    assert!(matches!(first_text, AcpEvent::Update { ref session_id, .. } if session_id == "s-resumed"));
+    assert!(
+        matches!(first_text, AcpEvent::Update { ref session_id, .. } if session_id == "s-resumed")
+    );
     manager.stop("s-resumed");
 }
 
@@ -191,9 +225,13 @@ fn loads_an_earlier_session_without_replaying_its_history_to_the_app() {
 fn refuses_to_load_when_the_agent_cannot_resume_sessions() {
     let (manager, _rx) = manager();
     let mut launch = fake_agent();
-    launch.env.push(("FAKE_ACP_NO_LOAD".to_string(), "1".to_string()));
+    launch
+        .env
+        .push(("FAKE_ACP_NO_LOAD".to_string(), "1".to_string()));
 
-    let error = manager.load("s-x", &cwd(), &launch, "fake-earlier").unwrap_err();
+    let error = manager
+        .load("s-x", &cwd(), &launch, "fake-earlier")
+        .unwrap_err();
 
     assert!(error.contains("cannot resume"), "unexpected error: {error}");
 }
@@ -202,7 +240,9 @@ fn refuses_to_load_when_the_agent_cannot_resume_sessions() {
 fn reports_that_the_agent_needs_a_sign_in_with_its_methods() {
     let (manager, _rx) = manager();
     let mut launch = fake_agent();
-    launch.env.push(("FAKE_ACP_AUTH_REQUIRED".to_string(), "1".to_string()));
+    launch
+        .env
+        .push(("FAKE_ACP_AUTH_REQUIRED".to_string(), "1".to_string()));
 
     let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
 
@@ -217,8 +257,12 @@ fn reports_that_the_agent_needs_a_sign_in_with_its_methods() {
 fn signs_in_with_one_of_the_agent_methods() {
     let (manager, _rx) = manager();
 
-    manager.authenticate(&cwd(), &fake_agent(), "browser").expect("authenticate");
-    let error = manager.authenticate(&cwd(), &fake_agent(), "nope").unwrap_err();
+    manager
+        .authenticate(&cwd(), &fake_agent(), "browser")
+        .expect("authenticate");
+    let error = manager
+        .authenticate(&cwd(), &fake_agent(), "nope")
+        .unwrap_err();
 
     assert!(error.contains("nope"), "unexpected error: {error}");
 }
@@ -240,8 +284,12 @@ fn refuses_a_prompt_whose_attachment_is_missing_before_sending_it() {
 fn keeps_the_sign_in_methods_parseable_when_the_agent_logs_to_stderr() {
     let (manager, _rx) = manager();
     let mut launch = fake_agent();
-    launch.env.push(("FAKE_ACP_AUTH_REQUIRED".to_string(), "1".to_string()));
-    launch.env.push(("FAKE_ACP_STDERR".to_string(), "1".to_string()));
+    launch
+        .env
+        .push(("FAKE_ACP_AUTH_REQUIRED".to_string(), "1".to_string()));
+    launch
+        .env
+        .push(("FAKE_ACP_STDERR".to_string(), "1".to_string()));
 
     let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
 
@@ -255,7 +303,9 @@ fn keeps_the_sign_in_methods_parseable_when_the_agent_logs_to_stderr() {
 fn reports_a_generic_server_error_as_is_rather_than_as_a_sign_in() {
     let (manager, _rx) = manager();
     let mut launch = fake_agent();
-    launch.env.push(("FAKE_ACP_SERVER_ERROR".to_string(), "1".to_string()));
+    launch
+        .env
+        .push(("FAKE_ACP_SERVER_ERROR".to_string(), "1".to_string()));
 
     let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
 
@@ -265,11 +315,19 @@ fn reports_a_generic_server_error_as_is_rather_than_as_a_sign_in() {
 
 #[test]
 fn recognizes_a_sign_in_request_however_the_agent_phrases_it() {
-    for message in ["Not logged in. Run `codex login`", "You must be signed in", "log-in required"] {
+    for message in [
+        "Not logged in. Run `codex login`",
+        "You must be signed in",
+        "log-in required",
+    ] {
         let (manager, _rx) = manager();
         let mut launch = fake_agent();
-        launch.env.push(("FAKE_ACP_AUTH_REQUIRED".to_string(), "1".to_string()));
-        launch.env.push(("FAKE_ACP_AUTH_MESSAGE".to_string(), message.to_string()));
+        launch
+            .env
+            .push(("FAKE_ACP_AUTH_REQUIRED".to_string(), "1".to_string()));
+        launch
+            .env
+            .push(("FAKE_ACP_AUTH_MESSAGE".to_string(), message.to_string()));
 
         let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
 
@@ -296,8 +354,12 @@ fn stop_all_ends_every_session_a_previous_ui_left_running() {
 fn reports_an_agent_error_without_its_stderr_noise() {
     let (manager, _rx) = manager();
     let mut launch = fake_agent();
-    launch.env.push(("FAKE_ACP_SERVER_ERROR".to_string(), "1".to_string()));
-    launch.env.push(("FAKE_ACP_STDERR".to_string(), "1".to_string()));
+    launch
+        .env
+        .push(("FAKE_ACP_SERVER_ERROR".to_string(), "1".to_string()));
+    launch
+        .env
+        .push(("FAKE_ACP_STDERR".to_string(), "1".to_string()));
 
     let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
 

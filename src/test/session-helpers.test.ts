@@ -69,6 +69,17 @@ describe("session helpers", () => {
     expect(ids(groups[0].sessions)).toEqual(["moved", "orphan"]);
   });
 
+  it("lists a session that runs in a worktree under the workspace it was made from", () => {
+    const inWorktree: Session = {
+      ...session("wt", "/data/worktrees/api/fix-login", 3),
+      worktree: { repoPath: "/w/api", path: "/data/worktrees/api/fix-login", branch: "agent/fix-login" },
+    };
+    const groups = groupSessionsByWorkspace([{ name: "api", path: "/w/api" }], [session("plain", "/w/api", 1), inWorktree]);
+
+    expect(groups.map((g) => g.path)).toEqual(["/w/api"]);
+    expect(ids(groups[0].sessions)).toEqual(["wt", "plain"]);
+  });
+
   it("still lists sessions whose fork links form a loop", () => {
     const groups = groupSessionsByWorkspace(
       [{ name: "api", path: "/w/api" }],

@@ -22,7 +22,10 @@ fn image_mime_type(path: &Path) -> Option<&'static str> {
 fn resource_link(path: &Path) -> Result<Value, String> {
     let uri = url::Url::from_file_path(path)
         .map_err(|_| format!("Cannot attach {}: not an absolute path", path.display()))?;
-    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
     Ok(json!({ "type": "resource_link", "uri": uri.as_str(), "name": name }))
 }
 
@@ -47,7 +50,11 @@ fn attachment_block(raw: &str, supports_images: bool) -> Result<Value, String> {
 
 /// The prompt's text, then one block per attachment: an inline image when
 /// the agent takes images and the file is small enough, a file link otherwise.
-pub fn prompt_blocks(text: &str, attachments: &[String], supports_images: bool) -> Result<Vec<Value>, String> {
+pub fn prompt_blocks(
+    text: &str,
+    attachments: &[String],
+    supports_images: bool,
+) -> Result<Vec<Value>, String> {
     let mut blocks = vec![json!({ "type": "text", "text": text })];
     for attachment in attachments {
         blocks.push(attachment_block(attachment, supports_images)?);

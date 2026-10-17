@@ -45,7 +45,11 @@ fn full_profile() -> AgentProfile {
         ])
         .with_permission_modes(vec![
             mode("ask", "Ask", &[]),
-            mode("bypass", "Bypass", &["--permission-mode", "bypassPermissions"]),
+            mode(
+                "bypass",
+                "Bypass",
+                &["--permission-mode", "bypassPermissions"],
+            ),
         ])
         .with_session_id_arg("--session-id")
         .with_native_fork(&["--resume", "{session_id}", "--fork-session"])
@@ -158,7 +162,8 @@ fn plan_rejects_blank_model() {
         ..no_options()
     };
 
-    let err = build_spawn_plan(&full_profile(), &options).expect_err("blank model must be rejected");
+    let err =
+        build_spawn_plan(&full_profile(), &options).expect_err("blank model must be rejected");
 
     assert!(!err.is_empty());
 }
@@ -218,7 +223,11 @@ fn ask_permission_mode_passes_no_extra_args() {
 
     let plan = build_spawn_plan(&full_profile(), &options).expect("ask must be accepted");
 
-    assert!(plan.args.is_empty(), "'ask' must be the CLI default: {:?}", plan.args);
+    assert!(
+        plan.args.is_empty(),
+        "'ask' must be the CLI default: {:?}",
+        plan.args
+    );
 }
 
 #[test]
@@ -230,10 +239,7 @@ fn plan_adds_permission_mode_args() {
 
     let plan = build_spawn_plan(&full_profile(), &options).expect("listed mode must be accepted");
 
-    assert_eq!(
-        plan.args,
-        strs(&["--permission-mode", "bypassPermissions"])
-    );
+    assert_eq!(plan.args, strs(&["--permission-mode", "bypassPermissions"]));
 }
 
 #[test]
@@ -365,8 +371,8 @@ fn plan_rejects_fork_for_handoff_agents() {
         ..no_options()
     };
 
-    let err = build_spawn_plan(&profile, &options)
-        .expect_err("handoff agents cannot fork a session id");
+    let err =
+        build_spawn_plan(&profile, &options).expect_err("handoff agents cannot fork a session id");
 
     assert!(
         err.to_lowercase().contains("fork"),
@@ -452,7 +458,10 @@ fn plan_accumulates_env_from_every_selected_effort_level() {
 
     assert_eq!(
         plan.env,
-        vec![("A".to_string(), "1".to_string()), ("B".to_string(), "2".to_string())]
+        vec![
+            ("A".to_string(), "1".to_string()),
+            ("B".to_string(), "2".to_string())
+        ]
     );
 }
 

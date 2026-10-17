@@ -94,11 +94,13 @@ pub fn build_spawn_plan(
                     "Unknown effort level '{}' for {}. Available: {}",
                     effort,
                     profile.name,
-                    available(&profile
-                        .effort_levels
-                        .iter()
-                        .map(|level| level.label.clone())
-                        .collect::<Vec<_>>())
+                    available(
+                        &profile
+                            .effort_levels
+                            .iter()
+                            .map(|level| level.label.clone())
+                            .collect::<Vec<_>>()
+                    )
                 )
             })?;
         args.extend(level.args.iter().cloned());
@@ -107,10 +109,7 @@ pub fn build_spawn_plan(
 
     if let Some(mode_id) = selected(&options.permission_mode)? {
         if profile.permission_modes.is_empty() {
-            return Err(format!(
-                "{} does not expose permission modes",
-                profile.name
-            ));
+            return Err(format!("{} does not expose permission modes", profile.name));
         }
         let mode = profile
             .permission_modes
@@ -121,11 +120,13 @@ pub fn build_spawn_plan(
                     "Unknown permission mode '{}' for {}. Available: {}",
                     mode_id,
                     profile.name,
-                    available(&profile
-                        .permission_modes
-                        .iter()
-                        .map(|mode| mode.id.clone())
-                        .collect::<Vec<_>>())
+                    available(
+                        &profile
+                            .permission_modes
+                            .iter()
+                            .map(|mode| mode.id.clone())
+                            .collect::<Vec<_>>()
+                    )
                 )
             })?;
         args.extend(mode.args.iter().cloned());
@@ -207,10 +208,7 @@ fn selected(value: &Option<String>) -> Result<Option<&str>, String> {
 /// charset is the boundary that keeps a crafted value from becoming a flag or a
 /// shell metacharacter.
 fn validate_session_id(value: &str) -> Result<(), String> {
-    if !value
-        .chars()
-        .all(|c| c.is_ascii_hexdigit() || c == '-')
-    {
+    if !value.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
         return Err(format!(
             "Session id '{value}' must be UUID-like (hex digits and '-' only)"
         ));
@@ -260,10 +258,22 @@ mod tests {
 
     #[test]
     fn validate_session_id_enforces_the_length_bounds() {
-        assert!(validate_session_id("abcdef0").is_err(), "7 chars is too short");
-        assert!(validate_session_id("abcdef01").is_ok(), "8 chars is allowed");
-        assert!(validate_session_id(&"a".repeat(64)).is_ok(), "64 chars is allowed");
-        assert!(validate_session_id(&"a".repeat(65)).is_err(), "65 chars is too long");
+        assert!(
+            validate_session_id("abcdef0").is_err(),
+            "7 chars is too short"
+        );
+        assert!(
+            validate_session_id("abcdef01").is_ok(),
+            "8 chars is allowed"
+        );
+        assert!(
+            validate_session_id(&"a".repeat(64)).is_ok(),
+            "64 chars is allowed"
+        );
+        assert!(
+            validate_session_id(&"a".repeat(65)).is_err(),
+            "65 chars is too long"
+        );
     }
 
     #[test]
@@ -284,7 +294,10 @@ mod tests {
     fn selected_treats_blank_as_unset_and_rejects_whitespace_only() {
         assert_eq!(selected(&None).unwrap(), None);
         assert_eq!(selected(&Some("opus".to_string())).unwrap(), Some("opus"));
-        assert_eq!(selected(&Some("  opus ".to_string())).unwrap(), Some("opus"));
+        assert_eq!(
+            selected(&Some("  opus ".to_string())).unwrap(),
+            Some("opus")
+        );
         assert!(selected(&Some("   ".to_string())).is_err());
     }
 }

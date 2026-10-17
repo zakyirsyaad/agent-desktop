@@ -4,12 +4,11 @@
 //! real, so this module reads what git already knows about the user and reports
 //! `None` when git knows nothing — the UI then falls back to a neutral label.
 
-use std::path::PathBuf;
 use std::process::Command;
 
 use serde::Serialize;
 
-use crate::env_resolver;
+use crate::git_info::git_binary;
 
 /// The user's git identity. Either field is absent when git has no value for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -64,15 +63,6 @@ fn read_git_global_config(key: &str) -> Option<String> {
         return None;
     }
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-/// Locates git, preferring the login shell's `PATH`.
-///
-/// An app launched from Finder or the Dock does not inherit the user's shell
-/// `PATH`, so a Homebrew-installed git would be invisible without this. The
-/// bare name is kept as a fallback so the process `PATH` still gets a chance.
-fn git_binary() -> PathBuf {
-    env_resolver::find_binary_in_user_path("git").unwrap_or_else(|| PathBuf::from("git"))
 }
 
 /// The user's git identity, for the sidebar footer.
@@ -157,10 +147,7 @@ mod tests {
         })
         .expect("serialize profile");
 
-        assert_eq!(
-            json,
-            serde_json::json!({ "name": "Iwang", "email": null })
-        );
+        assert_eq!(json, serde_json::json!({ "name": "Iwang", "email": null }));
         assert!(json.get("name").is_some(), "key must stay camelCase `name`");
     }
 }
