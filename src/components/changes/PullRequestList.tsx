@@ -15,6 +15,8 @@ import { useDismiss } from "../../hooks/useDismiss";
 
 /** How many of the newest pull requests show before "Show all". */
 const SHOWN_AT_FIRST = 5;
+/** The most listed; the backend reads one more, so the list knows when there are others. */
+export const MAX_LISTED = 30;
 
 const MENU_ITEM =
   "flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs text-neutral-300 transition-colors hover:bg-neutral-800/60 hover:text-neutral-100";
@@ -56,13 +58,19 @@ function RowMenu({ pullRequest, onOpen }: { pullRequest: PullRequestSummary; onO
   const buttonRef = useRef<HTMLButtonElement>(null);
   const close = () => setPlace(null);
   useDismiss(containerRef, isOpen, close);
-  // A fixed menu would drift from its row as the list scrolls.
+  // A fixed menu would drift from its row as the list scrolls; scrolling
+  // elsewhere (the chat following an agent's reply) leaves it where it is.
   useEffect(() => {
     if (!isOpen) return;
-    window.addEventListener("scroll", close, true);
+    const closeOnScroll = (event: Event) => {
+      // The page itself (the window, or the document) scrolling counts as well.
+      const target = event.target;
+      if (!(target instanceof Node) || (buttonRef.current && target.contains(buttonRef.current))) close();
+    };
+    window.addEventListener("scroll", closeOnScroll, true);
     window.addEventListener("resize", close);
     return () => {
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", closeOnScroll, true);
       window.removeEventListener("resize", close);
     };
   }, [isOpen]);
@@ -140,8 +148,11 @@ export function PullRequestList({ pullRequests, onOpen }: {
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [isShowingAll, setIsShowingAll] = useState(false);
-  const shown = (isShowingAll ? pullRequests : pullRequests.slice(0, SHOWN_AT_FIRST)).slice().reverse();
-  const hasMore = pullRequests.length > SHOWN_AT_FIRST;
+  const listed = pullRequests.slice(0, MAX_LISTED);
+  const shown = (isShowingAll ? listed : listed.slice(0, SHOWN_AT_FIRST)).slice().reverse();
+  const hasMore = listed.length > SHOWN_AT_FIRST;
+  // Only the newest are read: "30+" rather than a total that is not one.
+  const count = pullRequests.length > MAX_LISTED ? `${MAX_LISTED}+` : String(pullRequests.length);
 
   return (
     <section className="border-b border-neutral-800/60 p-1.5">
@@ -152,7 +163,7 @@ export function PullRequestList({ pullRequests, onOpen }: {
         className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-[11px] font-medium text-neutral-400 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
       >
         <ChevronRight size={11} aria-hidden="true" className={`transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-        Pull requests <span className="text-neutral-600">({pullRequests.length})</span>
+        Pull requests <span className="text-neutral-600">({count})</span>
       </button>
       {isExpanded && pullRequests.length === 0 && (
         <p className="px-2 py-1 text-[11px] text-neutral-500">No pull requests of yours here yet.</p>
@@ -172,7 +183,7 @@ export function PullRequestList({ pullRequests, onOpen }: {
               onClick={() => setIsShowingAll((all) => !all)}
               className="mt-0.5 px-2 py-1 text-[11px] text-neutral-500 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
             >
-              {isShowingAll ? "Show less" : `Show all (${pullRequests.length})`}
+              {isShowingAll ? "Show less" : `Show all (${count})`}
             </button>
           )}
         </>

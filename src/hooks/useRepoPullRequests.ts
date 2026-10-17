@@ -13,10 +13,11 @@ export interface PullRequestSummary {
 
 /**
  * The pull requests the user opened in the repository at `path`, newest
- * first: read when the path changes and when `refreshKey` changes (an
- * agent's turn ended: it may have opened one). null while it loads, when
- * the folder is not on GitHub or gh is missing, and after a failure, which
- * is reported once per folder until a read succeeds again.
+ * first: read when the path changes, when the window regains focus, and
+ * when `refreshKey` changes (an agent's turn ended: it may have opened one).
+ * null while it loads, when the folder is not on GitHub or gh is missing,
+ * and after a failure, which is reported once per folder until a read
+ * succeeds again.
  */
 export function useRepoPullRequests(
   path: string | undefined,
@@ -30,21 +31,29 @@ export function useRepoPullRequests(
   useEffect(() => {
     if (!path) return;
     let isCancelled = false;
-    invoke<PullRequestSummary[] | null>('repo_pull_requests', { path })
-      .then((pullRequests) => {
-        if (isCancelled) return;
-        reportedRef.current.delete(path);
-        setState({ path, pullRequests: pullRequests ?? null });
-      })
-      .catch((error) => {
-        if (isCancelled) return;
-        setState({ path, pullRequests: null });
-        if (reportedRef.current.has(path)) return;
-        reportedRef.current.add(path);
-        onErrorRef.current(`Could not list the pull requests: ${String(error)}`);
-      });
+    let latestRead = 0;
+    const load = () => {
+      const read = ++latestRead;
+      invoke<PullRequestSummary[] | null>('repo_pull_requests', { path })
+        .then((pullRequests) => {
+          if (isCancelled || read !== latestRead) return;
+          reportedRef.current.delete(path);
+          setState({ path, pullRequests: pullRequests ?? null });
+        })
+        .catch((error) => {
+          if (isCancelled || read !== latestRead) return;
+          setState({ path, pullRequests: null });
+          if (reportedRef.current.has(path)) return;
+          reportedRef.current.add(path);
+          onErrorRef.current(`Could not list the pull requests: ${String(error)}`);
+        });
+    };
+    load();
+    // A pull request opened or merged in the browser shows on coming back.
+    window.addEventListener('focus', load);
     return () => {
       isCancelled = true;
+      window.removeEventListener('focus', load);
     };
   }, [path, refreshKey, onErrorRef]);
 

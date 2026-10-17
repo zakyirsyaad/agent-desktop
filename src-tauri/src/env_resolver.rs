@@ -168,7 +168,7 @@ fn run_with_timeout(program: &str, args: &[&str], timeout: Duration) -> Result<S
 ///
 /// Decoupling the read from the caller is what lets `run_with_timeout` abandon a stream
 /// that a backgrounded grandchild keeps open.
-fn drain_in_background<R: Read + Send + 'static>(
+pub(crate) fn drain_in_background<R: Read + Send + 'static>(
     stream: R,
 ) -> mpsc::Receiver<std::io::Result<Vec<u8>>> {
     let (tx, rx) = mpsc::channel();
@@ -181,7 +181,7 @@ fn drain_in_background<R: Read + Send + 'static>(
 }
 
 /// Receives a drained stream's bytes, returning `None` when `deadline` passes first.
-fn recv_by_deadline(
+pub(crate) fn recv_by_deadline(
     rx: &mpsc::Receiver<std::io::Result<Vec<u8>>>,
     deadline: Instant,
 ) -> Option<std::io::Result<Vec<u8>>> {

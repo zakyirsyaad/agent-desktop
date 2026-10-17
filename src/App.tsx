@@ -171,8 +171,6 @@ export default function App() {
       return { ...prev, agentOptions: { ...prev.agentOptions, [profileId]: { ...known, ...options } } };
     });
 
-  // What a new or resumed session starts with: the picks made for it, else the model picked last.
-  const startChoices = draftAgent ? withPreferred(acpChoices, state.agentOptions?.[draftAgent.id]) : acpChoices;
   /** Keeps a model or effort pick (as the agent settled it), so the agent's next session starts with it too. */
   const rememberPick = (profileId: string, configId: string, value: string, reported?: AcpConfigOption[]) => {
     const preferredConfig = rememberedChoice(state.agentOptions?.[profileId], configId, value, reported);
@@ -202,7 +200,7 @@ export default function App() {
   };
 
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
-  const { rewind, restart, isRestarting, cancelRestart } = useSessionRewind({
+  const { rewind, restart, isRestarting, cancelRestart, rewoundOptionsOf } = useSessionRewind({
     agents,
     transcripts,
     acp,
@@ -219,6 +217,19 @@ export default function App() {
 
   const isSessionBusy = (sessionId: string) =>
     isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) || isRestarting(sessionId) : pty.isBusy(sessionId);
+
+  // What a new or resumed session starts with: the picks made for it, else the
+  // model picked last; a rewound session's fresh agent, the model and effort it
+  // ran with, checked against its own lists (another model offers other efforts).
+  const rewound = activeSession && isResumable ? rewoundOptionsOf(activeSession.id) : undefined;
+  const agentOptions =
+    draftAgent && rewound
+      ? {
+          ...state.agentOptions,
+          [draftAgent.id]: { modes: null, ...state.agentOptions?.[draftAgent.id], ...rewound },
+        }
+      : state.agentOptions;
+  const startChoices = draftAgent ? withPreferred(acpChoices, agentOptions?.[draftAgent.id]) : acpChoices;
 
   /**
    * Dropped files: typed into a live terminal agent, otherwise added to the
@@ -510,7 +521,7 @@ export default function App() {
     setDraft,
     acpChoices: startChoices,
     setAcpChoices,
-    agentOptions: state.agentOptions,
+    agentOptions,
     acp,
     onPick: rememberPick,
   });
