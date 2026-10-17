@@ -7,6 +7,8 @@ export interface AgentOptions {
   modes: AcpModes | null;
   configOptions: AcpConfigOption[];
   commands?: SlashCommand[];
+  /** The model the user picked last, by config id, to start the next session with. */
+  preferredConfig?: Readonly<Record<string, string>>;
 }
 
 /** What the user picked in the composer before the agent runs: a mode and config values by id. */
@@ -24,6 +26,33 @@ export type AcpChange = SafeModeChange;
  * last time, with the user's picks, and the safe mode the session will be
  * switched to when the user picked none.
  */
+/** The categories of setting a pick of is kept for the next session: the model. */
+const REMEMBERED_CATEGORIES = new Set(['model']);
+
+/**
+ * The user's picks plus the model they picked last, while the agent still
+ * offers it: agents such as Qwen Code change the model for one session only,
+ * so without this every new session would start on the agent's default.
+ */
+export function withPreferred(choices: AcpChoices, options: AgentOptions | undefined): AcpChoices {
+  const preferred = Object.entries(options?.preferredConfig ?? {}).filter(([configId, value]) =>
+    options?.configOptions.find((o) => o.id === configId)?.options.some((c) => c.value === value),
+  );
+  if (preferred.length === 0) return choices;
+  return { ...choices, config: { ...Object.fromEntries(preferred), ...choices.config } };
+}
+
+/** The remembered picks after the user picked `value` for `configId`, or null when that setting is not kept. */
+export function rememberedChoice(
+  options: AgentOptions | undefined,
+  configId: string,
+  value: string,
+): Record<string, string> | null {
+  const category = options?.configOptions.find((o) => o.id === configId)?.category;
+  if (!category || !REMEMBERED_CATEGORIES.has(category)) return null;
+  return { ...options?.preferredConfig, [configId]: value };
+}
+
 export function draftInfo(options: AgentOptions, choices: AcpChoices): Pick<AcpSessionInfo, 'modes' | 'configOptions'> {
   const safe = safeModeToApply(options);
   const modes = options.modes && {

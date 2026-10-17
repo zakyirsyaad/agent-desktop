@@ -19,6 +19,8 @@ export interface ComposerInputs {
   setAcpChoices: (choices: AcpChoices) => void;
   agentOptions: Readonly<Record<string, AgentOptions>> | undefined;
   acp: AcpEngine;
+  /** Called for every setting the user picks, before or during a session, with the agent it is for. */
+  onPick?: (profileId: string, configId: string, value: string) => void;
 }
 
 /**
@@ -35,7 +37,10 @@ export function composerStateFor(inputs: ComposerInputs): ComposerState {
       const controls = info
         ? acpControls(info, {
             setMode: (modeId) => acp.setMode(session.id, modeId),
-            setConfigOption: (configId, value) => acp.setConfigOption(session.id, configId, value),
+            setConfigOption: (configId, value) => {
+              acp.setConfigOption(session.id, configId, value);
+              inputs.onPick?.(session.profileId, configId, value);
+            },
           })
         : {};
       return { controls, locked: false };
@@ -51,7 +56,10 @@ export function composerStateFor(inputs: ComposerInputs): ComposerState {
   const { acpChoices: choices, setAcpChoices } = inputs;
   const controls = acpControls(draftInfo(options, choices), {
     setMode: (modeId) => setAcpChoices({ ...choices, modeId }),
-    setConfigOption: (configId, value) => setAcpChoices({ ...choices, config: { ...choices.config, [configId]: value } }),
+    setConfigOption: (configId, value) => {
+      setAcpChoices({ ...choices, config: { ...choices.config, [configId]: value } });
+      inputs.onPick?.(draftAgent.id, configId, value);
+    },
   });
   return { controls, locked: false };
 }

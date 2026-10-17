@@ -30,4 +30,16 @@ describe("normalizePersistedState", () => {
     expect(state.sessions[0]).not.toHaveProperty("namedByUser");
     expect(state.sessions[0]).not.toHaveProperty("hasUnread");
   });
+
+  it("keeps the model picked last for each agent, dropping malformed picks", () => {
+    const state = normalizePersistedState({
+      agentOptions: {
+        qwen: { modes: null, configOptions: [], preferredConfig: { model: "qwen3-max", bad: 3 } },
+        codex: { modes: null, configOptions: [], preferredConfig: "nope" },
+      },
+    });
+
+    expect(state.agentOptions?.qwen.preferredConfig).toEqual({ model: "qwen3-max" });
+    expect(state.agentOptions?.codex.preferredConfig).toBeUndefined();
+  });
 });

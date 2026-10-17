@@ -220,4 +220,28 @@ describe("ComposerDock", () => {
 
     expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
   });
+
+  it("shows a model's own name on the chip, its provider in the list and the tooltip", () => {
+    render(
+      <ComposerDock
+        onSendMessage={() => {}}
+        controls={controls({
+          model: {
+            options: [
+              { value: "a", label: "[ModelStudio Token Plan] qwen3.8-max" },
+              { value: "b", label: "[ModelStudio Token Plan] qwen3-coder" },
+            ],
+            selected: "a",
+            onChange: vi.fn(),
+          },
+        })}
+      />
+    );
+
+    const chip = screen.getByRole("button", { name: /^Model:/ });
+    expect(chip.textContent).toBe("qwen3.8-max");
+    expect(chip.getAttribute("title")).toBe("[ModelStudio Token Plan] qwen3.8-max");
+    fireEvent.click(chip);
+    expect(screen.getByRole("option", { name: "[ModelStudio Token Plan] qwen3-coder" })).toBeDefined();
+  });
 });

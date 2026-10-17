@@ -52,6 +52,13 @@ function withValidFields(session: Session): Session {
   };
 }
 
+/** The remembered picks, keeping only string values. */
+function toPreferredConfig(raw: unknown): Pick<AgentOptions, 'preferredConfig'> {
+  if (!isObject(raw)) return {};
+  const picks = Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string');
+  return picks.length > 0 ? { preferredConfig: Object.fromEntries(picks) } : {};
+}
+
 function toAgentOptions(raw: unknown): Record<string, AgentOptions> {
   if (!isObject(raw)) return {};
   return Object.fromEntries(
@@ -63,6 +70,7 @@ function toAgentOptions(raw: unknown): Record<string, AgentOptions> {
           modes: toModes(options.modes),
           configOptions: toConfigOptions(options.configOptions),
           commands: toCommands(options.commands),
+          ...toPreferredConfig(options.preferredConfig),
         },
       ]),
   );
