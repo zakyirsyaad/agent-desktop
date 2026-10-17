@@ -1,5 +1,8 @@
 # Fast checks before each commit; CI runs the full suites. Opt in with
 # `pnpm lefthook install`, skip once with `LEFTHOOK=0 git commit`.
+# Runs only from hooks someone installed; never rewrites them on its own.
+no_auto_install: true
+
 pre-commit:
   parallel: true
   commands:
