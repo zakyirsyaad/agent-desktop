@@ -326,6 +326,16 @@ impl PtySessionManager {
         Ok(())
     }
 
+    /// Kills every running session; returns how many there were.
+    pub fn kill_all(&self) -> usize {
+        let ids: Vec<String> = self
+            .sessions
+            .lock()
+            .map(|sessions| sessions.keys().cloned().collect())
+            .unwrap_or_default();
+        ids.iter().filter(|id| self.kill_session(id).is_ok()).count()
+    }
+
     /// Kills the running child process and cleans up the session.
     pub fn kill_session(&self, session_id: &str) -> Result<(), String> {
         let handle = {

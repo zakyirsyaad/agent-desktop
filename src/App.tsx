@@ -125,6 +125,15 @@ export default function App() {
   useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
   useEffect(() => setAcpChoices(NO_CHOICES), [draftAgent?.id]);
 
+  // Agents a previous UI left running (a webview reload keeps the backend
+  // alive) are unknown to this one, which shows their sessions as ended;
+  // end them so a resume does not collide with a still-open session.
+  useEffect(() => {
+    invoke("end_orphaned_sessions").catch((error) => {
+      setNotice(`Could not stop agents left from before: ${String(error)}`);
+    });
+  }, []);
+
   // Once saved sessions are loaded, show the most recent one.
   useEffect(() => {
     if (isLoaded) setActiveSessionId((current) => current || mostRecentSessionId(state.sessions));

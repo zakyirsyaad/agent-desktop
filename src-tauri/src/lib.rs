@@ -109,6 +109,15 @@ fn terminate_session(
 
 /// Loads the persisted app state, or the default state on a first launch.
 ///
+/// Ends every agent the backend still runs. The UI calls this when it loads:
+/// a webview reload leaves the backend (and its agents) running, but the new
+/// UI knows none of them and shows their sessions as ended, so they would
+/// only linger, holding sessions the UI may resume in a new process.
+#[tauri::command]
+fn end_orphaned_sessions(pty: State<'_, PtySessionManager>, acp: State<'_, acp::manager::AcpManager>) -> usize {
+    pty.kill_all() + acp.stop_all()
+}
+
 /// Reads the state file from disk, so it stays off the main thread.
 #[tauri::command(async)]
 fn load_app_state(store: State<'_, AppStore>) -> Result<PersistedState, String> {
@@ -244,6 +253,7 @@ pub fn run() {
             send_input,
             resize_session,
             terminate_session,
+            end_orphaned_sessions,
             load_app_state,
             save_app_state,
             load_transcript,

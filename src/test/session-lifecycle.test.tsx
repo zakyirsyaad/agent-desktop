@@ -82,6 +82,14 @@ describe("Session lifecycle", () => {
     expect(await screen.findByText("hello from disk")).toBeDefined();
   });
 
+  it("ends agents a previous UI left running when it loads (e.g. after a webview reload)", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+
+    await renderApp();
+
+    expect(spy.mock.calls.some(([cmd]) => cmd === "end_orphaned_sessions")).toBe(true);
+  });
+
   it("persists a newly started session", async () => {
     await renderApp();
     await startNewSession();
