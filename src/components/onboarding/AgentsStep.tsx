@@ -8,7 +8,7 @@ export interface AgentsStepProps {
   onRecheckAgents: () => void | Promise<void>;
 }
 
-const RECHECK_ERROR = "Couldn't check your agents. Try again.";
+export const RECHECK_ERROR = "Couldn't check your agents. Try again.";
 
 function InstallHintRow({ agent }: { agent: AgentSummary }) {
   const hint = installHintFor(agent);
