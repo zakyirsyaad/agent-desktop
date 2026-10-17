@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { useTranscripts } from "../hooks/useTranscripts";
 import type { FakeTauriStore } from "./setup";
 import type { ChatMessage } from "../types";
@@ -39,16 +39,29 @@ describe("useTranscripts", () => {
   });
 
   it("keeps the saved history when a message arrives before the transcript has loaded", async () => {
-    fakeStore().transcripts["s-1"] = [saved];
-    const { result } = renderHook(() => useTranscripts(() => {}));
+    // The save is throttled to once a second; fake time makes the test wait for it
+    // exactly, not race a real second against waitFor's own one-second limit.
+    vi.useFakeTimers();
+    try {
+      fakeStore().transcripts["s-1"] = [saved];
+      const { result } = renderHook(() => useTranscripts(() => {}));
 
-    act(() => {
-      result.current.ensureLoaded("s-1");
-      result.current.updateMessages("s-1", (prev) => [...prev, live]);
-    });
+      act(() => {
+        result.current.ensureLoaded("s-1");
+        result.current.updateMessages("s-1", (prev) => [...prev, live]);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.transcripts["s-1"]?.map((m) => m.id)).toEqual(["m-old", "m-new"]);
 
-    await waitFor(() => expect(result.current.transcripts["s-1"]?.map((m) => m.id)).toEqual(["m-old", "m-new"]));
-    await waitFor(() => expect((fakeStore().transcripts["s-1"] as ChatMessage[]).map((m) => m.id)).toEqual(["m-old", "m-new"]));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect((fakeStore().transcripts["s-1"] as ChatMessage[]).map((m) => m.id)).toEqual(["m-old", "m-new"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("saves a streaming transcript at most once a second, without waiting for the stream to stop", async () => {
