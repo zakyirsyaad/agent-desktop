@@ -143,6 +143,9 @@ describe("Session lifecycle", () => {
     await act(async () => {
       fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Delete session" }));
     });
+    await act(async () => {
+      fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Confirm delete" }));
+    });
 
     expect(spy).toHaveBeenCalledWith("terminate_session", { sessionId }, undefined);
     expect(sidebar().queryByText("Session #1")).toBeNull();
@@ -155,6 +158,9 @@ describe("Session lifecycle", () => {
 
     await act(async () => {
       fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Delete session" }));
+    });
+    await act(async () => {
+      fireEvent.click(within(sessionRow("Session #1")).getByRole("button", { name: "Confirm delete" }));
     });
     await act(async () => {
       listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Goodbye\r\n" } });
@@ -185,6 +191,20 @@ describe("Session lifecycle", () => {
     expect(within(sessionRow("Session #1")).getByLabelText("Waiting for your answer")).toBeDefined();
   });
 
+  it("asks to confirm before deleting a session and its history", async () => {
+    fakeStore().state.sessions = [seedSession("s-old", "Refactor parser", 1000)];
+    await renderApp();
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+
+    await act(async () => {
+      fireEvent.click(within(sessionRow("Refactor parser")).getByRole("button", { name: "Delete session" }));
+    });
+
+    expect(sidebar().getByText("Refactor parser")).toBeDefined();
+    expect(spy.mock.calls.some(([cmd]) => cmd === "delete_transcript")).toBe(false);
+    expect(within(sessionRow("Refactor parser")).getByRole("button", { name: "Confirm delete" })).toBeDefined();
+  });
+
   it("deletes an ended session and its transcript", async () => {
     fakeStore().state.sessions = [seedSession("s-old", "Refactor parser", 1000)];
     fakeStore().transcripts["s-old"] = [];
@@ -193,6 +213,9 @@ describe("Session lifecycle", () => {
 
     await act(async () => {
       fireEvent.click(within(sessionRow("Refactor parser")).getByRole("button", { name: "Delete session" }));
+    });
+    await act(async () => {
+      fireEvent.click(within(sessionRow("Refactor parser")).getByRole("button", { name: "Confirm delete" }));
     });
 
     expect(sidebar().queryByText("Refactor parser")).toBeNull();

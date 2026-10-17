@@ -235,6 +235,9 @@ describe("ACP sessions in the app", () => {
     await act(async () => {
       fireEvent.click(within(row).getByRole("button", { name: "Delete session" }));
     });
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Confirm delete" }));
+    });
     await acpEvent({ sessionId, kind: "exit", code: 0 });
 
     expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toContainEqual({ sessionId });
