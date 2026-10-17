@@ -91,4 +91,32 @@ describe("Composer @-mentions", () => {
     const menu = within(screen.getByRole("listbox", { name: "Files to mention" }));
     expect(menu.getAllByRole("option").map((o) => o.getAttribute("data-file"))).toEqual(["b/bravo.ts"]);
   });
+
+  it("closes the list when the caret leaves the @word, so Enter sends the message", async () => {
+    const { onSendMessage } = renderComposer(true);
+    await type("@app fix this");
+    await act(async () => {
+      prompt().setSelectionRange(2, 2);
+      fireEvent.keyUp(prompt(), { key: "ArrowLeft" });
+    });
+    expect(screen.getByRole("listbox", { name: "Files to mention" })).toBeDefined();
+
+    await act(async () => {
+      prompt().setSelectionRange(13, 13);
+      fireEvent.keyUp(prompt(), { key: "ArrowRight" });
+    });
+    expect(screen.queryByRole("listbox", { name: "Files to mention" })).toBeNull();
+    fireEvent.keyDown(prompt(), { key: "Enter" });
+
+    expect(onSendMessage).toHaveBeenCalledWith("@app fix this", []);
+  });
+
+  it("closes the list when the message is sent with the button", async () => {
+    renderComposer(false);
+    await type("@app");
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(screen.queryByRole("listbox", { name: "Files to mention" })).toBeNull();
+  });
 });

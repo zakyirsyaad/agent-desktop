@@ -19,6 +19,9 @@ const PLACEHOLDER = "Prompt the agent...";
 const PLACEHOLDER_WITH_COMMANDS = "Type / for commands, or prompt the agent...";
 const LOCKED_OPTIONS_TITLE = "Applies to the next new session: CLI flags are set when an agent starts.";
 
+/** Keys that only move the caret; the menu's own keys (Escape, Enter, up and down) are not among them. */
+const CARET_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End"]);
+
 type OpenDropdown = "folder" | "agent" | "permission" | "model" | "effort" | null;
 
 /** What other parts of the window can do to the composer. */
@@ -125,10 +128,14 @@ export function ComposerDock({
     else onSendMessage(trimmed);
     setText("");
     setAttachments([]);
+    mentionMenu.close();
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
   const mentionMenu = useMentionMenu(mentions);
+  /** The @-mention list follows the caret: moving it off the @word closes the list. */
+  const followCaret = (field: HTMLTextAreaElement) =>
+    mentionMenu.update(field.value, field.selectionStart ?? field.value.length);
   const query = slashQuery(text);
   const menuCommands = query === null || isMenuDismissed ? [] : matchingCommands(commands, query);
 
@@ -160,6 +167,7 @@ export function ComposerDock({
 
   const pickCommand = (command: SlashCommand) => {
     setText(`/${command.name} `);
+    mentionMenu.close();
     textareaRef.current?.focus();
   };
 
@@ -203,6 +211,7 @@ export function ComposerDock({
     insertPaths,
     restore: (restoredText, restoredAttachments = []) => {
       setText(restoredText);
+      mentionMenu.close();
       if (attachAsFiles) setAttachments([...restoredAttachments]);
       textareaRef.current?.focus();
     },
@@ -242,6 +251,10 @@ export function ComposerDock({
           rows={1}
           value={text}
           onChange={handleTextChange}
+          onKeyUp={(e) => {
+            if (CARET_KEYS.has(e.key)) followCaret(e.currentTarget);
+          }}
+          onClick={(e) => followCaret(e.currentTarget)}
           onKeyDown={handleKeyDown}
           disabled={disabled}
           placeholder={placeholder ?? (commands.length > 0 ? PLACEHOLDER_WITH_COMMANDS : PLACEHOLDER)}
