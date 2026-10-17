@@ -131,6 +131,17 @@ pub fn create_worktree(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
+    // A worktree checks out the last commit: a folder that exists only in
+    // uncommitted or ignored files would be missing there.
+    if !subfolder.as_os_str().is_empty() {
+        let spec = format!("HEAD:{}", subfolder.to_string_lossy());
+        if run_git(git, &toplevel, &["cat-file", "-e", &spec]).is_err() {
+            return Err(format!(
+                "{} is not in the last commit, so a worktree would not have it",
+                subfolder.display()
+            ));
+        }
+    }
 
     let slug = branch_slug(title);
     let (branch, path) = (1..=MAX_NAME_ATTEMPTS)
@@ -210,8 +221,29 @@ pub fn create_session_worktree(
         &title,
     )?;
     // The Files panel and branch line read it before the session's state save lands.
-    store.remember_workspace(&worktree.cwd)?;
+    if let Err(error) = store.remember_workspace(&worktree.cwd) {
+        // No session will own it, so it is undone rather than left behind.
+        return Err(
+            match discard_worktree(&git_binary(), Path::new(&repo_path), &worktree) {
+                Ok(()) => error,
+                Err(undo) => format!(
+                    "{error}; the worktree at {} was left behind: {undo}",
+                    worktree.path
+                ),
+            },
+        );
+    }
     Ok(worktree)
+}
+
+/// Undoes a worktree no session got: its checkout and its still-empty branch.
+fn discard_worktree(git: &Path, repo: &Path, worktree: &SessionWorktree) -> Result<(), String> {
+    run_git(
+        git,
+        repo,
+        &["worktree", "remove", "--force", &worktree.path],
+    )?;
+    run_git(git, repo, &["branch", "-D", &worktree.branch]).map(|_| ())
 }
 
 /// Removes a deleted session's worktree, unless it has uncommitted changes.

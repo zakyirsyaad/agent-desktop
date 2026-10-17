@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// The schema version written to `state.json`, bumped when the shape changes.
 pub const STATE_VERSION: u32 = 1;
@@ -123,6 +123,7 @@ pub struct SessionRecord {
     /// The session id the agent assigned over ACP.
     pub acp_session_id: Option<String>,
     /// The git worktree the session runs in, when it was given one.
+    #[serde(deserialize_with = "lenient_worktree")]
     pub worktree: Option<SessionWorktreeRecord>,
 }
 
@@ -147,13 +148,30 @@ pub struct AppStore {
     known_workspaces: Mutex<Option<HashSet<PathBuf>>>,
 }
 
-/// The canonical folders a state refers to, deduplicated.
+/// A saved worktree, or none when it is malformed: a bad entry must not make
+/// the whole state file unreadable, which would lose every saved session.
+fn lenient_worktree<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<SessionWorktreeRecord>, D::Error> {
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| serde_json::from_value(value).ok()))
+}
+
+/// The canonical folders a state refers to, deduplicated: recent folders,
+/// session folders, and the folders saved worktrees were made from, so a
+/// worktree can still be cleaned up after its source left the recents.
 fn workspaces_in(state: &PersistedState) -> HashSet<PathBuf> {
     state
         .recent_folders
         .iter()
         .map(|f| f.path.as_str())
         .chain(state.sessions.iter().map(|s| s.cwd.as_str()))
+        .chain(
+            state
+                .sessions
+                .iter()
+                .filter_map(|s| s.worktree.as_ref().map(|w| w.repo_path.as_str())),
+        )
         .collect::<HashSet<_>>()
         .into_iter()
         .filter_map(|path| Path::new(path).canonicalize().ok())

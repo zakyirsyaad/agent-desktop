@@ -180,3 +180,24 @@ fn refuses_to_remove_a_folder_outside_the_worktrees_folder() {
     assert!(repo.join("packages/web/README.md").is_file());
     fs::remove_dir_all(base).ok();
 }
+
+#[test]
+fn refuses_a_subfolder_the_last_commit_does_not_have() {
+    let (base, repo, root) = repo("untracked");
+    fs::create_dir_all(repo.join("scratch")).expect("create untracked folder");
+    fs::write(repo.join("scratch/notes.md"), "draft\n").expect("write untracked file");
+
+    let error = create_worktree(&git_path(), &repo.join("scratch"), &root, "Notes").unwrap_err();
+
+    assert!(error.contains("not in the last commit"), "{error}");
+    assert_eq!(
+        git(&repo, &["branch", "--list", "agent/notes"]),
+        "",
+        "no branch is left behind"
+    );
+    assert!(
+        !root.join("my-app/notes").exists(),
+        "no checkout is left behind"
+    );
+    fs::remove_dir_all(base).ok();
+}

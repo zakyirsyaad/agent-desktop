@@ -492,3 +492,57 @@ fn keeps_a_sessions_worktree_through_a_save() {
     );
     fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn drops_a_malformed_worktree_but_keeps_the_saved_sessions() {
+    let root = unique_temp_root("bad-worktree");
+    fs::create_dir_all(&root).expect("create root");
+    fs::write(
+        root.join("state.json"),
+        r#"{"version":1,"settings":{"defaultAgentId":"claude","onboardingCompleted":true},
+            "recentFolders":[],
+            "sessions":[{"id":"s-1","name":"Fix login","profileId":"claude","cwd":"/tmp/project",
+                         "status":"terminated","createdAt":1,"worktree":{"path":3}}]}"#,
+    )
+    .expect("write state file");
+    let store = AppStore::new(root.clone());
+
+    let state = store.load_state().expect("load state");
+
+    assert_eq!(
+        state.sessions.len(),
+        1,
+        "the session survives its bad worktree"
+    );
+    assert_eq!(state.sessions[0].worktree, None);
+    assert!(state.settings.onboarding_completed);
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn knows_the_folder_a_saved_worktree_was_made_from() {
+    let root = unique_temp_root("worktree-source");
+    let source = root.join("my-app");
+    fs::create_dir_all(&source).expect("create source folder");
+    let store = AppStore::new(root.join("data"));
+    let mut state = PersistedState {
+        sessions: vec![session("s-1", "terminated")],
+        ..PersistedState::default()
+    };
+    state.sessions[0].worktree = Some(SessionWorktreeRecord {
+        repo_path: source.to_string_lossy().to_string(),
+        path: root
+            .join("data/worktrees/my-app/fix")
+            .to_string_lossy()
+            .to_string(),
+        branch: "agent/fix".to_string(),
+    });
+    store.save_state(&state).expect("save state");
+
+    let fresh = AppStore::new(root.join("data"));
+
+    assert!(fresh
+        .is_known_workspace(&source.canonicalize().expect("canonical source"))
+        .expect("check workspace"));
+    fs::remove_dir_all(&root).ok();
+}

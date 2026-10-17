@@ -306,6 +306,9 @@ export default function App() {
         cwd = created.cwd;
       } catch (error) {
         setNotice(`Could not create a worktree: ${String(error)}`);
+        // The user may have opened another session meanwhile: the message goes
+        // back into the new session it was written for, not that one's composer.
+        openNewSession(activeWorkspace.path, newSessionAgent.id);
         if (first) composerRef.current?.restore(first.text, first.attachments);
         return;
       } finally {
@@ -437,29 +440,34 @@ export default function App() {
   };
 
   /**
-   * Removes a deleted session's worktree when no other session runs in it.
-   * The backend keeps one with uncommitted changes, and its branch always.
+   * Removes a deleted session's worktree when no other session runs in it,
+   * once its agent has stopped: never from under a running agent. The backend
+   * keeps one with uncommitted changes, and its branch always.
    */
-  const removeWorktreeOf = (session: Session | undefined, sessionId: string) => {
-    const worktree = session?.worktree;
+  const removeWorktreeOf = async (session: Session, stopped: Promise<boolean>) => {
+    const worktree = session.worktree;
     if (!worktree) return;
-    if (sessions.some((s) => s.id !== sessionId && s.worktree?.path === worktree.path)) return;
-    invoke("remove_session_worktree", { repoPath: worktree.repoPath, path: worktree.path }).catch((error) => {
+    if (sessions.some((s) => s.id !== session.id && s.worktree?.path === worktree.path)) return;
+    if (!(await stopped)) {
+      setNotice(`Kept the worktree of "${session.name}": its agent could not be stopped.`);
+      return;
+    }
+    try {
+      await invoke("remove_session_worktree", { repoPath: worktree.repoPath, path: worktree.path });
+    } catch (error) {
       setNotice(`Kept the worktree of "${session.name}": ${String(error)}`);
-    });
+    }
   };
 
   const handleDeleteSession = (sessionId: string) => {
     const session = sessionById(sessionId);
-    if (session?.status === "running") {
-      if (isAcp(session)) acp.stop(sessionId);
-      else pty.stop(sessionId);
-    }
+    const isRunning = session?.status === "running";
+    const stopped = !isRunning ? Promise.resolve(true) : isAcp(session) ? acp.stop(sessionId) : pty.stop(sessionId);
     pty.forget(sessionId);
     navigation.remove(sessionId);
     updateState((prev) => removeSessionFrom(prev, sessionId));
     removeTranscript(sessionId);
-    removeWorktreeOf(session, sessionId);
+    if (session) void removeWorktreeOf(session, stopped);
     if (sessionId === activeSessionId) {
       setActiveSessionId(mostRecentSessionId(sessions.filter((s) => s.id !== sessionId)));
     }
