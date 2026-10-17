@@ -1,10 +1,12 @@
 import type { AcpConfigOption, AcpModes, AcpSessionInfo } from '../hooks/useAcpSessions';
 import { safeModeToApply, type SafeModeChange } from './acp-modes';
+import type { SlashCommand } from '../types';
 
 /** The modes and config options an ACP agent reported, remembered per agent. */
 export interface AgentOptions {
   modes: AcpModes | null;
   configOptions: AcpConfigOption[];
+  commands?: SlashCommand[];
 }
 
 /** What the user picked in the composer before the agent runs: a mode and config values by id. */

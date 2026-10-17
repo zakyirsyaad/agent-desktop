@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ChatMessage, PersistedState, Session } from '../types';
 import type { AgentOptions } from './acp-draft';
-import { toConfigOptions, toModes } from '../hooks/useAcpSessions';
+import { toCommands, toConfigOptions, toModes } from '../hooks/useAcpSessions';
 
 export const STATE_VERSION = 1;
 
@@ -37,7 +37,11 @@ function toAgentOptions(raw: unknown): Record<string, AgentOptions> {
       .filter((entry): entry is [string, Record<string, unknown>] => isObject(entry[1]))
       .map(([profileId, options]) => [
         profileId,
-        { modes: toModes(options.modes), configOptions: toConfigOptions(options.configOptions) },
+        {
+          modes: toModes(options.modes),
+          configOptions: toConfigOptions(options.configOptions),
+          commands: toCommands(options.commands),
+        },
       ]),
   );
 }

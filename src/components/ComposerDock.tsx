@@ -3,8 +3,13 @@ import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square } from "l
 import { OptionDropdown } from "./composer/OptionDropdown";
 import { appendAttachments } from "../lib/attachments";
 import { isRiskyMode, type ComposerControl, type ComposerControls } from "../lib/composer-controls";
+import { matchingCommands, pendingHint, slashQuery } from "../lib/slash-commands";
+import { SlashCommandMenu } from "./composer/SlashCommandMenu";
+import type { SlashCommand } from "../types";
 
 const MAX_PROMPT_HEIGHT_PX = 180;
+const PLACEHOLDER = "Prompt the agent...";
+const PLACEHOLDER_WITH_COMMANDS = "Type / for commands, or prompt the agent...";
 const LOCKED_OPTIONS_TITLE = "Applies to the next new session: CLI flags are set when an agent starts.";
 
 type OpenDropdown = "permission" | "model" | "effort" | null;
@@ -30,6 +35,8 @@ export interface ComposerDockProps {
   /** Opens a file picker and resolves with the chosen paths; hidden when absent. */
   onAttach?: () => Promise<string[]>;
   handleRef?: Ref<ComposerHandle>;
+  /** The agent's slash commands; typing `/` lists them. */
+  commands?: SlashCommand[];
 }
 
 export function ComposerDock({
@@ -37,13 +44,16 @@ export function ComposerDock({
   optionsLocked = false,
   isThinking = false,
   onStop,
-  placeholder = "Type / for commands, or prompt the agent...",
+  placeholder,
   disabled = false,
   onSendMessage,
   onAttach,
   handleRef,
+  commands = [],
 }: ComposerDockProps) {
   const [text, setText] = useState("");
+  const [highlighted, setHighlighted] = useState(0);
+  const [isMenuDismissed, setIsMenuDismissed] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null);
   const containerRef = useRef<HTMLElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -85,7 +95,30 @@ export function ComposerDock({
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
+  const query = slashQuery(text);
+  const menuCommands = query === null || isMenuDismissed ? [] : matchingCommands(commands, query);
+  const hint = pendingHint(commands, text);
+
+  const pickCommand = (command: SlashCommand) => {
+    setText(`/${command.name} `);
+    textareaRef.current?.focus();
+  };
+
+  /** Arrow keys, Enter/Tab and Escape drive the command menu while it is open. */
+  const handleMenuKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (menuCommands.length === 0) return false;
+    const last = menuCommands.length - 1;
+    if (e.key === "ArrowDown") setHighlighted((i) => (i >= last ? 0 : i + 1));
+    else if (e.key === "ArrowUp") setHighlighted((i) => (i <= 0 ? last : i - 1));
+    else if (e.key === "Enter" || e.key === "Tab") pickCommand(menuCommands[Math.min(highlighted, last)]);
+    else if (e.key === "Escape") setIsMenuDismissed(true);
+    else return false;
+    e.preventDefault();
+    return true;
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (handleMenuKey(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -94,6 +127,8 @@ export function ComposerDock({
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
+    setHighlighted(0);
+    setIsMenuDismissed(false);
     e.target.style.height = "auto";
     e.target.style.height = `${Math.min(e.target.scrollHeight, MAX_PROMPT_HEIGHT_PX)}px`;
   };
@@ -116,9 +151,12 @@ export function ComposerDock({
   return (
     <footer ref={containerRef} className="w-full max-w-3xl flex flex-col items-center px-4 select-none">
       <div
-        className="w-full rounded-xl border border-[#262626] bg-[#121212] p-3 shadow-2xl transition-all focus-within:border-neutral-700 focus-within:ring-1 focus-within:ring-amber-500/20"
+        className="relative w-full rounded-xl border border-[#262626] bg-[#121212] p-3 shadow-2xl transition-all focus-within:border-neutral-700 focus-within:ring-1 focus-within:ring-amber-500/20"
         style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }}
       >
+        {menuCommands.length > 0 && (
+          <SlashCommandMenu commands={menuCommands} highlighted={highlighted} onPick={pickCommand} />
+        )}
         <textarea
           ref={textareaRef}
           rows={1}
@@ -126,10 +164,12 @@ export function ComposerDock({
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
           disabled={disabled}
-          placeholder={placeholder}
+          placeholder={placeholder ?? (commands.length > 0 ? PLACEHOLDER_WITH_COMMANDS : PLACEHOLDER)}
           aria-label="Prompt"
           className="w-full bg-transparent text-sm text-neutral-200 placeholder-neutral-500 outline-none resize-none leading-relaxed min-h-[26px] max-h-[180px]"
         />
+
+        {hint && <p className="mt-1 text-[11px] text-neutral-500">{hint}</p>}
 
         <div className="mt-2 flex items-center justify-between border-t border-neutral-800/40 pt-2 text-xs">
           <div className="flex items-center gap-1">

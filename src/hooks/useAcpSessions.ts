@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useLatest } from './useLatest';
 import type { PermissionRequestPayload } from '../lib/acp-events';
+import type { SlashCommand } from '../types';
 
 /** The one event channel the backend emits ACP traffic on. */
 export const ACP_EVENT = 'acp-event';
@@ -31,6 +32,8 @@ export interface AcpSessionInfo {
   acpSessionId: string;
   modes: AcpModes | null;
   configOptions: AcpConfigOption[];
+  /** The agent's slash commands, from its latest available_commands_update. */
+  commands: SlashCommand[];
   canFork: boolean;
   isBusy: boolean;
 }
@@ -77,6 +80,22 @@ export function toConfigOptions(raw: unknown): AcpConfigOption[] {
   });
 }
 
+/** Validates an agent's command list, dropping malformed entries. */
+export function toCommands(raw: unknown): SlashCommand[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(isObject).flatMap((command) => {
+    if (!isString(command.name)) return [];
+    const input = isObject(command.input) ? command.input : {};
+    return [
+      {
+        name: command.name,
+        description: isString(command.description) ? command.description : '',
+        ...(isString(input.hint) ? { hint: input.hint } : {}),
+      },
+    ];
+  });
+}
+
 function toInfo(raw: unknown): AcpSessionInfo {
   const started = isObject(raw) ? raw : {};
   const capabilities = isObject(started.agentCapabilities) ? started.agentCapabilities : {};
@@ -85,6 +104,7 @@ function toInfo(raw: unknown): AcpSessionInfo {
     acpSessionId: isString(started.acpSessionId) ? started.acpSessionId : '',
     modes: toModes(started.modes),
     configOptions: toConfigOptions(started.configOptions),
+    commands: [],
     canFork: isObject(sessionCaps.fork),
     isBusy: false,
   };
@@ -120,6 +140,10 @@ export function useAcpSessions(handlers: AcpHandlers) {
           if (isObject(update) && update.sessionUpdate === 'current_mode_update' && isString(update.currentModeId)) {
             const modeId = update.currentModeId;
             patch(sessionId, (c) => (c.modes ? { ...c, modes: { ...c.modes, currentModeId: modeId } } : c));
+          }
+          if (isObject(update) && update.sessionUpdate === 'available_commands_update') {
+            const commands = toCommands(update.availableCommands);
+            patch(sessionId, (c) => ({ ...c, commands }));
           }
           if (isObject(update) && update.sessionUpdate === 'config_option_update') {
             const options = toConfigOptions(update.configOptions);

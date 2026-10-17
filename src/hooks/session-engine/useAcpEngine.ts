@@ -11,7 +11,7 @@ import {
 import { changesToApply, NO_CHOICES, type AcpChoices, type AgentOptions } from '../../lib/acp-draft';
 import { findCard, userMessage, withoutMessage } from '../../lib/session-helpers';
 import { createId } from '../../lib/ids';
-import { useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
+import { toCommands, useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
 import type { ChatMessage, Session } from '../../types';
 import type { EngineDeps } from './usePtyEngine';
 
@@ -21,6 +21,10 @@ function turnEndNotice(stopReason: string | undefined, error: string | undefined
   if (error) return `The agent's turn failed: ${error}`;
   if (stopReason && NOT_ENDED_NORMALLY.has(stopReason)) return `The agent stopped early (${stopReason}).`;
   return null;
+}
+
+function isCommandsUpdate(update: unknown): update is { availableCommands: unknown } {
+  return typeof update === 'object' && update !== null && (update as { sessionUpdate?: unknown }).sessionUpdate === 'available_commands_update';
 }
 
 interface LaunchOptions {
@@ -33,9 +37,9 @@ interface LaunchOptions {
   action: string;
 }
 
-export interface AcpEngineDeps extends Omit<EngineDeps, 'sessions'> {
-  /** Called with what an agent offers each time one of its sessions opens. */
-  rememberOptions: (profileId: string, options: AgentOptions) => void;
+export interface AcpEngineDeps extends EngineDeps {
+  /** Called with what an agent offers when one of its sessions opens or its commands change. */
+  rememberOptions: (profileId: string, options: Partial<AgentOptions>) => void;
 }
 
 /**
@@ -43,7 +47,14 @@ export interface AcpEngineDeps extends Omit<EngineDeps, 'sessions'> {
  * become chat messages, permission requests become cards with the agent's own
  * choices, and modes and config options are changed live.
  */
-export function useAcpEngine({ agents, updateMessages, patchSession, reportError, rememberOptions }: AcpEngineDeps) {
+export function useAcpEngine({
+  sessions,
+  agents,
+  updateMessages,
+  patchSession,
+  reportError,
+  rememberOptions,
+}: AcpEngineDeps) {
   const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
   // Sessions the app stopped (deleted, or stopped while starting): their late
   // events must not write a transcript back, and a start still in flight must
@@ -58,9 +69,14 @@ export function useAcpEngine({ agents, updateMessages, patchSession, reportError
     };
 
   const acp = useAcpSessions({
-    onUpdate: unlessStopped((sessionId, update: unknown) =>
-      updateMessages(sessionId, (prev) => applyAcpUpdate(prev, update, ctx(sessionId))),
-    ),
+    onUpdate: unlessStopped((sessionId, update: unknown) => {
+      if (isCommandsUpdate(update)) {
+        const profileId = sessions.find((s) => s.id === sessionId)?.profileId;
+        if (profileId) rememberOptions(profileId, { commands: toCommands(update.availableCommands) });
+        return;
+      }
+      updateMessages(sessionId, (prev) => applyAcpUpdate(prev, update, ctx(sessionId)));
+    }),
     onPermission: unlessStopped((sessionId, request: PermissionRequestPayload) =>
       updateMessages(sessionId, (prev) => applyPermissionRequest(prev, request, ctx(sessionId))),
     ),

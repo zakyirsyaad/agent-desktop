@@ -127,6 +127,14 @@ export interface ActionCard {
   chosenOptionId?: string;
 }
 
+/** A command an agent offers, typed as `/name` in the prompt. */
+export interface SlashCommand {
+  name: string;
+  description: string;
+  /** What to type after the command, when it takes input. */
+  hint?: string;
+}
+
 export interface PermissionChoice {
   optionId: string;
   name: string;

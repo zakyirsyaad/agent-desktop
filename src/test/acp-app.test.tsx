@@ -444,5 +444,34 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_prompt")).toHaveLength(0);
     expect(screen.getByPlaceholderText(/continue this session/i)).toBeDefined();
   });
+
+  it("offers the agent's slash commands in the composer and remembers them for the next session", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+
+    await acpEvent({
+      sessionId,
+      kind: "update",
+      update: {
+        sessionUpdate: "available_commands_update",
+        availableCommands: [
+          { name: "init", description: "Create a QWEN.md" },
+          { name: "compress", description: "Compress the context", input: { hint: "optional focus" } },
+        ],
+      },
+    });
+    await act(async () => {
+      fireEvent.change(prompt(), { target: { value: "/" } });
+    });
+
+    expect(screen.getAllByRole("option").map((o) => o.getAttribute("data-command"))).toEqual(["init", "compress"]);
+    await waitFor(() => {
+      const options = fakeStore().state.agentOptions as Record<string, { commands?: { name: string; hint?: string }[] }>;
+      expect(options?.qwen?.commands).toEqual([
+        { name: "init", description: "Create a QWEN.md" },
+        { name: "compress", description: "Compress the context", hint: "optional focus" },
+      ]);
+    });
+  });
 });
 

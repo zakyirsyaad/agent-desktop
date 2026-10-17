@@ -118,8 +118,11 @@ export default function App() {
     [updateState],
   );
 
-  const rememberAgentOptions = (profileId: string, options: AgentOptions) =>
-    updateState((prev) => ({ ...prev, agentOptions: { ...prev.agentOptions, [profileId]: options } }));
+  const rememberAgentOptions = (profileId: string, options: Partial<AgentOptions>) =>
+    updateState((prev) => {
+      const known = prev.agentOptions?.[profileId] ?? { modes: null, configOptions: [] };
+      return { ...prev, agentOptions: { ...prev.agentOptions, [profileId]: { ...known, ...options } } };
+    });
 
   const engineDeps = { sessions, agents, updateMessages, patchSession, reportError };
   const pty = usePtyEngine(engineDeps);
@@ -344,6 +347,14 @@ export default function App() {
     acp,
   });
   const isActiveTerminal = isActiveRunning && !isAcp(activeSession);
+  // A live ACP session's own commands; before it runs, the ones its agent offered last time.
+  const composerCommands = isActiveRunning
+    ? isAcp(activeSession)
+      ? acp.info[activeSessionId]?.commands
+      : undefined
+    : draftAgent?.transport === TRANSPORT_ACP
+      ? state.agentOptions?.[draftAgent.id]?.commands
+      : undefined;
 
   if (isLoaded && !state.settings.onboardingCompleted) {
     return (
@@ -434,6 +445,7 @@ export default function App() {
               onSendMessage={handleSendMessage}
               onAttach={pickFiles}
               handleRef={composerRef}
+              commands={composerCommands}
             />
           </div>
 
