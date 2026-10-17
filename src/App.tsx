@@ -35,6 +35,7 @@ import {
 import type { AgentProfile, ChatMessage, Session, Settings, SpawnOptions } from "./types";
 import { DEFAULT_PERMISSION_MODE, TRANSPORT_ACP } from "./types";
 
+const ACP_NO_TERMINAL_MESSAGE = "This agent talks to the app directly over ACP, so it has no terminal.";
 const NO_WORKSPACE_PLACEHOLDER = "Open a folder and install an agent to start";
 const NEW_SESSION_PLACEHOLDER = "Message the agent to start a new session...";
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
@@ -442,6 +443,7 @@ export default function App() {
             sessionId={activeSessionId}
             sessionName={activeSession?.name}
             isLive={isActiveTerminal}
+            emptyMessage={isActiveRunning && isAcp(activeSession) ? ACP_NO_TERMINAL_MESSAGE : undefined}
             onClose={() => setIsTerminalOpen(false)}
             onSendInput={(input) => void pty.sendRaw(activeSessionId, input)}
           />

@@ -344,5 +344,17 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_prompt")).toHaveLength(1);
     expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("second");
   });
+
+  it("explains in the terminal drawer that an ACP agent has no terminal", async () => {
+    const spy = await renderWithQwen();
+    await startQwenSession(spy);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Toggle terminal drawer" }));
+    });
+
+    expect(screen.getByText(/has no terminal/i)).toBeDefined();
+    expect(screen.queryByText(/no running session/i)).toBeNull();
+  });
 });
 

@@ -15,6 +15,8 @@ export interface TerminalDrawerProps {
   sessionName?: string;
   /** True while the session's agent process is running. */
   isLive?: boolean;
+  /** Shown instead of a terminal when there is none to show. */
+  emptyMessage?: string;
   onClose: () => void;
   onSendInput?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
@@ -25,6 +27,7 @@ export function TerminalDrawer({
   sessionId,
   sessionName,
   isLive = false,
+  emptyMessage = NO_SESSION_MESSAGE,
   onClose,
   onSendInput,
   onResize,
@@ -256,7 +259,7 @@ export function TerminalDrawer({
       ) : (
         <div className="flex flex-1 items-center justify-center gap-2 bg-[#000000] text-xs text-neutral-500">
           <TerminalIcon size={14} className="text-neutral-600" aria-hidden="true" />
-          <span>{NO_SESSION_MESSAGE}</span>
+          <span>{emptyMessage}</span>
         </div>
       )}
     </div>
