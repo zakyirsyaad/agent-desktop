@@ -140,5 +140,37 @@ describe("Popout windows", () => {
       payload: { sessionId: "s-1", action: { kind: "choose-option", cardId: "act-1", optionId: "allow" } },
     });
   });
+
+  it("shows the agent working and stops it from the popout", async () => {
+    await act(async () => {
+      render(<PopoutApp sessionId="s-1" />);
+    });
+    await deliver("session-snapshot", {
+      sessionId: "s-1",
+      session: runningSession,
+      messages: [{ id: "u-1", role: "user", content: "refactor it", timestamp: 1 }],
+      status: { isBusy: true, isWaiting: false, contextUsage: { used: 300_000, size: 1_000_000 } },
+    });
+
+    expect(screen.getByTestId("agent-working")).toBeDefined();
+    expect(screen.getByRole("meter", { name: "Context used" }).getAttribute("aria-valuenow")).toBe("30");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    });
+
+    expect(emitted).toContainEqual({ event: "popout-action", payload: { sessionId: "s-1", action: { kind: "stop" } } });
+  });
+
+  it("main window stops a session's turn when its popout asks", async () => {
+    fakeStore().state.sessions = [runningSession];
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+    await act(async () => {
+      render(<App />);
+    });
+
+    await deliver("popout-action", { sessionId: "s-1", action: { kind: "stop" } });
+
+    expect(spy).toHaveBeenCalledWith("send_input", { sessionId: "s-1", data: "\x03" }, undefined);
+  });
 });
 

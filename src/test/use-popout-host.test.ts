@@ -57,4 +57,26 @@ describe("usePopoutHost", () => {
     rerender({ ...props, transcripts: { ...changed, "s-1": [message("e")] } });
     expect(snapshotsFor("s-1")).toHaveLength(afterReady + 1);
   });
+
+  it("re-sends a popout's snapshot when its agent starts or stops working", async () => {
+    let busy = false;
+    const props = {
+      sessions: [session("s-1")],
+      transcripts: { "s-1": [message("a")] } as Record<string, ChatMessage[]>,
+      ensureLoaded: () => {},
+      onAction: () => {},
+      statusOf: () => ({ isBusy: busy, isWaiting: false }),
+    };
+    const { rerender } = renderHook((p: typeof props) => usePopoutHost(p), { initialProps: props });
+    await act(async () => {});
+    act(() => listeners.get("popout-ready")?.({ payload: { sessionId: "s-1" } }));
+    const before = snapshotsFor("s-1").length;
+
+    busy = true;
+    rerender({ ...props });
+
+    expect(snapshotsFor("s-1")).toHaveLength(before + 1);
+    expect((snapshotsFor("s-1").at(-1)?.payload as { status: { isBusy: boolean } }).status.isBusy).toBe(true);
+  });
 });
+

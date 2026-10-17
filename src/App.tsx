@@ -406,8 +406,14 @@ export default function App() {
     sessions,
     transcripts,
     ensureLoaded,
+    statusOf: (sessionId) => ({
+      isBusy: isSessionBusy(sessionId),
+      isWaiting: isSessionWaiting(sessionId),
+      contextUsage: isAcp(sessionById(sessionId)) ? acp.info[sessionId]?.usage : undefined,
+    }),
     onAction: (sessionId: string, action: PopoutAction) => {
       if (action.kind === "send") void sendTo(sessionId, { text: action.text });
+      else if (action.kind === "stop") handleInterrupt(sessionId);
       else if (action.kind === "choose-option") chooseOption(sessionId, action.cardId, action.optionId);
       else pty.resolveCard(sessionId, action.key, action.cardId, action.status);
     },
