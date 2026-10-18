@@ -372,7 +372,7 @@ describe("Session lifecycle", () => {
 
     expect(sidebar().getByText("Session #42")).toBeDefined();
     // A numbered name the app gave still takes its title from the first message.
-    expect(sidebar().getByText("second question")).toBeDefined();
+    expect(await sidebar().findByText("second question")).toBeDefined();
   });
 
   it("keeps a session listed when its agent cannot be stopped for archiving", async () => {
