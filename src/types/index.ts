@@ -1,3 +1,4 @@
+import type { Appearance } from '../lib/appearance';
 /**
  * Core type definitions for Zorvo GUI
  */
@@ -117,6 +118,7 @@ export interface Session {
 }
 
 export interface Settings {
+  appearance: Appearance;
   defaultAgentId: string | null;
   onboardingCompleted: boolean;
 }

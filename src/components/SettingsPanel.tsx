@@ -1,10 +1,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Folder, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
 import { RECHECK_ERROR, readyAgents, type AgentSummary } from "../lib/agent-readiness";
+import type { Appearance } from "../lib/appearance";
 import { Button } from "./ui/Button";
 import type { FolderOption } from "./onboarding/types";
 
 export interface SettingsPanelProps {
+  appearance: Appearance;
+  onChangeAppearance: (appearance: Appearance) => void;
   agents: readonly AgentSummary[];
   defaultAgentId: string | null;
   recentFolders: readonly FolderOption[];
@@ -66,6 +69,8 @@ function RecentFolderList({ folders, onRemove }: RecentFolderListProps) {
 }
 
 export function SettingsPanel({
+  appearance,
+  onChangeAppearance,
   agents,
   defaultAgentId,
   recentFolders,
@@ -80,6 +85,7 @@ export function SettingsPanel({
   const [checkError, setCheckError] = useState<string | null>(null);
   const titleId = useId();
   const selectId = useId();
+  const appearanceId = useId();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const ready = readyAgents(agents);
   useEscapeKey(onClose);
@@ -111,6 +117,22 @@ export function SettingsPanel({
             <X size={15} aria-hidden="true" />
           </button>
         </header>
+
+        <section>
+          <label htmlFor={appearanceId} className={`block ${SECTION_HEADING}`}>
+            Appearance
+          </label>
+          <select
+            id={appearanceId}
+            value={appearance}
+            onChange={(event) => onChangeAppearance(event.target.value as Appearance)}
+            className="w-full rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-xs text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+          >
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </section>
 
         <section>
           <label htmlFor={selectId} className={`block ${SECTION_HEADING}`}>

@@ -11,7 +11,7 @@ function tauriInternals(): TauriInternals {
 
 const STATE: PersistedState = {
   version: 1,
-  settings: { defaultAgentId: null, onboardingCompleted: true },
+  settings: { appearance: "system", defaultAgentId: null, onboardingCompleted: true },
   recentFolders: [
     { name: "api", path: "/w/api", lastOpenedAt: 2 },
     { name: "web", path: "/w/web", lastOpenedAt: 1 },
