@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { DiffStatChip } from "../components/changes/DiffStatChip";
 import { DiffFileSection } from "../components/changes/DiffFileSection";
+import { DiffView } from "../components/changes/DiffView";
 import type { FileStat } from "../lib/diff-stats";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
@@ -125,5 +126,145 @@ describe("DiffFileSection", () => {
     expect(screen.getByText("Loading the diff…")).toBeDefined();
     await act(async () => resolveBase("@@ -1 +1 @@\n-x\n+gamma\n"));
     expect(within(screen.getByLabelText("Diff of src/lib/app.ts")).getByText("gamma")).toBeDefined();
+  });
+});
+
+const statOf = (path: string): FileStat => ({ path, oldPath: null, kind: "modified", added: 1, removed: 1, isBinary: false });
+
+function mockDiff(stats: FileStat[], targets: { base: { name: string } | null } = { base: { name: "main" } }) {
+  return vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) => {
+    if (cmd === "session_diff_targets") return Promise.resolve(targets);
+    if (cmd === "session_diff_stats") return Promise.resolve(stats);
+    return Promise.resolve("");
+  });
+}
+
+async function renderView(props: Partial<React.ComponentProps<typeof DiffView>> = {}) {
+  const handlers = { onToggleExpanded: vi.fn(), onClose: vi.fn(), onError: vi.fn() };
+  await act(async () => {
+    render(<DiffView rootPath="/w" version={1} isExpanded={false} {...handlers} {...props} />);
+  });
+  return handlers;
+}
+
+const THREE = [statOf("src/app.ts"), statOf("src/lib/util.ts"), statOf("README.md")];
+const statCalls = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.filter((c) => c[0] === "session_diff_stats");
+
+describe("DiffView", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("shows what is compared and compares against the base first", async () => {
+    const spy = mockDiff(THREE);
+    await renderView();
+
+    expect(screen.getByRole("button", { name: "Diff target: main → working tree" })).toBeDefined();
+    expect(spy).toHaveBeenCalledWith("session_diff_stats", { path: "/w", target: "base" }, undefined);
+  });
+
+  it("reads against HEAD after choosing it in the dropdown", async () => {
+    const spy = mockDiff(THREE);
+    await renderView();
+
+    fireEvent.click(screen.getByRole("button", { name: "Diff target: main → working tree" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "HEAD → working tree" }));
+    });
+
+    expect(spy).toHaveBeenCalledWith("session_diff_stats", { path: "/w", target: "head" }, undefined);
+    expect(screen.getByRole("button", { name: "Diff target: HEAD → working tree" })).toBeDefined();
+  });
+
+  it("shows plain text without a dropdown when there is no base", async () => {
+    const spy = mockDiff(THREE, { base: null });
+    await renderView();
+
+    expect(screen.getByText("HEAD → working tree")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /Diff target/ })).toBeNull();
+    expect(spy).toHaveBeenCalledWith("session_diff_stats", { path: "/w", target: "head" }, undefined);
+  });
+
+  it("filters the files by the search text", async () => {
+    mockDiff(THREE);
+    await renderView();
+
+    fireEvent.click(screen.getByRole("button", { name: "Search files" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Filter files" }), { target: { value: "app" } });
+
+    expect(screen.getByText("app.ts")).toBeDefined();
+    expect(screen.queryByText("util.ts")).toBeNull();
+    expect(screen.queryByText("README.md")).toBeNull();
+  });
+
+  it("collapses and expands every section from the menu", async () => {
+    mockDiff(THREE);
+    await renderView();
+    const expandedStates = () => screen.getAllByRole("button").filter((b) => b.hasAttribute("aria-expanded") && b.hasAttribute("title") && b.getAttribute("aria-haspopup") === null).map((b) => b.getAttribute("aria-expanded"));
+    expect(expandedStates()).toEqual(["true", "true", "true"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Collapse all" }));
+    expect(expandedStates()).toEqual(["false", "false", "false"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Expand all" }));
+    });
+    expect(expandedStates()).toEqual(["true", "true", "true"]);
+  });
+
+  it("reads the stats again on Refresh", async () => {
+    const spy = mockDiff(THREE);
+    await renderView();
+    const before = statCalls(spy).length;
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Refresh" }));
+    });
+
+    expect(statCalls(spy).length).toBe(before + 1);
+  });
+
+  it("hands expand and close to its owner", async () => {
+    mockDiff(THREE);
+    const { onToggleExpanded, onClose } = await renderView();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand diff view" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close diff view" }));
+
+    expect(onToggleExpanded).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("starts every section collapsed above 25 files", async () => {
+    mockDiff(Array.from({ length: 26 }, (_, i) => statOf(`src/f${i}.ts`)));
+    await renderView();
+
+    const headers = screen.getAllByRole("button").filter((b) => b.getAttribute("title")?.startsWith("src/f"));
+    expect(headers).toHaveLength(26);
+    expect(headers.every((b) => b.getAttribute("aria-expanded") === "false")).toBe(true);
+  });
+
+  it("keeps the user's choices when a later list crosses the limit", async () => {
+    mockDiff(THREE);
+    const view = render(<DiffView rootPath="/w" version={1} isExpanded={false} onToggleExpanded={() => {}} onClose={() => {}} onError={() => {}} />);
+    await act(async () => {});
+    mockDiff(Array.from({ length: 26 }, (_, i) => statOf(`src/f${i}.ts`)).concat(THREE));
+    await act(async () => view.rerender(<DiffView rootPath="/w" version={2} isExpanded={false} onToggleExpanded={() => {}} onClose={() => {}} onError={() => {}} />));
+
+    expect(screen.getByTitle("src/app.ts").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTitle("src/f0.ts").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("says there are no changes against the compared branch", async () => {
+    mockDiff([]);
+    await renderView();
+    expect(screen.getByText("No changes against main.")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Diff target: main → working tree" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "HEAD → working tree" }));
+    });
+    expect(screen.getByText("No changes against HEAD.")).toBeDefined();
   });
 });
