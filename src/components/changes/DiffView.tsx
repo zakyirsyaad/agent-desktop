@@ -32,15 +32,18 @@ export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onCl
   };
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState("");
-  // The first list read after switching to a target decides what starts open;
-  // later reads of the same target keep the user's choices.
-  const [opened, setOpened] = useState<{ target: DiffTargetId; paths: ReadonlySet<string> } | null>(null);
-  if (stats && opened?.target !== target) {
-    setOpened({ target, paths: new Set(stats.length > AUTO_OPEN_LIMIT ? [] : stats.map((s) => s.path)) });
+  // Each target's first list decides what starts open; after that the user's
+  // choices for that target are kept, also across switching away and back.
+  const [opened, setOpened] = useState<Partial<Record<DiffTargetId, ReadonlySet<string>>>>({});
+  if (stats && !opened[target]) {
+    setOpened((prev) => ({ ...prev, [target]: new Set(stats.length > AUTO_OPEN_LIMIT ? [] : stats.map((s) => s.path)) }));
   }
-  const openPaths = opened?.target === target ? opened.paths : null;
+  const openPaths = opened[target] ?? null;
   const setOpenPaths = (change: (prev: ReadonlySet<string>) => ReadonlySet<string>) =>
-    setOpened((prev) => (prev ? { ...prev, paths: change(prev.paths) } : prev));
+    setOpened((prev) => {
+      const current = prev[target];
+      return current ? { ...prev, [target]: change(current) } : prev;
+    });
 
   const query = search.trim().toLowerCase();
   const visible = useMemo(

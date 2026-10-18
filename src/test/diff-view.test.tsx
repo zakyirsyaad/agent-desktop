@@ -372,6 +372,29 @@ describe("DiffView", () => {
     expect(sections().map((b) => b.getAttribute("aria-expanded"))).toEqual(["true", "true", "true"]);
   });
 
+  it("keeps each target's open sections when switching back", async () => {
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: { name: "main" } });
+      if (cmd === "session_diff_stats") return Promise.resolve((args as { target: string }).target === "base" ? THREE : [statOf("only-head.ts")]);
+      return Promise.resolve("");
+    });
+    await renderView();
+    const states = () => screen.getAllByRole("button").filter((b) => b.hasAttribute("aria-expanded") && b.hasAttribute("title") && b.getAttribute("aria-haspopup") === null).map((b) => b.getAttribute("aria-expanded"));
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Collapse all" }));
+    const pick = async (from: string, to: string) => {
+      fireEvent.click(screen.getByRole("button", { name: `Diff target: ${from}` }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("option", { name: to }));
+      });
+    };
+
+    await pick("main → working tree", "HEAD → working tree");
+    await pick("HEAD → working tree", "main → working tree");
+
+    expect(states()).toEqual(["false", "false", "false"]);
+  });
+
   it("hands expand and close to its owner", async () => {
     mockDiff(THREE);
     const { onToggleExpanded, onClose } = await renderView();
