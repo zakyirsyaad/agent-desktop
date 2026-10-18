@@ -12,7 +12,7 @@ export function SlashCommandMenu({ commands, highlighted, onPick }: SlashCommand
     <ul
       role="listbox"
       aria-label="Slash commands"
-      className="absolute bottom-full left-0 mb-2 max-h-64 w-full overflow-y-auto rounded-lg border border-neutral-800 bg-[#121212] p-1 shadow-2xl"
+      className="absolute bottom-full left-0 mb-2 max-h-64 w-full overflow-y-auto rounded-lg border border-border bg-surface-3 p-1 shadow-popover"
     >
       {commands.map((command, index) => (
         <li
@@ -26,11 +26,11 @@ export function SlashCommandMenu({ commands, highlighted, onPick }: SlashCommand
             onPick(command);
           }}
           className={`flex cursor-pointer items-baseline gap-3 rounded-md px-2.5 py-1.5 text-xs ${
-            index === highlighted ? "bg-neutral-800 text-neutral-100" : "text-neutral-300 hover:bg-neutral-900"
+            index === highlighted ? "bg-surface-hover text-fg" : "text-fg-secondary hover:bg-surface-hover"
           }`}
         >
-          <span className="shrink-0 font-mono text-amber-400">/{command.name}</span>
-          <span className="truncate text-neutral-500">{command.description}</span>
+          <span className="shrink-0 font-mono text-fg-muted">/{command.name}</span>
+          <span className="truncate text-fg-muted">{command.description}</span>
         </li>
       ))}
     </ul>

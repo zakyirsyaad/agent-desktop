@@ -1,4 +1,5 @@
 import { Settings, User } from "lucide-react";
+import { IconButton } from "./ui/IconButton";
 
 export interface ProfileFooterProps {
   /** `git config --global user.name`, when the user has one set. */
@@ -48,19 +49,19 @@ export function ProfileFooter({
   const initials = initialsFromName(trimmedName) ?? initialFromEmail(trimmedEmail);
 
   return (
-    <footer className="flex items-center justify-between border-t border-neutral-800/80 bg-[#0a0a0a] p-3">
+    <footer className="flex items-center justify-between border-t border-border bg-bg p-3">
       <div className="flex min-w-0 items-center gap-2">
         <span
           role="img"
           aria-label={`${displayName} avatar`}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-neutral-700/60 bg-neutral-800 text-[11px] font-semibold text-neutral-200"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border-strong bg-surface-hover text-[11px] font-semibold text-fg-secondary"
         >
           {initials ?? <User size={13} aria-hidden="true" />}
         </span>
         <div className="flex min-w-0 flex-col">
-          <span className="truncate font-medium text-neutral-200">{displayName}</span>
+          <span className="truncate font-medium text-fg-secondary">{displayName}</span>
           {version && (
-            <span className="text-[10px] text-neutral-500">
+            <span className="text-[10px] text-fg-subtle">
               Zorvo v{version}
             </span>
           )}
@@ -68,14 +69,9 @@ export function ProfileFooter({
       </div>
 
       {onOpenSettings && (
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          aria-label="Settings"
-          className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-        >
+        <IconButton label="Settings" onClick={onOpenSettings}>
           <Settings size={14} />
-        </button>
+        </IconButton>
       )}
     </footer>
   );

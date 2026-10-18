@@ -164,18 +164,18 @@ export function TerminalDrawer({
   return (
     <div
       data-testid="raw-terminal-drawer"
-      className="flex flex-col h-72 border-t border-neutral-800 bg-[#000000] z-20 transition-all select-none"
+      className="flex flex-col h-72 border-t border-border bg-bg z-20 transition-all select-none"
     >
       {/* Terminal Drawer Header Bar */}
-      <div className="flex h-9 items-center justify-between border-b border-neutral-800/80 bg-[#0a0a0a] px-3 text-xs">
+      <div className="flex h-9 items-center justify-between border-b border-border bg-bg px-3 text-xs">
         <div className="flex items-center space-x-2">
-          <TerminalIcon size={14} className="text-amber-400" />
-          <span className="font-mono font-medium text-neutral-200">Terminal</span>
-          {sessionName && <span className="truncate font-mono text-neutral-500">{sessionName}</span>}
+          <TerminalIcon size={14} className="text-fg-muted" />
+          <span className="font-mono font-medium text-fg">Terminal</span>
+          {sessionName && <span className="truncate font-mono text-fg-subtle">{sessionName}</span>}
           {isLive && (
             <span className="flex h-2 w-2 relative" role="status" aria-label="Agent running">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-status-running opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-status-running" />
             </span>
           )}
         </div>
@@ -186,7 +186,7 @@ export function TerminalDrawer({
             type="button"
             onClick={handleClear}
             disabled={!hasTerminal}
-            className="flex items-center gap-1 rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            className="flex items-center gap-1 rounded px-2 py-1 text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus-ring"
             aria-label="Clear output"
             title="Clear terminal output"
           >
@@ -198,20 +198,20 @@ export function TerminalDrawer({
             type="button"
             onClick={handleCopy}
             disabled={!hasTerminal}
-            className="flex items-center gap-1 rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            className="flex items-center gap-1 rounded px-2 py-1 text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus-ring"
             aria-label="Copy output"
             title="Copy terminal contents"
           >
-            {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+            {copied ? <Check size={13} className="text-status-running" /> : <Copy size={13} />}
             <span className="text-[11px]">{copied ? "Copied" : "Copy"}</span>
           </button>
 
-          <div className="h-3.5 w-px bg-neutral-800 mx-1" />
+          <div className="h-3.5 w-px bg-border mx-1" />
 
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            className="rounded p-1 text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors focus-ring"
             aria-label="Close drawer"
             title="Close terminal drawer"
           >
@@ -225,11 +225,11 @@ export function TerminalDrawer({
         <div
           ref={containerRef}
           data-testid="xterm-terminal-container"
-          className="flex-1 w-full overflow-hidden p-2 bg-[#000000]"
+          className="flex-1 w-full overflow-hidden p-2 bg-bg"
         />
       ) : (
-        <div className="flex flex-1 items-center justify-center gap-2 bg-[#000000] text-xs text-neutral-500">
-          <TerminalIcon size={14} className="text-neutral-600" aria-hidden="true" />
+        <div className="flex flex-1 items-center justify-center gap-2 bg-bg text-xs text-fg-subtle">
+          <TerminalIcon size={14} className="text-fg-subtle" aria-hidden="true" />
           <span>{emptyMessage}</span>
         </div>
       )}

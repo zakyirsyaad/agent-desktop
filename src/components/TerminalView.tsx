@@ -73,7 +73,7 @@ export function TerminalView({ sessionId, output, isLive, onInput, onResize }: T
       ref={containerRef}
       data-testid="terminal-view"
       aria-label="Agent terminal"
-      className="flex-1 min-h-0 overflow-hidden bg-[#000000] px-3 py-2"
+      className="flex-1 min-h-0 overflow-hidden bg-bg px-3 py-2"
     />
   );
 }

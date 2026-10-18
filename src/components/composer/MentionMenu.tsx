@@ -11,7 +11,7 @@ export function MentionMenu({ files, highlighted, onPick }: MentionMenuProps) {
     <ul
       role="listbox"
       aria-label="Files to mention"
-      className="absolute bottom-full left-0 mb-2 max-h-64 w-full overflow-y-auto rounded-lg border border-neutral-800 bg-[#121212] p-1 shadow-2xl"
+      className="absolute bottom-full left-0 mb-2 max-h-64 w-full overflow-y-auto rounded-lg border border-border bg-surface-3 p-1 shadow-popover"
     >
       {files.map((path, index) => {
         const slash = path.lastIndexOf("/");
@@ -28,11 +28,11 @@ export function MentionMenu({ files, highlighted, onPick }: MentionMenuProps) {
               onPick(path);
             }}
             className={`flex cursor-pointer items-baseline gap-2 rounded-md px-2.5 py-1.5 text-xs ${
-              index === highlighted ? "bg-neutral-800 text-neutral-100" : "text-neutral-300 hover:bg-neutral-900"
+              index === highlighted ? "bg-surface-hover text-fg" : "text-fg-secondary hover:bg-surface-hover"
             }`}
           >
-            <span className="shrink-0 font-mono text-amber-400">{path.slice(slash + 1)}</span>
-            {slash > 0 && <span className="truncate text-neutral-500">{path.slice(0, slash)}</span>}
+            <span className="shrink-0 font-mono text-fg-muted">{path.slice(slash + 1)}</span>
+            {slash > 0 && <span className="truncate text-fg-muted">{path.slice(0, slash)}</span>}
           </li>
         );
       })}

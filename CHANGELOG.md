@@ -9,6 +9,7 @@ To be released as 0.2.0.
 ### Changed
 
 - **Agent Desktop is now Zorvo.** New name, icon and bundle identifier (`xyz.zorvo.desktop`). On first launch Zorvo copies your sessions and transcripts from the old `com.agentdesktop.app` data folder and leaves that folder untouched. Delete Agent Desktop from Applications afterwards: both apps share the old sessions' worktrees, so deleting a session in one removes its worktree for the other. macOS ties notification and folder permissions to the bundle identifier, so grant them to Zorvo again.
+- **A new look.** Zorvo uses its own design system: Instrument Sans for the interface, Geist Mono for code and the terminal, and one set of colors throughout. Amber now only marks an agent that is waiting on you, hints and timestamps are easier to read, and keyboard focus shows a clear ring. ([#35])
 
 ### Added
 
@@ -68,3 +69,4 @@ To be released as 0.2.0.
 [#15]: https://github.com/zakyirsyaad/agent-desktop/pull/15
 [#16]: https://github.com/zakyirsyaad/agent-desktop/pull/16
 [#17]: https://github.com/zakyirsyaad/agent-desktop/pull/17
+[#35]: https://github.com/zakyirsyaad/agent-desktop/pull/35

@@ -1,4 +1,5 @@
 import { Check, X, Wrench, AlertTriangle } from "lucide-react";
+import { Button, type ButtonVariant } from "./ui/Button";
 import type { ActionCard as ActionCardType, PermissionChoice } from "../types";
 
 /**
@@ -16,13 +17,9 @@ export interface ActionCardProps {
   disabled?: boolean;
 }
 
-const CHOICE_BUTTON =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors border";
-
-function choiceTone(kind: string): string {
-  return kind.startsWith("allow")
-    ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-600"
-    : "bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border-neutral-700";
+function choiceVariant(kind: string): ButtonVariant {
+  if (kind === "allow_once") return "primary";
+  return kind.startsWith("allow") ? "outline" : "danger";
 }
 
 /** The agent's own answers to its permission request, or the one that was picked. */
@@ -39,24 +36,23 @@ function PermissionChoices({
   if (card.status !== "pending") {
     const chosen = options.find((o) => o.optionId === card.chosenOptionId);
     return (
-      <p className="mt-4 border-t border-neutral-800/60 pt-2 text-xs text-neutral-400">
+      <p className="mt-4 border-t border-border pt-2 text-xs text-fg-muted">
         {chosen ? `You chose: ${chosen.name}` : "This request was not answered."}
       </p>
     );
   }
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-neutral-800/60 pt-2">
+    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-2">
       {options.map((option) => (
-        <button
+        <Button
           key={option.optionId}
-          type="button"
+          variant={choiceVariant(option.kind)}
           disabled={disabled}
           onClick={() => onChoose?.(option.optionId)}
-          className={`${CHOICE_BUTTON} ${choiceTone(option.kind)} disabled:cursor-not-allowed disabled:opacity-50`}
+          icon={option.kind.startsWith("allow") ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
         >
-          {option.kind.startsWith("allow") ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
           {option.name}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -85,33 +81,33 @@ export function ActionCard({
   return (
     <div
       data-testid={`action-card-${card.id}`}
-      className="my-3 rounded-xl border border-neutral-800 border-l-4 border-l-amber-500 bg-[#141414] p-4 text-left shadow-lg transition-all"
+      className="my-3 rounded-xl border border-attention-border bg-attention-surface p-4 text-left transition-all"
     >
       {/* Header with Title and Tool Badge */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-          <h2 className="text-sm font-semibold tracking-wide text-neutral-100">
+          <AlertTriangle className="h-4 w-4 text-status-attention shrink-0" />
+          <h2 className="text-sm font-semibold tracking-wide text-fg">
             {card.title}
           </h2>
         </div>
 
         {card.toolName && (
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-neutral-900 border border-neutral-800 px-2.5 py-0.5 text-xs font-mono text-neutral-400">
-            <Wrench className="h-3 w-3 text-neutral-500" />
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-surface-2 border border-border px-2.5 py-0.5 text-xs font-mono text-fg-muted">
+            <Wrench className="h-3 w-3 text-fg-subtle" />
             Tool: {card.toolName}
           </span>
         )}
       </div>
 
       {/* Description / Prompt */}
-      <p className="mt-2 text-xs leading-relaxed text-neutral-300">
+      <p className="mt-2 text-xs leading-relaxed text-fg-secondary">
         {card.prompt}
       </p>
 
       {/* Command Snippet */}
       {card.commandSnippet && (
-        <div className="mt-3 rounded-lg border border-neutral-800/80 bg-neutral-950/80 p-2.5 font-mono text-xs text-amber-400/90 overflow-x-auto">
+        <div className="mt-3 rounded-lg border border-border bg-bg p-2.5 font-mono text-xs text-fg-secondary overflow-x-auto">
           <code>{card.commandSnippet}</code>
         </div>
       )}
@@ -121,41 +117,30 @@ export function ActionCard({
       ) : (
         <>
         {/* Action Buttons */}
-        <div className="mt-4 flex items-center justify-between gap-2 pt-2 border-t border-neutral-800/60">
+        <div className="mt-4 flex items-center justify-between gap-2 pt-2 border-t border-border">
           <div className="flex items-center gap-2">
-            <button
-              type="button"
+            {/* Both buttons are disabled once resolved; the chosen one keeps its color. */}
+            <Button
+              variant="primary"
               onClick={handleApprove}
               disabled={isDisabled}
+              className={card.status === "approved" ? "disabled:bg-primary! disabled:text-on-primary!" : undefined}
               aria-label={card.status === "approved" ? "Approved" : "Approve"}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                card.status === "approved"
-                  ? "bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 cursor-not-allowed opacity-80"
-                  : isDisabled
-                  ? "bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700/50"
-                  : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm hover:shadow"
-              }`}
+              icon={<Check className="h-3.5 w-3.5" />}
             >
-              <Check className="h-3.5 w-3.5" />
               {card.status === "approved" ? "Approved" : "✓ Approve"}
-            </button>
+            </Button>
 
-            <button
-              type="button"
+            <Button
+              variant="danger"
               onClick={handleReject}
               disabled={isDisabled}
+              className={card.status === "rejected" ? "disabled:opacity-100!" : undefined}
               aria-label={card.status === "rejected" ? "Rejected" : "Reject"}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                card.status === "rejected"
-                  ? "bg-rose-950/60 text-rose-400 border border-rose-800/50 cursor-not-allowed opacity-80"
-                  : isDisabled
-                  ? "bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700/50"
-                  : "bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700"
-              }`}
+              icon={<X className="h-3.5 w-3.5" />}
             >
-              <X className="h-3.5 w-3.5" />
               {card.status === "rejected" ? "Rejected" : "✕ Reject"}
-            </button>
+            </Button>
           </div>
         </div>
         </>

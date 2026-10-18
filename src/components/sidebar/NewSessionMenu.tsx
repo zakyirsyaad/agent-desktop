@@ -36,7 +36,7 @@ export function NewSessionMenu({ folderName, agents, defaultAgentId, onPick }: N
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
-        className="rounded p-1 text-neutral-500 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-600"
+        className="rounded p-1 text-fg-subtle hover:text-fg-secondary focus-ring"
       >
         <Plus size={13} />
       </button>
@@ -44,11 +44,11 @@ export function NewSessionMenu({ folderName, agents, defaultAgentId, onPick }: N
         <div
           role="menu"
           aria-label={`Agent for the new session in ${folderName}`}
-          className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-neutral-800 bg-[#181818] p-1 shadow-2xl"
+          className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-border bg-surface-3 p-1 shadow-popover"
         >
-          <p className="px-2.5 pb-1 pt-1 text-[11px] text-neutral-500">New session with</p>
+          <p className="px-2.5 pb-1 pt-1 text-[11px] text-fg-subtle">New session with</p>
           {choices.length === 0 && (
-            <p className="px-2.5 py-1.5 text-xs text-neutral-500">No agent is installed.</p>
+            <p className="px-2.5 py-1.5 text-xs text-fg-subtle">No agent is installed.</p>
           )}
           {choices.map((agent) => (
             <button
@@ -59,13 +59,13 @@ export function NewSessionMenu({ folderName, agents, defaultAgentId, onPick }: N
                 setIsOpen(false);
                 onPick(agent.id);
               }}
-              className="flex w-full items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-xs text-neutral-300 transition-colors hover:bg-neutral-800/60 hover:text-neutral-100"
+              className="flex w-full items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
             >
               <span className="flex min-w-0 items-center gap-2">
                 <AgentLogo profileId={agent.id} name="" size={12} />
                 <span className="truncate">{agent.name}</span>
               </span>
-              {agent.id === defaultAgentId && <span className="shrink-0 text-[10px] text-neutral-500">Default</span>}
+              {agent.id === defaultAgentId && <span className="shrink-0 text-[10px] text-fg-muted">Default</span>}
             </button>
           ))}
         </div>

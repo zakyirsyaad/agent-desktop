@@ -1,5 +1,6 @@
 import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Plus, CornerDownLeft, Shield, ShieldAlert, Cpu, Gauge, Square, Bot } from "lucide-react";
+import { IconButton } from "./ui/IconButton";
 import { OptionDropdown } from "./composer/OptionDropdown";
 import { FolderPicker, type FolderControl } from "./composer/FolderPicker";
 import { appendAttachments, formatAttachmentPath, withAttachments } from "../lib/attachments";
@@ -228,8 +229,7 @@ export function ComposerDock({
   return (
     <footer ref={containerRef} className="w-full max-w-3xl flex flex-col items-center px-4 select-none">
       <div
-        className="relative w-full rounded-xl border border-[#262626] bg-[#121212] p-3 shadow-2xl transition-all focus-within:border-neutral-700 focus-within:ring-1 focus-within:ring-amber-500/20"
-        style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }}
+        className="relative w-full rounded-xl border border-border bg-surface-2 p-3 shadow-popover transition-all focus-within:border-border-strong"
       >
         {attachments.length > 0 && (
           <div className="mb-2">
@@ -259,24 +259,22 @@ export function ComposerDock({
           disabled={disabled}
           placeholder={placeholder ?? (commands.length > 0 ? PLACEHOLDER_WITH_COMMANDS : PLACEHOLDER)}
           aria-label="Prompt"
-          className="w-full bg-transparent text-sm text-neutral-200 placeholder-neutral-500 outline-none resize-none leading-relaxed min-h-[26px] max-h-[180px]"
+          className="w-full bg-transparent text-sm text-fg-secondary placeholder-fg-subtle outline-none resize-none leading-relaxed min-h-[26px] max-h-[180px]"
         />
 
-        {hint && <p className="mt-1 text-[11px] text-neutral-500">{hint}</p>}
+        {hint && <p className="mt-1 text-[11px] text-fg-subtle">{hint}</p>}
 
-        <div className="mt-2 flex items-center justify-between border-t border-neutral-800/40 pt-2 text-xs">
+        <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-xs">
           <div className="flex items-center gap-1">
             {onAttach && (
-              <button
-                type="button"
-                aria-label="Add attachment"
+              <IconButton
+                label="Add attachment"
                 title="Attach files"
                 onClick={() => void handleAttach()}
                 disabled={disabled}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Plus size={15} />
-              </button>
+              </IconButton>
             )}
 
             {folder && (
@@ -287,7 +285,7 @@ export function ComposerDock({
               <OptionDropdown
                 label="Agent"
                 align="left"
-                icon={<Bot size={12} className="text-neutral-400" />}
+                icon={<Bot size={12} className="text-fg-muted" />}
                 {...dropdownProps("agent", agent, false)}
               />
             )}
@@ -298,9 +296,9 @@ export function ComposerDock({
                 align="left"
                 icon={
                   isRiskyPermission ? (
-                    <ShieldAlert size={13} className="text-amber-500" data-testid="risky-permission-icon" />
+                    <ShieldAlert size={13} className="text-danger" data-testid="risky-permission-icon" />
                   ) : (
-                    <Shield size={13} className="text-emerald-500" />
+                    <Shield size={13} className="text-status-running" />
                   )
                 }
                 {...dropdownProps("permission", permission)}
@@ -314,7 +312,7 @@ export function ComposerDock({
             {model && (
               <OptionDropdown
                 label="Model"
-                icon={<Cpu size={12} className="text-neutral-400" />}
+                icon={<Cpu size={12} className="text-fg-muted" />}
                 {...dropdownProps("model", model)}
               />
             )}
@@ -322,31 +320,29 @@ export function ComposerDock({
             {effort && (
               <OptionDropdown
                 label="Effort"
-                icon={<Gauge size={12} className="text-neutral-400" />}
+                icon={<Gauge size={12} className="text-fg-muted" />}
                 {...dropdownProps("effort", effort)}
               />
             )}
 
             {isThinking && onStop ? (
-              <button
-                type="button"
-                aria-label="Stop agent"
+              <IconButton
+                variant="primary"
+                label="Stop agent"
                 title="Stop the agent's current turn"
                 onClick={onStop}
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-200 text-neutral-900 hover:bg-white transition-all cursor-pointer"
               >
                 <Square size={12} fill="currentColor" />
-              </button>
+              </IconButton>
             ) : (
-              <button
-                type="button"
-                aria-label="Send message"
+              <IconButton
+                variant="primary"
+                label="Send message"
                 onClick={handleSend}
                 disabled={(!text.trim() && attachments.length === 0) || disabled}
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-200 text-neutral-900 hover:bg-white disabled:opacity-30 disabled:hover:bg-neutral-200 transition-all font-medium cursor-pointer"
               >
                 <CornerDownLeft size={14} />
-              </button>
+              </IconButton>
             )}
           </div>
         </div>

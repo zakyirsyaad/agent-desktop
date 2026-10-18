@@ -6,9 +6,9 @@ import { useDismiss } from "../../hooks/useDismiss";
 import { AgentLogo } from "../AgentLogo";
 
 const ROW_ACTION =
-  "mr-1 rounded p-1 text-neutral-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-300 focus:outline-none focus:ring-1 focus:ring-neutral-600";
+  "mr-1 rounded p-1 text-fg-subtle opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-danger focus-ring";
 const MENU_ITEM =
-  "flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs text-neutral-300 transition-colors hover:bg-neutral-800/60 hover:text-neutral-100";
+  "flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg";
 
 /** What every session row needs besides its own session. */
 export interface SessionListContext {
@@ -46,7 +46,7 @@ function DeleteButton({ onDelete }: { onDelete: () => void }) {
         aria-label="Confirm delete"
         title="Delete this session and its conversation for good"
         onClick={onDelete}
-        className="mr-1 rounded bg-rose-950/70 px-1.5 py-0.5 text-[10px] font-medium text-rose-300 hover:bg-rose-900 focus:outline-none focus:ring-1 focus:ring-rose-700"
+        className="mr-1 rounded bg-danger-surface px-1.5 py-0.5 text-[10px] font-medium text-danger focus-ring"
       >
         Delete?
       </button>
@@ -92,7 +92,7 @@ function SessionMenu({ session, onRename, context }: {
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
-        className={`${ROW_ACTION} hover:text-neutral-200 ${isOpen ? "opacity-100" : ""}`}
+        className={`${ROW_ACTION} hover:text-fg-secondary ${isOpen ? "opacity-100" : ""}`}
       >
         <MoreHorizontal size={12} />
       </button>
@@ -100,7 +100,7 @@ function SessionMenu({ session, onRename, context }: {
         <div
           role="menu"
           aria-label={`Actions for ${session.name}`}
-          className="absolute right-0 top-full z-50 mt-1 w-40 rounded-lg border border-neutral-800 bg-[#181818] p-1 shadow-2xl"
+          className="absolute right-0 top-full z-50 mt-1 w-40 rounded-lg border border-border bg-surface-3 p-1 shadow-popover"
         >
           {onRename && (
             <button type="button" role="menuitem" onClick={pick(onRename)} className={MENU_ITEM}>
@@ -157,7 +157,7 @@ function RenameField({ session, onDone }: { session: Session; onDone: (name: str
       }}
       onBlur={() => finish(name)}
       aria-label={`Rename ${session.name}`}
-      className="mx-1 my-0.5 min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-1.5 py-1 text-xs text-neutral-100 outline-none focus:border-amber-500/60"
+      className="mx-1 my-0.5 min-w-0 flex-1 rounded border border-border-strong bg-surface-2 px-1.5 py-1 text-xs text-fg focus-ring"
     />
   );
 }
@@ -189,8 +189,8 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
     <div
       className={`group flex items-center rounded-md transition-colors ${
         isActive
-          ? "bg-neutral-800/90 text-neutral-100 font-medium"
-          : "text-neutral-400 hover:bg-neutral-900/60 hover:text-neutral-200"
+          ? "bg-surface-hover text-fg font-medium"
+          : "text-fg-muted hover:bg-surface-hover hover:text-fg-secondary"
       }`}
     >
       <button
@@ -202,9 +202,9 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
         <span className="flex min-w-0 items-center gap-1.5">
           <AgentLogo profileId={session.profileId} name={agentName ?? session.profileId} size={12} />
           {session.worktree && (
-            <GitBranch size={11} aria-label="In its own worktree" className="shrink-0 text-amber-500/80" />
+            <GitBranch size={11} aria-label="In its own worktree" className="shrink-0 text-fg-muted" />
           )}
-          <span className={`truncate ${session.hasUnread && !isBusy ? "font-medium text-neutral-100" : ""}`}>
+          <span className={`truncate ${session.hasUnread && !isBusy ? "font-medium text-fg" : ""}`}>
             {session.name}
           </span>
         </span>
@@ -213,21 +213,21 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
             role="status"
             aria-label="Waiting for your answer"
             title="The agent waits for your answer"
-            className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 ml-1"
+            className="h-1.5 w-1.5 rounded-full bg-status-attention shrink-0 ml-1"
           />
         ) : isBusy ? (
           <span
             role="status"
             aria-label="Agent working"
             title="The agent is working"
-            className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0 ml-1 animate-pulse"
+            className="h-1.5 w-1.5 rounded-full bg-status-running shrink-0 ml-1 animate-pulse motion-reduce:animate-none"
           />
         ) : session.hasUnread && (
           <span
             role="status"
             aria-label="New activity"
             title="The agent finished while you were in another session"
-            className="h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0 ml-1"
+            className="h-1.5 w-1.5 rounded-full bg-status-unread shrink-0 ml-1"
           />
         )}
       </button>
@@ -262,7 +262,7 @@ export function SessionTree({ nodes, label, context, isNested = false }: {
   return (
     <ul
       aria-label={label}
-      className={isNested ? "ml-3 mt-0.5 space-y-0.5 border-l border-neutral-800 pl-1.5" : "space-y-0.5"}
+      className={isNested ? "ml-3 mt-0.5 space-y-0.5 border-l border-border pl-1.5" : "space-y-0.5"}
     >
       {nodes.map(({ session, children }) => (
         <li key={session.id}>

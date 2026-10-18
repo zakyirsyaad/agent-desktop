@@ -16,10 +16,10 @@ export function DefaultAgentStep({ agents, selectedAgentId, onSelectAgent }: Def
         return (
           <label
             key={agent.id}
-            className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors focus-within:ring-1 focus-within:ring-amber-500/40 ${
+            className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors focus-ring-within ${
               checked
-                ? "border-amber-500/40 bg-amber-500/10"
-                : "border-[#262626] bg-[#121212] hover:bg-neutral-900"
+                ? "border-border-strong bg-surface-hover"
+                : "border-border bg-surface-2 hover:bg-surface-hover"
             }`}
           >
             <input
@@ -28,12 +28,12 @@ export function DefaultAgentStep({ agents, selectedAgentId, onSelectAgent }: Def
               value={agent.id}
               checked={checked}
               onChange={() => onSelectAgent(agent.id)}
-              className="accent-amber-500"
+              className="accent-primary"
             />
             <span className="min-w-0">
-              <span className="block text-sm font-medium text-neutral-100">{agent.name}</span>
+              <span className="block text-sm font-medium text-fg">{agent.name}</span>
               {agent.detected_path && (
-                <span className="block truncate font-mono text-[11px] text-neutral-500">
+                <span className="block truncate font-mono text-[11px] text-fg-muted">
                   {agent.detected_path}
                 </span>
               )}

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Bot, Check } from "lucide-react";
 import { readyAgents, resolveDefaultAgentId, type AgentSummary } from "../lib/agent-readiness";
+import { Button } from "./ui/Button";
 import { AgentsStep } from "./onboarding/AgentsStep";
 import { DefaultAgentStep } from "./onboarding/DefaultAgentStep";
 import { FolderStep } from "./onboarding/FolderStep";
@@ -56,14 +57,14 @@ function StepIndicator({ current }: { current: number }) {
             aria-current={isCurrent ? "step" : undefined}
             className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${
               isCurrent
-                ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                ? "border-border-strong bg-surface-hover text-fg"
                 : isDone
-                  ? "border-neutral-800 text-neutral-300"
-                  : "border-neutral-800/60 text-neutral-500"
+                  ? "border-border text-fg-secondary"
+                  : "border-border text-fg-subtle"
             }`}
           >
             {isDone ? (
-              <Check size={11} className="text-emerald-400" aria-hidden="true" />
+              <Check size={11} className="text-status-running" aria-hidden="true" />
             ) : (
               <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
             )}
@@ -84,19 +85,15 @@ interface NavButtonProps {
 }
 
 function NavButton({ onClick, disabled, primary, describedBy, children }: NavButtonProps) {
-  const tone = primary
-    ? "bg-amber-500 text-black hover:bg-amber-400 disabled:bg-neutral-800 disabled:text-neutral-500"
-    : "border border-neutral-800 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100";
   return (
-    <button
-      type="button"
+    <Button
+      variant={primary ? "primary" : "outline"}
       onClick={onClick}
       disabled={disabled}
       aria-describedby={describedBy}
-      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-amber-500/40 ${tone}`}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -125,20 +122,20 @@ export function Onboarding({
 
   return (
     // Top-anchored (not vertically centered) so the header stays put as step heights change.
-    <main className="flex h-screen w-full items-start justify-center overflow-y-auto bg-[#000000] px-4 pt-[12vh] pb-8 text-neutral-200 select-none">
+    <main className="flex h-screen w-full items-start justify-center overflow-y-auto bg-bg px-4 pt-[12vh] pb-8 text-fg-secondary select-none">
       <div className="flex w-full max-w-xl flex-col gap-5">
         <header className="flex flex-col gap-4">
-          <div className="flex items-center gap-2 text-xs text-neutral-400">
-            <Bot size={15} className="text-amber-500" aria-hidden="true" />
-            <h1 className="font-semibold text-neutral-200">Set up Zorvo</h1>
+          <div className="flex items-center gap-2 text-xs text-fg-muted">
+            <Bot size={15} className="text-fg-muted" aria-hidden="true" />
+            <h1 className="font-semibold text-fg-secondary">Set up Zorvo</h1>
           </div>
           <StepIndicator current={step} />
         </header>
 
-        <section className="flex flex-col gap-4 rounded-xl border border-[#262626] bg-[#0d0d0d] p-5 shadow-2xl">
+        <section className="flex flex-col gap-4 rounded-xl border border-border bg-surface-1 p-5 shadow-dialog">
           <div>
-            <h2 className="text-base font-semibold text-neutral-100">{current.title}</h2>
-            <p className="mt-1 text-xs text-neutral-500">{current.description}</p>
+            <h2 className="text-base font-semibold text-fg">{current.title}</h2>
+            <p className="mt-1 text-xs text-fg-subtle">{current.description}</p>
           </div>
           {step === 0 && <AgentsStep agents={agents} onRecheckAgents={onRecheckAgents} />}
           {step === 1 && (
@@ -170,7 +167,7 @@ export function Onboarding({
           </div>
           <div className="flex items-center gap-3">
             {!canAdvance && (
-              <p id={GATE_HINT_ID} className="text-[11px] text-neutral-500">
+              <p id={GATE_HINT_ID} className="text-[11px] text-fg-subtle">
                 {GATE_MESSAGES[step]}
               </p>
             )}
