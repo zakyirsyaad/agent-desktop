@@ -35,7 +35,8 @@ export function useSidePanel(
 
   const show = (panel: SidePanel) => {
     // The list may be stale while the panel is closed (an agent mid-turn): opening reads it afresh.
-    if ((panel === 'changes' || panel === 'diff') && open !== panel) changes.reload();
+    // Asking for the diff again (its chip) reads it afresh even while it is open.
+    if (panel === 'diff' || (panel === 'changes' && open !== panel)) changes.reload();
     setOpen(panel);
   };
   const toggle = (panel: SidePanel) => (open === panel ? setOpen(null) : show(panel));

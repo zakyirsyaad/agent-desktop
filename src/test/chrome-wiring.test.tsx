@@ -131,9 +131,35 @@ describe("Window chrome wiring", () => {
 
     const chip = await header().findByRole("button", { name: /4 lines added, 1 removed/ });
     await click(chip);
+    const reads = () => (tauriInternals().invoke as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(([cmd]) => cmd === "session_changes").length;
+    const readsBefore = reads();
     await click(header().getByRole("button", { name: /4 lines added, 1 removed/ }));
 
     expect(screen.getByRole("complementary", { name: "Diff view" })).toBeDefined();
+    // Asking for the diff again reads it afresh.
+    expect(reads()).toBeGreaterThan(readsBefore);
+  });
+
+  it("hides the chat while the diff view is expanded, and opens it unexpanded next time", async () => {
+    seedSessions();
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "session_diff_stats") return Promise.resolve([{ path: "a.ts", oldPath: null, kind: "modified", added: 4, removed: 1, isBinary: false }]);
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: null });
+      return fakeTauriInvoke(cmd, args);
+    });
+    await renderApp();
+    const chat = () => document.querySelector("article") as HTMLElement;
+
+    await click(await header().findByRole("button", { name: /4 lines added, 1 removed/ }));
+    const diffView = () => within(screen.getByRole("complementary", { name: "Diff view" }));
+    await click(diffView().getByRole("button", { name: "Expand diff view" }));
+    expect(chat().classList.contains("hidden")).toBe(true);
+
+    await click(diffView().getByRole("button", { name: "Close diff view" }));
+    expect(chat().classList.contains("hidden")).toBe(false);
+    await click(header().getByRole("button", { name: /4 lines added, 1 removed/ }));
+    expect(diffView().getByRole("button", { name: "Expand diff view" })).toBeDefined();
+    expect(chat().classList.contains("hidden")).toBe(false);
   });
 
   it("shows the changes toggle without a count, and the session's changes in a panel that takes turns with Files", async () => {

@@ -255,11 +255,13 @@ export default function App() {
   const turnsEnded = useTurnsEnded(Boolean(activeSessionId) && isSessionBusy(activeSessionId));
   const sidePanel = useSidePanel(filesFolder?.path, isRepository, turnsEnded, reportError);
   const diffStats = sidePanel.headStats ? totalsOf(sidePanel.headStats) : undefined;
-  const [isDiffExpanded, setIsDiffExpanded] = useState(false);
+  // The folder whose diff view is expanded: another folder's view starts unexpanded.
+  const [expandedDiffFolder, setExpandedDiffFolder] = useState<string | null>(null);
   const isDiffOpen = sidePanel.open === "diff" && Boolean(filesFolder) && isRepository;
+  const isDiffExpanded = isDiffOpen && expandedDiffFolder === filesFolder?.path;
   // An expanded diff view starts over the next time it opens.
   useEffect(() => {
-    if (!isDiffOpen) setIsDiffExpanded(false);
+    if (!isDiffOpen) setExpandedDiffFolder(null);
   }, [isDiffOpen]);
   const pullRequest = usePullRequest(
     isRepository ? shownFolderPath : undefined,
@@ -724,7 +726,7 @@ export default function App() {
             rootPath={filesFolder.path}
             version={sidePanel.changes.version}
             isExpanded={isDiffExpanded}
-            onToggleExpanded={() => setIsDiffExpanded((current) => !current)}
+            onToggleExpanded={() => setExpandedDiffFolder(isDiffExpanded ? null : filesFolder.path)}
             onClose={sidePanel.close}
             onError={reportError}
           />
