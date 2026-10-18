@@ -104,21 +104,32 @@ Both draw in `currentColor`, so they take the color of the text around them.
 
 ### App icon
 
-`src-tauri/icons/` is generated from the symbol geometry. To regenerate it:
+`src-tauri/icons/` is generated from the SVGs in `assets/`. To regenerate
+it after changing them, run (macOS, with Python 3.9 or later, Pillow 9.1
+or later and pnpm):
 
-1. Draw the 1024px masters (needs Pillow 9.1 or later):
-   `python3 scripts/generate-app-icon.py <out>`. This writes
-   `zorvo-icon-1024.png` (full symbol) and `zorvo-icon-small-1024.png`
-   (small variant).
-2. Generate every size Tauri bundles: `pnpm tauri icon <out>/zorvo-icon-1024.png`.
-3. Replace the images under 32px with the small variant, resized from
-   `zorvo-icon-small-1024.png`: the 16 and 24 entries in `icon.ico`, the
-   16px `ic04` entry in `icon.icns` (not `ic11`, the 16@2x entry, which is
-   32px and keeps the full symbol), `Square30x30Logo.png`, and the iOS
-   `AppIcon-20x20@1x.png` and `AppIcon-29x29@1x.png`.
+```bash
+python3 scripts/generate-app-icon.py
+```
 
-The script's geometry is copied from the SVGs in `assets/`; if a path or
-stroke changes there, change it in the script too.
+The script reads the symbol geometry from both SVGs, which must stay flat:
+`<path>`s using only `M`, `L`, `H` and `V`, one stroke width, no `<g>` or
+`transform` (it refuses anything else). It draws a 1024px master of each, runs
+`pnpm tauri icon` on the full master, and then swaps in the small variant
+for every image under 32px: the 16 and 24 entries in `icon.ico`, the 16px
+`ic04` entry in `icon.icns` (rebuilt with `iconutil`; `ic11`, the 16@2x
+entry, is 32px and keeps the full symbol), `Square30x30Logo.png`, and the
+iOS `AppIcon-20x20@1x.png` and `AppIcon-29x29@1x.png`. Everything is
+built in a temporary directory and copied over only once every step has
+worked.
+
+Run on unchanged SVGs with Pillow 12.3 and tauri-cli 2.12.2, it reproduces
+the committed icons byte for byte. Other versions may encode the PNGs or
+resample differently, so git can show every icon as changed even though
+nothing visible changed.
+
+To draw only the two masters, run
+`python3 scripts/generate-app-icon.py --masters-only <out_dir>`.
 
 ## Color
 
