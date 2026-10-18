@@ -31,7 +31,7 @@ function FolderList({ label, folders, selectedPath, onSelect }: FolderListProps)
   const listClass = folders.length > MAX_VISIBLE_FOLDERS ? SCROLL_LIST_CLASS : LIST_CLASS;
   return (
     <section className="flex flex-col gap-1.5">
-      <h3 className="px-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+      <h3 className="px-1 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
         {label}
       </h3>
       <ul aria-label={label} className={listClass}>
@@ -43,20 +43,20 @@ function FolderList({ label, folders, selectedPath, onSelect }: FolderListProps)
                 type="button"
                 aria-pressed={selected}
                 onClick={() => onSelect(folder)}
-                className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors focus:outline-none focus:ring-1 focus:ring-amber-500/40 ${
+                className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring ${
                   selected
-                    ? "border-amber-500/40 bg-amber-500/10"
-                    : "border-[#262626] bg-[#121212] hover:bg-neutral-900"
+                    ? "border-border-strong bg-surface-hover"
+                    : "border-border bg-surface-2 hover:bg-surface-hover"
                 }`}
               >
                 <Folder
                   size={14}
                   aria-hidden="true"
-                  className={selected ? "shrink-0 text-amber-400" : "shrink-0 text-neutral-500"}
+                  className={selected ? "shrink-0 text-fg" : "shrink-0 text-fg-subtle"}
                 />
                 <span className="min-w-0">
-                  <span className="block truncate text-xs font-medium text-neutral-100">{folder.name}</span>
-                  <span className="block truncate font-mono text-[11px] text-neutral-500">{folder.path}</span>
+                  <span className="block truncate text-xs font-medium text-fg">{folder.name}</span>
+                  <span className="block truncate font-mono text-[11px] text-fg-subtle">{folder.path}</span>
                 </span>
               </button>
             </li>
@@ -98,20 +98,20 @@ export function FolderStep({
           type="button"
           onClick={handlePick}
           disabled={isPicking}
-          className="flex w-fit items-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-100 transition-colors hover:bg-neutral-800 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-amber-500/40"
+          className="flex w-fit items-center gap-2 rounded-lg border border-border-strong bg-surface-2 px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-surface-hover disabled:opacity-50 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
         >
-          <FolderOpen size={14} className="text-amber-400" aria-hidden="true" />
+          <FolderOpen size={14} className="text-fg-muted" aria-hidden="true" />
           Open folder…
         </button>
         {error && (
-          <p role="alert" className="text-[11px] text-red-400">
+          <p role="alert" className="text-[11px] text-danger">
             {error}
           </p>
         )}
-        <p className="text-[11px] text-neutral-500" aria-live="polite">
+        <p className="text-[11px] text-fg-subtle" aria-live="polite">
           {selectedFolder ? (
             <>
-              Selected: <span className="font-mono text-neutral-300">{selectedFolder.path}</span>
+              Selected: <span className="font-mono text-fg-secondary">{selectedFolder.path}</span>
             </>
           ) : (
             "No folder selected yet."
