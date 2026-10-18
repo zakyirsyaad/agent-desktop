@@ -1,36 +1,44 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { transformWithEsbuild, type ESBuildOptions } from "vite";
+import { build, type Rollup } from "vite";
 import { describe, expect, it } from "vitest";
-import viteConfig from "../../vite.config";
 
-const XTERM = join(__dirname, "..", "..", "node_modules", "@xterm", "xterm", "lib", "xterm.mjs");
-const RELEASE_TARGET = viteConfig.build?.target as string;
+const ROOT = join(__dirname, "..", "..");
+const XTERM = join(ROOT, "node_modules", "@xterm", "xterm", "lib", "xterm.mjs");
+/** Building xterm alone takes a few seconds, more on a loaded machine. */
+const BUILD_TIMEOUT_MS = 120_000;
+/** How long a parse may take before the terminal counts as stuck. */
+const PARSE_TIMEOUT_MS = 1000;
 
 type XtermModule = typeof import("@xterm/xterm");
 
 /**
- * xterm as a release build ships it: Vite re-minifies the dependency with esbuild,
- * for the build target, using the `esbuild` minify flags from vite.config.ts.
+ * xterm exactly as the release build ships it: Vite's own production build,
+ * with this project's vite.config.ts, of an entry that only exports xterm.
  */
-async function releaseXterm(esbuild: ESBuildOptions | undefined): Promise<XtermModule> {
-  const { code } = await transformWithEsbuild(readFileSync(XTERM, "utf8"), "xterm.mjs", {
-    target: RELEASE_TARGET,
-    format: "esm",
-    minifyWhitespace: true,
-    minifyIdentifiers: esbuild?.minifyIdentifiers ?? true,
-    minifySyntax: esbuild?.minifySyntax ?? true,
-  });
-  const file = join(mkdtempSync(join(tmpdir(), "xterm-release-")), "xterm.mjs");
-  writeFileSync(file, code);
+async function releaseXterm(): Promise<XtermModule> {
+  const dir = mkdtempSync(join(tmpdir(), "xterm-release-"));
+  const entry = join(dir, "entry.mjs");
+  writeFileSync(entry, `export { Terminal } from ${JSON.stringify(XTERM)};\n`);
+  const result = (await build({
+    root: ROOT,
+    configFile: join(ROOT, "vite.config.ts"),
+    mode: "production",
+    logLevel: "silent",
+    build: {
+      write: false,
+      rollupOptions: { input: entry, preserveEntrySignatures: "strict", output: { format: "es" } },
+    },
+  })) as Rollup.RollupOutput;
+  const chunk = result.output.find((file): file is Rollup.OutputChunk => file.type === "chunk" && file.isEntry);
+  if (!chunk) throw new Error("the build produced no entry chunk");
+  const file = join(dir, "built.mjs");
+  writeFileSync(file, chunk.code);
   return import(/* @vite-ignore */ pathToFileURL(file).href);
 }
-
-/** How long a parse may take before the terminal counts as stuck. */
-const PARSE_TIMEOUT_MS = 1000;
 
 /**
  * What the terminal answers when an agent asks whether it supports synchronized
@@ -49,11 +57,15 @@ async function answerToModeQuery({ Terminal }: XtermModule): Promise<string> {
 }
 
 describe("xterm in a release build", () => {
-  // xtermjs/xterm.js#5800: esbuild's syntax minifier, downlevelling xterm's `||=`
+  // xtermjs/xterm.js#5800: esbuild's syntax minifier, lowering xterm's `||=`
   // for an older target, drops a variable that DECRQM needs. The first mode query
   // (Oh-My-Pi sends one at start) then throws, and the terminal stops drawing.
-  it("still answers a terminal mode query", async () => {
-    const xterm = await releaseXterm(viteConfig.esbuild || undefined);
-    expect(await answerToModeQuery(xterm)).toBe("\x1b[?2026;2$y");
-  });
+  it(
+    "still answers a terminal mode query",
+    async () => {
+      const xterm = await releaseXterm();
+      expect(await answerToModeQuery(xterm)).toBe("\x1b[?2026;2$y");
+    },
+    BUILD_TIMEOUT_MS,
+  );
 });
