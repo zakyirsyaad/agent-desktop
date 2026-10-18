@@ -202,7 +202,7 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
         <span className="flex min-w-0 items-center gap-1.5">
           <AgentLogo profileId={session.profileId} name={agentName ?? session.profileId} size={12} />
           {session.worktree && (
-            <GitBranch size={11} aria-label="In its own worktree" className="shrink-0 text-status-attention" />
+            <GitBranch size={11} aria-label="In its own worktree" className="shrink-0 text-fg-muted" />
           )}
           <span className={`truncate ${session.hasUnread && !isBusy ? "font-medium text-fg" : ""}`}>
             {session.name}

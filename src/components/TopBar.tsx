@@ -154,14 +154,14 @@ export function TopBar({
             aria-pressed={isTerminalOpen}
             className={`flex items-center rounded-md p-1.5 transition-all focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring ${
               isTerminalOpen
-                ? "bg-attention-surface border border-attention-border text-status-attention"
+                ? "bg-surface-hover border border-border-strong text-fg"
                 : "bg-surface-2 border border-border text-fg-secondary hover:bg-surface-hover hover:text-fg"
             }`}
           >
             <Terminal
               size={14}
               aria-hidden="true"
-              className={isTerminalOpen ? "text-status-attention" : "text-fg-muted"}
+              className={isTerminalOpen ? "text-fg" : "text-fg-muted"}
             />
           </button>
         )}
@@ -175,9 +175,9 @@ export function TopBar({
             aria-pressed={isChangesOpen}
             title="Changes"
           >
-            <GitCompare size={14} className={isChangesOpen ? "text-status-attention" : undefined} />
+            <GitCompare size={14} className={isChangesOpen ? "text-fg" : undefined} />
             {changeCount !== undefined && changeCount > 0 && (
-              <span className="rounded bg-surface-hover px-1 text-[10px] leading-4 text-fg-secondary">{changeCount}</span>
+              <span className="rounded bg-surface-3 px-1 text-[10px] leading-4 text-fg-secondary">{changeCount}</span>
             )}
           </button>
         )}
@@ -189,7 +189,7 @@ export function TopBar({
             aria-pressed={isFilesOpen}
             title="Files"
           >
-            <Folder size={14} className={isFilesOpen ? "text-status-attention" : undefined} />
+            <Folder size={14} className={isFilesOpen ? "text-fg" : undefined} />
           </IconButton>
         )}
 
