@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -50,6 +51,9 @@ pub struct FileStat {
     pub added: u64,
     pub removed: u64,
     pub is_binary: bool,
+    /// Changes whenever this file's diff may have: the base commit, or the
+    /// file's size or modification time. Equal means the diff shown still holds.
+    pub fingerprint: String,
 }
 
 /// How much of a file is read at a time when counting its lines.
@@ -271,6 +275,7 @@ fn tracked_stats(git: &Path, toplevel: &Path, base: &str) -> Result<Vec<FileStat
                 path: change.path,
                 old_path: change.old_path,
                 kind: change.kind,
+                fingerprint: String::new(),
             }
         })
         .collect())
@@ -362,6 +367,7 @@ fn untracked_stat(toplevel: &Path, path: String) -> Option<FileStat> {
         added: counts.added,
         removed: counts.removed,
         is_binary: counts.is_binary,
+        fingerprint: String::new(),
     })
 }
 
@@ -392,7 +398,30 @@ pub fn diff_stats(git: &Path, dir: &Path, target: DiffTarget) -> Result<Vec<File
     let mut stats = tracked_stats(git, &toplevel, &base)?;
     stats.extend(untracked_stats(git, &toplevel, target)?);
     stats.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(stats)
+    let base_id = run_git(git, &toplevel, &["rev-parse", &base])
+        .map(|id| id.trim().to_string())
+        .unwrap_or(base);
+    Ok(stats
+        .into_iter()
+        .map(|stat| FileStat {
+            fingerprint: fingerprint(&toplevel, &base_id, &stat.path),
+            ..stat
+        })
+        .collect())
+}
+
+/// `base_id` with the size and modification time of `path` as it is now;
+/// a file that is gone has neither.
+fn fingerprint(toplevel: &Path, base_id: &str, path: &str) -> String {
+    let file = toplevel.join(path).symlink_metadata().ok().map(|meta| {
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_nanos());
+        format!("{}:{modified}", meta.len())
+    });
+    format!("{base_id}:{}", file.unwrap_or_else(|| "gone".to_string()))
 }
 
 /// Which target comparisons are on offer for a session's folder.

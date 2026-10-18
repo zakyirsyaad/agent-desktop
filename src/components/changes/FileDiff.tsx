@@ -10,7 +10,8 @@ type DiffState = { status: "loading" } | { status: "ready"; diff: string; key: s
 export function FileDiff({ rootPath, change, version, target = "head" }: {
   rootPath: string;
   change: FileChange;
-  version: number;
+  /** The diff is read again whenever this changes. */
+  version: number | string;
   target?: DiffTargetId;
 }) {
   const [state, setState] = useState<DiffState>({ status: "loading" });

@@ -7,7 +7,8 @@ export function DiffFileSection({ rootPath, stat, target, version, isOpen, onTog
   rootPath: string;
   stat: FileStat;
   target: DiffTargetId;
-  version: number;
+  /** The diff is read again whenever this changes. */
+  version: number | string;
   isOpen: boolean;
   onToggle: () => void;
 }) {

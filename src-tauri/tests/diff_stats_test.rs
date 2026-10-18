@@ -283,3 +283,44 @@ fn keeps_an_unreadable_untracked_file_as_binary() {
     assert!(secret.is_binary);
     assert_eq!((secret.added, secret.removed), (0, 0));
 }
+
+#[test]
+fn keeps_a_file_fingerprint_until_the_file_changes() {
+    let repo = repo("fingerprint");
+    fs::write(repo.join("src/app.ts"), "one\nTWO\nthree\n").expect("write");
+    let first = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
+    let again = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
+    assert_eq!(
+        stat_of(&first, "src/app.ts").fingerprint,
+        stat_of(&again, "src/app.ts").fingerprint
+    );
+
+    // The same line counts, other contents: the diff to show is different.
+    thread::sleep(Duration::from_millis(1100));
+    fs::write(repo.join("src/app.ts"), "one\nTWX\nthree\n").expect("write");
+    let edited = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
+
+    let (before, after) = (
+        stat_of(&first, "src/app.ts"),
+        stat_of(&edited, "src/app.ts"),
+    );
+    assert_eq!((before.added, before.removed), (after.added, after.removed));
+    assert_ne!(before.fingerprint, after.fingerprint);
+}
+
+#[test]
+fn changes_a_file_fingerprint_when_the_base_moves() {
+    let repo = repo("fingerprint-base");
+    fs::write(repo.join("src/app.ts"), "one\nTWO\nthree\n").expect("write");
+    let first = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
+
+    // An unrelated commit: src/app.ts is untouched but now compared with another commit.
+    fs::write(repo.join("old.md"), "moved on\n").expect("write");
+    git(&repo, &["commit", "-q", "-m", "unrelated", "--", "old.md"]);
+    let after = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
+
+    assert_ne!(
+        stat_of(&first, "src/app.ts").fingerprint,
+        stat_of(&after, "src/app.ts").fingerprint
+    );
+}

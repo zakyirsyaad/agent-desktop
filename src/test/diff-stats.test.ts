@@ -8,6 +8,7 @@ const stat = (added: number, removed: number): FileStat => ({
   added,
   removed,
   isBinary: false,
+  fingerprint: "f1",
 });
 
 describe("formatLineCount", () => {

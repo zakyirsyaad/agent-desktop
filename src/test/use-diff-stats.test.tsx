@@ -9,7 +9,7 @@ function tauriInternals(): TauriInternals {
   return (window as unknown as { __TAURI_INTERNALS__: TauriInternals }).__TAURI_INTERNALS__;
 }
 
-const STAT: FileStat = { path: "a.ts", oldPath: null, kind: "modified", added: 1, removed: 0, isBinary: false };
+const STAT: FileStat = { path: "a.ts", oldPath: null, kind: "modified", added: 1, removed: 0, isBinary: false, fingerprint: "f1" };
 
 function statCalls(spy: { mock: { calls: unknown[][] } }) {
   return spy.mock.calls.filter((call) => call[0] === "session_diff_stats");

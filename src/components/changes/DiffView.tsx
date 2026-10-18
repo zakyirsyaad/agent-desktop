@@ -23,7 +23,13 @@ export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onCl
   const [chosen, setChosen] = useState<DiffTargetId | null>(null);
   // A chosen base means nothing once there is none (main checked out): HEAD then.
   const target: DiffTargetId = targets.base ? (chosen ?? "base") : "head";
-  const { stats, statsVersion, reload } = useDiffStats(rootPath, areTargetsLoaded, target, version, onError);
+  const { stats, reload } = useDiffStats(rootPath, areTargetsLoaded, target, version, onError);
+  // Refresh reads every open diff again; otherwise a diff is read again only when its file changed.
+  const [refreshes, setRefreshes] = useState(0);
+  const refresh = () => {
+    setRefreshes((n) => n + 1);
+    reload();
+  };
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState("");
   // Null until the first list arrives: only that one decides what starts open.
@@ -65,7 +71,7 @@ export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onCl
         onSearchChange={setSearch}
         onCollapseAll={() => setOpenPaths(new Set())}
         onExpandAll={() => setOpenPaths(new Set((stats ?? []).map((s) => s.path)))}
-        onRefresh={reload}
+        onRefresh={refresh}
         isExpanded={isExpanded}
         onToggleExpanded={onToggleExpanded}
         onClose={onClose}
@@ -84,7 +90,7 @@ export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onCl
               rootPath={rootPath}
               stat={stat}
               target={target}
-              version={statsVersion}
+              version={`${refreshes}:${stat.fingerprint}`}
               isOpen={openPaths?.has(stat.path) ?? false}
               onToggle={() => toggle(stat.path)}
             />

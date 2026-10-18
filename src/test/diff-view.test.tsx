@@ -13,7 +13,7 @@ function tauriInternals(): TauriInternals {
 
 const DIFF = "@@ -10,2 +10,2 @@\n context\n-old\n+new\n";
 
-const STAT: FileStat = { path: "src/lib/app.ts", oldPath: null, kind: "modified", added: 3, removed: 1, isBinary: false };
+const STAT: FileStat = { path: "src/lib/app.ts", oldPath: null, kind: "modified", added: 3, removed: 1, isBinary: false, fingerprint: "f1" };
 
 function renderSection(stat: FileStat, isOpen: boolean) {
   return render(
@@ -129,7 +129,7 @@ describe("DiffFileSection", () => {
   });
 });
 
-const statOf = (path: string): FileStat => ({ path, oldPath: null, kind: "modified", added: 1, removed: 1, isBinary: false });
+const statOf = (path: string, fingerprint = "f1"): FileStat => ({ path, oldPath: null, kind: "modified", added: 1, removed: 1, isBinary: false, fingerprint });
 
 function mockDiff(stats: FileStat[], targets: { base: { name: string } | null } = { base: { name: "main" } }) {
   return vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) => {
@@ -264,6 +264,35 @@ describe("DiffView", () => {
     });
 
     expect(statCalls(spy).length).toBe(before + 1);
+  });
+
+  it("reads an open file's diff again only when the file changed", async () => {
+    let stats = THREE;
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) => {
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: null });
+      if (cmd === "session_diff_stats") return Promise.resolve(stats);
+      return Promise.resolve("@@ -1 +1 @@\n-a\n+b\n");
+    });
+    const handlers = { onToggleExpanded: vi.fn(), onClose: vi.fn(), onError: vi.fn() };
+    let rerender: (ui: React.ReactElement) => void = () => {};
+    await act(async () => {
+      ({ rerender } = render(<DiffView rootPath="/w" version={1} isExpanded={false} {...handlers} />));
+    });
+    const diffReads = () => spy.mock.calls.filter((c) => c[0] === "session_file_diff").map((c) => (c[1] as { file: string }).file);
+    expect(diffReads()).toHaveLength(3);
+
+    // The list is read again (window focus) but nothing changed: no diff is read.
+    await act(async () => {
+      rerender(<DiffView rootPath="/w" version={2} isExpanded={false} {...handlers} />);
+    });
+    expect(diffReads()).toHaveLength(3);
+
+    // One file changed: only its diff is read again.
+    stats = [statOf("src/app.ts", "f2"), statOf("src/lib/util.ts"), statOf("README.md")];
+    await act(async () => {
+      rerender(<DiffView rootPath="/w" version={3} isExpanded={false} {...handlers} />);
+    });
+    expect(diffReads().slice(3)).toEqual(["src/app.ts"]);
   });
 
   it("hands expand and close to its owner", async () => {
