@@ -374,6 +374,14 @@ export default function App() {
     if (workspacePath && workspaces.some((ws) => ws.path === workspacePath)) selectWorkspace(workspacePath);
   };
 
+  /** Stops the agent's current turn; the session stays open for the next message. */
+  const handleInterrupt = (sessionId: string) => {
+    // A rewound session's fresh agent has not started yet: only its start is called off.
+    if (isRestarting(sessionId)) cancelRestart(sessionId);
+    else if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
+    else pty.interrupt(sessionId);
+  };
+
   const backgroundTasks = useBackgroundTasks({
     sessions,
     isAcp,
@@ -381,6 +389,7 @@ export default function App() {
     busySince: acp.busySinceOf,
     needsApproval: (id) => isAwaitingPermission(transcripts[id] ?? []),
     onOpenSession: handleSelectSession,
+    stopAgent: handleInterrupt,
     onError: reportError,
   });
 
@@ -420,14 +429,6 @@ export default function App() {
   const handleRunOnboarding = () => {
     setIsSettingsOpen(false);
     updateSettings({ onboardingCompleted: false });
-  };
-
-  /** Stops the agent's current turn; the session stays open for the next message. */
-  const handleInterrupt = (sessionId: string) => {
-    // A rewound session's fresh agent has not started yet: only its start is called off.
-    if (isRestarting(sessionId)) cancelRestart(sessionId);
-    else if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
-    else pty.interrupt(sessionId);
   };
 
   useUnreadMarks(sessions, activeSessionId, isSessionBusy, patchSession);

@@ -14,7 +14,15 @@ function task(over: Partial<BackgroundTask>): BackgroundTask {
   return { id: "x", kind: "agent", name: "Alpha", status: "Working", startedAt: 0, sessionId: "s1", ...over };
 }
 
-function setup(sessions: readonly Session[], onError = vi.fn(), onOpenSession = vi.fn()) {
+interface SetupOptions {
+  needsApproval?: (sessionId: string) => boolean;
+  stopAgent?: (sessionId: string) => void | Promise<void>;
+}
+
+function setup(sessions: readonly Session[], options: SetupOptions = {}) {
+  const onError = vi.fn();
+  const onOpenSession = vi.fn();
+  const stopAgent = vi.fn(options.stopAgent ?? (() => undefined));
   const hook = renderHook(
     ({ list }) =>
       useBackgroundTasks({
@@ -22,13 +30,14 @@ function setup(sessions: readonly Session[], onError = vi.fn(), onOpenSession = 
         isAcp: () => false,
         isBusy: () => false,
         busySince: () => undefined,
-        needsApproval: () => false,
+        needsApproval: options.needsApproval ?? (() => false),
         onOpenSession,
+        stopAgent,
         onError,
       }),
     { initialProps: { list: sessions } },
   );
-  return { ...hook, onError, onOpenSession };
+  return { ...hook, onError, onOpenSession, stopAgent };
 }
 
 describe("useBackgroundTasks", () => {
@@ -40,16 +49,38 @@ describe("useBackgroundTasks", () => {
 
   it("stops each kind with its own command", async () => {
     const spy = vi.spyOn(internals(), "invoke").mockResolvedValue([]);
-    const { result } = setup([SESSION]);
+    const { result, stopAgent } = setup([SESSION]);
     await advance(0);
     const results: boolean[] = [];
     await act(async () => { results.push(await result.current.stop(task({ kind: "agent" }))); });
     await act(async () => { await result.current.stop(task({ kind: "terminal" })); });
     await act(async () => { await result.current.stop(task({ kind: "process", pid: 7 })); });
     expect(results).toEqual([true]);
-    expect(spy).toHaveBeenCalledWith("acp_cancel", { sessionId: "s1" }, undefined);
+    expect(stopAgent).toHaveBeenCalledWith("s1");
+    expect(spy).not.toHaveBeenCalledWith("acp_cancel", expect.anything(), undefined);
     expect(spy).toHaveBeenCalledWith("terminate_session", { sessionId: "s1" }, undefined);
     expect(spy).toHaveBeenCalledWith("stop_background_process", { pid: 7 }, undefined);
+  });
+
+  it("stops an agent waiting for approval through the app's interrupt, not a bare cancel", async () => {
+    const spy = vi.spyOn(internals(), "invoke").mockResolvedValue([]);
+    const { result, stopAgent } = setup([SESSION], { needsApproval: () => true });
+    await advance(0);
+    let isStopped: boolean | undefined;
+    await act(async () => { isStopped = await result.current.stop(task({ kind: "agent", status: "Needs approval" })); });
+    expect(isStopped).toBe(true);
+    expect(stopAgent).toHaveBeenCalledTimes(1);
+    expect(stopAgent).toHaveBeenCalledWith("s1");
+    expect(spy.mock.calls.map(([cmd]) => cmd)).not.toContain("acp_cancel");
+  });
+
+  it("reports an agent stop that fails", async () => {
+    vi.spyOn(internals(), "invoke").mockResolvedValue([]);
+    const { result, onError } = setup([SESSION], { stopAgent: () => Promise.reject("gone") });
+    let isStopped: boolean | undefined;
+    await act(async () => { isStopped = await result.current.stop(task({ kind: "agent", name: "Alpha" })); });
+    expect(isStopped).toBe(false);
+    expect(onError).toHaveBeenCalledWith("Could not stop Alpha: gone");
   });
 
   it("reports a failed stop", async () => {

@@ -11,13 +11,18 @@ export interface BackgroundTasksArgs {
   busySince: (sessionId: string) => number | undefined;
   needsApproval: (sessionId: string) => boolean;
   onOpenSession: (sessionId: string) => void;
+  /**
+   * Stops an agent's turn through the app's interrupt path, which also answers
+   * pending permission requests and handles a starting or rewinding agent.
+   */
+  stopAgent: (sessionId: string) => void | Promise<void>;
   onError: (message: string) => void;
 }
 
-function stopCall(task: BackgroundTask): Promise<unknown> {
+function stopCall(task: BackgroundTask, stopAgent: BackgroundTasksArgs['stopAgent']): Promise<unknown> {
   switch (task.kind) {
     case 'agent':
-      return invoke('acp_cancel', { sessionId: task.sessionId });
+      return Promise.resolve(stopAgent(task.sessionId));
     case 'terminal':
       return invoke('terminate_session', { sessionId: task.sessionId });
     case 'process':
@@ -36,7 +41,7 @@ export interface BackgroundTasks {
 }
 
 export function useBackgroundTasks(args: BackgroundTasksArgs): BackgroundTasks {
-  const { sessions, isAcp, isBusy, busySince, needsApproval, onOpenSession, onError } = args;
+  const { sessions, isAcp, isBusy, busySince, needsApproval, onOpenSession, stopAgent, onError } = args;
   const [isMenuOpen, setMenuOpen] = useState(false);
   const hasLiveSessions = sessions.some((s) => s.status === 'running');
   const { processes, readAt, reload } = useBackgroundProcesses(hasLiveSessions, isMenuOpen, onError);
@@ -52,7 +57,7 @@ export function useBackgroundTasks(args: BackgroundTasksArgs): BackgroundTasks {
     async (task: BackgroundTask): Promise<boolean> => {
       let isStopped = true;
       try {
-        await stopCall(task);
+        await stopCall(task, stopAgent);
       } catch (error) {
         isStopped = false;
         onError(`Could not stop ${task.name}: ${String(error)}`);
@@ -60,7 +65,7 @@ export function useBackgroundTasks(args: BackgroundTasksArgs): BackgroundTasks {
       reload();
       return isStopped;
     },
-    [onError, reload],
+    [onError, reload, stopAgent],
   );
 
   return { tasks, isMenuOpen, setMenuOpen, open, stop };
