@@ -3,17 +3,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use agent_desktop_lib::workspace_files::{list_workspace_files, list_workspace_files_up_to};
+use zorvo_lib::workspace_files::{list_workspace_files, list_workspace_files_up_to};
 
 fn unique_root(tag: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "agent-desktop-files-{tag}-{}-{nanos}",
-        std::process::id()
-    ));
+    let root =
+        std::env::temp_dir().join(format!("zorvo-files-{tag}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&root).expect("create root");
     root
 }

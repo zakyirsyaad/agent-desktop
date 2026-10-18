@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod changes;
+pub mod data_migration;
 pub mod env_resolver;
 pub mod files;
 pub mod fork_handoff;
@@ -188,6 +189,24 @@ fn write_fork_handoff(
         .map_err(|p| format!("Handoff path is not valid UTF-8: {}", p.to_string_lossy()))
 }
 
+/// Tells the user that their Agent Desktop sessions were not brought over.
+///
+/// A failed copy must not stop the app from starting, but a Finder-launched
+/// app has no visible stderr, so the error is shown in a native dialog.
+fn report_migration_failure(app: &AppHandle, error: &str) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+
+    eprintln!("Could not copy data from Agent Desktop: {error}");
+    app.dialog()
+        .message(format!(
+            "Zorvo could not bring over your sessions from Agent Desktop. \
+             It will try again the next time it opens.\n\n{error}"
+        ))
+        .title("Sessions not copied")
+        .kind(MessageDialogKind::Warning)
+        .show(|_| {});
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_handle_holder: Arc<std::sync::Mutex<Option<AppHandle>>> =
@@ -252,7 +271,11 @@ pub fn run() {
                     e
                 )
             })?;
-            app.manage(AppStore::new(data_dir));
+            let (store, migration) = data_migration::open_store(data_dir);
+            app.manage(store);
+            if let Err(error) = migration {
+                report_migration_failure(app.handle(), &error);
+            }
 
             // Warm the login-shell environment off the main thread so the first
             // session spawn and profile scan do not pay for it.

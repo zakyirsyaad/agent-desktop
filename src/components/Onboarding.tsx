@@ -21,7 +21,7 @@ const STEPS = [
   {
     label: "Agents",
     title: "Check your agents",
-    description: "Agent Desktop drives coding agents installed on this machine.",
+    description: "Zorvo drives coding agents installed on this machine.",
   },
   {
     label: "Folder",
@@ -130,7 +130,7 @@ export function Onboarding({
         <header className="flex flex-col gap-4">
           <div className="flex items-center gap-2 text-xs text-neutral-400">
             <Bot size={15} className="text-amber-500" aria-hidden="true" />
-            <h1 className="font-semibold text-neutral-200">Set up Agent Desktop</h1>
+            <h1 className="font-semibold text-neutral-200">Set up Zorvo</h1>
           </div>
           <StepIndicator current={step} />
         </header>

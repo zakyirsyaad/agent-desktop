@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
 
-use agent_desktop_lib::store::{
+use zorvo_lib::store::{
     AppStore, PersistedState, RecentFolder, SessionRecord, SessionWorktreeRecord, Settings,
     STATE_VERSION,
 };
@@ -18,7 +18,7 @@ fn unique_temp_root(tag: &str) -> PathBuf {
         .expect("system clock is before the unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "agent-desktop-store-{}-{}-{}",
+        "zorvo-store-{}-{}-{}",
         tag,
         std::process::id(),
         nanos
@@ -603,4 +603,22 @@ fn drops_malformed_organizing_fields_but_keeps_the_saved_sessions() {
     assert!(!state.sessions[0].named_by_user);
     assert!(!state.sessions[0].has_unread);
     fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn worktree_roots_are_the_store_worktrees_folder_by_default() {
+    let root = unique_temp_root("roots-default");
+    let store = AppStore::new(root.clone());
+
+    assert_eq!(store.worktree_roots(), vec![root.join("worktrees")]);
+}
+
+#[test]
+fn worktree_roots_include_a_legacy_worktrees_folder() {
+    let root = unique_temp_root("roots-legacy");
+    let legacy = PathBuf::from("/data/com.agentdesktop.app/worktrees");
+    let store = AppStore::new(root.clone()).with_legacy_worktrees_root(legacy.clone());
+
+    assert_eq!(store.worktrees_root(), root.join("worktrees"));
+    assert_eq!(store.worktree_roots(), vec![root.join("worktrees"), legacy]);
 }

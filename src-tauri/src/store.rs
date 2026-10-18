@@ -18,13 +18,16 @@ use serde::{Deserialize, Deserializer, Serialize};
 pub const STATE_VERSION: u32 = 1;
 
 /// The state file inside the store root.
-const STATE_FILE: &str = "state.json";
+pub(crate) const STATE_FILE: &str = "state.json";
 
 /// The scratch file a state write is staged in before it replaces [`STATE_FILE`].
-const STATE_TMP_FILE: &str = "state.json.tmp";
+pub(crate) const STATE_TMP_FILE: &str = "state.json.tmp";
 
 /// The directory holding one JSON file of chat messages per session.
 const TRANSCRIPTS_DIR: &str = "transcripts";
+
+/// The directory session worktrees are made in.
+pub(crate) const WORKTREES_DIR: &str = "worktrees";
 
 /// The status every session is normalized to on load: no agent process
 /// survives an app restart, so anything recorded as live is stale.
@@ -158,6 +161,9 @@ pub struct AppStore {
     /// loaded on first use and kept current by `save_state` and
     /// `remember_workspace`, so the Files panel never re-reads the state file.
     known_workspaces: Mutex<Option<HashSet<PathBuf>>>,
+    /// The worktrees folder of the pre-rename data dir, whose worktrees saved
+    /// sessions still use in place and may need to remove.
+    legacy_worktrees_root: Option<PathBuf>,
 }
 
 /// A saved worktree, or none when it is malformed: a bad entry must not make
@@ -210,12 +216,29 @@ impl AppStore {
         Self {
             root,
             known_workspaces: Mutex::new(None),
+            legacy_worktrees_root: None,
+        }
+    }
+
+    /// Also accepts worktrees under `root` when removing a session's worktree.
+    pub fn with_legacy_worktrees_root(self, root: PathBuf) -> Self {
+        Self {
+            legacy_worktrees_root: Some(root),
+            ..self
         }
     }
 
     /// Where session worktrees are made.
     pub fn worktrees_root(&self) -> PathBuf {
-        self.root.join("worktrees")
+        self.root.join(WORKTREES_DIR)
+    }
+
+    /// Every folder a saved session's worktree may live in: [`Self::worktrees_root`]
+    /// first, then the legacy one, if any.
+    pub fn worktree_roots(&self) -> Vec<PathBuf> {
+        std::iter::once(self.worktrees_root())
+            .chain(self.legacy_worktrees_root.clone())
+            .collect()
     }
 
     /// Whether `canonical_root` is one of the user's workspaces.
@@ -412,7 +435,7 @@ fn validate_session_id(session_id: &str) -> Result<(), String> {
 ///
 /// The rename is the only visible step, so a reader sees either the old file or
 /// the complete new one, never a partial write.
-fn atomic_write(path: &Path, tmp: &Path, contents: &[u8]) -> Result<(), String> {
+pub(crate) fn atomic_write(path: &Path, tmp: &Path, contents: &[u8]) -> Result<(), String> {
     fs::write(tmp, contents).map_err(|e| format!("Failed to write {}: {}", tmp.display(), e))?;
     fs::rename(tmp, path).map_err(|e| format!("Failed to replace {}: {}", path.display(), e))
 }

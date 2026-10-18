@@ -1,6 +1,6 @@
-use agent_desktop_lib::pty_session::{PtyEvent, PtySessionManager};
 use std::sync::mpsc;
 use std::time::Duration;
+use zorvo_lib::pty_session::{PtyEvent, PtySessionManager};
 
 #[test]
 fn test_pty_session_echo_agent_ready() {

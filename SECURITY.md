@@ -21,7 +21,7 @@ Only the latest release gets security fixes.
 
 ## Scope
 
-Agent Desktop runs coding agents on your machine with your permissions. These
+Zorvo runs coding agents on your machine with your permissions. These
 are in scope:
 
 - the app reading or running anything outside the folders you opened in it;

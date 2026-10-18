@@ -150,7 +150,7 @@ export function TopBar({
         )}
         {!sessionName && !workspaceName && (
           <span data-tauri-drag-region className="font-medium text-neutral-400">
-            Agent Desktop
+            Zorvo
           </span>
         )}
       </div>

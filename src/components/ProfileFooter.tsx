@@ -61,7 +61,7 @@ export function ProfileFooter({
           <span className="truncate font-medium text-neutral-200">{displayName}</span>
           {version && (
             <span className="text-[10px] text-neutral-500">
-              Agent Desktop v{version}
+              Zorvo v{version}
             </span>
           )}
         </div>

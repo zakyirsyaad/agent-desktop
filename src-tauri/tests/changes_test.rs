@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use agent_desktop_lib::changes::{commit_files, file_diff, list_changes, ChangeKind, FileChange};
+use zorvo_lib::changes::{commit_files, file_diff, list_changes, ChangeKind, FileChange};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -27,7 +27,7 @@ fn repo(tag: &str) -> PathBuf {
         .expect("clock")
         .as_nanos();
     let repo = std::env::temp_dir().join(format!(
-        "agent-desktop-changes-{tag}-{}-{nanos}",
+        "zorvo-changes-{tag}-{}-{nanos}",
         std::process::id()
     ));
     fs::create_dir_all(repo.join("src")).expect("create repo");
@@ -256,7 +256,7 @@ fn diffs_a_staged_file_before_the_first_commit() {
         .expect("clock")
         .as_nanos();
     let repo = std::env::temp_dir().join(format!(
-        "agent-desktop-changes-fresh-{}-{nanos}",
+        "zorvo-changes-fresh-{}-{nanos}",
         std::process::id()
     ));
     fs::create_dir_all(&repo).expect("create repo");

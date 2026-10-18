@@ -57,7 +57,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: Agent Desktop ${{ github.ref_name }}
+          releaseName: Zorvo ${{ github.ref_name }}
           releaseBody: See the README for requirements, and for opening an unsigned build (System Settings → Privacy & Security → Open Anyway).
           releaseDraft: true
           args: --target universal-apple-darwin

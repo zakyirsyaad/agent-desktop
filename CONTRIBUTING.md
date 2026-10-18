@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping with Agent Desktop. Issues and pull requests are welcome.
+Thanks for helping with Zorvo. Issues and pull requests are welcome.
 
 ## Reporting a bug
 
@@ -46,6 +46,6 @@ pnpm lefthook install
 
 ## Ground rules
 
-- **No secrets in the app.** Agent Desktop never asks for or stores API keys or tokens. Agents sign in with their own tools, and GitHub data comes from the user's own `gh`.
+- **No secrets in the app.** Zorvo never asks for or stores API keys or tokens. Agents sign in with their own tools, and GitHub data comes from the user's own `gh`.
 - **Check paths in the backend.** Every path the UI sends to a Tauri command is checked against the user's known workspaces (`ensure_known_workspace`) before it is read or run.
 - **Keep files small.** Prefer a focused hook or component over growing `App.tsx`.

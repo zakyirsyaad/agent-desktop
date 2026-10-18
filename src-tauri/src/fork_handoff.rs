@@ -125,10 +125,8 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
                 .unwrap_or(0);
-            let path = std::env::temp_dir().join(format!(
-                "agent-desktop-handoff-{}-{}-{}",
-                label, nanos, unique
-            ));
+            let path =
+                std::env::temp_dir().join(format!("zorvo-handoff-{}-{}-{}", label, nanos, unique));
             fs::create_dir_all(&path).expect("the test temp dir should be creatable");
             Self { path }
         }

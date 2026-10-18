@@ -67,13 +67,13 @@ describe("ProfileFooter", () => {
     it("shows the app name and version when a version is given", () => {
       render(<ProfileFooter name="Iwang" version="0.1.0" />);
 
-      expect(screen.getByText("Agent Desktop v0.1.0")).toBeDefined();
+      expect(screen.getByText("Zorvo v0.1.0")).toBeDefined();
     });
 
     it("omits the version line when no version is known", () => {
       render(<ProfileFooter name="Iwang" />);
 
-      expect(screen.queryByText(/Agent Desktop v/)).toBeNull();
+      expect(screen.queryByText(/Zorvo v/)).toBeNull();
     });
   });
 

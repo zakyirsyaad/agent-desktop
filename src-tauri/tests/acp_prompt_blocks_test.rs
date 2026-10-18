@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use agent_desktop_lib::acp::prompt_blocks::{prompt_blocks, MAX_INLINE_IMAGE_BYTES};
+use zorvo_lib::acp::prompt_blocks::{prompt_blocks, MAX_INLINE_IMAGE_BYTES};
 
 fn temp_dir(tag: &str) -> PathBuf {
     let nanos = SystemTime::now()

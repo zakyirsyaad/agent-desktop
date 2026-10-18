@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use agent_desktop_lib::env_resolver::resolve_user_env;
-use agent_desktop_lib::profiles::get_available_agent_profiles;
-use agent_desktop_lib::pty_session::{PtyEvent, PtySessionManager};
 use sha2::{Digest, Sha256};
+use zorvo_lib::env_resolver::resolve_user_env;
+use zorvo_lib::profiles::get_available_agent_profiles;
+use zorvo_lib::pty_session::{PtyEvent, PtySessionManager};
 
 /// Helper to compute SHA-256 hash of a file if it exists.
 fn compute_file_sha256(path: &Path) -> Option<String> {
@@ -44,11 +44,8 @@ fn isolated_home() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let home = std::env::temp_dir().join(format!(
-        "agent-desktop-e2e-home-{}-{}",
-        std::process::id(),
-        nanos
-    ));
+    let home =
+        std::env::temp_dir().join(format!("zorvo-e2e-home-{}-{}", std::process::id(), nanos));
     for relative in HARNESS_CONFIGS {
         let path = home.join(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();

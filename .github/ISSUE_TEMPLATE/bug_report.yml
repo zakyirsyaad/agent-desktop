@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in Agent Desktop does not work as it should.
+description: Something in Zorvo does not work as it should.
 labels: [bug]
 body:
   - type: markdown
