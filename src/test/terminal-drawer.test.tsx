@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { TerminalDrawer } from "../components/TerminalDrawer";
 
 // Mock @tauri-apps/api/event and @tauri-apps/api/core
@@ -375,6 +375,8 @@ describe("TerminalDrawer", () => {
   });
 
   it("cleans up terminal and unlistens on unmount", async () => {
+    // Called by an earlier test's drawer otherwise, which would pass this one by accident.
+    mockUnlisten.mockClear();
     const { unmount } = render(
       <TerminalDrawer
         isLive
@@ -386,7 +388,8 @@ describe("TerminalDrawer", () => {
     );
 
     unmount();
-    expect(mockUnlisten).toHaveBeenCalled();
+    // The listener is registered asynchronously, so it is let go once that settles.
+    await waitFor(() => expect(mockUnlisten).toHaveBeenCalled());
   });
 
   it("shows a placeholder instead of a terminal when no session is selected", () => {
