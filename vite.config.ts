@@ -11,6 +11,13 @@ export default defineConfig({
     strictPort: true,
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
+  // xterm 6 ships minified code whose `||=` esbuild's syntax minifier breaks while
+  // lowering it for the build target: the first terminal mode query then throws
+  // and the terminal stops drawing (xtermjs/xterm.js#5800). Whitespace and
+  // identifiers are still minified.
+  esbuild: {
+    minifySyntax: false,
+  },
   build: {
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
     minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
