@@ -11,7 +11,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use crate::store::{atomic_write, STATE_FILE, STATE_TMP_FILE, WORKTREES_DIR};
+use crate::store::{atomic_write, AppStore, STATE_FILE, STATE_TMP_FILE, WORKTREES_DIR};
 
 /// The bundle identifier, and so the data directory name, before the rename.
 pub const LEGACY_IDENTIFIER: &str = "com.agentdesktop.app";
@@ -21,6 +21,14 @@ pub const LEGACY_IDENTIFIER: &str = "com.agentdesktop.app";
 /// unregistered duplicate, and sessions keep using the originals (the store
 /// is told about the legacy worktrees folder so it can still remove them).
 const SKIPPED_ENTRIES: &[&str] = &[STATE_FILE, STATE_TMP_FILE, WORKTREES_DIR];
+
+/// Written in the new directory before a copy starts and removed once it
+/// finished, so a failed copy is retried even after the store saved.
+const PENDING_MARKER: &str = "legacy-migration-pending";
+
+/// Written in the new directory once a copy finished: its state came from the
+/// legacy directory, whose worktrees the migrated sessions still use.
+const DONE_MARKER: &str = "legacy-migration-done";
 
 /// What [`migrate_legacy_data`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,21 +49,29 @@ pub fn legacy_root_for(new_root: &Path) -> Option<PathBuf> {
         .map(|parent| parent.join(LEGACY_IDENTIFIER))
 }
 
-/// Copies the legacy data directory into `new_root` when `new_root` has no
-/// `state.json` yet and `legacy_root` has one.
+/// Whether `new_root`'s state was copied from the legacy directory.
+pub fn migrated_from_legacy(new_root: &Path) -> bool {
+    new_root.join(DONE_MARKER).is_file()
+}
+
+/// Copies the legacy data directory into `new_root` when `legacy_root` has a
+/// `state.json` and `new_root` has none, or has one but an earlier copy failed.
 ///
-/// The new `state.json` is what marks the copy as done, so it is written last
-/// and atomically: a copy interrupted part way is finished by the next launch.
-/// Without a legacy `state.json` there are no sessions to bring over, and
-/// copying anyway would repeat on every launch until the store first saves.
+/// A copy that fails or is interrupted leaves [`PENDING_MARKER`] behind and is
+/// retried on the next launch. The retry replaces whatever state was saved in
+/// between, which started empty because the copy failed. Without a legacy
+/// `state.json` there are no sessions to bring over.
 pub fn migrate_legacy_data(legacy_root: &Path, new_root: &Path) -> Result<Migration, String> {
     let legacy_state = legacy_root.join(STATE_FILE);
-    if new_root.join(STATE_FILE).exists() || !legacy_state.is_file() {
+    let pending = new_root.join(PENDING_MARKER);
+    let new_root_in_use = new_root.join(STATE_FILE).exists() && !pending.exists();
+    if migrated_from_legacy(new_root) || new_root_in_use || !legacy_state.is_file() {
         return Ok(Migration::NotNeeded);
     }
 
     fs::create_dir_all(new_root)
         .map_err(|e| format!("Cannot create {}: {e}", new_root.display()))?;
+    write_marker(&pending)?;
 
     for entry in read_dir(legacy_root)? {
         let name = entry.file_name();
@@ -72,7 +88,32 @@ pub fn migrate_legacy_data(legacy_root: &Path, new_root: &Path) -> Result<Migrat
         &new_root.join(STATE_TMP_FILE),
         &state,
     )?;
+    write_marker(&new_root.join(DONE_MARKER))?;
+    fs::remove_file(&pending).map_err(|e| format!("Cannot remove {}: {e}", pending.display()))?;
     Ok(Migration::Copied)
+}
+
+/// Builds the store over `data_dir`, first copying the legacy data into it.
+///
+/// The store is returned even when the copy failed, so the app still starts;
+/// the caller reports the error. The legacy worktrees folder is accepted for
+/// worktree removal only once a copy finished, since only then do saved
+/// sessions point into it.
+pub fn open_store(data_dir: PathBuf) -> (AppStore, Result<Migration, String>) {
+    let Some(legacy_root) = legacy_root_for(&data_dir) else {
+        return (AppStore::new(data_dir), Ok(Migration::NotNeeded));
+    };
+    let migration = migrate_legacy_data(&legacy_root, &data_dir);
+    let store = if migrated_from_legacy(&data_dir) {
+        AppStore::new(data_dir).with_legacy_worktrees_root(legacy_root.join(WORKTREES_DIR))
+    } else {
+        AppStore::new(data_dir)
+    };
+    (store, migration)
+}
+
+fn write_marker(path: &Path) -> Result<(), String> {
+    fs::write(path, LEGACY_IDENTIFIER).map_err(|e| format!("Cannot write {}: {e}", path.display()))
 }
 
 fn read_dir(dir: &Path) -> Result<Vec<fs::DirEntry>, String> {

@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use zorvo_lib::data_migration::{
-    legacy_root_for, migrate_legacy_data, Migration, LEGACY_IDENTIFIER,
+    legacy_root_for, migrate_legacy_data, migrated_from_legacy, open_store, Migration,
+    LEGACY_IDENTIFIER,
 };
 
 /// A parent directory unique to this process and call, holding both the
@@ -191,5 +192,82 @@ fn does_not_follow_symlinks_out_of_the_legacy_root() {
 
     assert!(!new_root.join("transcripts/linked").exists());
     assert_eq!(read(&new_root.join("transcripts/s1.json")), "[1]");
+    fs::remove_dir_all(&parent).ok();
+}
+
+#[test]
+fn open_store_on_a_fresh_install_accepts_only_its_own_worktrees() {
+    let parent = unique_parent("open-fresh");
+    let new_root = parent.join("xyz.zorvo.desktop");
+
+    let (store, migration) = open_store(new_root.clone());
+
+    assert_eq!(migration, Ok(Migration::NotNeeded));
+    assert_eq!(store.worktree_roots(), vec![new_root.join("worktrees")]);
+    fs::remove_dir_all(&parent).ok();
+}
+
+#[test]
+fn open_store_accepts_legacy_worktrees_after_a_migration_and_on_later_launches() {
+    let parent = unique_parent("open-migrated");
+    let legacy = seed_legacy(&parent);
+    let new_root = parent.join("xyz.zorvo.desktop");
+    let expected = vec![new_root.join("worktrees"), legacy.join("worktrees")];
+
+    let (first, first_migration) = open_store(new_root.clone());
+    let (later, later_migration) = open_store(new_root.clone());
+
+    assert_eq!(first_migration, Ok(Migration::Copied));
+    assert_eq!(later_migration, Ok(Migration::NotNeeded));
+    assert_eq!(first.worktree_roots(), expected);
+    assert_eq!(later.worktree_roots(), expected);
+    fs::remove_dir_all(&parent).ok();
+}
+
+#[test]
+fn open_store_ignores_legacy_worktrees_when_the_new_root_was_already_in_use() {
+    let parent = unique_parent("open-in-use");
+    seed_legacy(&parent);
+    let new_root = parent.join("xyz.zorvo.desktop");
+    write(&new_root.join("state.json"), r#"{"version":1,"mine":true}"#);
+
+    let (store, migration) = open_store(new_root.clone());
+
+    assert_eq!(migration, Ok(Migration::NotNeeded));
+    assert!(!migrated_from_legacy(&new_root));
+    assert_eq!(store.worktree_roots(), vec![new_root.join("worktrees")]);
+    fs::remove_dir_all(&parent).ok();
+}
+
+#[cfg(unix)]
+#[test]
+fn retries_a_failed_copy_even_after_the_store_saved_state() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let parent = unique_parent("retry");
+    let legacy = seed_legacy(&parent);
+    let new_root = parent.join("xyz.zorvo.desktop");
+    let unreadable = legacy.join("transcripts/s1.json");
+    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).expect("chmod");
+
+    let (failed_store, failed) = open_store(new_root.clone());
+    // The app started empty and saved its own state before the next launch.
+    write(
+        &new_root.join("state.json"),
+        r#"{"version":1,"empty":true}"#,
+    );
+    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o644)).expect("chmod");
+    let (store, retried) = open_store(new_root.clone());
+
+    assert!(failed.is_err(), "{failed:?}");
+    assert_eq!(
+        failed_store.worktree_roots(),
+        vec![new_root.join("worktrees")]
+    );
+    assert_eq!(retried, Ok(Migration::Copied));
+    assert_eq!(read(&new_root.join("state.json")), r#"{"version":1}"#);
+    assert_eq!(read(&new_root.join("transcripts/s1.json")), "[1]");
+    assert!(migrated_from_legacy(&new_root));
+    assert_eq!(store.worktree_roots().len(), 2);
     fs::remove_dir_all(&parent).ok();
 }

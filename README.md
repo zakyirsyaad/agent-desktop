@@ -113,6 +113,13 @@ right-click → Open for this. You can also run this in a terminal:
 xattr -dr com.apple.quarantine "/Applications/Zorvo.app"
 ```
 
+**Upgrading from Agent Desktop.** Zorvo is a new app next to the old one. On
+first launch it copies your sessions and transcripts. Then delete Agent
+Desktop from Applications: both apps share the old sessions' worktrees, so
+deleting a session in one removes its worktree for the other. macOS asks
+again for notification and folder permissions, since they belong to the app's
+identifier.
+
 ## Getting started
 
 1. **Onboarding.** The first run checks which agents are installed, lets you
