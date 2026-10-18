@@ -10,15 +10,19 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const BASE =
   "inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors " +
-  "focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring " +
-  "disabled:cursor-not-allowed disabled:opacity-40";
+  "focus-ring disabled:cursor-not-allowed";
 
+// A faded primary fill still reads as a light, pressable button, so a disabled
+// primary turns into a flat neutral one instead of dimming.
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: "border-transparent bg-primary text-on-primary enabled:hover:bg-primary-hover",
+  primary:
+    "border-transparent bg-primary text-on-primary enabled:hover:bg-primary-hover " +
+    "disabled:bg-surface-hover disabled:text-fg-subtle",
   outline:
-    "border-border-strong text-fg-secondary enabled:hover:bg-surface-hover enabled:hover:text-fg",
-  ghost: "border-transparent text-fg-muted enabled:hover:bg-surface-hover enabled:hover:text-fg",
-  danger: "border-transparent bg-danger-surface text-danger",
+    "border-border-strong text-fg-secondary enabled:hover:bg-surface-hover enabled:hover:text-fg disabled:opacity-40",
+  ghost:
+    "border-transparent text-fg-muted enabled:hover:bg-surface-hover enabled:hover:text-fg disabled:opacity-40",
+  danger: "border-transparent bg-danger-surface text-danger disabled:opacity-40",
 };
 
 export function Button({

@@ -32,7 +32,7 @@ const KIND_LABEL: Record<ChangeKind, { letter: string; name: string; style: stri
 };
 
 const HEADER_BUTTON =
-  "rounded p-1 text-fg-subtle hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring";
+  "rounded p-1 text-fg-subtle hover:bg-surface-hover hover:text-fg-secondary focus-ring";
 
 type CommitState = { status: "idle" } | { status: "committing" } | { status: "done"; hash: string } | { status: "failed"; error: string };
 
@@ -187,7 +187,7 @@ export function ChangesPanel({
             rows={2}
             placeholder="Commit message"
             aria-label="Commit message"
-            className="w-full resize-none rounded-md border border-border-strong bg-surface-2 px-2 py-1.5 text-xs text-fg-secondary placeholder-fg-subtle focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+            className="w-full resize-none rounded-md border border-border-strong bg-surface-2 px-2 py-1.5 text-xs text-fg-secondary placeholder-fg-subtle focus-ring"
           />
           <Button
             variant="primary"

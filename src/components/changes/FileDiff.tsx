@@ -6,7 +6,7 @@ const ROW_STYLE: Record<UnifiedRowKind, string> = {
   added: "bg-diff-added text-status-running",
   removed: "bg-diff-removed text-danger",
   context: "text-fg-muted",
-  hunk: "text-fg-muted",
+  hunk: "bg-surface-2 text-fg-muted",
   note: "text-fg-subtle italic",
 };
 

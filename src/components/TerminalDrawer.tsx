@@ -186,7 +186,7 @@ export function TerminalDrawer({
             type="button"
             onClick={handleClear}
             disabled={!hasTerminal}
-            className="flex items-center gap-1 rounded px-2 py-1 text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+            className="flex items-center gap-1 rounded px-2 py-1 text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus-ring"
             aria-label="Clear output"
             title="Clear terminal output"
           >
@@ -198,7 +198,7 @@ export function TerminalDrawer({
             type="button"
             onClick={handleCopy}
             disabled={!hasTerminal}
-            className="flex items-center gap-1 rounded px-2 py-1 text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+            className="flex items-center gap-1 rounded px-2 py-1 text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors disabled:opacity-40 disabled:hover:bg-transparent focus-ring"
             aria-label="Copy output"
             title="Copy terminal contents"
           >
@@ -211,7 +211,7 @@ export function TerminalDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+            className="rounded p-1 text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors focus-ring"
             aria-label="Close drawer"
             title="Close terminal drawer"
           >

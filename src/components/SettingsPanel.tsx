@@ -58,7 +58,7 @@ function RecentFolderList({ folders, onRemove }: RecentFolderListProps) {
             type="button"
             onClick={() => onRemove(folder.path)}
             aria-label={`Remove ${folder.name} from recent folders`}
-            className="rounded p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-danger focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+            className="rounded p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-danger focus-ring"
           >
             <Trash2 size={13} aria-hidden="true" />
           </button>
@@ -112,7 +112,7 @@ export function SettingsPanel({
             type="button"
             onClick={onClose}
             aria-label="Close settings"
-            className="rounded p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+            className="rounded p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-secondary focus-ring"
           >
             <X size={15} aria-hidden="true" />
           </button>
@@ -145,7 +145,7 @@ export function SettingsPanel({
               id={selectId}
               value={defaultAgentId ?? ""}
               onChange={(event) => onChangeDefaultAgent(event.target.value)}
-              className="w-full rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-xs text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+              className="w-full rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-xs text-fg-secondary focus-ring"
             >
               {defaultAgentId === null && (
                 <option value="" disabled>

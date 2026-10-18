@@ -19,7 +19,7 @@ function ToolStatus({ status }: { status: ToolExecution["status"] }) {
   }
   if (status === "running") {
     return (
-      <span className="inline-flex items-center gap-1 rounded bg-surface-2 border border-border px-2 py-0.5 text-[11px] text-status-running animate-pulse motion-reduce:animate-none">
+      <span className="inline-flex items-center gap-1 rounded bg-surface-2 border border-border px-2 py-0.5 text-[11px] text-fg-muted animate-pulse motion-reduce:animate-none">
         <Clock className="h-3 w-3" />
         Running
       </span>

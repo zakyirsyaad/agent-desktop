@@ -26,7 +26,7 @@ export function PullRequestChip({ pullRequest, onOpen }: { pullRequest: PullRequ
       onClick={() => onOpen(pullRequest.url)}
       aria-label={label}
       title={`${pullRequest.title}\n${label}`}
-      className="flex shrink-0 items-center gap-1 rounded px-1 text-[11px] font-mono text-fg-muted hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+      className="flex shrink-0 items-center gap-1 rounded px-1 text-[11px] font-mono text-fg-muted hover:bg-surface-hover hover:text-fg-secondary focus-ring"
     >
       <GitPullRequest size={11} aria-hidden="true" className={STATE_STYLE[state] ?? "text-fg-muted"} />
       <span>#{pullRequest.number}</span>

@@ -119,10 +119,12 @@ export function ActionCard({
         {/* Action Buttons */}
         <div className="mt-4 flex items-center justify-between gap-2 pt-2 border-t border-border">
           <div className="flex items-center gap-2">
+            {/* Both buttons are disabled once resolved; the chosen one keeps its color. */}
             <Button
               variant="primary"
               onClick={handleApprove}
               disabled={isDisabled}
+              className={card.status === "approved" ? "disabled:bg-primary! disabled:text-on-primary!" : undefined}
               aria-label={card.status === "approved" ? "Approved" : "Approve"}
               icon={<Check className="h-3.5 w-3.5" />}
             >
@@ -133,6 +135,7 @@ export function ActionCard({
               variant="danger"
               onClick={handleReject}
               disabled={isDisabled}
+              className={card.status === "rejected" ? "disabled:opacity-100!" : undefined}
               aria-label={card.status === "rejected" ? "Rejected" : "Reject"}
               icon={<X className="h-3.5 w-3.5" />}
             >

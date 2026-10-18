@@ -70,7 +70,7 @@ function WorkspaceGroup({ group, isActive, isExpanded, onToggle, newSessionMenu,
           onClick={onToggle}
           aria-expanded={isExpanded}
           title={group.path}
-          className={`flex-1 min-w-0 flex items-center gap-1 rounded px-1.5 py-1 text-left text-[12px] transition-colors hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring ${
+          className={`flex-1 min-w-0 flex items-center gap-1 rounded px-1.5 py-1 text-left text-[12px] transition-colors hover:text-fg-secondary focus-ring ${
             isActive ? "text-fg-secondary" : "text-fg-subtle"
           }`}
         >
@@ -220,14 +220,14 @@ export function Sidebar({
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search..."
               aria-label="Search workspaces and sessions"
-              className="w-full rounded-md bg-surface-2 border border-border-strong py-1.5 pl-8 pr-3 text-xs text-fg-secondary placeholder-fg-subtle focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+              className="w-full rounded-md bg-surface-2 border border-border-strong py-1.5 pl-8 pr-3 text-xs text-fg-secondary placeholder-fg-subtle focus-ring"
             />
           </div>
           <button
             type="button"
             onClick={onNewSession}
             aria-label="+ New session"
-            className="flex items-center gap-1 rounded-md bg-surface-3 hover:bg-surface-hover px-2.5 py-1.5 font-medium text-fg-secondary transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+            className="flex items-center gap-1 rounded-md bg-surface-3 hover:bg-surface-hover px-2.5 py-1.5 font-medium text-fg-secondary transition-colors focus-ring"
           >
             <Plus size={13} />
             <span>New</span>
@@ -252,7 +252,7 @@ export function Sidebar({
               aria-label="Open folder"
               title="Open a project folder"
               onClick={onOpenFolder}
-              className="rounded p-0.5 text-fg-subtle hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+              className="rounded p-0.5 text-fg-subtle hover:text-fg-secondary focus-ring"
             >
               <FolderPlus size={13} />
             </button>

@@ -43,7 +43,7 @@ function FolderList({ label, folders, selectedPath, onSelect }: FolderListProps)
                 type="button"
                 aria-pressed={selected}
                 onClick={() => onSelect(folder)}
-                className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring ${
+                className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors focus-ring ${
                   selected
                     ? "border-border-strong bg-surface-hover"
                     : "border-border bg-surface-2 hover:bg-surface-hover"
@@ -98,7 +98,7 @@ export function FolderStep({
           type="button"
           onClick={handlePick}
           disabled={isPicking}
-          className="flex w-fit items-center gap-2 rounded-lg border border-border-strong bg-surface-2 px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-surface-hover disabled:opacity-50 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+          className="flex w-fit items-center gap-2 rounded-lg border border-border-strong bg-surface-2 px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-surface-hover disabled:opacity-50 focus-ring"
         >
           <FolderOpen size={14} className="text-fg-muted" aria-hidden="true" />
           Open folder…

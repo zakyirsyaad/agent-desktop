@@ -92,7 +92,7 @@ function RowMenu({ pullRequest, onOpen }: { pullRequest: PullRequestSummary; onO
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={toggle}
-        className={`rounded p-1 text-fg-muted opacity-0 hover:text-fg-secondary focus:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring group-hover:opacity-100 ${isOpen ? "opacity-100" : ""}`}
+        className={`rounded p-1 text-fg-muted opacity-0 hover:text-fg-secondary focus:opacity-100 focus-ring group-hover:opacity-100 ${isOpen ? "opacity-100" : ""}`}
       >
         <EllipsisVertical size={12} />
       </button>
@@ -160,7 +160,7 @@ export function PullRequestList({ pullRequests, onOpen }: {
         type="button"
         onClick={() => setIsExpanded((open) => !open)}
         aria-expanded={isExpanded}
-        className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-[11px] font-medium text-fg-muted hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+        className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-[11px] font-medium text-fg-muted hover:text-fg-secondary focus-ring"
       >
         <ChevronRight size={11} aria-hidden="true" className={`transition-transform ${isExpanded ? "rotate-90" : ""}`} />
         Pull requests <span className="text-fg-subtle">({count})</span>
@@ -181,7 +181,7 @@ export function PullRequestList({ pullRequests, onOpen }: {
             <button
               type="button"
               onClick={() => setIsShowingAll((all) => !all)}
-              className="mt-0.5 px-2 py-1 text-[11px] text-fg-subtle hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+              className="mt-0.5 px-2 py-1 text-[11px] text-fg-subtle hover:text-fg-secondary focus-ring"
             >
               {isShowingAll ? "Show less" : `Show all (${count})`}
             </button>

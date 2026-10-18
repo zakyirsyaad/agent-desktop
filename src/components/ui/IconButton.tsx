@@ -9,7 +9,7 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
 
 const BASE =
   "inline-flex h-7 w-7 items-center justify-center transition-colors " +
-  "focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring " +
+  "focus-ring " +
   "disabled:cursor-not-allowed disabled:opacity-40";
 
 const VARIANTS: Record<NonNullable<IconButtonProps["variant"]>, string> = {

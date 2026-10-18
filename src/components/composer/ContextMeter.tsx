@@ -94,7 +94,7 @@ export function ContextMeter({ used, size, cost }: ContextUsage) {
         aria-label="Context details"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
-        className="rounded px-1 py-0.5 text-[11px] text-fg-muted hover:bg-surface-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+        className="rounded px-1 py-0.5 text-[11px] text-fg-muted hover:bg-surface-hover focus-ring"
       >
         <Gauge used={used} size={size} />
       </button>

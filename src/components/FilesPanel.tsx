@@ -35,7 +35,7 @@ export interface FilesPanelProps {
 const BASE_INDENT_PX = 8;
 const INDENT_STEP_PX = 12;
 const HEADER_BUTTON =
-  "rounded p-1 text-fg-subtle hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring";
+  "rounded p-1 text-fg-subtle hover:bg-surface-hover hover:text-fg-secondary focus-ring";
 const ROW =
   "group flex items-center rounded-md text-fg-muted hover:bg-surface-hover hover:text-fg-secondary";
 const NOTE = "py-1 pr-2 text-[11px]";
@@ -70,7 +70,7 @@ function FolderRow({ entry, depth, view }: { entry: DirEntryInfo; depth: number;
           onClick={() => view.tree.toggleFolder(path)}
           title={path}
           style={indent(depth)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left focus-ring"
         >
           <ChevronRight
             size={12}
@@ -101,7 +101,7 @@ function FileRow({ entry, depth, view }: { entry: DirEntryInfo; depth: number; v
           title={`Open ${entry.relativePath}`}
           // Files line up with folder names, past the folder chevron.
           style={indent(depth + 1)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left focus-ring"
         >
           <File size={13} aria-hidden="true" className="shrink-0 text-fg-muted" />
           <span className="truncate">{entry.name}</span>
@@ -112,7 +112,7 @@ function FileRow({ entry, depth, view }: { entry: DirEntryInfo; depth: number; v
             aria-label={`Add ${entry.name} to prompt`}
             title="Add to prompt"
             onClick={() => onInsertPath(joinWorkspacePath(view.rootPath, entry.relativePath))}
-            className="mr-1 rounded p-1 text-fg-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-fg focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+            className="mr-1 rounded p-1 text-fg-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-fg focus-ring"
           >
             <Plus size={12} aria-hidden="true" />
           </button>
@@ -211,7 +211,7 @@ function PanelHeader({ rootName, rootPath, query, onQueryChange, onRefresh, onRe
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder="Filter files"
           aria-label="Filter files"
-          className="w-full rounded-md border border-border-strong bg-surface-2 py-1.5 pl-8 pr-3 text-xs text-fg-secondary placeholder-fg-subtle focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+          className="w-full rounded-md border border-border-strong bg-surface-2 py-1.5 pl-8 pr-3 text-xs text-fg-secondary placeholder-fg-subtle focus-ring"
         />
       </div>
     </div>
