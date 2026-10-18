@@ -7,9 +7,9 @@ const SRC = join(ROOT, "src");
 const TEST_DIR = join(SRC, "test");
 
 const PALETTE_UTILITY =
-  /\b(?:bg|text|border|ring|outline|fill|stroke|placeholder|divide|from|via|to|decoration|caret|accent|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}/g;
+  /\b(?:bg|text|border(?:-[trblxyse])?|ring|outline|fill|stroke|placeholder|divide(?:-[xy])?|from|via|to|decoration|caret|accent|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}/g;
 const BLACK_WHITE_UTILITY =
-  /\b(?:bg|text|border|ring|outline|fill|stroke|placeholder|divide|from|via|to|decoration|caret|accent|shadow)-(?:white|black)(?=\b|\/)/g;
+  /\b(?:bg|text|border(?:-[trblxyse])?|ring|outline|fill|stroke|placeholder|divide(?:-[xy])?|from|via|to|decoration|caret|accent|shadow)-(?:white|black)(?=\b|\/)/g;
 const ARBITRARY_HEX = /-\[#[0-9a-fA-F]+/g;
 const PATTERNS = [PALETTE_UTILITY, BLACK_WHITE_UTILITY, ARBITRARY_HEX];
 
@@ -27,31 +27,33 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
+function rawColorsIn(text: string): string[] {
+  return PATTERNS.flatMap((pattern) => [...text.matchAll(pattern)].map((m) => m[0]));
+}
+
 function findViolations(): Violation[] {
   return sourceFiles(SRC).flatMap((path) => {
     const file = relative(ROOT, path).split(sep).join("/");
     return readFileSync(path, "utf8")
       .split("\n")
       .flatMap((text, index) =>
-        PATTERNS.flatMap((pattern) =>
-          [...text.matchAll(pattern)].map((m) => ({ file, line: index + 1, match: m[0] }))
-        )
+        rawColorsIn(text).map((match) => ({ file, line: index + 1, match }))
       );
   });
 }
 
-// Files not yet migrated to the design system tokens. Each migration task removes its files.
-const PENDING: ReadonlySet<string> = new Set<string>([]);
-
 const violations = findViolations();
 
 describe("design tokens", () => {
-  it("has no raw colors outside the pending files", () => {
-    expect(violations.filter((v) => !PENDING.has(v.file))).toEqual([]);
+  it("has no raw colors in src", () => {
+    expect(violations).toEqual([]);
   });
 
-  it("lists only files that still have raw colors", () => {
-    const dirty = new Set(violations.map((v) => v.file));
-    expect([...PENDING].filter((f) => !dirty.has(f))).toEqual([]);
+  it("catches side and axis prefixed utilities", () => {
+    expect(rawColorsIn("border-l-amber-500 border-t-neutral-800 divide-y-red-500")).toEqual([
+      "border-l-amber-500",
+      "border-t-neutral-800",
+      "divide-y-red-500",
+    ]);
   });
 });
