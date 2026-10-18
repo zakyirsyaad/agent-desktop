@@ -30,9 +30,14 @@ const STATUS_CLASSES: Record<BackgroundTask["status"], string> = {
 /** The current time, refreshed every second while `isActive`. */
 function useNow(isActive: boolean): number {
   const [now, setNow] = useState(() => Date.now());
+  const [wasActive, setWasActive] = useState(isActive);
+  // Refreshed while rendering, so the first frame after opening is not stale.
+  if (isActive !== wasActive) {
+    setWasActive(isActive);
+    if (isActive) setNow(Date.now());
+  }
   useEffect(() => {
     if (!isActive) return;
-    setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), TICK_MS);
     return () => clearInterval(timer);
   }, [isActive]);

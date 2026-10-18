@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useLayoutEffect } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { BackgroundTasksMenu, type BackgroundTasksMenuProps } from "../components/topbar/BackgroundTasksMenu";
 import type { BackgroundTask } from "../lib/background-tasks";
@@ -82,6 +83,42 @@ describe("BackgroundTasksMenu", () => {
       vi.advanceTimersByTime(1000);
     });
     expect(screen.getByText("46s")).toBeTruthy();
+  });
+
+  it("shows the current duration in the very first frame after opening", () => {
+    const frames: string[] = [];
+    // Layout effects run right after a commit, before the menu's own effects:
+    // what this sees is what the first painted frame shows.
+    function FirstFrame() {
+      useLayoutEffect(() => {
+        frames.push(document.body.textContent ?? "");
+      });
+      return null;
+    }
+    const props: BackgroundTasksMenuProps = {
+      tasks: [devServer],
+      isOpen: false,
+      onOpenChange: vi.fn(),
+      onOpenTask: vi.fn(),
+      onStopTask: vi.fn().mockResolvedValue(true),
+    };
+    const { rerender } = render(
+      <>
+        <BackgroundTasksMenu {...props} />
+        <FirstFrame />
+      </>,
+    );
+    vi.setSystemTime(NOW + 60_000);
+    frames.length = 0;
+
+    rerender(
+      <>
+        <BackgroundTasksMenu {...props} isOpen />
+        <FirstFrame />
+      </>,
+    );
+
+    expect(frames[0]).toContain("1m 45s");
   });
 
   it("runs no timer while closed", () => {

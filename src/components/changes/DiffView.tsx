@@ -21,7 +21,8 @@ export interface DiffViewProps {
 export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onClose, onError }: DiffViewProps) {
   const { targets, isLoaded: areTargetsLoaded } = useDiffTargets(rootPath, true, version, onError);
   const [chosen, setChosen] = useState<DiffTargetId | null>(null);
-  const target: DiffTargetId = chosen ?? (targets.base ? "base" : "head");
+  // A chosen base means nothing once there is none (main checked out): HEAD then.
+  const target: DiffTargetId = targets.base ? (chosen ?? "base") : "head";
   const { stats, statsVersion, reload } = useDiffStats(rootPath, areTargetsLoaded, target, version, onError);
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState("");

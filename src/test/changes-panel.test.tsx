@@ -53,6 +53,19 @@ describe("ChangesPanel", () => {
     expect(onOpenDiff).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves no empty strip when the totals are zero", () => {
+    const panel = () => screen.getByRole("complementary", { name: "Changes panel" });
+    const { unmount } = render(
+      <ChangesPanel rootPath="/w/api" rootName="api" changes={CHANGES} version={1} onReload={vi.fn()} onClose={vi.fn()} />,
+    );
+    const withoutTotals = panel().childElementCount;
+    unmount();
+
+    renderPanel({ diffStats: { added: 0, removed: 0 }, onOpenDiff: vi.fn() });
+
+    expect(panel().childElementCount).toBe(withoutTotals);
+  });
+
   it("shows no chip without diff totals", () => {
     renderPanel();
     expect(screen.queryByRole("button", { name: /Open the diff/ })).toBeNull();

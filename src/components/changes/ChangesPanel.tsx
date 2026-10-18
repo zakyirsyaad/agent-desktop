@@ -159,7 +159,7 @@ export function ChangesPanel({
         </button>
       </div>
 
-      {diffStats && onOpenDiff && (
+      {diffStats && (diffStats.added > 0 || diffStats.removed > 0) && onOpenDiff && (
         <div className="flex border-b border-border px-3 py-1.5">
           <DiffStatChip added={diffStats.added} removed={diffStats.removed} onOpen={onOpenDiff} />
         </div>

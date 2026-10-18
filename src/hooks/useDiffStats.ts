@@ -17,7 +17,7 @@ export interface DiffTargetsRead {
  */
 export function useDiffTargets(
   path: string | undefined,
-  isRepository: boolean,
+  isEnabled: boolean,
   version: number,
   onError: (message: string) => void,
 ): DiffTargetsRead {
@@ -26,7 +26,7 @@ export function useDiffTargets(
   const reportedPath = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    if (!path || !isRepository) return;
+    if (!path || !isEnabled) return;
     let isCancelled = false;
     invoke<DiffTargets>('session_diff_targets', { path })
       .then((targets) => {
@@ -42,9 +42,9 @@ export function useDiffTargets(
     return () => {
       isCancelled = true;
     };
-  }, [path, isRepository, version, onErrorRef]);
+  }, [path, isEnabled, version, onErrorRef]);
 
-  const isCurrent = isRepository && state !== null && state.path === path;
+  const isCurrent = isEnabled && state !== null && state.path === path;
   return { targets: isCurrent ? state.targets : NO_TARGETS, isLoaded: isCurrent };
 }
 
@@ -59,11 +59,12 @@ export interface DiffStats {
 /**
  * Per-file line counts of the changes in `path`'s repository against `target`.
  * Read again when `version` (the change list) or `target` changes, and on `reload`.
- * A failure is reported once per folder.
+ * Nothing is read while `isEnabled` is false (outside a repository, or until the
+ * diff targets are known). A failure is reported once per folder.
  */
 export function useDiffStats(
   path: string | undefined,
-  isRepository: boolean,
+  isEnabled: boolean,
   target: DiffTargetId,
   version: number,
   onError: (message: string) => void,
@@ -76,7 +77,7 @@ export function useDiffStats(
   const key = `${path}\0${target}`;
 
   useEffect(() => {
-    if (!path || !isRepository) return;
+    if (!path || !isEnabled) return;
     let isCancelled = false;
     invoke<FileStat[]>('session_diff_stats', { path, target })
       .then((stats) => {
@@ -91,9 +92,9 @@ export function useDiffStats(
     return () => {
       isCancelled = true;
     };
-  }, [path, isRepository, target, key, version, reloads, onErrorRef]);
+  }, [path, isEnabled, target, key, version, reloads, onErrorRef]);
 
   // Never show another folder's or target's files while this one loads.
-  const isCurrent = isRepository && state !== null && state.key === key;
+  const isCurrent = isEnabled && state !== null && state.key === key;
   return { stats: isCurrent ? state.stats : null, statsVersion: isCurrent ? state.version : 0, reload };
 }

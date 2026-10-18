@@ -188,6 +188,33 @@ describe("DiffView", () => {
     expect(screen.getByRole("button", { name: "Diff target: HEAD → working tree" })).toBeDefined();
   });
 
+  it("falls back to HEAD when a chosen base goes away", async () => {
+    let targets: { base: { name: string } | null } = { base: { name: "main" } };
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) => {
+      if (cmd === "session_diff_targets") return Promise.resolve(targets);
+      if (cmd === "session_diff_stats") return Promise.resolve(THREE);
+      return Promise.resolve("");
+    });
+    const handlers = { onToggleExpanded: vi.fn(), onClose: vi.fn(), onError: vi.fn() };
+    let rerender: (ui: React.ReactElement) => void = () => {};
+    await act(async () => {
+      ({ rerender } = render(<DiffView rootPath="/w" version={1} isExpanded={false} {...handlers} />));
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Diff target: main → working tree" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "main → working tree" }));
+    });
+
+    // The user checks out main: there is no base to compare with any more.
+    targets = { base: null };
+    await act(async () => {
+      rerender(<DiffView rootPath="/w" version={2} isExpanded={false} {...handlers} />);
+    });
+
+    expect(screen.getByText("HEAD → working tree")).toBeDefined();
+    expect(statCalls(spy).at(-1)?.[1]).toEqual({ path: "/w", target: "head" });
+  });
+
   it("shows plain text without a dropdown when there is no base", async () => {
     const spy = mockDiff(THREE, { base: null });
     await renderView();
