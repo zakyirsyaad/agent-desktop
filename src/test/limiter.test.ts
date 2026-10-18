@@ -45,19 +45,59 @@ describe("createLimiter", () => {
 });
 
 describe("createLimiter with a signal", () => {
-  it("frees the slot of an aborted task and skips an aborted waiter", async () => {
+  it("rejects an aborted task at once and skips an aborted waiter", async () => {
     const run = createLimiter(1);
     const first = new AbortController();
     const second = new AbortController();
-    const hanging = run(() => new Promise<string>(() => {}), first.signal);
-    const skipped = run(() => Promise.resolve("never"), second.signal);
+    let finishFirst: (value: string) => void = () => {};
+    const running = run(() => new Promise<string>((resolve) => { finishFirst = resolve; }), first.signal);
+    let skippedRan = false;
+    const skipped = run(() => {
+      skippedRan = true;
+      return Promise.resolve("never");
+    }, second.signal);
     const third = run(() => Promise.resolve("ran"));
 
     second.abort();
     first.abort();
-
-    await expect(hanging).rejects.toThrow();
+    await expect(running).rejects.toThrow();
     await expect(skipped).rejects.toThrow();
+    finishFirst("late");
+
     expect(await third).toBe("ran");
+    expect(skippedRan).toBe(false);
+  });
+});
+
+describe("createLimiter edge cases", () => {
+  it("frees the slot of a task that throws before returning a promise", async () => {
+    const run = createLimiter(1);
+    const throwing = run(() => {
+      throw new Error("sync boom");
+    });
+    await expect(throwing).rejects.toThrow("sync boom");
+
+    expect(await run(() => Promise.resolve("next"))).toBe("next");
+  });
+
+  it("keeps an aborted running task's slot until what it started settles", async () => {
+    const run = createLimiter(1);
+    const controller = new AbortController();
+    let finishFirst: (value: string) => void = () => {};
+    const first = run(() => new Promise<string>((resolve) => { finishFirst = resolve; }), controller.signal);
+    let secondStarted = false;
+    const second = run(() => {
+      secondStarted = true;
+      return Promise.resolve("second");
+    });
+
+    controller.abort();
+    await expect(first).rejects.toThrow();
+    await Promise.resolve();
+    // The first git process may still be running: the second waits for it.
+    expect(secondStarted).toBe(false);
+
+    finishFirst("late");
+    expect(await second).toBe("second");
   });
 });

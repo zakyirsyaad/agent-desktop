@@ -14,6 +14,17 @@ function tauriInternals(): TauriInternals {
 
 const DIFF = "@@ -10,2 +10,2 @@\n context\n-old\n+new\n";
 
+// Reads left unanswered by a test. File diffs share one limiter across tests,
+// and a read holds its slot until it settles, so each is settled afterwards.
+const unanswered: Array<() => void> = [];
+function hang<T>(): Promise<T> {
+  return new Promise<T>((_, reject) => unanswered.push(() => reject("test over")));
+}
+afterEach(async () => {
+  unanswered.splice(0).forEach((settle) => settle());
+  await act(async () => {});
+});
+
 const STAT: FileStat = { path: "src/lib/app.ts", oldPath: null, kind: "modified", added: 3, removed: 1, isBinary: false, fingerprint: "f1" };
 
 function renderSection(stat: FileStat, isOpen: boolean) {
@@ -114,7 +125,7 @@ describe("DiffFileSection", () => {
 
   it("never shows the previous target's error in the first frame of the next", async () => {
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((_cmd, args) =>
-      args?.target === "head" ? Promise.reject("no such base") : new Promise<string>(() => {}),
+      args?.target === "head" ? Promise.reject("no such base") : hang<string>(),
     );
     const frames: string[] = [];
     function FirstFrame() {
@@ -335,7 +346,7 @@ describe("DiffView", () => {
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) => {
       if (cmd === "session_diff_targets") return Promise.resolve({ base: null });
       if (cmd === "session_diff_stats") return Promise.resolve(files);
-      return new Promise(() => {});
+      return hang();
     });
     await renderView();
 

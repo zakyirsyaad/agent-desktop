@@ -1,4 +1,4 @@
-/** Starts `task`, or waits for a free slot first; aborting `signal` gives up its place or its slot. */
+/** Starts `task`, or waits for a free slot first; aborting `signal` gives up its place in line. */
 export type Limited = <T>(task: () => Promise<T>, signal?: AbortSignal) => Promise<T>;
 
 function aborted(): Error {
@@ -6,9 +6,10 @@ function aborted(): Error {
 }
 
 /**
- * Runs at most `max` tasks at once; the rest wait their turn in order. A task
- * whose signal is aborted leaves the queue, or frees its slot at once even
- * though what it started may still finish (its result is then dropped).
+ * Runs at most `max` tasks at once; the rest wait their turn in order. A waiting
+ * task whose signal is aborted leaves the line. A running one is rejected at
+ * once, but keeps its slot until what it started settles: the work (a git
+ * process) still runs, and the cap is on that work, not on who waits for it.
  */
 export function createLimiter(max: number): Limited {
   let running = 0;
@@ -27,28 +28,20 @@ export function createLimiter(max: number): Limited {
       }
       const start = () => {
         running += 1;
-        let isReleased = false;
-        const finish = () => {
-          if (isReleased) return;
-          isReleased = true;
-          signal?.removeEventListener('abort', onAbortRunning);
-          release();
-        };
-        const onAbortRunning = () => {
-          finish();
-          reject(aborted());
-        };
-        signal?.addEventListener('abort', onAbortRunning, { once: true });
-        task().then(
-          (value) => {
-            finish();
-            resolve(value);
-          },
-          (error: unknown) => {
-            finish();
-            reject(error);
-          },
-        );
+        const onAbort = () => reject(aborted());
+        signal?.addEventListener('abort', onAbort, { once: true });
+        let work: Promise<T>;
+        try {
+          work = task();
+        } catch (error) {
+          work = Promise.reject(error);
+        }
+        work
+          .then(resolve, reject)
+          .finally(() => {
+            signal?.removeEventListener('abort', onAbort);
+            release();
+          });
       };
       if (running < max) {
         start();
