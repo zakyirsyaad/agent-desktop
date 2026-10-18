@@ -214,13 +214,20 @@ fn eval_argument(script: &str) -> Option<String> {
     }
 }
 
-/// The text after a shell's `-c` and the `-l`/`-i` flags that follow it.
+/// True for `-c` and for combined flags that include it, like `-lc` or `-ic`.
+fn runs_script(flag: &str) -> bool {
+    flag.strip_prefix('-')
+        .is_some_and(|letters| !letters.starts_with('-') && letters.contains('c'))
+}
+
+/// The text after a shell's `-c` (alone or combined, as in `-lc`) and the
+/// `-l`/`-i` flags that follow it.
 fn shell_script(raw: &str) -> Option<&str> {
     let (_, mut rest) = next_field(raw)?;
     loop {
         let (flag, after) = next_field(rest)?;
         rest = after;
-        if flag == "-c" {
+        if runs_script(flag) {
             break;
         }
     }
@@ -250,6 +257,8 @@ pub fn display_command(raw: &str) -> String {
         },
         None => raw.to_string(),
     };
+    // `ps` writes a newline inside an argument as `\012`.
+    let shown = shown.replace("\\012", " ");
     let shown = shown.trim();
     if shown.chars().count() <= MAX_COMMAND_CHARS {
         return shown.to_string();

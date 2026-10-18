@@ -106,6 +106,22 @@ fn shows_the_command_a_shell_was_asked_to_run() {
 }
 
 #[test]
+fn reads_the_script_after_combined_shell_flags() {
+    assert_eq!(
+        display_command("/bin/bash -lc \"npm run dev\""),
+        "npm run dev"
+    );
+    assert_eq!(display_command("zsh -ic 'pnpm test'"), "pnpm test");
+    assert_eq!(display_command("bash -lic make"), "make");
+}
+
+#[test]
+fn shows_each_line_of_a_multi_line_command_on_one_line() {
+    let raw = "bash -c cd web\\012pnpm dev";
+    assert_eq!(display_command(raw), "cd web pnpm dev");
+}
+
+#[test]
 fn undoes_quote_escaping_in_an_eval_argument() {
     let raw = "/bin/zsh -c source /tmp/snap.sh && eval 'echo '\"'\"'hi'\"'\"'' \\< /dev/null";
     assert_eq!(display_command(raw), "echo 'hi'");
