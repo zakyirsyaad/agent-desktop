@@ -58,7 +58,7 @@ describe("ChangesPanel", () => {
 
     expect(spy).toHaveBeenCalledWith(
       "session_file_diff",
-      { path: "/w/api", file: "src/app.ts" },
+      { path: "/w/api", file: "src/app.ts", target: "head" },
       undefined,
     );
     const diff = within(screen.getByLabelText("Diff of src/app.ts"));
