@@ -30,6 +30,7 @@
   --color-diff-added: rgba(52, 211, 153, 0.12);
   --color-diff-removed: rgba(248, 113, 113, 0.12);
   --color-terminal-bg: #0a0a0b;
+  --color-terminal-fg-subtle: #8b8b94;
 
   --font-sans: "Instrument Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;

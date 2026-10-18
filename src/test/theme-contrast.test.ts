@@ -78,7 +78,18 @@ describe("light theme contrast", () => {
     expectContrast("on-primary", "primary-hover", 4.5);
   });
 
-  it("keeps the terminal background fixed", () => {
+  it("keeps the terminal colors fixed", () => {
     expect(block).not.toContain("--color-terminal-bg");
+    expect(block).not.toContain("--color-terminal-fg-subtle");
+  });
+
+  it("terminal empty-state text is readable on the terminal background", () => {
+    const fixed = (name: string) => {
+      const m = css.match(new RegExp(`--color-${name}:\\s*(#[0-9a-fA-F]{6})\\s*;`));
+      if (!m) throw new Error(`@theme has no hex --color-${name}`);
+      return m[1];
+    };
+    const r = ratio(fixed("terminal-fg-subtle"), fixed("terminal-bg"));
+    expect(r, `terminal-fg-subtle on terminal-bg is ${r.toFixed(2)}:1, needs 4.5:1`).toBeGreaterThanOrEqual(4.5);
   });
 });

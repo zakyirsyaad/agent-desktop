@@ -228,8 +228,8 @@ export function TerminalDrawer({
           className="flex-1 w-full overflow-hidden p-2 bg-terminal-bg"
         />
       ) : (
-        <div className="flex flex-1 items-center justify-center gap-2 bg-terminal-bg text-xs text-fg-subtle">
-          <TerminalIcon size={14} className="text-fg-subtle" aria-hidden="true" />
+        <div className="flex flex-1 items-center justify-center gap-2 bg-terminal-bg text-xs text-terminal-fg-subtle">
+          <TerminalIcon size={14} className="text-terminal-fg-subtle" aria-hidden="true" />
           <span>{emptyMessage}</span>
         </div>
       )}
