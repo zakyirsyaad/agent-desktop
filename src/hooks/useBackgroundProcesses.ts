@@ -6,6 +6,12 @@ import type { BackgroundProcess } from '../lib/background-tasks';
 export const BACKGROUND_POLL_MS = 5000;
 export const BACKGROUND_POLL_OPEN_MS = 2000;
 
+/** `list` with each process's ports taken from `known` where it is listed. */
+function withKnownPorts(list: BackgroundProcess[], known: readonly BackgroundProcess[]): BackgroundProcess[] {
+  const ports = new Map(known.map((process) => [process.pid, process.ports]));
+  return list.map((process) => ({ ...process, ports: ports.get(process.pid) ?? process.ports }));
+}
+
 /**
  * Polls the shell processes agents started while any session is alive, faster
  * while the background tasks menu is open. A tick is skipped while a read is
@@ -35,12 +41,15 @@ export function useBackgroundProcesses(
       latestReadRef.current += 1;
       const readId = latestReadRef.current;
       isReading = true;
-      invoke<BackgroundProcess[]>('background_processes')
+      // Ports are only shown in the open menu, and finding them is the slow part.
+      invoke<BackgroundProcess[]>('background_processes', { withPorts: isMenuOpen })
         .then((list) => {
           if (isCancelled || readId !== latestReadRef.current) return;
           if (!Array.isArray(list)) throw new Error('expected a list of processes');
           hasReportedFailureRef.current = false;
-          setRead({ processes: list, readAt: Date.now() });
+          const readAt = Date.now();
+          // Without ports, keep the ones last seen, so opening the menu shows them at once.
+          setRead((prev) => ({ processes: isMenuOpen ? list : withKnownPorts(list, prev.processes), readAt }));
         })
         .catch((error) => {
           if (isCancelled || readId !== latestReadRef.current || hasReportedFailureRef.current) return;

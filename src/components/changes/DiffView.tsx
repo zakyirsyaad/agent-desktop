@@ -23,14 +23,27 @@ export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onCl
   const [chosen, setChosen] = useState<DiffTargetId | null>(null);
   // A chosen base means nothing once there is none (main checked out): HEAD then.
   const target: DiffTargetId = targets.base ? (chosen ?? "base") : "head";
-  const { stats, statsVersion, reload } = useDiffStats(rootPath, areTargetsLoaded, target, version, onError);
+  const { stats, reload } = useDiffStats(rootPath, areTargetsLoaded, target, version, onError);
+  // Refresh reads every open diff again; otherwise a diff is read again only when its file changed.
+  const [refreshes, setRefreshes] = useState(0);
+  const refresh = () => {
+    setRefreshes((n) => n + 1);
+    reload();
+  };
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState("");
-  // Null until the first list arrives: only that one decides what starts open.
-  const [openPaths, setOpenPaths] = useState<ReadonlySet<string> | null>(null);
-  if (stats && openPaths === null) {
-    setOpenPaths(new Set(stats.length > AUTO_OPEN_LIMIT ? [] : stats.map((s) => s.path)));
+  // Each target's first list decides what starts open; after that the user's
+  // choices for that target are kept, also across switching away and back.
+  const [opened, setOpened] = useState<Partial<Record<DiffTargetId, ReadonlySet<string>>>>({});
+  if (stats && !opened[target]) {
+    setOpened((prev) => ({ ...prev, [target]: new Set(stats.length > AUTO_OPEN_LIMIT ? [] : stats.map((s) => s.path)) }));
   }
+  const openPaths = opened[target] ?? null;
+  const setOpenPaths = (change: (prev: ReadonlySet<string>) => ReadonlySet<string>) =>
+    setOpened((prev) => {
+      const current = prev[target];
+      return current ? { ...prev, [target]: change(current) } : prev;
+    });
 
   const query = search.trim().toLowerCase();
   const visible = useMemo(
@@ -63,9 +76,9 @@ export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onCl
         onToggleSearch={toggleSearch}
         search={search}
         onSearchChange={setSearch}
-        onCollapseAll={() => setOpenPaths(new Set())}
-        onExpandAll={() => setOpenPaths(new Set((stats ?? []).map((s) => s.path)))}
-        onRefresh={reload}
+        onCollapseAll={() => setOpenPaths(() => new Set())}
+        onExpandAll={() => setOpenPaths(() => new Set((stats ?? []).map((s) => s.path)))}
+        onRefresh={refresh}
         isExpanded={isExpanded}
         onToggleExpanded={onToggleExpanded}
         onClose={onClose}
@@ -84,7 +97,7 @@ export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onCl
               rootPath={rootPath}
               stat={stat}
               target={target}
-              version={statsVersion}
+              version={`${refreshes}:${stat.fingerprint}`}
               isOpen={openPaths?.has(stat.path) ?? false}
               onToggle={() => toggle(stat.path)}
             />

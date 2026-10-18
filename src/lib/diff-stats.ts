@@ -13,6 +13,8 @@ export interface FileStat extends FileChange {
   added: number;
   removed: number;
   isBinary: boolean;
+  /** Changes whenever the file's diff may have; equal means a diff already read still holds. */
+  fingerprint: string;
 }
 
 /** The sign shown before removed-line counts (U+2212, not a hyphen). */

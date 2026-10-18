@@ -51,8 +51,6 @@ export function useDiffTargets(
 export interface DiffStats {
   /** The files with line counts, or null before the first answer for this folder and target. */
   stats: FileStat[] | null;
-  /** Goes up with every answer, so open file diffs know to read again. */
-  statsVersion: number;
   reload: () => void;
 }
 
@@ -69,7 +67,7 @@ export function useDiffStats(
   version: number,
   onError: (message: string) => void,
 ): DiffStats {
-  const [state, setState] = useState<{ key: string; stats: FileStat[]; version: number } | null>(null);
+  const [state, setState] = useState<{ key: string; stats: FileStat[] } | null>(null);
   const [reloads, setReloads] = useState(0);
   const onErrorRef = useLatest(onError);
   const reportedPath = useRef<string | undefined>(undefined);
@@ -82,7 +80,7 @@ export function useDiffStats(
     invoke<FileStat[]>('session_diff_stats', { path, target })
       .then((stats) => {
         if (isCancelled || !Array.isArray(stats)) return;
-        setState((prev) => ({ key, stats, version: (prev?.version ?? 0) + 1 }));
+        setState({ key, stats });
       })
       .catch((error) => {
         if (isCancelled || reportedPath.current === path) return;
@@ -96,5 +94,5 @@ export function useDiffStats(
 
   // Never show another folder's or target's files while this one loads.
   const isCurrent = isEnabled && state !== null && state.key === key;
-  return { stats: isCurrent ? state.stats : null, statsVersion: isCurrent ? state.version : 0, reload };
+  return { stats: isCurrent ? state.stats : null, reload };
 }

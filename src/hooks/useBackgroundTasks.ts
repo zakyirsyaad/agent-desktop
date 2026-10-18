@@ -47,7 +47,7 @@ export function useBackgroundTasks(args: BackgroundTasksArgs): BackgroundTasks {
   const { processes, readAt, reload } = useBackgroundProcesses(hasLiveSessions, isMenuOpen, onError);
 
   const tasks = useMemo(
-    () => backgroundTasksOf({ sessions, isAcp, isBusy, busySince, needsApproval, processes, now: readAt, processesReadAt: readAt }),
+    () => backgroundTasksOf({ sessions, isAcp, isBusy, busySince, needsApproval, processes, processesReadAt: readAt }),
     [sessions, isAcp, isBusy, busySince, needsApproval, processes, readAt],
   );
 

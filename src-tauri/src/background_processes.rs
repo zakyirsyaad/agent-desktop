@@ -3,7 +3,9 @@
 //! started.
 //!
 //! A task is a shell under an agent's process whose path up to the agent has
-//! no other shell, so a command a shell runs belongs to that shell's task.
+//! no other shell, so a command a shell runs belongs to that shell's task. A
+//! shell that started together with the agent launched the agent's own
+//! program, so it is looked through rather than listed.
 //! Stopping only ever signals a task a fresh scan reports at that moment, so
 //! a pid the UI held on to cannot reach a process that reused it.
 
@@ -22,6 +24,11 @@ use crate::pty_session::PtySessionManager;
 const SHELLS: [&str; 5] = ["sh", "bash", "zsh", "dash", "fish"];
 /// The longest command shown, in characters, the ellipsis included.
 const MAX_COMMAND_CHARS: usize = 300;
+/// A shell under the agent that started within this many seconds of the
+/// agent itself launched the agent's own program (`sh -c claude …`, maybe
+/// through `npm exec`): it is looked through, not listed. Nothing the agent is
+/// asked to run starts that soon, as it waits for a prompt and the model first.
+const LAUNCHER_START_SECS: u64 = 3;
 /// How long a task has to end after `TERM` before it is sent `KILL`.
 const KILL_GRACE: Duration = Duration::from_secs(2);
 /// Where a shell snapshot's wrapper continues after the command it runs.
@@ -127,6 +134,7 @@ pub fn select_tasks(rows: &[ProcessRow], roots: &[(String, u32)]) -> Vec<TaskPro
         .values_mut()
         .for_each(|list| list.sort_by_key(|row| row.pid));
 
+    let elapsed: HashMap<u32, u64> = rows.iter().map(|row| (row.pid, row.elapsed_secs)).collect();
     let mut seen_roots = HashSet::new();
     let mut listed = HashSet::new();
     let mut tasks = Vec::new();
@@ -134,7 +142,7 @@ pub fn select_tasks(rows: &[ProcessRow], roots: &[(String, u32)]) -> Vec<TaskPro
         if !seen_roots.insert(*root) {
             continue;
         }
-        for row in shells_below(&children, *root) {
+        for row in shells_below(&children, *root, elapsed.get(root).copied()) {
             if listed.insert(row.pid) {
                 tasks.push(TaskProcess {
                     pid: row.pid,
@@ -149,10 +157,20 @@ pub fn select_tasks(rows: &[ProcessRow], roots: &[(String, u32)]) -> Vec<TaskPro
     tasks
 }
 
-/// The shells under `root` with no other shell between them and it.
+/// Whether `row`, a shell under the root, launched the agent's own program:
+/// it started together with the root, whose age is `root_elapsed`.
+fn is_launcher(row: &ProcessRow, root_elapsed: Option<u64>) -> bool {
+    root_elapsed.is_some_and(|root_elapsed| {
+        root_elapsed.saturating_sub(row.elapsed_secs) <= LAUNCHER_START_SECS
+    })
+}
+
+/// The shells under `root` with no other shell between them and it, a shell
+/// that launched the agent itself looked through.
 fn shells_below<'a>(
     children: &HashMap<u32, Vec<&'a ProcessRow>>,
     root: u32,
+    root_elapsed: Option<u64>,
 ) -> Vec<&'a ProcessRow> {
     let mut found = Vec::new();
     let mut visited = HashSet::from([root]);
@@ -167,7 +185,7 @@ fn shells_below<'a>(
         if !visited.insert(row.pid) {
             continue;
         }
-        if is_shell(&row.command) {
+        if is_shell(&row.command) && !is_launcher(row, root_elapsed) {
             found.push(row);
         } else if let Some(list) = children.get(&row.pid) {
             stack.extend(list.iter().rev().copied());
@@ -351,11 +369,17 @@ fn listening_ports(pids: &[u32]) -> HashMap<u32, Vec<u16>> {
         .unwrap_or_default()
 }
 
-/// The tasks running under `roots` (session id, agent pid), with their ports.
-pub fn scan(roots: &[(String, u32)]) -> Result<Vec<BackgroundProcess>, String> {
+/// The tasks running under `roots` (session id, agent pid), with the ports
+/// they listen on when `with_ports` (lsof is the slow part of a scan, and
+/// only the open menu shows ports).
+pub fn scan(roots: &[(String, u32)], with_ports: bool) -> Result<Vec<BackgroundProcess>, String> {
     let tasks = select_tasks(&read_processes()?, roots);
-    let pids: Vec<u32> = tasks.iter().flat_map(|task| task.subtree.clone()).collect();
-    let ports = listening_ports(&pids);
+    let ports = if with_ports {
+        let pids: Vec<u32> = tasks.iter().flat_map(|task| task.subtree.clone()).collect();
+        listening_ports(&pids)
+    } else {
+        HashMap::new()
+    };
     Ok(tasks
         .into_iter()
         .map(|task| {
@@ -456,13 +480,15 @@ fn session_roots(pty: &PtySessionManager, acp: &AcpManager) -> Vec<(String, u32)
     pty.root_pids().into_iter().chain(acp.root_pids()).collect()
 }
 
-/// The shell commands agents started that are still running.
+/// The shell commands agents started that are still running, with their
+/// listening ports unless `with_ports` is false.
 #[tauri::command(async)]
 pub fn background_processes(
     pty: State<'_, PtySessionManager>,
     acp: State<'_, AcpManager>,
+    with_ports: Option<bool>,
 ) -> Result<Vec<BackgroundProcess>, String> {
-    scan(&session_roots(&pty, &acp))
+    scan(&session_roots(&pty, &acp), with_ports.unwrap_or(true))
 }
 
 /// Stops one of the tasks `background_processes` lists.

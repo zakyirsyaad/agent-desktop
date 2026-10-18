@@ -1,3 +1,4 @@
+import { useLayoutEffect } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { DiffStatChip } from "../components/changes/DiffStatChip";
@@ -13,7 +14,18 @@ function tauriInternals(): TauriInternals {
 
 const DIFF = "@@ -10,2 +10,2 @@\n context\n-old\n+new\n";
 
-const STAT: FileStat = { path: "src/lib/app.ts", oldPath: null, kind: "modified", added: 3, removed: 1, isBinary: false };
+// Reads left unanswered by a test. File diffs share one limiter across tests,
+// and a read holds its slot until it settles, so each is settled afterwards.
+const unanswered: Array<() => void> = [];
+function hang<T>(): Promise<T> {
+  return new Promise<T>((_, reject) => unanswered.push(() => reject("test over")));
+}
+afterEach(async () => {
+  unanswered.splice(0).forEach((settle) => settle());
+  await act(async () => {});
+});
+
+const STAT: FileStat = { path: "src/lib/app.ts", oldPath: null, kind: "modified", added: 3, removed: 1, isBinary: false, fingerprint: "f1" };
 
 function renderSection(stat: FileStat, isOpen: boolean) {
   return render(
@@ -104,6 +116,40 @@ describe("DiffFileSection", () => {
     expect(screen.getByRole("button", { expanded: false }).getAttribute("title")).toBe("src/lib/app.ts");
   });
 
+  it("names a nested repository by its folder", () => {
+    renderSection({ ...STAT, path: "vendor/lib/", kind: "untracked", isBinary: true }, false);
+
+    // Name "lib", then its folder "vendor"; not an empty name under "vendor/lib".
+    expect(screen.getByRole("button", { expanded: false }).textContent?.startsWith("libvendor")).toBe(true);
+  });
+
+  it("never shows the previous target's error in the first frame of the next", async () => {
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((_cmd, args) =>
+      args?.target === "head" ? Promise.reject("no such base") : hang<string>(),
+    );
+    const frames: string[] = [];
+    function FirstFrame() {
+      useLayoutEffect(() => {
+        frames.push(document.body.textContent ?? "");
+      });
+      return null;
+    }
+    const view = (target: "head" | "base") => (
+      <>
+        <DiffFileSection rootPath="/w" stat={STAT} target={target} version={1} isOpen onToggle={() => {}} />
+        <FirstFrame />
+      </>
+    );
+    const { rerender } = render(view("head"));
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toContain("no such base");
+    frames.length = 0;
+
+    rerender(view("base"));
+
+    expect(frames[0]).not.toContain("no such base");
+  });
+
   it("drops the diff of the previous target while the new one is read", async () => {
     let resolveBase: (diff: string) => void = () => {};
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((_cmd, args) =>
@@ -129,7 +175,7 @@ describe("DiffFileSection", () => {
   });
 });
 
-const statOf = (path: string): FileStat => ({ path, oldPath: null, kind: "modified", added: 1, removed: 1, isBinary: false });
+const statOf = (path: string, fingerprint = "f1"): FileStat => ({ path, oldPath: null, kind: "modified", added: 1, removed: 1, isBinary: false, fingerprint });
 
 function mockDiff(stats: FileStat[], targets: { base: { name: string } | null } = { base: { name: "main" } }) {
   return vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) => {
@@ -264,6 +310,89 @@ describe("DiffView", () => {
     });
 
     expect(statCalls(spy).length).toBe(before + 1);
+  });
+
+  it("reads an open file's diff again only when the file changed", async () => {
+    let stats = THREE;
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) => {
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: null });
+      if (cmd === "session_diff_stats") return Promise.resolve(stats);
+      return Promise.resolve("@@ -1 +1 @@\n-a\n+b\n");
+    });
+    const handlers = { onToggleExpanded: vi.fn(), onClose: vi.fn(), onError: vi.fn() };
+    let rerender: (ui: React.ReactElement) => void = () => {};
+    await act(async () => {
+      ({ rerender } = render(<DiffView rootPath="/w" version={1} isExpanded={false} {...handlers} />));
+    });
+    const diffReads = () => spy.mock.calls.filter((c) => c[0] === "session_file_diff").map((c) => (c[1] as { file: string }).file);
+    expect(diffReads()).toHaveLength(3);
+
+    // The list is read again (window focus) but nothing changed: no diff is read.
+    await act(async () => {
+      rerender(<DiffView rootPath="/w" version={2} isExpanded={false} {...handlers} />);
+    });
+    expect(diffReads()).toHaveLength(3);
+
+    // One file changed: only its diff is read again.
+    stats = [statOf("src/app.ts", "f2"), statOf("src/lib/util.ts"), statOf("README.md")];
+    await act(async () => {
+      rerender(<DiffView rootPath="/w" version={3} isExpanded={false} {...handlers} />);
+    });
+    expect(diffReads().slice(3)).toEqual(["src/app.ts"]);
+  });
+
+  it("reads a few diffs at a time when many sections are open", async () => {
+    const files = Array.from({ length: 10 }, (_, i) => statOf(`src/f${i}.ts`));
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) => {
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: null });
+      if (cmd === "session_diff_stats") return Promise.resolve(files);
+      return hang();
+    });
+    await renderView();
+
+    expect(spy.mock.calls.filter((c) => c[0] === "session_file_diff")).toHaveLength(4);
+  });
+
+  it("opens a small list after switching away from a large one", async () => {
+    const many = Array.from({ length: 26 }, (_, i) => statOf(`src/f${i}.ts`));
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: { name: "main" } });
+      if (cmd === "session_diff_stats") return Promise.resolve((args as { target: string }).target === "base" ? many : THREE);
+      return Promise.resolve("");
+    });
+    await renderView();
+    const sections = () => screen.getAllByRole("button").filter((b) => b.hasAttribute("aria-expanded") && b.hasAttribute("title") && b.getAttribute("aria-haspopup") === null);
+    expect(sections().every((b) => b.getAttribute("aria-expanded") === "false")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Diff target: main → working tree" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "HEAD → working tree" }));
+    });
+
+    expect(sections().map((b) => b.getAttribute("aria-expanded"))).toEqual(["true", "true", "true"]);
+  });
+
+  it("keeps each target's open sections when switching back", async () => {
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: { name: "main" } });
+      if (cmd === "session_diff_stats") return Promise.resolve((args as { target: string }).target === "base" ? THREE : [statOf("only-head.ts")]);
+      return Promise.resolve("");
+    });
+    await renderView();
+    const states = () => screen.getAllByRole("button").filter((b) => b.hasAttribute("aria-expanded") && b.hasAttribute("title") && b.getAttribute("aria-haspopup") === null).map((b) => b.getAttribute("aria-expanded"));
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Collapse all" }));
+    const pick = async (from: string, to: string) => {
+      fireEvent.click(screen.getByRole("button", { name: `Diff target: ${from}` }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("option", { name: to }));
+      });
+    };
+
+    await pick("main → working tree", "HEAD → working tree");
+    await pick("HEAD → working tree", "main → working tree");
+
+    expect(states()).toEqual(["false", "false", "false"]);
   });
 
   it("hands expand and close to its owner", async () => {

@@ -3,8 +3,12 @@
 
 use std::collections::HashMap;
 use std::fs::File;
+use std::fs::Metadata;
 use std::io::Read;
 use std::path::Path;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -50,6 +54,9 @@ pub struct FileStat {
     pub added: u64,
     pub removed: u64,
     pub is_binary: bool,
+    /// Changes whenever this file's diff may have: the base commit, or the
+    /// file's size or modification time. Equal means the diff shown still holds.
+    pub fingerprint: String,
 }
 
 /// How much of a file is read at a time when counting its lines.
@@ -271,6 +278,7 @@ fn tracked_stats(git: &Path, toplevel: &Path, base: &str) -> Result<Vec<FileStat
                 path: change.path,
                 old_path: change.old_path,
                 kind: change.kind,
+                fingerprint: String::new(),
             }
         })
         .collect())
@@ -329,6 +337,64 @@ fn count_lines(path: &Path) -> std::io::Result<Counts> {
     })
 }
 
+/// How many untracked files' counts are remembered; past this the memory starts over.
+const MAX_REMEMBERED_COUNTS: usize = 20_000;
+
+/// A file's size and modification time: while both stay, its lines are not
+/// read again (the same test git's index uses).
+type Stamp = (u64, u128);
+
+/// A file modified this recently may change again within the same timestamp
+/// tick (2 s on exFAT) keeping its size, so its size and time prove nothing
+/// yet: git calls such an entry "racily clean" and checks its contents.
+const RACY_WITHIN: Duration = Duration::from_secs(3);
+
+/// Whether `meta`'s modification time is too recent to trust.
+fn is_racy(meta: &Metadata) -> bool {
+    meta.modified()
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .is_none_or(|age| age < RACY_WITHIN)
+}
+
+fn stamp_of(meta: &Metadata) -> Option<Stamp> {
+    if is_racy(meta) {
+        return None;
+    }
+    let modified = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    Some((meta.len(), modified.as_nanos()))
+}
+
+/// Untracked files' line counts by path, with the stamp they were read at.
+fn remembered_counts() -> &'static Mutex<HashMap<PathBuf, (Stamp, Counts)>> {
+    static COUNTS: OnceLock<Mutex<HashMap<PathBuf, (Stamp, Counts)>>> = OnceLock::new();
+    COUNTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// `count_lines` for a regular file, read only when it changed since the
+/// last count; the counts are read on every focus, so a big untracked file
+/// must not be read each time.
+fn count_lines_once(path: &Path, meta: &Metadata) -> std::io::Result<Counts> {
+    let Some(stamp) = stamp_of(meta) else {
+        return count_lines(path);
+    };
+    if let Ok(counts) = remembered_counts().lock() {
+        if let Some((seen, counts)) = counts.get(path) {
+            if *seen == stamp {
+                return Ok(*counts);
+            }
+        }
+    }
+    let counts = count_lines(path)?;
+    if let Ok(mut remembered) = remembered_counts().lock() {
+        if remembered.len() >= MAX_REMEMBERED_COUNTS {
+            remembered.clear();
+        }
+        remembered.insert(path.to_path_buf(), (stamp, counts));
+    }
+    Ok(counts)
+}
+
 /// A file listed as changed whose lines are not counted: it cannot be read,
 /// or it is not a regular file (a pipe or socket, which reading could block
 /// on). It is kept as binary, so the UI still shows it, without contents.
@@ -344,15 +410,17 @@ const UNCOUNTED: Counts = Counts {
 /// resolves at all (it is gone).
 fn untracked_stat(toplevel: &Path, path: String) -> Option<FileStat> {
     let full = toplevel.join(&path);
-    let file_type = full.symlink_metadata().map(|meta| meta.file_type());
-    let counts = match file_type {
-        Ok(kind) if kind.is_symlink() => Counts {
+    let meta = full.symlink_metadata();
+    let counts = match &meta {
+        Ok(meta) if meta.file_type().is_symlink() => Counts {
             added: 1,
             removed: 0,
             is_binary: false,
         },
         _ if !resolves_inside(toplevel, &path) => return None,
-        Ok(kind) if kind.is_file() => count_lines(&full).unwrap_or(UNCOUNTED),
+        Ok(meta) if meta.file_type().is_file() => {
+            count_lines_once(&full, meta).unwrap_or(UNCOUNTED)
+        }
         _ => UNCOUNTED,
     };
     Some(FileStat {
@@ -362,6 +430,7 @@ fn untracked_stat(toplevel: &Path, path: String) -> Option<FileStat> {
         added: counts.added,
         removed: counts.removed,
         is_binary: counts.is_binary,
+        fingerprint: String::new(),
     })
 }
 
@@ -392,7 +461,43 @@ pub fn diff_stats(git: &Path, dir: &Path, target: DiffTarget) -> Result<Vec<File
     let mut stats = tracked_stats(git, &toplevel, &base)?;
     stats.extend(untracked_stats(git, &toplevel, target)?);
     stats.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(stats)
+    // The base target's base is already a commit id; HEAD is resolved, so a
+    // new commit changes every fingerprint.
+    let base_id = match target {
+        DiffTarget::Base => base,
+        DiffTarget::Head => run_git(git, &toplevel, &["rev-parse", &base])
+            .map(|id| id.trim().to_string())
+            .unwrap_or(base),
+    };
+    Ok(stats
+        .into_iter()
+        .map(|stat| FileStat {
+            fingerprint: fingerprint(&toplevel, &base_id, &stat.path),
+            ..stat
+        })
+        .collect())
+}
+
+/// `base_id` with the size and modification time of `path` as it is now;
+/// a file that is gone has neither. A file changed a moment ago gets a new
+/// fingerprint on every read (see `is_racy`), so its diff is read again.
+fn fingerprint(toplevel: &Path, base_id: &str, path: &str) -> String {
+    let file = toplevel.join(path).symlink_metadata().ok().map(|meta| {
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_nanos());
+        if is_racy(&meta) {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |since| since.as_nanos());
+            format!("{}:{modified}:racy-{now}", meta.len())
+        } else {
+            format!("{}:{modified}", meta.len())
+        }
+    });
+    format!("{base_id}:{}", file.unwrap_or_else(|| "gone".to_string()))
 }
 
 /// Which target comparisons are on offer for a session's folder.

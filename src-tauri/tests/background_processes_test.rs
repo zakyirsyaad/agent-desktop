@@ -23,7 +23,11 @@ fn row(pid: u32, ppid: u32, command: &str) -> ProcessRow {
 fn tree() -> Vec<ProcessRow> {
     vec![
         row(1, 0, "/sbin/launchd"),
-        row(10, 1, "/usr/bin/agent --acp"),
+        // The agent has run longer than anything it started.
+        ProcessRow {
+            elapsed_secs: 600,
+            ..row(10, 1, "/usr/bin/agent --acp")
+        },
         row(11, 10, "/bin/zsh -c npm run dev"),
         row(12, 11, "npm run dev"),
         row(13, 12, "node vite"),
@@ -77,6 +81,67 @@ fn selects_the_outermost_shells_under_each_root() {
     assert_eq!(dev.subtree, vec![13, 12, 11]);
     assert_eq!(dev.command, "/bin/zsh -c npm run dev");
     assert_eq!(dev.elapsed_secs, 60);
+}
+
+#[test]
+fn looks_through_a_shell_that_launched_the_agent_itself() {
+    // An adapter that starts its CLI with `sh -c`: the shell is as old as the
+    // agent, and only what the CLI runs later is a task.
+    let rows = vec![
+        ProcessRow {
+            elapsed_secs: 600,
+            ..row(10, 1, "node adapter.js --acp")
+        },
+        ProcessRow {
+            elapsed_secs: 600,
+            ..row(11, 10, "/bin/sh -c claude --print")
+        },
+        ProcessRow {
+            elapsed_secs: 599,
+            ..row(12, 11, "node claude --print")
+        },
+        ProcessRow {
+            elapsed_secs: 30,
+            ..row(13, 12, "/bin/zsh -c npm run dev")
+        },
+    ];
+
+    let tasks = select_tasks(&rows, &[("s1".to_string(), 10)]);
+
+    let pids: Vec<u32> = tasks.iter().map(|t| t.pid).collect();
+    assert_eq!(pids, vec![13]);
+}
+
+#[test]
+fn looks_through_a_launcher_shell_deeper_down_and_a_little_later() {
+    // adapter -> npm exec -> sh -c cli: npm takes a moment to start the shell.
+    let rows = vec![
+        ProcessRow {
+            elapsed_secs: 600,
+            ..row(10, 1, "node adapter.js --acp")
+        },
+        ProcessRow {
+            elapsed_secs: 599,
+            ..row(11, 10, "npm exec @acme/agent-cli")
+        },
+        ProcessRow {
+            elapsed_secs: 598,
+            ..row(12, 11, "sh -c agent-cli --acp")
+        },
+        ProcessRow {
+            elapsed_secs: 598,
+            ..row(13, 12, "node agent-cli --acp")
+        },
+        ProcessRow {
+            elapsed_secs: 30,
+            ..row(14, 13, "/bin/zsh -c npm run dev")
+        },
+    ];
+
+    let tasks = select_tasks(&rows, &[("s1".to_string(), 10)]);
+
+    let pids: Vec<u32> = tasks.iter().map(|t| t.pid).collect();
+    assert_eq!(pids, vec![14]);
 }
 
 #[test]
@@ -212,7 +277,7 @@ impl Drop for TreeGuard {
 #[test]
 fn stops_a_running_task_and_everything_it_started() {
     let root = Command::new("/bin/sh")
-        .args(["-c", "/bin/sh -c 'sleep 30; :' & wait"])
+        .args(["-c", "sleep 4; /bin/sh -c 'sleep 30; :' & wait"])
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn the root");
@@ -221,7 +286,7 @@ fn stops_a_running_task_and_everything_it_started() {
 
     let mut task = None;
     let found = eventually(Duration::from_secs(5), || {
-        task = scan(&roots).expect("scan").into_iter().next();
+        task = scan(&roots, false).expect("scan").into_iter().next();
         task.is_some()
     });
     assert!(found, "the inner shell never showed up as a task");
@@ -317,7 +382,7 @@ fn reports_the_port_a_task_listens_on() {
     let root = Command::new("/bin/sh")
         .args([
             "-c",
-            "/bin/sh -c 'python3 -m http.server 0 --bind 127.0.0.1; :' & wait",
+            "sleep 4; /bin/sh -c 'python3 -m http.server 0 --bind 127.0.0.1; :' & wait",
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -327,11 +392,14 @@ fn reports_the_port_a_task_listens_on() {
     let roots = [("s1".to_string(), guard.0.id())];
 
     let listening = eventually(Duration::from_secs(10), || {
-        scan(&roots)
+        scan(&roots, true)
             .expect("scan")
             .iter()
             .any(|task| !task.ports.is_empty())
     });
+    let without_ports = scan(&roots, false).expect("scan");
 
     assert!(listening, "the server's port never showed up");
+    assert!(!without_ports.is_empty());
+    assert!(without_ports.iter().all(|task| task.ports.is_empty()));
 }
