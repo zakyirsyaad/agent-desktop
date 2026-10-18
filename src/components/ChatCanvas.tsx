@@ -151,17 +151,17 @@ export function ChatCanvas({
             <div className="flex items-center gap-2 mb-1.5 px-1">
               {isUser ? (
                 <>
-                  <span className="text-xs text-neutral-400">You</span>
-                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-neutral-800 text-neutral-300">
+                  <span className="text-xs text-fg-muted">You</span>
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-hover text-fg-secondary">
                     <User className="h-3 w-3" />
                   </div>
                 </>
               ) : (
                 <>
-                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-neutral-900 border border-neutral-800 text-amber-500">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-2 border border-border text-fg-muted">
                     <Sparkles className="h-3 w-3" />
                   </div>
-                  <span className="text-xs font-medium text-neutral-300">
+                  <span className="text-xs font-medium text-fg-secondary">
                     {agentName}
                   </span>
                 </>
@@ -172,8 +172,8 @@ export function ChatCanvas({
             <div
               className={`w-full text-left ${
                 isUser
-                  ? "rounded-2xl p-4 bg-[#18181b] border border-neutral-800 text-neutral-100 max-w-xl"
-                  : "px-1 text-neutral-200"
+                  ? "rounded-2xl p-4 bg-surface-2 border border-border text-fg max-w-xl"
+                  : "px-1 text-fg-secondary"
               }`}
             >
               {msg.thinking && (

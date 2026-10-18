@@ -10,7 +10,7 @@ export interface UserMessageBarProps {
 }
 
 const ICON_BUTTON =
-  "rounded p-0.5 text-neutral-500 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700";
+  "rounded p-0.5 text-fg-subtle hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring";
 
 /** How long Rewind waits for its confirming second click. */
 const CONFIRM_REWIND_MS = 4000;
@@ -37,7 +37,7 @@ function RewindButton({ onRewind }: { onRewind: () => void }) {
           setIsConfirming(false);
           onRewind();
         }}
-        className="rounded bg-amber-950/70 px-1.5 py-0.5 text-[10px] font-medium text-amber-300 hover:bg-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-700"
+        className="rounded bg-danger-surface px-1.5 py-0.5 text-[10px] font-medium text-danger focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
       >
         Rewind?
       </button>
@@ -59,10 +59,10 @@ function RewindButton({ onRewind }: { onRewind: () => void }) {
 /** The time, Copy and Rewind under one of your messages. */
 export function UserMessageBar({ timeLabel, copied, onCopy, onRewind }: UserMessageBarProps) {
   return (
-    <div className="mt-1.5 flex items-center gap-2 px-1 text-xs text-neutral-500">
+    <div className="mt-1.5 flex items-center gap-2 px-1 text-xs text-fg-subtle">
       <span>{timeLabel}</span>
       <button type="button" onClick={onCopy} aria-label="Copy message" title="Copy" className={ICON_BUTTON}>
-        {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? <Check className="h-3.5 w-3.5 text-status-running" /> : <Copy className="h-3.5 w-3.5" />}
       </button>
       {onRewind && <RewindButton onRewind={onRewind} />}
     </div>

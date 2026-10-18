@@ -42,14 +42,10 @@ function findViolations(): Violation[] {
 
 // Files not yet migrated to the design system tokens. Each migration task removes its files.
 const PENDING: ReadonlySet<string> = new Set<string>([
-  "src/components/ActionCard.tsx",
   "src/components/AppPlaceholders.tsx",
   "src/components/AuthPanel.tsx",
-  "src/components/ChatCanvas.tsx",
   "src/components/ComposerDock.tsx",
   "src/components/FilesPanel.tsx",
-  "src/components/MarkdownRenderer.tsx",
-  "src/components/MessageActionBar.tsx",
   "src/components/Onboarding.tsx",
   "src/components/SettingsPanel.tsx",
   "src/components/TerminalDrawer.tsx",
@@ -57,10 +53,6 @@ const PENDING: ReadonlySet<string> = new Set<string>([
   "src/components/changes/ChangesPanel.tsx",
   "src/components/changes/FileDiff.tsx",
   "src/components/changes/PullRequestList.tsx",
-  "src/components/chat/ReplyExtras.tsx",
-  "src/components/chat/ToolCallList.tsx",
-  "src/components/chat/ToolDetails.tsx",
-  "src/components/chat/UserMessageBar.tsx",
   "src/components/composer/AttachmentChips.tsx",
   "src/components/composer/ContextMeter.tsx",
   "src/components/composer/FolderPicker.tsx",

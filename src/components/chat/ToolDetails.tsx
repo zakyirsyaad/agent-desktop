@@ -3,10 +3,10 @@ import type { ToolDetail } from "../../types";
 import { countChanges, diffRows, type DiffRowKind } from "../../lib/diff-rows";
 
 const ROW_STYLE: Record<DiffRowKind, string> = {
-  added: "bg-emerald-950/50 text-emerald-200",
-  removed: "bg-rose-950/50 text-rose-200",
-  context: "text-neutral-400",
-  skipped: "text-neutral-600 italic",
+  added: "bg-diff-added text-fg",
+  removed: "bg-diff-removed text-fg",
+  context: "text-fg-muted",
+  skipped: "text-fg-subtle italic",
 };
 
 const ROW_SIGN: Record<DiffRowKind, string> = { added: "+", removed: "-", context: " ", skipped: "⋯" };
@@ -15,14 +15,14 @@ function DiffView({ path, oldText, newText }: { path: string; oldText: string | 
   const rows = useMemo(() => diffRows(oldText, newText), [oldText, newText]);
   const { added, removed } = countChanges(rows);
   return (
-    <section aria-label={`Changes to ${path}`} className="overflow-hidden rounded-md border border-neutral-800">
-      <header className="flex items-center gap-2 border-b border-neutral-800 bg-neutral-900/60 px-2.5 py-1 text-[11px]">
-        <span className="truncate text-neutral-300" title={path}>
+    <section aria-label={`Changes to ${path}`} className="overflow-hidden rounded-md border border-border">
+      <header className="flex items-center gap-2 border-b border-border bg-surface-2 px-2.5 py-1 text-[11px]">
+        <span className="truncate text-fg-secondary" title={path}>
           {path}
         </span>
-        {oldText === null && <span className="rounded bg-neutral-800 px-1.5 text-neutral-400">New file</span>}
-        <span className="ml-auto shrink-0 text-emerald-400">+{added}</span>
-        {removed > 0 && <span className="shrink-0 text-rose-400">-{removed}</span>}
+        {oldText === null && <span className="rounded bg-surface-hover px-1.5 text-fg-muted">New file</span>}
+        <span className="ml-auto shrink-0 text-status-running">+{added}</span>
+        {removed > 0 && <span className="shrink-0 text-danger">-{removed}</span>}
       </header>
       <div className="max-h-80 overflow-auto py-1 font-mono text-[11px] leading-5">
         {rows.map((row, index) => (
@@ -48,7 +48,7 @@ export function ToolDetails({ details }: { details: ToolDetail[] }) {
         ) : (
           <pre
             key={index}
-            className="max-h-60 overflow-auto whitespace-pre-wrap rounded-md border border-neutral-800 bg-neutral-950 px-2.5 py-1.5 font-mono text-[11px] text-neutral-300"
+            className="max-h-60 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-[11px] text-fg-secondary"
           >
             {detail.text}
           </pre>

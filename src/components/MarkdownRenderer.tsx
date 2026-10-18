@@ -17,19 +17,19 @@ function CodeBlock({ language, code }: { language?: string; code: string }) {
     setTimeout(() => setIsCopied(false), COPIED_FEEDBACK_MS);
   };
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-neutral-800 bg-[#0c0c0c]">
-      <div className="flex items-center justify-between border-b border-neutral-800/80 bg-neutral-900/60 px-3 py-1.5 text-[11px] font-mono text-neutral-400">
+    <div className="my-3 overflow-hidden rounded-xl border border-border bg-surface-1">
+      <div className="flex items-center justify-between border-b border-border bg-surface-2 px-3 py-1.5 text-[11px] font-mono text-fg-muted">
         <span>{language || "text"}</span>
         <button
           type="button"
           onClick={handleCopy}
           aria-label="Copy code"
-          className="flex items-center gap-1 text-neutral-400 hover:text-neutral-200 transition-colors"
+          className="flex items-center gap-1 text-fg-muted hover:text-fg-secondary transition-colors"
         >
           {isCopied ? (
             <>
-              <Check className="h-3 w-3 text-emerald-400" />
-              <span className="text-emerald-400">Copied</span>
+              <Check className="h-3 w-3 text-status-running" />
+              <span className="text-status-running">Copied</span>
             </>
           ) : (
             <>
@@ -39,7 +39,7 @@ function CodeBlock({ language, code }: { language?: string; code: string }) {
           )}
         </button>
       </div>
-      <pre className="p-3 font-mono text-xs text-neutral-300 overflow-x-auto">
+      <pre className="p-3 font-mono text-xs text-fg-secondary overflow-x-auto">
         <code>{code}</code>
       </pre>
     </div>
@@ -64,7 +64,7 @@ const OPENABLE_URL = /^(https?:|mailto:)/i;
 function ExternalLink({ href, children }: { href?: string; children?: ReactNode }) {
   if (!href || !OPENABLE_URL.test(href)) {
     return (
-      <span title={href} className="text-neutral-200 underline decoration-dotted decoration-neutral-600 underline-offset-2">
+      <span title={href} className="text-fg-secondary underline decoration-dotted decoration-fg-subtle underline-offset-2">
         {children}
       </span>
     );
@@ -78,7 +78,7 @@ function ExternalLink({ href, children }: { href?: string; children?: ReactNode 
         // The backend only refuses what OPENABLE_URL already excludes.
         invoke("open_external_url", { url: href }).catch(() => {});
       }}
-      className="text-amber-400 underline decoration-amber-400/40 underline-offset-2 hover:decoration-amber-400"
+      className="text-fg underline decoration-fg-subtle underline-offset-2 hover:decoration-fg-muted"
     >
       {children}
     </a>
@@ -92,28 +92,28 @@ function ImageLink({ src, alt }: { src?: string; alt?: string }) {
 }
 
 const COMPONENTS: Components = {
-  h1: ({ children }) => <h1 className="text-lg font-semibold tracking-tight text-neutral-100 pt-2">{children}</h1>,
-  h2: ({ children }) => <h2 className="text-base font-semibold tracking-tight text-neutral-100 pt-1">{children}</h2>,
-  h3: ({ children }) => <h3 className="text-sm font-semibold tracking-tight text-neutral-200">{children}</h3>,
-  h4: ({ children }) => <h4 className="text-sm font-semibold text-neutral-200">{children}</h4>,
-  p: ({ children }) => <p className="text-sm leading-relaxed text-neutral-300 break-words">{children}</p>,
-  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5 text-sm leading-relaxed text-neutral-300">{children}</ul>,
+  h1: ({ children }) => <h1 className="text-lg font-semibold tracking-tight text-fg pt-2">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-base font-semibold tracking-tight text-fg pt-1">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold tracking-tight text-fg-secondary">{children}</h3>,
+  h4: ({ children }) => <h4 className="text-sm font-semibold text-fg-secondary">{children}</h4>,
+  p: ({ children }) => <p className="text-sm leading-relaxed text-fg-secondary break-words">{children}</p>,
+  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5 text-sm leading-relaxed text-fg-secondary">{children}</ul>,
   ol: ({ children }) => (
-    <ol className="my-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-neutral-300">{children}</ol>
+    <ol className="my-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-fg-secondary">{children}</ol>
   ),
-  strong: ({ children }) => <strong className="font-semibold text-neutral-100">{children}</strong>,
+  strong: ({ children }) => <strong className="font-semibold text-fg">{children}</strong>,
   blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-neutral-700 pl-3 text-neutral-400">{children}</blockquote>
+    <blockquote className="border-l-2 border-border-strong pl-3 text-fg-muted">{children}</blockquote>
   ),
   a: ({ href, children }) => <ExternalLink href={href}>{children}</ExternalLink>,
   img: ({ src, alt }) => <ImageLink src={typeof src === "string" ? src : undefined} alt={alt} />,
   table: ({ children }) => (
     <div className="my-3 overflow-x-auto">
-      <table className="w-full border-collapse text-left text-xs text-neutral-300">{children}</table>
+      <table className="w-full border-collapse text-left text-xs text-fg-secondary">{children}</table>
     </div>
   ),
-  th: ({ children }) => <th className="border-b border-neutral-700 px-2.5 py-1.5 font-semibold text-neutral-200">{children}</th>,
-  td: ({ children }) => <td className="border-b border-neutral-800/70 px-2.5 py-1.5 align-top">{children}</td>,
+  th: ({ children }) => <th className="border-b border-border-strong px-2.5 py-1.5 font-semibold text-fg-secondary">{children}</th>,
+  td: ({ children }) => <td className="border-b border-border px-2.5 py-1.5 align-top">{children}</td>,
   // Fenced code gets the code block; its <pre> wrapper is replaced, so it is unwrapped here.
   pre: ({ children }) => <>{children}</>,
   code: ({ className, children }) => {
@@ -121,7 +121,7 @@ const COMPONENTS: Components = {
     const text = textOf(children);
     if (language || text.includes("\n")) return <CodeBlock language={language} code={text.replace(/\n$/, "")} />;
     return (
-      <code className="rounded bg-neutral-900 border border-neutral-800 px-1.5 py-0.5 font-mono text-xs text-amber-300">
+      <code className="rounded bg-surface-2 border border-border px-1.5 py-0.5 font-mono text-xs text-fg-secondary">
         {children}
       </code>
     );
@@ -137,7 +137,7 @@ const REMARK_PLUGINS = [remarkGfm];
  */
 export const MarkdownRenderer = memo(function MarkdownRenderer({ content }: { content: string }) {
   return (
-    <div className="space-y-3 text-neutral-200">
+    <div className="space-y-3 text-fg-secondary">
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={COMPONENTS}>
         {content}
       </ReactMarkdown>
