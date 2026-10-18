@@ -45,6 +45,24 @@ describe("Button", () => {
     expect(screen.getByRole("button", { name: "Default" })).toHaveClass("border-border-strong");
   });
 
+  it("gives every variant a 1px border so rows align, outline keeping the visible one", () => {
+    render(
+      <>
+        <Button variant="primary">P</Button>
+        <Button variant="outline">O</Button>
+        <Button variant="ghost">G</Button>
+        <Button variant="danger">D</Button>
+      </>,
+    );
+    for (const name of ["P", "G", "D"]) {
+      const b = screen.getByRole("button", { name });
+      expect(b).toHaveClass("border", "border-transparent");
+    }
+    const outline = screen.getByRole("button", { name: "O" });
+    expect(outline).toHaveClass("border", "border-border-strong", "text-fg-secondary");
+    expect(outline).not.toHaveClass("border-transparent");
+  });
+
   it("renders its icon before the label", () => {
     render(<Button icon={<svg data-testid="icon" />}>Label</Button>);
     const button = screen.getByRole("button", { name: "Label" });

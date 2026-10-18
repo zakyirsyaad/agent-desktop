@@ -9,16 +9,16 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const BASE =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors " +
+  "inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors " +
   "focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring " +
   "disabled:cursor-not-allowed disabled:opacity-40";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: "bg-primary text-on-primary hover:bg-primary-hover",
+  primary: "border-transparent bg-primary text-on-primary hover:bg-primary-hover",
   outline:
-    "border border-border-strong text-fg hover:bg-surface-hover hover:text-fg",
-  ghost: "text-fg-muted hover:bg-surface-hover hover:text-fg",
-  danger: "bg-danger-surface text-danger",
+    "border-border-strong text-fg-secondary hover:bg-surface-hover hover:text-fg",
+  ghost: "border-transparent text-fg-muted hover:bg-surface-hover hover:text-fg",
+  danger: "border-transparent bg-danger-surface text-danger",
 };
 
 export function Button({
