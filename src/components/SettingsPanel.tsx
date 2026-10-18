@@ -126,7 +126,7 @@ export function SettingsPanel({
             id={appearanceId}
             value={appearance}
             onChange={(event) => onChangeAppearance(event.target.value as Appearance)}
-            className="w-full rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-xs text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+            className="w-full rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-xs text-fg-secondary focus-ring"
           >
             <option value="system">System</option>
             <option value="light">Light</option>
