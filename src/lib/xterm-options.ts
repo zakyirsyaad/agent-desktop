@@ -5,12 +5,17 @@ export const XTERM_OPTIONS: ITerminalOptions = {
   cursorBlink: true,
   cursorStyle: 'bar',
   fontSize: 12,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+  // --font-mono
+  fontFamily: '"Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace',
   theme: {
-    background: '#000000',
-    foreground: '#f5f5f5',
-    cursor: '#f59e0b',
-    selectionBackground: 'rgba(245, 158, 11, 0.3)',
+    // --color-bg
+    background: '#0a0a0b',
+    // --color-fg-secondary
+    foreground: '#d4d4d8',
+    // --color-fg
+    cursor: '#fafafa',
+    // --color-fg at 20% opacity
+    selectionBackground: 'rgba(250, 250, 250, 0.2)',
     black: '#1e1e1e',
     red: '#ef4444',
     green: '#10b981',

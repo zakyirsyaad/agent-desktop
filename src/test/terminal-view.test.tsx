@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, act } from "@testing-library/react";
+import type { ITerminalOptions } from "@xterm/xterm";
 import { createPtyOutputStore } from "../lib/pty-output-store";
 
 const { FakeTerminal, terminals } = vi.hoisted(() => {
@@ -11,7 +12,9 @@ const { FakeTerminal, terminals } = vi.hoisted(() => {
     focused = false;
     cols = 100;
     rows = 30;
-    constructor() {
+    options: ITerminalOptions;
+    constructor(options: ITerminalOptions = {}) {
+      this.options = options;
       terminals.push(this);
     }
     loadAddon() {}
@@ -109,6 +112,18 @@ describe("TerminalView", () => {
     expect(terminals[0].dataListener).toBeNull();
     act(() => terminals[0].flushWrites());
     expect(terminals[0].dataListener).not.toBeNull();
+  });
+
+  it("terminal uses the design system font and colors", () => {
+    render(<TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />);
+
+    const { fontFamily, theme } = terminals[0].options;
+    expect(fontFamily?.startsWith('"Geist Mono Variable"')).toBe(true);
+    expect(theme?.background).toBe("#0a0a0b");
+    expect(theme?.foreground).toBe("#d4d4d8");
+    expect(theme?.cursor).toBe("#fafafa");
+    expect(theme?.selectionBackground).toBe("rgba(250, 250, 250, 0.2)");
+    expect(theme?.red).toBe("#ef4444");
   });
 });
 
