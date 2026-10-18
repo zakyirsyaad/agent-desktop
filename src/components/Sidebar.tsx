@@ -44,7 +44,7 @@ export interface SidebarProps {
 }
 
 const SECTION_HEADER =
-  "flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-1.5 px-1";
+  "flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-fg-subtle mb-1.5 px-1";
 
 function matches(query: string, ...values: string[]): boolean {
   return query === "" || values.some((v) => v.toLowerCase().includes(query));
@@ -70,8 +70,8 @@ function WorkspaceGroup({ group, isActive, isExpanded, onToggle, newSessionMenu,
           onClick={onToggle}
           aria-expanded={isExpanded}
           title={group.path}
-          className={`flex-1 min-w-0 flex items-center gap-1 rounded px-1.5 py-1 text-left text-[12px] transition-colors hover:text-neutral-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-600 ${
-            isActive ? "text-neutral-300" : "text-neutral-500"
+          className={`flex-1 min-w-0 flex items-center gap-1 rounded px-1.5 py-1 text-left text-[12px] transition-colors hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring ${
+            isActive ? "text-fg-secondary" : "text-fg-subtle"
           }`}
         >
           <span className="truncate">{group.name}</span>
@@ -99,24 +99,24 @@ function DetectedAgents({ agents }: { agents: AgentProfile[] }) {
   const detected = agents.filter((agent) => agent.detected);
   if (detected.length === 0) return null;
   return (
-    <section aria-label="Detected agents" className="border-t border-neutral-800/60 px-3 pt-2.5 pb-2">
+    <section aria-label="Detected agents" className="border-t border-border px-3 pt-2.5 pb-2">
       <div className={SECTION_HEADER}>
         <span>Detected Agents</span>
-        <span className="text-[10px] text-neutral-600">{detected.length}</span>
+        <span className="text-[10px] text-fg-subtle">{detected.length}</span>
       </div>
       <ul aria-label="Detected agents" className="space-y-0.5">
         {detected.map((agent) => (
           <li
             key={agent.id}
             title={agent.detected_path ?? undefined}
-            className="flex items-center justify-between rounded-md px-2 py-1 text-neutral-300 hover:bg-neutral-900/40"
+            className="flex items-center justify-between rounded-md px-2 py-1 text-fg-secondary hover:bg-surface-hover"
           >
             <div className="flex items-center gap-2 truncate">
               <AgentLogo profileId={agent.id} name={agent.name} />
               <span className="truncate">{agent.name}</span>
             </div>
-            <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
+            <span className="flex items-center gap-1 text-[10px] text-status-running font-medium">
+              <span className="h-1.5 w-1.5 rounded-full bg-status-running inline-block" />
               Ready
             </span>
           </li>
@@ -206,13 +206,13 @@ export function Sidebar({
   };
 
   return (
-    <aside className="w-64 flex flex-col justify-between border-r border-neutral-800/80 bg-[#0d0d0d] select-none text-xs text-neutral-300">
-      <div className="p-3 border-b border-neutral-800/60">
+    <aside className="w-64 flex flex-col justify-between border-r border-border bg-surface-1 select-none text-xs text-fg-secondary">
+      <div className="p-3 border-b border-border">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search
               size={13}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle pointer-events-none"
             />
             <input
               type="text"
@@ -220,14 +220,14 @@ export function Sidebar({
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search..."
               aria-label="Search workspaces and sessions"
-              className="w-full rounded-md bg-neutral-900/90 border border-neutral-800/80 py-1.5 pl-8 pr-3 text-xs text-neutral-200 placeholder-neutral-500 outline-none focus:border-neutral-700 focus:ring-1 focus:ring-neutral-700"
+              className="w-full rounded-md bg-surface-2 border border-border py-1.5 pl-8 pr-3 text-xs text-fg-secondary placeholder-fg-subtle focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
             />
           </div>
           <button
             type="button"
             onClick={onNewSession}
             aria-label="+ New session"
-            className="flex items-center gap-1 rounded-md bg-neutral-800/90 hover:bg-neutral-700/90 px-2.5 py-1.5 font-medium text-neutral-200 transition-colors focus:outline-none focus:ring-1 focus:ring-neutral-600"
+            className="flex items-center gap-1 rounded-md bg-surface-3 hover:bg-surface-hover px-2.5 py-1.5 font-medium text-fg-secondary transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
           >
             <Plus size={13} />
             <span>New</span>
@@ -252,14 +252,14 @@ export function Sidebar({
               aria-label="Open folder"
               title="Open a project folder"
               onClick={onOpenFolder}
-              className="rounded p-0.5 text-neutral-500 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-600"
+              className="rounded p-0.5 text-fg-subtle hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
             >
               <FolderPlus size={13} />
             </button>
           )}
         </div>
         {groups.length === 0 && pinned.length === 0 && archived.length === 0 && (
-          <p className="px-2 py-1 text-[11px] text-neutral-500">
+          <p className="px-2 py-1 text-[11px] text-fg-subtle">
             {query ? "Nothing matches your search." : "No folders yet. Open one to start."}
           </p>
         )}
@@ -294,7 +294,7 @@ export function Sidebar({
               // A search shows its matches whether the section is folded or not.
               disabled={query !== ""}
               aria-expanded={isArchiveOpen || query !== ""}
-              className="flex w-full items-center gap-1 px-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 hover:text-neutral-300"
+              className="flex w-full items-center gap-1 px-1 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle hover:text-fg-secondary"
             >
               <ChevronRight
                 size={11}
@@ -313,7 +313,7 @@ export function Sidebar({
       </div>
 
       <DetectedAgents agents={agents} />
-      {footer && <div className="border-t border-neutral-800/80 bg-[#0a0a0a]">{footer}</div>}
+      {footer && <div className="border-t border-border bg-bg">{footer}</div>}
     </aside>
   );
 }

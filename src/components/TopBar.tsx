@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   Terminal
 } from "lucide-react";
+import { IconButton } from "./ui/IconButton";
 import { PullRequestChip } from "./topbar/PullRequestChip";
 import type { PullRequestStatus } from "../hooks/usePullRequest";
 
@@ -77,36 +78,24 @@ export function TopBar({
     <header
       data-tauri-drag-region
       style={{ paddingLeft: TOP_BAR_TRAFFIC_LIGHT_INSET_PX }}
-      className="flex h-11 w-full items-center justify-between border-b border-neutral-800/80 bg-[#000000] px-3.5 text-xs select-none"
+      className="flex h-11 w-full items-center justify-between border-b border-border bg-bg px-3.5 text-xs select-none"
     >
       {/* Left: session navigation. The traffic lights above are the OS's own. */}
-      <div data-tauri-drag-region className="flex items-center space-x-0.5 text-neutral-500">
-        <button
-          type="button"
+      <div data-tauri-drag-region className="flex items-center space-x-0.5 text-fg-subtle">
+        <IconButton
+          label="Back"
           onClick={canGoBack ? onBack : undefined}
           disabled={!canGoBack}
-          className={`rounded p-1 focus:outline-none focus:ring-1 focus:ring-neutral-700 ${
-            canGoBack
-              ? "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"
-              : "text-neutral-600"
-          }`}
-          aria-label="Back"
         >
           <ChevronLeft size={15} />
-        </button>
-        <button
-          type="button"
+        </IconButton>
+        <IconButton
+          label="Forward"
           onClick={canGoForward ? onForward : undefined}
           disabled={!canGoForward}
-          className={`rounded p-1 focus:outline-none focus:ring-1 focus:ring-neutral-700 ${
-            canGoForward
-              ? "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"
-              : "text-neutral-600"
-          }`}
-          aria-label="Forward"
         >
           <ChevronRight size={15} />
-        </button>
+        </IconButton>
       </div>
 
       {/* Center: what is open, or the app name when nothing is. */}
@@ -116,11 +105,11 @@ export function TopBar({
       >
         {sessionName && (
           <>
-            <span data-tauri-drag-region className="truncate font-medium text-neutral-200">
+            <span data-tauri-drag-region className="truncate font-medium text-fg-secondary">
               {sessionName}
             </span>
             {workspaceName && (
-              <span data-tauri-drag-region className="text-neutral-600">
+              <span data-tauri-drag-region className="text-fg-subtle">
                 /
               </span>
             )}
@@ -130,7 +119,7 @@ export function TopBar({
           <span
             data-tauri-drag-region
             title={workspacePath}
-            className="rounded-md bg-neutral-900/90 border border-neutral-800 px-2 py-0.5 text-[11px] font-mono text-neutral-400 truncate"
+            className="rounded-md bg-surface-2 border border-border px-2 py-0.5 text-[11px] font-mono text-fg-muted truncate"
           >
             {workspaceName}
           </span>
@@ -139,7 +128,7 @@ export function TopBar({
           <span
             data-tauri-drag-region
             aria-label={`Branch ${branch}`}
-            className="flex shrink-0 items-center gap-1 text-[11px] font-mono text-neutral-500"
+            className="flex shrink-0 items-center gap-1 text-[11px] font-mono text-fg-subtle"
           >
             <GitBranch size={11} aria-hidden="true" />
             <span className="max-w-[140px] truncate">{branch}</span>
@@ -149,30 +138,30 @@ export function TopBar({
           <PullRequestChip pullRequest={pullRequest} onOpen={onOpenPullRequest} />
         )}
         {!sessionName && !workspaceName && (
-          <span data-tauri-drag-region className="font-medium text-neutral-400">
+          <span data-tauri-drag-region className="font-medium text-fg-muted">
             Zorvo
           </span>
         )}
       </div>
 
       {/* Right: Actions (Terminal toggle, popout, folder, overflow) */}
-      <div className="flex items-center space-x-1 text-neutral-400">
+      <div className="flex items-center space-x-1 text-fg-muted">
         {onToggleTerminal && (
           <button
             type="button"
             onClick={onToggleTerminal}
             aria-label="Toggle terminal drawer"
             aria-pressed={isTerminalOpen}
-            className={`flex items-center rounded-md p-1.5 transition-all focus:outline-none focus:ring-1 focus:ring-neutral-700 ${
+            className={`flex items-center rounded-md p-1.5 transition-all focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring ${
               isTerminalOpen
-                ? "bg-amber-500/15 border border-amber-500/40 text-amber-300"
-                : "bg-neutral-900 border border-neutral-800/80 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100"
+                ? "bg-attention-surface border border-attention-border text-status-attention"
+                : "bg-surface-2 border border-border text-fg-secondary hover:bg-surface-hover hover:text-fg"
             }`}
           >
             <Terminal
               size={14}
               aria-hidden="true"
-              className={isTerminalOpen ? "text-amber-400" : "text-neutral-400"}
+              className={isTerminalOpen ? "text-status-attention" : "text-fg-muted"}
             />
           </button>
         )}
@@ -181,51 +170,45 @@ export function TopBar({
           <button
             type="button"
             onClick={onToggleChanges}
-            className="flex items-center gap-1 rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            className="flex items-center gap-1 rounded-md p-1.5 text-fg-muted hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
             aria-label="Toggle changes panel"
             aria-pressed={isChangesOpen}
             title="Changes"
           >
-            <GitCompare size={14} className={isChangesOpen ? "text-amber-400" : undefined} />
+            <GitCompare size={14} className={isChangesOpen ? "text-status-attention" : undefined} />
             {changeCount !== undefined && changeCount > 0 && (
-              <span className="rounded bg-neutral-800 px-1 text-[10px] leading-4 text-neutral-300">{changeCount}</span>
+              <span className="rounded bg-surface-hover px-1 text-[10px] leading-4 text-fg-secondary">{changeCount}</span>
             )}
           </button>
         )}
 
         {onToggleFiles && (
-          <button
-            type="button"
+          <IconButton
+            label="Toggle files panel"
             onClick={onToggleFiles}
-            className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-            aria-label="Toggle files panel"
             aria-pressed={isFilesOpen}
             title="Files"
           >
-            <Folder size={14} className={isFilesOpen ? "text-amber-400" : undefined} />
-          </button>
+            <Folder size={14} className={isFilesOpen ? "text-status-attention" : undefined} />
+          </IconButton>
         )}
 
         {onPopout && (
-          <button
-            type="button"
+          <IconButton
+            label="Popout window"
             onClick={onPopout}
-            className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-            aria-label="Popout window"
           >
             <ExternalLink size={14} />
-          </button>
+          </IconButton>
         )}
 
         {onOpenSettings && (
-          <button
-            type="button"
+          <IconButton
+            label="More options"
             onClick={onOpenSettings}
-            className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
-            aria-label="More options"
           >
             <MoreHorizontal size={15} />
-          </button>
+          </IconButton>
         )}
       </div>
     </header>

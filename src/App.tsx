@@ -523,7 +523,7 @@ export default function App() {
   }
 
   return (
-    <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
+    <main className="flex h-screen w-screen flex-col bg-bg text-fg-secondary">
       <TopBar
         sessionName={activeSession?.name}
         workspaceName={activeSession ? folderNameOf(workspacePathOf(activeSession)) : activeWorkspace?.name}
@@ -573,7 +573,7 @@ export default function App() {
           }
         />
 
-        <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
+        <article className="flex-1 flex flex-col bg-bg relative overflow-hidden">
           {isDraggingFiles && <FileDropOverlay />}
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
           {authRequest && (
@@ -602,7 +602,7 @@ export default function App() {
               onForkBranch={(messageId) => void forkSession(messageId)}
               onRewind={isAcp(activeSession) ? (messageId) => void rewind(activeSession, messageId) : undefined}
               header={
-                <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 px-4 py-3">
+                <div className="rounded-xl border border-border bg-surface-1 px-4 py-3">
                   <WorkspaceSummary
                     name={folderNameOf(workspacePathOf(activeSession))}
                     path={shownFolderPath ?? activeSession.cwd}

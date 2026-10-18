@@ -82,14 +82,14 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
   const isAcp = isAcpSession(session);
 
   return (
-    <main className="flex h-screen w-screen flex-col bg-[#0a0a0a] text-neutral-200">
+    <main className="flex h-screen w-screen flex-col bg-bg text-fg-secondary">
       <TopBar
         sessionName={session?.name}
         workspaceName={session ? folderNameOf(session.cwd) : undefined}
         isTerminalOpen={isTerminalOpen}
         onToggleTerminal={() => setIsTerminalOpen((prev) => !prev)}
       />
-      <article className="flex-1 flex flex-col bg-[#000000] relative overflow-hidden">
+      <article className="flex-1 flex flex-col bg-bg relative overflow-hidden">
         {messages.length > 0 ? (
           <ChatCanvas
             messages={messages}
@@ -101,7 +101,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
             isWorking={status.isBusy && !status.isWaiting}
           />
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-neutral-500">
+          <div className="flex-1 flex items-center justify-center text-sm text-fg-subtle">
             {session ? "No messages yet." : "Connecting to the main window…"}
           </div>
         )}

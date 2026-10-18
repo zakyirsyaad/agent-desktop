@@ -2,10 +2,10 @@ import { Check, Circle, GitPullRequest, X } from "lucide-react";
 import type { PullRequestStatus } from "../../hooks/usePullRequest";
 
 const STATE_STYLE: Record<string, string> = {
-  open: "text-emerald-400",
-  draft: "text-neutral-400",
-  merged: "text-purple-400",
-  closed: "text-rose-400",
+  open: "text-status-running",
+  draft: "text-fg-muted",
+  merged: "text-status-merged",
+  closed: "text-danger",
 };
 
 /** How the checks stand, in a word: failing beats running beats passing. */
@@ -26,13 +26,13 @@ export function PullRequestChip({ pullRequest, onOpen }: { pullRequest: PullRequ
       onClick={() => onOpen(pullRequest.url)}
       aria-label={label}
       title={`${pullRequest.title}\n${label}`}
-      className="flex shrink-0 items-center gap-1 rounded px-1 text-[11px] font-mono text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+      className="flex shrink-0 items-center gap-1 rounded px-1 text-[11px] font-mono text-fg-muted hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
     >
-      <GitPullRequest size={11} aria-hidden="true" className={STATE_STYLE[state] ?? "text-neutral-400"} />
+      <GitPullRequest size={11} aria-hidden="true" className={STATE_STYLE[state] ?? "text-fg-muted"} />
       <span>#{pullRequest.number}</span>
-      {checks === "passing" && <Check size={11} aria-hidden="true" className="text-emerald-400" />}
-      {checks === "failing" && <X size={11} aria-hidden="true" className="text-rose-400" />}
-      {checks === "running" && <Circle size={8} aria-hidden="true" className="fill-amber-400 text-amber-400" />}
+      {checks === "passing" && <Check size={11} aria-hidden="true" className="text-status-running" />}
+      {checks === "failing" && <X size={11} aria-hidden="true" className="text-danger" />}
+      {checks === "running" && <Circle size={8} aria-hidden="true" className="fill-status-attention text-status-attention" />}
     </button>
   );
 }

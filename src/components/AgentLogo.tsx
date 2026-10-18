@@ -23,7 +23,7 @@ export function AgentLogo({ profileId, name, size = 13, className = "" }: AgentL
   const logo = LOGOS[profileId];
   if (!logo) {
     const label = name ? { role: "img", "aria-label": name } : { "aria-hidden": true };
-    return <Bot size={size} {...label} className={`shrink-0 text-neutral-400 ${className}`} />;
+    return <Bot size={size} {...label} className={`shrink-0 text-fg-muted ${className}`} />;
   }
   return <img src={logo} alt={name} width={size} height={size} className={`shrink-0 rounded-[3px] ${className}`} />;
 }

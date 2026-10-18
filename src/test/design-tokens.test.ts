@@ -42,9 +42,7 @@ function findViolations(): Violation[] {
 
 // Files not yet migrated to the design system tokens. Each migration task removes its files.
 const PENDING: ReadonlySet<string> = new Set<string>([
-  "src/App.tsx",
   "src/components/ActionCard.tsx",
-  "src/components/AgentLogo.tsx",
   "src/components/AppPlaceholders.tsx",
   "src/components/AuthPanel.tsx",
   "src/components/ChatCanvas.tsx",
@@ -53,13 +51,9 @@ const PENDING: ReadonlySet<string> = new Set<string>([
   "src/components/MarkdownRenderer.tsx",
   "src/components/MessageActionBar.tsx",
   "src/components/Onboarding.tsx",
-  "src/components/PopoutApp.tsx",
-  "src/components/ProfileFooter.tsx",
   "src/components/SettingsPanel.tsx",
-  "src/components/Sidebar.tsx",
   "src/components/TerminalDrawer.tsx",
   "src/components/TerminalView.tsx",
-  "src/components/TopBar.tsx",
   "src/components/changes/ChangesPanel.tsx",
   "src/components/changes/FileDiff.tsx",
   "src/components/changes/PullRequestList.tsx",
@@ -77,9 +71,6 @@ const PENDING: ReadonlySet<string> = new Set<string>([
   "src/components/onboarding/CopyButton.tsx",
   "src/components/onboarding/DefaultAgentStep.tsx",
   "src/components/onboarding/FolderStep.tsx",
-  "src/components/sidebar/NewSessionMenu.tsx",
-  "src/components/sidebar/SessionList.tsx",
-  "src/components/topbar/PullRequestChip.tsx",
   "src/components/workspace/NewSessionView.tsx",
   "src/components/workspace/WorkspaceSummary.tsx",
 ]);
