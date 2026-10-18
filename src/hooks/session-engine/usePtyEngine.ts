@@ -11,6 +11,13 @@ import type { ActionCard, AgentProfile, ChatMessage, Session, SpawnOptions } fro
 
 /** Ctrl+C: what a terminal agent reads as "stop what you are doing". */
 const INTERRUPT_KEY = '\x03';
+/** Enter, as a terminal sends it: a TUI takes "\n" as a new line in its prompt. */
+const ENTER_KEY = '\r';
+/**
+ * The pause between a message and its Enter. A TUI reads text and Enter that
+ * arrive in one read as a paste and keeps the Enter inside its prompt.
+ */
+const SUBMIT_DELAY_MS = 50;
 
 import type { PtyOutputStore } from '../../lib/pty-output-store';
 
@@ -36,6 +43,9 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
   // Deleted sessions: their last output must not write a transcript back.
   const forgottenRef = useRef(new Set<string>());
   const resizeReportedRef = useRef(new Set<string>());
+  // Sessions whose process exists; a resize before that waits for it, latest size only.
+  const spawnedRef = useRef(new Set<string>());
+  const pendingSizeRef = useRef(new Map<string, { cols: number; rows: number }>());
   const activity = useAgentActivity();
 
   const sendRaw = useCallback(
@@ -51,10 +61,12 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
     [reportError],
   );
 
-  /** Resolves to whether the agent took the message. */
+  /** Resolves to whether the agent took the message: typed, then submitted with Enter. */
   const send = useCallback(
     async (sessionId: string, text: string): Promise<boolean> => {
-      if (!(await sendRaw(sessionId, `${text}\n`))) return false;
+      if (!(await sendRaw(sessionId, text))) return false;
+      await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS));
+      if (!(await sendRaw(sessionId, ENTER_KEY))) return false;
       updateMessages(sessionId, (prev) => [...prev, userMessage(text)]);
       return true;
     },
@@ -93,7 +105,13 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
   /** Asks the backend to start the agent for an already recorded session. */
   const start = (session: Session, options: SpawnOptions, firstPrompt?: string) => {
     if (firstPrompt) firstPrompts.queue(session.id, firstPrompt);
-    invoke('spawn_session', { sessionId: session.id, cwd: session.cwd, profileId: session.profileId, options }).catch(
+    invoke('spawn_session', { sessionId: session.id, cwd: session.cwd, profileId: session.profileId, options }).then(
+      () => {
+        spawnedRef.current.add(session.id);
+        const size = pendingSizeRef.current.get(session.id);
+        pendingSizeRef.current.delete(session.id);
+        if (size) resize(session.id, size.cols, size.rows);
+      },
       (error) => {
         // The PTY never came up, so the session cannot stay "running".
         firstPrompts.cancel(session.id);
@@ -124,6 +142,10 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
 
   /** Tells the agent its terminal's size, so its TUI lays out for the view. */
   const resize = (sessionId: string, cols: number, rows: number) => {
+    if (!spawnedRef.current.has(sessionId)) {
+      pendingSizeRef.current.set(sessionId, { cols, rows });
+      return;
+    }
     invoke('resize_session', { sessionId, cols, rows }).catch((error) => {
       // A view resizes on every layout change; one notice per session is enough.
       if (resizeReportedRef.current.has(sessionId)) return;
@@ -136,6 +158,8 @@ export function usePtyEngine({ sessions, agents, updateMessages, patchSession, r
   const forget = (sessionId: string) => {
     forgottenRef.current.add(sessionId);
     parsersRef.current.delete(sessionId);
+    spawnedRef.current.delete(sessionId);
+    pendingSizeRef.current.delete(sessionId);
     output.forget(sessionId);
     firstPrompts.cancel(sessionId);
   };

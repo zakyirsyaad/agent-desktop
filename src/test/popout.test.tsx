@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, act, fireEvent } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import type { FakeTauriStore } from "./setup";
 
 type Listener = (event: { payload: unknown }) => void;
@@ -99,7 +99,8 @@ describe("Popout windows", () => {
     expect(snapshot.sessionId).toBe("s-1");
 
     await deliver("popout-action", { sessionId: "s-1", action: { kind: "send", text: "hello" } });
-    expect(spy).toHaveBeenCalledWith("send_input", { sessionId: "s-1", data: "hello\n" }, undefined);
+    expect(spy).toHaveBeenCalledWith("send_input", { sessionId: "s-1", data: "hello" }, undefined);
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("send_input", { sessionId: "s-1", data: "\r" }, undefined));
   });
 
   it("forwards the option picked on an agent's permission request", async () => {
