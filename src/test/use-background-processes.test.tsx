@@ -26,6 +26,19 @@ describe("useBackgroundProcesses", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it("asks for listening ports only while the menu is open", async () => {
+    const spy = stub(() => Promise.resolve([PROC]));
+    const { rerender } = renderHook(({ isOpen }) => useBackgroundProcesses(true, isOpen), {
+      initialProps: { isOpen: false },
+    });
+    await advance(0);
+    expect(spy).toHaveBeenLastCalledWith("background_processes", { withPorts: false }, undefined);
+
+    rerender({ isOpen: true });
+    await advance(0);
+    expect(spy).toHaveBeenLastCalledWith("background_processes", { withPorts: true }, undefined);
+  });
+
   it("polls immediately, then every 5s", async () => {
     const spy = stub(() => Promise.resolve([PROC]));
     const { result } = renderHook(() => useBackgroundProcesses(true, false));

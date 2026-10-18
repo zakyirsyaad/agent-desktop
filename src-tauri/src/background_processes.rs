@@ -369,11 +369,17 @@ fn listening_ports(pids: &[u32]) -> HashMap<u32, Vec<u16>> {
         .unwrap_or_default()
 }
 
-/// The tasks running under `roots` (session id, agent pid), with their ports.
-pub fn scan(roots: &[(String, u32)]) -> Result<Vec<BackgroundProcess>, String> {
+/// The tasks running under `roots` (session id, agent pid), with the ports
+/// they listen on when `with_ports` (lsof is the slow part of a scan, and
+/// only the open menu shows ports).
+pub fn scan(roots: &[(String, u32)], with_ports: bool) -> Result<Vec<BackgroundProcess>, String> {
     let tasks = select_tasks(&read_processes()?, roots);
-    let pids: Vec<u32> = tasks.iter().flat_map(|task| task.subtree.clone()).collect();
-    let ports = listening_ports(&pids);
+    let ports = if with_ports {
+        let pids: Vec<u32> = tasks.iter().flat_map(|task| task.subtree.clone()).collect();
+        listening_ports(&pids)
+    } else {
+        HashMap::new()
+    };
     Ok(tasks
         .into_iter()
         .map(|task| {
@@ -474,13 +480,15 @@ fn session_roots(pty: &PtySessionManager, acp: &AcpManager) -> Vec<(String, u32)
     pty.root_pids().into_iter().chain(acp.root_pids()).collect()
 }
 
-/// The shell commands agents started that are still running.
+/// The shell commands agents started that are still running, with their
+/// listening ports unless `with_ports` is false.
 #[tauri::command(async)]
 pub fn background_processes(
     pty: State<'_, PtySessionManager>,
     acp: State<'_, AcpManager>,
+    with_ports: Option<bool>,
 ) -> Result<Vec<BackgroundProcess>, String> {
-    scan(&session_roots(&pty, &acp))
+    scan(&session_roots(&pty, &acp), with_ports.unwrap_or(true))
 }
 
 /// Stops one of the tasks `background_processes` lists.

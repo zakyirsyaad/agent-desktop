@@ -254,7 +254,7 @@ fn stops_a_running_task_and_everything_it_started() {
 
     let mut task = None;
     let found = eventually(Duration::from_secs(5), || {
-        task = scan(&roots).expect("scan").into_iter().next();
+        task = scan(&roots, false).expect("scan").into_iter().next();
         task.is_some()
     });
     assert!(found, "the inner shell never showed up as a task");
@@ -360,11 +360,14 @@ fn reports_the_port_a_task_listens_on() {
     let roots = [("s1".to_string(), guard.0.id())];
 
     let listening = eventually(Duration::from_secs(10), || {
-        scan(&roots)
+        scan(&roots, true)
             .expect("scan")
             .iter()
             .any(|task| !task.ports.is_empty())
     });
+    let without_ports = scan(&roots, false).expect("scan");
 
     assert!(listening, "the server's port never showed up");
+    assert!(!without_ports.is_empty());
+    assert!(without_ports.iter().all(|task| task.ports.is_empty()));
 }

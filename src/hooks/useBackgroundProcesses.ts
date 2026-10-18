@@ -35,7 +35,8 @@ export function useBackgroundProcesses(
       latestReadRef.current += 1;
       const readId = latestReadRef.current;
       isReading = true;
-      invoke<BackgroundProcess[]>('background_processes')
+      // Ports are only shown in the open menu, and finding them is the slow part.
+      invoke<BackgroundProcess[]>('background_processes', { withPorts: isMenuOpen })
         .then((list) => {
           if (isCancelled || readId !== latestReadRef.current) return;
           if (!Array.isArray(list)) throw new Error('expected a list of processes');
