@@ -31,7 +31,7 @@ function setup(overrides: Partial<BackgroundTasksMenuProps> = {}) {
     isOpen: true,
     onOpenChange: vi.fn(),
     onOpenTask: vi.fn(),
-    onStopTask: vi.fn().mockResolvedValue(undefined),
+    onStopTask: vi.fn().mockResolvedValue(true),
     ...overrides,
   };
   const view = render(<BackgroundTasksMenu {...props} />);
@@ -110,6 +110,16 @@ describe("BackgroundTasksMenu", () => {
 
     rerender(<BackgroundTasksMenu {...props} tasks={[devServer, agent]} />);
     expect(screen.getByRole("button", { name: "Stop npm run dev" }).textContent).not.toContain("Stopping…");
+  });
+
+  it("enables Stop again when the stop fails", async () => {
+    setup({ onStopTask: vi.fn().mockResolvedValue(false) });
+    fireEvent.click(screen.getByRole("button", { name: "Stop npm run dev" }));
+    await act(async () => {});
+    const button = screen.getByRole("button", { name: "Stop npm run dev" }) as HTMLButtonElement;
+    expect(button.textContent).toContain("Stop");
+    expect(button.textContent).not.toContain("Stopping…");
+    expect(button.disabled).toBe(false);
   });
 
   it("says nothing is running when empty", () => {

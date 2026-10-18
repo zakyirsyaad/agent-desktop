@@ -9,7 +9,7 @@ export interface BackgroundTasksMenuProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenTask: (task: BackgroundTask) => void;
-  onStopTask: (task: BackgroundTask) => Promise<void>;
+  onStopTask: (task: BackgroundTask) => Promise<boolean>;
 }
 
 const TICK_MS = 1000;
@@ -59,7 +59,14 @@ export function BackgroundTasksMenu({ tasks, isOpen, onOpenChange, onOpenTask, o
 
   const stop = (task: BackgroundTask) => {
     setStoppingIds((current) => new Set(current).add(task.id));
-    void onStopTask(task);
+    void onStopTask(task).then((isStopped) => {
+      if (isStopped) return;
+      setStoppingIds((current) => {
+        const next = new Set(current);
+        next.delete(task.id);
+        return next;
+      });
+    });
   };
 
   const count = tasks.length;

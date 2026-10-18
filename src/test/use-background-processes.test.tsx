@@ -105,6 +105,18 @@ describe("useBackgroundProcesses", () => {
     expect(result.current.processes).toEqual([B]);
   });
 
+  it("treats a non-list result as a failed poll", async () => {
+    let bad = false;
+    stub(() => Promise.resolve(bad ? undefined : [PROC]));
+    const onError = vi.fn();
+    const { result } = renderHook(() => useBackgroundProcesses(true, false, onError));
+    await advance(0);
+    bad = true;
+    await advance(5_000);
+    expect(result.current.processes).toEqual([PROC]);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the failure report once across effect restarts", async () => {
     let fail = true;
     stub(() => (fail ? Promise.reject(new Error("x")) : Promise.resolve([])));

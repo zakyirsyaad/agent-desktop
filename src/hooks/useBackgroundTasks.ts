@@ -31,7 +31,8 @@ export interface BackgroundTasks {
   isMenuOpen: boolean;
   setMenuOpen: (open: boolean) => void;
   open: (task: BackgroundTask) => void;
-  stop: (task: BackgroundTask) => Promise<void>;
+  /** True when the backend call succeeded; false after reporting the failure through `onError`. */
+  stop: (task: BackgroundTask) => Promise<boolean>;
 }
 
 export function useBackgroundTasks(args: BackgroundTasksArgs): BackgroundTasks {
@@ -48,13 +49,16 @@ export function useBackgroundTasks(args: BackgroundTasksArgs): BackgroundTasks {
   const open = useCallback((task: BackgroundTask) => onOpenSession(task.sessionId), [onOpenSession]);
 
   const stop = useCallback(
-    async (task: BackgroundTask) => {
+    async (task: BackgroundTask): Promise<boolean> => {
+      let isStopped = true;
       try {
         await stopCall(task);
       } catch (error) {
+        isStopped = false;
         onError(`Could not stop ${task.name}: ${String(error)}`);
       }
       reload();
+      return isStopped;
     },
     [onError, reload],
   );

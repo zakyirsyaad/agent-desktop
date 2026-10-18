@@ -89,6 +89,7 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
     case "plugin:app|version":
       return Promise.resolve("0.1.0");
     case "list_directory":
+    case "background_processes":
       return Promise.resolve([]);
     case "open_path":
     case "remember_workspace":

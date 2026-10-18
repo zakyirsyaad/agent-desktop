@@ -34,8 +34,9 @@ export function useBackgroundProcesses(
       invoke<BackgroundProcess[]>('background_processes')
         .then((list) => {
           if (isCancelled || readId !== latestReadRef.current) return;
+          if (!Array.isArray(list)) throw new Error('expected a list of processes');
           hasReportedFailureRef.current = false;
-          setRead({ processes: Array.isArray(list) ? list : [], readAt: Date.now() });
+          setRead({ processes: list, readAt: Date.now() });
         })
         .catch((error) => {
           if (isCancelled || readId !== latestReadRef.current || hasReportedFailureRef.current) return;

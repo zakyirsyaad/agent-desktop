@@ -42,9 +42,11 @@ describe("useBackgroundTasks", () => {
     const spy = vi.spyOn(internals(), "invoke").mockResolvedValue([]);
     const { result } = setup([SESSION]);
     await advance(0);
-    await act(async () => { await result.current.stop(task({ kind: "agent" })); });
+    const results: boolean[] = [];
+    await act(async () => { results.push(await result.current.stop(task({ kind: "agent" }))); });
     await act(async () => { await result.current.stop(task({ kind: "terminal" })); });
     await act(async () => { await result.current.stop(task({ kind: "process", pid: 7 })); });
+    expect(results).toEqual([true]);
     expect(spy).toHaveBeenCalledWith("acp_cancel", { sessionId: "s1" }, undefined);
     expect(spy).toHaveBeenCalledWith("terminate_session", { sessionId: "s1" }, undefined);
     expect(spy).toHaveBeenCalledWith("stop_background_process", { pid: 7 }, undefined);
@@ -55,7 +57,9 @@ describe("useBackgroundTasks", () => {
       cmd === "terminate_session" ? Promise.reject("boom") : Promise.resolve([]),
     );
     const { result, onError } = setup([SESSION]);
-    await act(async () => { await result.current.stop(task({ kind: "terminal", name: "Alpha" })); });
+    let isStopped: boolean | undefined;
+    await act(async () => { isStopped = await result.current.stop(task({ kind: "terminal", name: "Alpha" })); });
+    expect(isStopped).toBe(false);
     expect(onError).toHaveBeenCalledWith("Could not stop Alpha: boom");
   });
 

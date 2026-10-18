@@ -239,7 +239,7 @@ describe("TopBar", () => {
       isOpen: false,
       onOpenChange: () => {},
       onOpenTask: () => {},
-      onStopTask: async () => {},
+      onStopTask: async () => true,
     };
 
     it("renders the background tasks menu only when given", () => {
