@@ -24,10 +24,11 @@ use crate::pty_session::PtySessionManager;
 const SHELLS: [&str; 5] = ["sh", "bash", "zsh", "dash", "fish"];
 /// The longest command shown, in characters, the ellipsis included.
 const MAX_COMMAND_CHARS: usize = 300;
-/// A shell the agent started within this many seconds of its own start
-/// launched the agent's own program (`sh -c claude …`): it is looked through,
-/// not listed. `ps` counts whole seconds, so this is "the same second or the next".
-const LAUNCHER_START_SECS: u64 = 1;
+/// A shell under the agent that started within this many seconds of the
+/// agent itself launched the agent's own program (`sh -c claude …`, maybe
+/// through `npm exec`): it is looked through, not listed. Nothing the agent is
+/// asked to run starts that soon, as it waits for a prompt and the model first.
+const LAUNCHER_START_SECS: u64 = 3;
 /// How long a task has to end after `TERM` before it is sent `KILL`.
 const KILL_GRACE: Duration = Duration::from_secs(2);
 /// Where a shell snapshot's wrapper continues after the command it runs.
@@ -156,13 +157,12 @@ pub fn select_tasks(rows: &[ProcessRow], roots: &[(String, u32)]) -> Vec<TaskPro
     tasks
 }
 
-/// Whether `row`, a child of the root, is the shell that launched the agent's
-/// own program: started together with the root (`root_elapsed`).
-fn is_launcher(row: &ProcessRow, root: u32, root_elapsed: Option<u64>) -> bool {
-    row.ppid == root
-        && root_elapsed.is_some_and(|root_elapsed| {
-            root_elapsed.saturating_sub(row.elapsed_secs) <= LAUNCHER_START_SECS
-        })
+/// Whether `row`, a shell under the root, launched the agent's own program:
+/// it started together with the root, whose age is `root_elapsed`.
+fn is_launcher(row: &ProcessRow, root_elapsed: Option<u64>) -> bool {
+    root_elapsed.is_some_and(|root_elapsed| {
+        root_elapsed.saturating_sub(row.elapsed_secs) <= LAUNCHER_START_SECS
+    })
 }
 
 /// The shells under `root` with no other shell between them and it, a shell
@@ -185,7 +185,7 @@ fn shells_below<'a>(
         if !visited.insert(row.pid) {
             continue;
         }
-        if is_shell(&row.command) && !is_launcher(row, root, root_elapsed) {
+        if is_shell(&row.command) && !is_launcher(row, root_elapsed) {
             found.push(row);
         } else if let Some(list) = children.get(&row.pid) {
             stack.extend(list.iter().rev().copied());

@@ -113,6 +113,38 @@ fn looks_through_a_shell_that_launched_the_agent_itself() {
 }
 
 #[test]
+fn looks_through_a_launcher_shell_deeper_down_and_a_little_later() {
+    // adapter -> npm exec -> sh -c cli: npm takes a moment to start the shell.
+    let rows = vec![
+        ProcessRow {
+            elapsed_secs: 600,
+            ..row(10, 1, "node adapter.js --acp")
+        },
+        ProcessRow {
+            elapsed_secs: 599,
+            ..row(11, 10, "npm exec @acme/agent-cli")
+        },
+        ProcessRow {
+            elapsed_secs: 598,
+            ..row(12, 11, "sh -c agent-cli --acp")
+        },
+        ProcessRow {
+            elapsed_secs: 598,
+            ..row(13, 12, "node agent-cli --acp")
+        },
+        ProcessRow {
+            elapsed_secs: 30,
+            ..row(14, 13, "/bin/zsh -c npm run dev")
+        },
+    ];
+
+    let tasks = select_tasks(&rows, &[("s1".to_string(), 10)]);
+
+    let pids: Vec<u32> = tasks.iter().map(|t| t.pid).collect();
+    assert_eq!(pids, vec![14]);
+}
+
+#[test]
 fn never_lists_a_process_outside_every_root() {
     let tasks = select_tasks(&tree(), &[("s1".to_string(), 10)]);
     assert!(tasks.iter().all(|t| t.pid != 40));
@@ -245,7 +277,7 @@ impl Drop for TreeGuard {
 #[test]
 fn stops_a_running_task_and_everything_it_started() {
     let root = Command::new("/bin/sh")
-        .args(["-c", "sleep 2; /bin/sh -c 'sleep 30; :' & wait"])
+        .args(["-c", "sleep 4; /bin/sh -c 'sleep 30; :' & wait"])
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn the root");
@@ -350,7 +382,7 @@ fn reports_the_port_a_task_listens_on() {
     let root = Command::new("/bin/sh")
         .args([
             "-c",
-            "sleep 2; /bin/sh -c 'python3 -m http.server 0 --bind 127.0.0.1; :' & wait",
+            "sleep 4; /bin/sh -c 'python3 -m http.server 0 --bind 127.0.0.1; :' & wait",
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
