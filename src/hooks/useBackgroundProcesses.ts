@@ -35,7 +35,7 @@ export function useBackgroundProcesses(
         .then((list) => {
           if (isCancelled || readId !== latestReadRef.current) return;
           hasReportedFailureRef.current = false;
-          setRead({ processes: list, readAt: Date.now() });
+          setRead({ processes: Array.isArray(list) ? list : [], readAt: Date.now() });
         })
         .catch((error) => {
           if (isCancelled || readId !== latestReadRef.current || hasReportedFailureRef.current) return;

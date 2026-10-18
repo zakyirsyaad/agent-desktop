@@ -232,4 +232,23 @@ describe("TopBar", () => {
       expect(toggle.querySelectorAll("svg")).toHaveLength(1);
     });
   });
+
+  describe("background tasks", () => {
+    const backgroundTasks = {
+      tasks: [],
+      isOpen: false,
+      onOpenChange: () => {},
+      onOpenTask: () => {},
+      onStopTask: async () => {},
+    };
+
+    it("renders the background tasks menu only when given", () => {
+      const { unmount } = renderTopBar();
+      expect(screen.queryByRole("button", { name: /Background tasks/ })).toBeNull();
+      unmount();
+
+      renderTopBar({ backgroundTasks });
+      expect(screen.getByRole("button", { name: "Background tasks" })).toBeTruthy();
+    });
+  });
 });

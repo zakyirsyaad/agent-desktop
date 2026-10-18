@@ -41,6 +41,7 @@ import {
 } from "./lib/session-helpers";
 import { useAppearance } from "./hooks/useAppearance";
 import { usePersistedState } from "./hooks/usePersistedState";
+import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useTranscripts } from "./hooks/useTranscripts";
 import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
 import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
@@ -373,6 +374,16 @@ export default function App() {
     if (workspacePath && workspaces.some((ws) => ws.path === workspacePath)) selectWorkspace(workspacePath);
   };
 
+  const backgroundTasks = useBackgroundTasks({
+    sessions,
+    isAcp,
+    isBusy: acp.isBusy,
+    busySince: acp.busySinceOf,
+    needsApproval: (id) => isAwaitingPermission(transcripts[id] ?? []),
+    onOpenSession: handleSelectSession,
+    onError: reportError,
+  });
+
   const navigateTo = (sessionId: string | null) => {
     if (sessionId) handleSelectSession(sessionId);
   };
@@ -554,6 +565,13 @@ export default function App() {
         onOpenDiff={() => sidePanel.show("diff")}
         onPopout={activeSession ? handlePopout : undefined}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        backgroundTasks={{
+          tasks: backgroundTasks.tasks,
+          isOpen: backgroundTasks.isMenuOpen,
+          onOpenChange: backgroundTasks.setMenuOpen,
+          onOpenTask: backgroundTasks.open,
+          onStopTask: backgroundTasks.stop,
+        }}
       />
 
       <section className="flex flex-1 overflow-hidden">

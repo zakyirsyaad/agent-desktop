@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { IconButton } from "./ui/IconButton";
 import { DiffStatChip } from "./changes/DiffStatChip";
+import { BackgroundTasksMenu, type BackgroundTasksMenuProps } from "./topbar/BackgroundTasksMenu";
 import { PullRequestChip } from "./topbar/PullRequestChip";
 import type { PullRequestStatus } from "../hooks/usePullRequest";
 
@@ -54,6 +55,8 @@ export interface TopBarProps {
   /** Opens the diff view; the chip opens it. */
   onOpenDiff?: () => void;
   onOpenSettings?: () => void;
+  /** What is running in the background; the menu is hidden when absent. */
+  backgroundTasks?: BackgroundTasksMenuProps;
 }
 
 export function TopBar({
@@ -77,6 +80,7 @@ export function TopBar({
   diffStats,
   onOpenDiff,
   onOpenSettings,
+  backgroundTasks,
 }: TopBarProps) {
   return (
     <header
@@ -150,6 +154,8 @@ export function TopBar({
 
       {/* Right: Actions (Terminal toggle, popout, folder, overflow) */}
       <div className="flex items-center space-x-1 text-fg-muted">
+        {backgroundTasks && <BackgroundTasksMenu {...backgroundTasks} />}
+
         {onToggleTerminal && (
           <button
             type="button"
