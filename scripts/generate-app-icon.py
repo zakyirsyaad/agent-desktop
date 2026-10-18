@@ -11,12 +11,11 @@ docs/brand/zorvo-brand-brief.md. The default run then calls
 with the small variant: icon.ico (Pillow), icon.icns (macOS iconutil) and
 the small PNGs.
 
-Needs Pillow 9.1 or later (pip install "pillow>=9.1"), pnpm and, for
-icon.icns, macOS iconutil.
+Needs Python 3.9 or later (the macOS system python3 works), Pillow 9.1 or
+later (pip install "pillow>=9.1"), pnpm and, for icon.icns, macOS iconutil.
 """
 
 import argparse
-import itertools
 import math
 import re
 import shutil
@@ -65,14 +64,10 @@ ICONSET_FROM_TAURI = {
     "icon_512x512@2x.png": "ic10",
 }
 ICNS_HEADER = 8  # b"icns" + total length; each chunk has the same layout
-# PNGs under 32px that `tauri icon` writes, relative to the icons dir.
-SMALL_PNGS = (
-    "Square30x30Logo.png",
-    "ios/AppIcon-20x20@1x.png",
-    "ios/AppIcon-29x29@1x.png",
-)
 
 SVG_NS = "{http://www.w3.org/2000/svg}"
+# Elements load_symbol understands; anything else (a <g>, a <circle>) is refused.
+SVG_TAGS = {f"{SVG_NS}{tag}" for tag in ("svg", "path", "title", "desc")}
 PATH_TOKEN = re.compile(r"[A-Za-z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 
 Point = tuple[float, float]
@@ -126,10 +121,29 @@ def parse_path(d: str) -> list[tuple[Point, ...]]:
 
 
 def load_symbol(svg: Path) -> Symbol:
+    """Read a flat SVG: <path>s under the root, one stroke width, no transforms."""
     root = ET.parse(svg).getroot()
-    vx, vy, vw, vh = (float(v) for v in root.attrib["viewBox"].split())
-    paths = [p for el in root.iter(f"{SVG_NS}path") for p in parse_path(el.attrib["d"])]
-    return Symbol((vx, vy, vw, vh), float(root.attrib["stroke-width"]), tuple(paths))
+    for el in root.iter():
+        if el.tag not in SVG_TAGS:
+            raise ValueError(f"{svg}: unsupported element {el.tag}")
+        if "transform" in el.attrib:
+            raise ValueError(f"{svg}: transforms are not supported")
+    if "viewBox" not in root.attrib:
+        raise ValueError(f"{svg}: no viewBox")
+    vx, vy, vw, vh = (
+        float(v) for v in re.split(r"[\s,]+", root.attrib["viewBox"].strip())
+    )
+    strokes = set()
+    paths: list[tuple[Point, ...]] = []
+    for el in root.iter(f"{SVG_NS}path"):
+        stroke = el.get("stroke-width", root.get("stroke-width"))
+        if stroke is None:
+            raise ValueError(f"{svg}: a path has no stroke-width")
+        strokes.add(float(stroke))
+        paths.extend(parse_path(el.attrib["d"]))
+    if len(strokes) != 1:
+        raise ValueError(f"{svg}: expected one stroke width, found {sorted(strokes)}")
+    return Symbol((vx, vy, vw, vh), strokes.pop(), tuple(paths))
 
 
 def squircle(size: float, exp: float, steps: int = 2048) -> list[Point]:
@@ -151,7 +165,8 @@ def stroke_polyline(
     fill: tuple[int, int, int, int],
 ) -> None:
     r = width / 2
-    for a, b in itertools.pairwise(pts):
+    # Not itertools.pairwise: it needs Python 3.10, macOS ships 3.9.
+    for a, b in zip(pts, pts[1:]):  # noqa: RUF007
         draw.line([a, b], fill=fill, width=round(width))
     for x, y in pts:  # round caps and joins
         draw.ellipse([x - r, y - r, x + r, y + r], fill=fill)
@@ -183,11 +198,11 @@ def render(symbol: Symbol) -> Image.Image:
     return img.resize((CANVAS, CANVAS), Image.Resampling.LANCZOS)
 
 
-def write_masters(out: Path) -> tuple[Path, Path]:
+def write_masters(out: Path) -> tuple[Image.Image, Image.Image]:
     out.mkdir(parents=True, exist_ok=True)
-    full, small = out / FULL_MASTER, out / SMALL_MASTER
-    render(load_symbol(FULL_SVG)).save(full)
-    render(load_symbol(SMALL_SVG)).save(small)
+    full, small = render(load_symbol(FULL_SVG)), render(load_symbol(SMALL_SVG))
+    full.save(out / FULL_MASTER)
+    small.save(out / SMALL_MASTER)
     return full, small
 
 
@@ -218,56 +233,74 @@ def read_icns_chunks(path: Path) -> dict[str, bytes]:
     return chunks
 
 
-def write_icns(small: Image.Image, dest: Path) -> None:
+def write_icns(iconutil: str, small: Image.Image, dest: Path) -> None:
     """Rebuild dest, which `tauri icon` just wrote, with a small-variant 16px entry."""
-    iconutil = shutil.which("iconutil")
-    if iconutil is None:
-        sys.exit("iconutil not found: icon.icns can only be built on macOS")
     chunks = read_icns_chunks(dest)
+    missing = [kind for kind in ICONSET_FROM_TAURI.values() if kind not in chunks]
+    if missing:
+        sys.exit(f"`tauri icon` wrote no {', '.join(missing)} entry in {dest}")
     with tempfile.TemporaryDirectory() as tmp:
         iconset = Path(tmp) / "zorvo.iconset"
         iconset.mkdir()
         small.resize((16, 16), Image.Resampling.LANCZOS).save(iconset / ICONSET_SMALL)
         for name, kind in ICONSET_FROM_TAURI.items():
-            if kind not in chunks:
-                sys.exit(f"`tauri icon` wrote no {kind} entry in {dest}")
             (iconset / name).write_bytes(chunks[kind])
         subprocess.run(
             [iconutil, "-c", "icns", "-o", str(dest), str(iconset)], check=True
         )
 
 
+def swap_small_pngs(full: Image.Image, small: Image.Image, icons_dir: Path) -> None:
+    for target in sorted(icons_dir.rglob("*.png")):
+        with Image.open(target) as current:
+            px = current.width
+        if px < SMALL_BELOW:
+            sized(full, small, px).save(target)
+
+
+def require(tool: str, why: str) -> str:
+    path = shutil.which(tool)
+    if path is None:
+        sys.exit(f"{tool} not found: {why}")
+    return path
+
+
 def regenerate(icons_dir: Path) -> None:
-    pnpm = shutil.which("pnpm")
-    if pnpm is None:
-        sys.exit("pnpm not found: it runs `tauri icon`")
+    # Check every tool and build the whole set in a staging directory first, so
+    # a failure never leaves icons_dir half-regenerated.
+    pnpm = require("pnpm", "it runs `tauri icon`")
+    iconutil = require("iconutil", "icon.icns can only be built on macOS")
     with tempfile.TemporaryDirectory() as tmp:
-        full_path, small_path = write_masters(Path(tmp))
+        staging = Path(tmp) / "icons"
+        full, small = write_masters(Path(tmp))
         subprocess.run(
-            [pnpm, "tauri", "icon", str(full_path), "--output", str(icons_dir)],
+            [
+                pnpm,
+                "tauri",
+                "icon",
+                str(Path(tmp) / FULL_MASTER),
+                "--output",
+                str(staging),
+            ],
             cwd=REPO,
             check=True,
         )
-        full = Image.open(full_path).convert("RGBA")
-        small = Image.open(small_path).convert("RGBA")
-    write_ico(full, small, icons_dir / "icon.ico")
-    write_icns(small, icons_dir / "icon.icns")
-    for rel in SMALL_PNGS:
-        target = icons_dir / rel
-        with Image.open(target) as current:
-            px = current.width
-        sized(full, small, px).save(target)
+        write_ico(full, small, staging / "icon.ico")
+        write_icns(iconutil, small, staging / "icon.icns")
+        swap_small_pngs(full, small, staging)
+        shutil.copytree(staging, icons_dir, dirs_exist_ok=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate the Zorvo app icons.")
-    parser.add_argument(
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument(
         "--masters-only",
         metavar="OUT_DIR",
         type=Path,
         help="only draw the two 1024px masters into OUT_DIR",
     )
-    parser.add_argument(
+    target.add_argument(
         "--icons-dir",
         type=Path,
         default=ICONS_DIR,
