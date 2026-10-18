@@ -113,6 +113,33 @@ if (typeof window !== "undefined") {
   });
 }
 
+/**
+ * The fake Tauri backend every test runs against. A test that spies on
+ * `invoke` and passes the other commands through calls this, never the
+ * `invoke` it read before spying: that may already be a spy, and Vitest
+ * hands back the same spy, so calling it would recurse.
+ */
+export function fakeTauriInvoke(cmd: string, args?: unknown): Promise<unknown> {
+  const storeResult = handleStoreCommand(cmd, args as StoreArgs | undefined);
+  if (storeResult) {
+    return storeResult;
+  }
+  if (cmd === "list_workspaces") {
+    return Promise.resolve([
+      { name: "ai-perpetual-trading", path: "/Users/test/developer/ai-perpetual-trading" },
+      { name: "titan-investment", path: "/Users/test/developer/titan-investment" },
+      { name: "agent-desktop", path: "/Users/test/developer/agent-desktop" },
+    ]);
+  }
+  if (cmd === "get_agent_profiles") {
+    return Promise.resolve(structuredClone(fakeProfiles));
+  }
+  if (cmd === "workspace_details") {
+    return Promise.resolve({ location: "~/developer", branch: "main" });
+  }
+  return Promise.resolve(undefined);
+}
+
 if (typeof window !== "undefined") {
   // Provide mock for Tauri invoke and event system if not running in real Tauri webview
   let nextCallbackId = 1;
@@ -129,26 +156,7 @@ if (typeof window !== "undefined") {
 
   if (!win.__TAURI_INTERNALS__) {
     win.__TAURI_INTERNALS__ = {
-      invoke: (cmd: string, args?: unknown) => {
-        const storeResult = handleStoreCommand(cmd, args as StoreArgs | undefined);
-        if (storeResult) {
-          return storeResult;
-        }
-        if (cmd === "list_workspaces") {
-          return Promise.resolve([
-            { name: "ai-perpetual-trading", path: "/Users/test/developer/ai-perpetual-trading" },
-            { name: "titan-investment", path: "/Users/test/developer/titan-investment" },
-            { name: "agent-desktop", path: "/Users/test/developer/agent-desktop" },
-          ]);
-        }
-        if (cmd === "get_agent_profiles") {
-          return Promise.resolve(structuredClone(fakeProfiles));
-        }
-        if (cmd === "workspace_details") {
-          return Promise.resolve({ location: "~/developer", branch: "main" });
-        }
-        return Promise.resolve(undefined);
-      },
+      invoke: fakeTauriInvoke,
       transformCallback: (_cb: unknown, _once?: boolean) => nextCallbackId++,
       unregisterCallbackAction: (_id: number) => {},
     };
