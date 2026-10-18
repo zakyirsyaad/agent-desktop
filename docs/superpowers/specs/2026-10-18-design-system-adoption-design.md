@@ -90,10 +90,13 @@ Add `@fontsource-variable/instrument-sans` and
 (`font-src 'self' data:`) allows; Google Fonts would be blocked.
 
 The terminal measures its cell size when it opens, so a font that loads
-afterwards makes the grid wrong. `TerminalView` and `TerminalDrawer` wait
-for `document.fonts.load('12px "Geist Mono Variable"')` (with a short
-timeout so a missing font never blocks the terminal) before
-`terminal.open()`.
+afterwards makes the grid wrong. The terminal does not wait for the font
+itself: `src/main.tsx` renders the app only after `loadAppFonts()`
+(`src/lib/fonts.ts`) resolves. It loads both families through
+`document.fonts.load` and gives up after a short timeout, so a missing font
+never blocks startup. Every terminal therefore opens with the font already
+loaded, and `TerminalView` and `TerminalDrawer` stay synchronous (their
+tests assert an immediate open).
 
 ## Guard test
 
