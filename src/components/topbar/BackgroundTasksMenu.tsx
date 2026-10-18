@@ -71,7 +71,7 @@ export function BackgroundTasksMenu({ tasks, isOpen, onOpenChange, onOpenTask, o
 
   return (
     <div ref={ref} className="relative">
-      <IconButton label={label} aria-expanded={isOpen} onClick={() => onOpenChange(!isOpen)} className="relative">
+      <IconButton label={label} aria-haspopup="dialog" aria-expanded={isOpen} onClick={() => onOpenChange(!isOpen)} className="relative">
         <ListChecks size={14} aria-hidden="true" className={isOpen ? "text-fg" : undefined} />
         {count > 0 && (
           <span
@@ -84,7 +84,7 @@ export function BackgroundTasksMenu({ tasks, isOpen, onOpenChange, onOpenTask, o
       </IconButton>
 
       {isOpen && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-96 rounded-lg border border-border bg-surface-3 p-1 shadow-popover">
+        <div role="dialog" aria-label="Background tasks" className="absolute right-0 top-full z-50 mt-1 w-96 rounded-lg border border-border bg-surface-3 p-1 shadow-popover select-text">
           {count === 0 ? (
             <p className="px-3 py-4 text-center text-xs text-fg-muted">Nothing running.</p>
           ) : (
@@ -103,7 +103,7 @@ export function BackgroundTasksMenu({ tasks, isOpen, onOpenChange, onOpenTask, o
                         <span className={STATUS_CLASSES[task.status]}>{task.status}</span>
                         <span className="tabular-nums">{formatElapsed(now - task.startedAt)}</span>
                       </p>
-                      {task.detail && <p className="truncate text-[11px] text-fg-subtle">{task.detail}</p>}
+                      {task.detail && <p className="truncate text-[11px] text-fg-subtle" title={task.detail}>{task.detail}</p>}
                     </div>
                     <Button
                       variant="outline"

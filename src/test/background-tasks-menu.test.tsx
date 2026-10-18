@@ -122,6 +122,24 @@ describe("BackgroundTasksMenu", () => {
     expect(button.disabled).toBe(false);
   });
 
+  it("announces its popup and labels it", () => {
+    setup();
+
+    const trigger = screen.getByRole("button", { name: "Background tasks (2 running)" });
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(screen.getByRole("dialog", { name: "Background tasks" })).toBeDefined();
+  });
+
+  it("lets the text be selected and shows a cut detail in full on hover", () => {
+    setup();
+
+    const popup = screen.getByRole("dialog", { name: "Background tasks" });
+    expect(popup.classList.contains("select-text")).toBe(true);
+    expect(within(popup).getByText("Fix login · localhost:5173").getAttribute("title")).toBe(
+      "Fix login · localhost:5173",
+    );
+  });
+
   it("says nothing is running when empty", () => {
     setup({ tasks: [] });
     expect(screen.getByText("Nothing running.")).toBeTruthy();
