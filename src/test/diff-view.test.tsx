@@ -307,6 +307,25 @@ describe("DiffView", () => {
     expect(spy.mock.calls.filter((c) => c[0] === "session_file_diff")).toHaveLength(4);
   });
 
+  it("opens a small list after switching away from a large one", async () => {
+    const many = Array.from({ length: 26 }, (_, i) => statOf(`src/f${i}.ts`));
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: { name: "main" } });
+      if (cmd === "session_diff_stats") return Promise.resolve((args as { target: string }).target === "base" ? many : THREE);
+      return Promise.resolve("");
+    });
+    await renderView();
+    const sections = () => screen.getAllByRole("button").filter((b) => b.hasAttribute("aria-expanded") && b.hasAttribute("title") && b.getAttribute("aria-haspopup") === null);
+    expect(sections().every((b) => b.getAttribute("aria-expanded") === "false")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Diff target: main → working tree" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "HEAD → working tree" }));
+    });
+
+    expect(sections().map((b) => b.getAttribute("aria-expanded"))).toEqual(["true", "true", "true"]);
+  });
+
   it("hands expand and close to its owner", async () => {
     mockDiff(THREE);
     const { onToggleExpanded, onClose } = await renderView();

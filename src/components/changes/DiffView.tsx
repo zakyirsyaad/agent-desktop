@@ -32,11 +32,15 @@ export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onCl
   };
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState("");
-  // Null until the first list arrives: only that one decides what starts open.
-  const [openPaths, setOpenPaths] = useState<ReadonlySet<string> | null>(null);
-  if (stats && openPaths === null) {
-    setOpenPaths(new Set(stats.length > AUTO_OPEN_LIMIT ? [] : stats.map((s) => s.path)));
+  // The first list read after switching to a target decides what starts open;
+  // later reads of the same target keep the user's choices.
+  const [opened, setOpened] = useState<{ target: DiffTargetId; paths: ReadonlySet<string> } | null>(null);
+  if (stats && opened?.target !== target) {
+    setOpened({ target, paths: new Set(stats.length > AUTO_OPEN_LIMIT ? [] : stats.map((s) => s.path)) });
   }
+  const openPaths = opened?.target === target ? opened.paths : null;
+  const setOpenPaths = (change: (prev: ReadonlySet<string>) => ReadonlySet<string>) =>
+    setOpened((prev) => (prev ? { ...prev, paths: change(prev.paths) } : prev));
 
   const query = search.trim().toLowerCase();
   const visible = useMemo(
@@ -69,8 +73,8 @@ export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onCl
         onToggleSearch={toggleSearch}
         search={search}
         onSearchChange={setSearch}
-        onCollapseAll={() => setOpenPaths(new Set())}
-        onExpandAll={() => setOpenPaths(new Set((stats ?? []).map((s) => s.path)))}
+        onCollapseAll={() => setOpenPaths(() => new Set())}
+        onExpandAll={() => setOpenPaths(() => new Set((stats ?? []).map((s) => s.path)))}
         onRefresh={refresh}
         isExpanded={isExpanded}
         onToggleExpanded={onToggleExpanded}
