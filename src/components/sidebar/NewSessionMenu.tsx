@@ -65,7 +65,7 @@ export function NewSessionMenu({ folderName, agents, defaultAgentId, onPick }: N
                 <AgentLogo profileId={agent.id} name="" size={12} />
                 <span className="truncate">{agent.name}</span>
               </span>
-              {agent.id === defaultAgentId && <span className="shrink-0 text-[10px] text-fg-subtle">Default</span>}
+              {agent.id === defaultAgentId && <span className="shrink-0 text-[10px] text-fg-muted">Default</span>}
             </button>
           ))}
         </div>

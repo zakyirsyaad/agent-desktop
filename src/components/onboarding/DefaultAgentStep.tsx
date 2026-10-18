@@ -16,7 +16,7 @@ export function DefaultAgentStep({ agents, selectedAgentId, onSelectAgent }: Def
         return (
           <label
             key={agent.id}
-            className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors focus-within:outline focus-within:outline-1 focus-within:outline-offset-1 focus-within:outline-focus-ring ${
+            className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors focus-ring-within ${
               checked
                 ? "border-border-strong bg-surface-hover"
                 : "border-border bg-surface-2 hover:bg-surface-hover"

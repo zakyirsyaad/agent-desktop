@@ -15,9 +15,10 @@ const ARBITRARY_HEX = /-\[#[0-9a-fA-F]+/g;
 const ARBITRARY_COLOR_FUNCTION = /-\[(?:rgba?|hsla?|oklch|oklab|lab|lch|color)\(/g;
 const PATTERNS = [PALETTE_UTILITY, BLACK_WHITE_UTILITY, ARBITRARY_HEX, ARBITRARY_COLOR_FUNCTION];
 
-/** An inline `style={{ … }}` object, possibly over several lines. */
-const INLINE_STYLE = /style=\{\{[\s\S]*?\}\}/g;
+/** A string or template literal, wherever it is: a style object, a constant, a prop. */
+const STRING_LITERAL = /"[^"\n]*"|'[^'\n]*'|`[^`]*`/g;
 const COLOR_LITERAL = /#[0-9a-fA-F]{3,8}\b|(?:rgba?|hsla?|oklch)\(/;
+const HEX6 = /^#[0-9a-fA-F]{6}$/;
 
 interface Violation {
   file: string;
@@ -37,9 +38,12 @@ function rawColorsIn(text: string): string[] {
   return PATTERNS.flatMap((pattern) => [...text.matchAll(pattern)].map((m) => m[0]));
 }
 
-/** Inline style objects that carry a literal color (hex, rgb(), hsl()…). */
-function inlineStyleColorsIn(text: string): { index: number; match: string }[] {
-  return [...text.matchAll(INLINE_STYLE)]
+/**
+ * String literals in a component that carry a literal color (hex, rgb(), hsl()…),
+ * whether they sit in `style={{ … }}`, a constant reused as a style, or a prop.
+ */
+function colorStringsIn(text: string): { index: number; match: string }[] {
+  return [...text.matchAll(STRING_LITERAL)]
     .filter((m) => COLOR_LITERAL.test(m[0]))
     .map((m) => ({ index: m.index ?? 0, match: m[0] }));
 }
@@ -53,12 +57,15 @@ function findViolations(): Violation[] {
       .flatMap((text, index) =>
         rawColorsIn(text).map((match) => ({ file, line: index + 1, match }))
       );
-    const inStyles = inlineStyleColorsIn(source).map(({ index, match }) => ({
-      file,
-      line: source.slice(0, index).split("\n").length,
-      match,
-    }));
-    return [...inClasses, ...inStyles];
+    // Only components: src/lib/xterm-options.ts holds the terminal's hex values on purpose.
+    const inStrings = path.endsWith(".tsx")
+      ? colorStringsIn(source).map(({ index, match }) => ({
+          file,
+          line: source.slice(0, index).split("\n").length,
+          match,
+        }))
+      : [];
+    return [...inClasses, ...inStrings];
   });
 }
 
@@ -71,6 +78,7 @@ function themeColor(name: string): string {
 }
 
 function hexToRgba(hex: string, alpha: number): string {
+  if (!HEX6.test(hex)) throw new Error(`Expected a #rrggbb token, got "${hex}"`);
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
@@ -102,11 +110,22 @@ describe("design tokens", () => {
     ]);
   });
 
-  it("catches colors inside inline style objects, even over several lines", () => {
-    const source = 'a\n<div style={{\n  boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }} />\n<b style={{ paddingLeft: 78 }} />';
-    expect(inlineStyleColorsIn(source).map((v) => v.match)).toEqual([
-      'style={{\n  boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }}',
+  it("catches colors in strings: inline styles, style constants and templates", () => {
+    const source = [
+      '<div style={{\n  boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }} />',
+      "const card = { background: '#121212' };",
+      "const ring = `0 0 0 1px hsl(0 0% 50%)`;",
+      '<b style={{ paddingLeft: 78 }} title="Issue #12" />',
+    ].join("\n");
+    expect(colorStringsIn(source).map((v) => v.match)).toEqual([
+      '"0 8px 24px rgba(0,0,0,0.6)"',
+      "'#121212'",
+      "`0 0 0 1px hsl(0 0% 50%)`",
     ]);
+  });
+
+  it("names the token when it is not a #rrggbb hex", () => {
+    expect(() => hexToRgba("#fff", 0.2)).toThrow('Expected a #rrggbb token, got "#fff"');
   });
 
   it("keeps the terminal colors in step with the tokens", () => {
