@@ -171,6 +171,28 @@ describe("TopBar", () => {
     });
   });
 
+  describe("diff-stat chip", () => {
+    it("shows the totals next to the Changes toggle, opens the diff from the chip only, and shows no count on the toggle", () => {
+      const onOpenDiff = vi.fn();
+      const onToggleChanges = vi.fn();
+      renderTopBar({ diffStats: { added: 2847, removed: 35 }, onOpenDiff, onToggleChanges });
+
+      const toggle = screen.getByRole("button", { name: "Toggle changes panel" });
+      expect(toggle.textContent).toBe("");
+      fireEvent.click(screen.getByRole("button", { name: /2,847 lines added, 35 removed/ }));
+      expect(onOpenDiff).toHaveBeenCalledTimes(1);
+      expect(onToggleChanges).not.toHaveBeenCalled();
+      fireEvent.click(toggle);
+      expect(onToggleChanges).toHaveBeenCalledTimes(1);
+      expect(onOpenDiff).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows no chip without totals or when nothing changed", () => {
+      renderTopBar({ onToggleChanges: () => {}, onOpenDiff: () => {} });
+      expect(screen.queryByRole("button", { name: /lines added/ })).toBeNull();
+    });
+  });
+
   describe("breadcrumb", () => {
     it("still renders the session name and workspace badge", () => {
       renderTopBar({

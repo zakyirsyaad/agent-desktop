@@ -44,6 +44,20 @@ describe("ChangesPanel", () => {
     expect(screen.getByRole("button", { name: "Commit 3 files" })).toBeDefined();
   });
 
+  it("shows the diff-stat chip under the header and opens the diff from it", () => {
+    const onOpenDiff = vi.fn();
+    renderPanel({ diffStats: { added: 12, removed: 3 }, onOpenDiff });
+
+    fireEvent.click(screen.getByRole("button", { name: "12 lines added, 3 removed. Open the diff" }));
+
+    expect(onOpenDiff).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows no chip without diff totals", () => {
+    renderPanel();
+    expect(screen.queryByRole("button", { name: /Open the diff/ })).toBeNull();
+  });
+
   it("shows a file's diff when it is opened", async () => {
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) =>
       cmd === "session_file_diff"

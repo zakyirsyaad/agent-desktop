@@ -33,7 +33,7 @@ async function click(element: HTMLElement) {
 }
 
 function header() {
-  return within(screen.getByRole("banner"));
+  return within(screen.getAllByRole("banner")[0]);
 }
 
 describe("Window chrome wiring", () => {
@@ -97,7 +97,46 @@ describe("Window chrome wiring", () => {
     expect(screen.getByRole("complementary", { name: "Files panel" }).textContent).toContain("old-project");
   });
 
-  it("counts the session's changes and shows them in a panel that takes turns with Files", async () => {
+  it("shows the diff totals as a chip that opens the diff view in place of the Changes panel", async () => {
+    seedSessions();
+    const stat = (path: string, added: number, removed: number) => ({ path, oldPath: null, kind: "modified", added, removed, isBinary: false });
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "session_changes") return Promise.resolve([{ path: "src/app.ts", oldPath: null, kind: "modified" }]);
+      if (cmd === "session_diff_stats") return Promise.resolve([stat("src/app.ts", 2800, 30), stat("b.ts", 47, 5)]);
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: null });
+      return fakeTauriInvoke(cmd, args);
+    });
+    await renderApp();
+
+    await click(await header().findByRole("button", { name: "Toggle changes panel" }));
+    expect(screen.getByRole("complementary", { name: "Changes panel" })).toBeDefined();
+    await click(header().getByRole("button", { name: /2,847 lines added, 35 removed/ }));
+
+    expect(screen.getByRole("complementary", { name: "Diff view" })).toBeDefined();
+    expect(screen.queryByRole("complementary", { name: "Changes panel" })).toBeNull();
+
+    await click(within(screen.getByRole("complementary", { name: "Diff view" })).getByRole("button", { name: /close/i }));
+    expect(screen.queryByRole("complementary", { name: "Diff view" })).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Changes panel" })).toBeNull();
+  });
+
+  it("opens the diff view from the chip even when it is already open", async () => {
+    seedSessions();
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "session_diff_stats") return Promise.resolve([{ path: "a.ts", oldPath: null, kind: "modified", added: 4, removed: 1, isBinary: false }]);
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: null });
+      return fakeTauriInvoke(cmd, args);
+    });
+    await renderApp();
+
+    const chip = await header().findByRole("button", { name: /4 lines added, 1 removed/ });
+    await click(chip);
+    await click(header().getByRole("button", { name: /4 lines added, 1 removed/ }));
+
+    expect(screen.getByRole("complementary", { name: "Diff view" })).toBeDefined();
+  });
+
+  it("shows the changes toggle without a count, and the session's changes in a panel that takes turns with Files", async () => {
     seedSessions();
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "session_changes"
@@ -110,7 +149,7 @@ describe("Window chrome wiring", () => {
     await renderApp();
 
     const toggle = await header().findByRole("button", { name: "Toggle changes panel" });
-    expect(toggle.textContent).toContain("2");
+    expect(toggle.textContent).toBe("");
     const reads = () => (tauriInternals().invoke as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(([cmd]) => cmd === "session_changes").length;
     const readsBefore = reads();
     await click(toggle);

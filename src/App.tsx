@@ -11,6 +11,8 @@ import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
 import { WorkspaceSummary } from "./components/workspace/WorkspaceSummary";
 import { ChangesPanel } from "./components/changes/ChangesPanel";
+import { DiffView } from "./components/changes/DiffView";
+import { totalsOf } from "./lib/diff-stats";
 import { useSidePanel } from "./hooks/useSidePanel";
 import { useTurnsEnded } from "./hooks/useTurnsEnded";
 import { usePullRequest } from "./hooks/usePullRequest";
@@ -251,6 +253,13 @@ export default function App() {
 
   const turnsEnded = useTurnsEnded(Boolean(activeSessionId) && isSessionBusy(activeSessionId));
   const sidePanel = useSidePanel(filesFolder?.path, isRepository, turnsEnded, reportError);
+  const diffStats = sidePanel.headStats ? totalsOf(sidePanel.headStats) : undefined;
+  const [isDiffExpanded, setIsDiffExpanded] = useState(false);
+  const isDiffOpen = sidePanel.open === "diff" && Boolean(filesFolder) && isRepository;
+  // An expanded diff view starts over the next time it opens.
+  useEffect(() => {
+    if (!isDiffOpen) setIsDiffExpanded(false);
+  }, [isDiffOpen]);
   const pullRequest = usePullRequest(
     isRepository ? shownFolderPath : undefined,
     workspaceDetails?.branch ?? undefined,
@@ -541,7 +550,8 @@ export default function App() {
         isFilesOpen={sidePanel.open === "files" && Boolean(filesFolder)}
         onToggleChanges={filesFolder && isRepository ? () => sidePanel.toggle("changes") : undefined}
         isChangesOpen={sidePanel.open === "changes" && Boolean(filesFolder) && isRepository}
-        changeCount={sidePanel.changes.changes?.length}
+        diffStats={diffStats}
+        onOpenDiff={() => sidePanel.show("diff")}
         onPopout={activeSession ? handlePopout : undefined}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -575,7 +585,7 @@ export default function App() {
           }
         />
 
-        <article className="flex-1 flex flex-col bg-bg relative overflow-hidden">
+        <article className={`${isDiffOpen && isDiffExpanded ? "hidden" : "flex"} flex-1 flex-col bg-bg relative overflow-hidden`}>
           {isDraggingFiles && <FileDropOverlay />}
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
           {authRequest && (
@@ -685,6 +695,19 @@ export default function App() {
             onClose={sidePanel.close}
             pullRequests={repoPullRequests}
             onOpenPullRequest={openPullRequest}
+            diffStats={diffStats}
+            onOpenDiff={() => sidePanel.show("diff")}
+          />
+        )}
+        {isDiffOpen && filesFolder && (
+          <DiffView
+            key={filesFolder.path}
+            rootPath={filesFolder.path}
+            version={sidePanel.changes.version}
+            isExpanded={isDiffExpanded}
+            onToggleExpanded={() => setIsDiffExpanded((current) => !current)}
+            onClose={sidePanel.close}
+            onError={reportError}
           />
         )}
         {sidePanel.open === "files" && filesFolder && (

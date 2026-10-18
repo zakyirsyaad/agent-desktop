@@ -9,6 +9,7 @@ import {
   Terminal
 } from "lucide-react";
 import { IconButton } from "./ui/IconButton";
+import { DiffStatChip } from "./changes/DiffStatChip";
 import { PullRequestChip } from "./topbar/PullRequestChip";
 import type { PullRequestStatus } from "../hooks/usePullRequest";
 
@@ -48,8 +49,10 @@ export interface TopBarProps {
   /** Shows or hides the session's uncommitted changes; the button is hidden when absent. */
   onToggleChanges?: () => void;
   isChangesOpen?: boolean;
-  /** How many files changed, shown on the button once known. */
-  changeCount?: number;
+  /** Lines added and removed against HEAD, shown as a chip beside the button once known. */
+  diffStats?: { added: number; removed: number };
+  /** Opens the diff view; the chip opens it. */
+  onOpenDiff?: () => void;
   onOpenSettings?: () => void;
 }
 
@@ -71,7 +74,8 @@ export function TopBar({
   isFilesOpen = false,
   onToggleChanges,
   isChangesOpen = false,
-  changeCount,
+  diffStats,
+  onOpenDiff,
   onOpenSettings,
 }: TopBarProps) {
   return (
@@ -166,19 +170,20 @@ export function TopBar({
           </button>
         )}
 
+        {onToggleChanges && diffStats && onOpenDiff && (
+          <DiffStatChip added={diffStats.added} removed={diffStats.removed} onOpen={onOpenDiff} />
+        )}
+
         {onToggleChanges && (
           <button
             type="button"
             onClick={onToggleChanges}
-            className="flex items-center gap-1 rounded-md p-1.5 text-fg-muted hover:bg-surface-hover hover:text-fg-secondary focus-ring"
+            className="flex items-center rounded-md p-1.5 text-fg-muted hover:bg-surface-hover hover:text-fg-secondary focus-ring"
             aria-label="Toggle changes panel"
             aria-pressed={isChangesOpen}
             title="Changes"
           >
             <GitCompare size={14} className={isChangesOpen ? "text-fg" : undefined} />
-            {changeCount !== undefined && changeCount > 0 && (
-              <span className="rounded bg-surface-3 px-1 text-[10px] leading-4 text-fg-secondary">{changeCount}</span>
-            )}
           </button>
         )}
 
