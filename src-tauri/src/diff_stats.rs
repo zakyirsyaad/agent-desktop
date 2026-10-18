@@ -1,0 +1,363 @@
+//! Which commits the working tree can be compared with, and how many lines
+//! each changed file adds and removes against that choice.
+
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+use tauri::State;
+
+use crate::changes::{
+    changes_at, diff_base, resolves_inside, run_git, run_git_with, toplevel_of, ChangeKind,
+    FileChange,
+};
+use crate::files::ensure_known_workspace;
+use crate::git_info::git_binary;
+use crate::store::AppStore;
+
+/// What the working tree is compared with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiffTarget {
+    /// The last commit.
+    Head,
+    /// Where this branch left the default branch.
+    Base,
+}
+
+/// The default branch a session's branch can be compared with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseBranch {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffTargets {
+    pub base: Option<BaseBranch>,
+}
+
+/// One changed file and the lines it adds and removes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileStat {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub kind: ChangeKind,
+    pub added: u64,
+    pub removed: u64,
+    pub is_binary: bool,
+}
+
+/// How much of a file is read at a time when counting its lines.
+const CHUNK_BYTES: usize = 64 * 1024;
+/// How much of a file's start is searched for a NUL byte to tell it is binary.
+const BINARY_SNIFF_BYTES: usize = 8 * 1024;
+/// Names tried, in order, for the default branch when the remote names none.
+const DEFAULT_BRANCHES: [&str; 2] = ["main", "master"];
+
+fn git_succeeds(git: &Path, dir: &Path, args: &[&str]) -> bool {
+    run_git(git, dir, args).is_ok()
+}
+
+/// The default branch's name: the remote's HEAD, else `main` or `master`.
+fn default_branch_name(git: &Path, toplevel: &Path) -> Option<String> {
+    let remote = run_git(
+        git,
+        toplevel,
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ],
+    )
+    .ok()
+    .map(|name| name.trim().trim_start_matches("origin/").to_string())
+    .filter(|name| !name.is_empty());
+    remote.or_else(|| {
+        DEFAULT_BRANCHES
+            .iter()
+            .find(|name| {
+                let reference = format!("refs/heads/{name}");
+                git_succeeds(
+                    git,
+                    toplevel,
+                    &["rev-parse", "--verify", "--quiet", &reference],
+                )
+            })
+            .map(|name| name.to_string())
+    })
+}
+
+/// The default branch to compare with, when there is a point in doing so:
+/// there is a commit, a branch is checked out other than the default one,
+/// and the two share history.
+fn base_branch(git: &Path, toplevel: &Path) -> Option<String> {
+    if !git_succeeds(git, toplevel, &["rev-parse", "--verify", "--quiet", "HEAD"]) {
+        return None;
+    }
+    let current = run_git(
+        git,
+        toplevel,
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+    )
+    .ok()?;
+    let name = default_branch_name(git, toplevel)?;
+    let shares_history = git_succeeds(git, toplevel, &["merge-base", &name, "HEAD"]);
+    (current.trim() != name && shares_history).then_some(name)
+}
+
+pub fn diff_targets(git: &Path, dir: &Path) -> Result<DiffTargets, String> {
+    let toplevel = toplevel_of(git, dir)?;
+    Ok(DiffTargets {
+        base: base_branch(git, &toplevel).map(|name| BaseBranch { name }),
+    })
+}
+
+/// The commit (or the empty tree, in a repository with none) the working tree
+/// is compared with for `target`.
+pub fn base_commit(git: &Path, toplevel: &Path, target: DiffTarget) -> Result<String, String> {
+    match target {
+        DiffTarget::Head => diff_base(git, toplevel),
+        DiffTarget::Base => {
+            let name = base_branch(git, toplevel)
+                .ok_or_else(|| "There is no base branch to compare with".to_string())?;
+            run_git(git, toplevel, &["merge-base", &name, "HEAD"])
+                .map(|hash| hash.trim().to_string())
+        }
+    }
+}
+
+fn kind_of_status(code: &str) -> ChangeKind {
+    match code.chars().next() {
+        Some('A') | Some('C') => ChangeKind::Added,
+        Some('D') => ChangeKind::Deleted,
+        Some('R') => ChangeKind::Renamed,
+        _ => ChangeKind::Modified,
+    }
+}
+
+/// Parses `git diff --name-status -z -M`: `M\0path\0`, and `R100\0old\0new\0`.
+fn parse_name_status(output: &str) -> Vec<FileChange> {
+    let mut changes = Vec::new();
+    let mut pieces = output.split('\0').filter(|piece| !piece.is_empty());
+    while let Some(code) = pieces.next() {
+        let kind = kind_of_status(code);
+        let is_pair = matches!(code.chars().next(), Some('R') | Some('C'));
+        let first = pieces.next();
+        let (old_path, path) = if is_pair {
+            (first.map(str::to_string), pieces.next())
+        } else {
+            (None, first)
+        };
+        if let Some(path) = path {
+            changes.push(FileChange {
+                path: path.to_string(),
+                old_path,
+                kind,
+            });
+        }
+    }
+    changes
+}
+
+/// Lines added and removed, and whether the file is binary.
+#[derive(Clone, Copy)]
+struct Counts {
+    added: u64,
+    removed: u64,
+    is_binary: bool,
+}
+
+/// Parses `git diff --numstat -z -M`: `added\tremoved\tpath\0`, and for a
+/// rename `added\tremoved\t\0old\0new\0`; a binary file's counts are `-`.
+fn parse_numstat(output: &str) -> HashMap<String, Counts> {
+    let mut counts = HashMap::new();
+    let mut pieces = output.split('\0').filter(|piece| !piece.is_empty());
+    while let Some(record) = pieces.next() {
+        let mut fields = record.splitn(3, '\t');
+        let (Some(added), Some(removed), Some(path)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        let path = if path.is_empty() {
+            let _old = pieces.next();
+            pieces.next().unwrap_or_default()
+        } else {
+            path
+        };
+        counts.insert(
+            path.to_string(),
+            Counts {
+                added: added.parse().unwrap_or(0),
+                removed: removed.parse().unwrap_or(0),
+                is_binary: added == "-" && removed == "-",
+            },
+        );
+    }
+    counts
+}
+
+/// Tracked files that differ from `base`, with their line counts.
+fn tracked_stats(git: &Path, toplevel: &Path, base: &str) -> Result<Vec<FileStat>, String> {
+    let status = run_git(
+        git,
+        toplevel,
+        &["diff", "--name-status", "-z", "-M", base, "--"],
+    )?;
+    let numstat = run_git(
+        git,
+        toplevel,
+        &["diff", "--numstat", "-z", "-M", base, "--"],
+    )?;
+    let counts = parse_numstat(&numstat);
+    Ok(parse_name_status(&status)
+        .into_iter()
+        .map(|change| {
+            let found = counts.get(&change.path).copied();
+            FileStat {
+                added: found.map_or(0, |c| c.added),
+                removed: found.map_or(0, |c| c.removed),
+                is_binary: found.is_some_and(|c| c.is_binary),
+                path: change.path,
+                old_path: change.old_path,
+                kind: change.kind,
+            }
+        })
+        .collect())
+}
+
+/// The untracked files, not counting what `.gitignore` leaves out.
+fn untracked_paths(git: &Path, toplevel: &Path) -> Result<Vec<String>, String> {
+    let output = run_git_with(
+        git,
+        toplevel,
+        &["ls-files", "--others", "--exclude-standard", "-z"],
+        &[0],
+    )?;
+    Ok(output
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// Counts the lines of a file read in chunks: its newlines, plus one for a
+/// last line that has none. A NUL in the first bytes makes it binary.
+fn count_lines(path: &Path) -> std::io::Result<Counts> {
+    let mut file = File::open(path)?;
+    let mut buffer = vec![0u8; CHUNK_BYTES];
+    let mut lines = 0u64;
+    let mut seen = 0usize;
+    let mut last_byte = None;
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        let chunk = &buffer[..read];
+        if seen < BINARY_SNIFF_BYTES {
+            let sniffed = &chunk[..chunk.len().min(BINARY_SNIFF_BYTES - seen)];
+            if sniffed.contains(&0) {
+                return Ok(Counts {
+                    added: 0,
+                    removed: 0,
+                    is_binary: true,
+                });
+            }
+        }
+        seen += read;
+        lines += chunk.iter().filter(|byte| **byte == b'\n').count() as u64;
+        last_byte = chunk.last().copied();
+    }
+    if last_byte.is_some_and(|byte| byte != b'\n') {
+        lines += 1;
+    }
+    Ok(Counts {
+        added: lines,
+        removed: 0,
+        is_binary: false,
+    })
+}
+
+/// A new file counted whole; a new link is one line, where it points. None
+/// for a file that cannot be read or resolves outside the repository.
+fn untracked_stat(toplevel: &Path, path: String) -> Option<FileStat> {
+    let full = toplevel.join(&path);
+    let is_link = full.symlink_metadata().ok()?.file_type().is_symlink();
+    let counts = if is_link {
+        Counts {
+            added: 1,
+            removed: 0,
+            is_binary: false,
+        }
+    } else if resolves_inside(toplevel, &path) {
+        count_lines(&full).ok()?
+    } else {
+        return None;
+    };
+    Some(FileStat {
+        path,
+        old_path: None,
+        kind: ChangeKind::Untracked,
+        added: counts.added,
+        removed: counts.removed,
+        is_binary: counts.is_binary,
+    })
+}
+
+fn untracked_stats(
+    git: &Path,
+    toplevel: &Path,
+    target: DiffTarget,
+) -> Result<Vec<FileStat>, String> {
+    let paths = match target {
+        DiffTarget::Head => changes_at(git, toplevel)?
+            .into_iter()
+            .filter(|change| change.kind == ChangeKind::Untracked)
+            .map(|change| change.path)
+            .collect(),
+        DiffTarget::Base => untracked_paths(git, toplevel)?,
+    };
+    Ok(paths
+        .into_iter()
+        .filter_map(|path| untracked_stat(toplevel, path))
+        .collect())
+}
+
+/// The changed files in the repository `dir` is in, against `target`, with
+/// the lines each adds and removes, sorted by path.
+pub fn diff_stats(git: &Path, dir: &Path, target: DiffTarget) -> Result<Vec<FileStat>, String> {
+    let toplevel = toplevel_of(git, dir)?;
+    let base = base_commit(git, &toplevel, target)?;
+    let mut stats = tracked_stats(git, &toplevel, &base)?;
+    stats.extend(untracked_stats(git, &toplevel, target)?);
+    stats.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(stats)
+}
+
+/// Which target comparisons are on offer for a session's folder.
+#[tauri::command(async)]
+pub fn session_diff_targets(
+    store: State<'_, AppStore>,
+    path: String,
+) -> Result<DiffTargets, String> {
+    ensure_known_workspace(&path, |p| store.is_known_workspace(p))?;
+    diff_targets(&git_binary(), Path::new(&path))
+}
+
+/// Per-file line counts of a session's changes against `target`.
+#[tauri::command(async)]
+pub fn session_diff_stats(
+    store: State<'_, AppStore>,
+    path: String,
+    target: DiffTarget,
+) -> Result<Vec<FileStat>, String> {
+    ensure_known_workspace(&path, |p| store.is_known_workspace(p))?;
+    diff_stats(&git_binary(), Path::new(&path), target)
+}

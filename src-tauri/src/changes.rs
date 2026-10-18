@@ -12,6 +12,7 @@ use std::thread;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::diff_stats::{base_commit, diff_stats, DiffTarget};
 use crate::files::ensure_known_workspace;
 use crate::git_info::git_binary;
 use crate::store::AppStore;
@@ -54,7 +55,12 @@ fn git_command(git: &Path, dir: &Path, args: &[&str]) -> Command {
 }
 
 /// Runs git in `dir`; `ok_codes` are the exit codes that mean success.
-fn run_git_with(git: &Path, dir: &Path, args: &[&str], ok_codes: &[i32]) -> Result<String, String> {
+pub(crate) fn run_git_with(
+    git: &Path,
+    dir: &Path,
+    args: &[&str],
+    ok_codes: &[i32],
+) -> Result<String, String> {
     let output = git_command(git, dir, args)
         .output()
         .map_err(|e| format!("Could not run git: {e}"))?;
@@ -69,7 +75,7 @@ fn run_git_with(git: &Path, dir: &Path, args: &[&str], ok_codes: &[i32]) -> Resu
     }
 }
 
-fn run_git(git: &Path, dir: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn run_git(git: &Path, dir: &Path, args: &[&str]) -> Result<String, String> {
     run_git_with(git, dir, args, &[0])
 }
 
@@ -120,7 +126,7 @@ fn run_git_bounded(
 }
 
 /// The root of the repository `dir` is in.
-fn toplevel_of(git: &Path, dir: &Path) -> Result<PathBuf, String> {
+pub(crate) fn toplevel_of(git: &Path, dir: &Path) -> Result<PathBuf, String> {
     run_git(git, dir, &["rev-parse", "--show-toplevel"])
         .map(|out| PathBuf::from(out.trim()))
         .map_err(|_| format!("{} is not a git repository", dir.display()))
@@ -169,7 +175,7 @@ fn parse_status(output: &str) -> Vec<FileChange> {
     changes
 }
 
-fn changes_at(git: &Path, toplevel: &Path) -> Result<Vec<FileChange>, String> {
+pub(crate) fn changes_at(git: &Path, toplevel: &Path) -> Result<Vec<FileChange>, String> {
     let output = run_git(
         git,
         toplevel,
@@ -186,7 +192,7 @@ pub fn list_changes(git: &Path, dir: &Path) -> Result<Vec<FileChange>, String> {
 
 /// What the working tree is compared with: the last commit, or an empty tree
 /// in a repository that has none yet.
-fn diff_base(git: &Path, toplevel: &Path) -> Result<String, String> {
+pub(crate) fn diff_base(git: &Path, toplevel: &Path) -> Result<String, String> {
     if run_git(git, toplevel, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_ok() {
         return Ok("HEAD".to_string());
     }
@@ -205,7 +211,7 @@ fn link_target(toplevel: &Path, path: &str) -> Option<String> {
 }
 
 /// True when `path` resolves to a place inside `toplevel`, links followed.
-fn resolves_inside(toplevel: &Path, path: &str) -> bool {
+pub(crate) fn resolves_inside(toplevel: &Path, path: &str) -> bool {
     let (Ok(root), Ok(target)) = (toplevel.canonicalize(), toplevel.join(path).canonicalize())
     else {
         return false;
@@ -213,13 +219,13 @@ fn resolves_inside(toplevel: &Path, path: &str) -> bool {
     target.starts_with(root)
 }
 
-/// A changed file's unified diff against the last commit; a new file shows
-/// whole, a new link where it points. Only a file git reports as changed is
+/// A changed file's unified diff against `target`; a new file shows whole,
+/// a new link where it points. Only a file git reports as changed is
 /// shown, and a new file's contents only when it resolves inside the
 /// repository, so nothing outside can be read.
-pub fn file_diff(git: &Path, dir: &Path, path: &str) -> Result<String, String> {
+pub fn file_diff(git: &Path, dir: &Path, path: &str, target: DiffTarget) -> Result<String, String> {
     let toplevel = toplevel_of(git, dir)?;
-    let change = changes_at(git, &toplevel)?
+    let change = changes_for(git, &toplevel, target)?
         .into_iter()
         .find(|change| change.path == path)
         .ok_or_else(|| format!("{path} is not a changed file in this repository"))?;
@@ -251,7 +257,7 @@ pub fn file_diff(git: &Path, dir: &Path, path: &str) -> Result<String, String> {
             )?
         }
         _ => {
-            let base = diff_base(git, &toplevel)?;
+            let base = base_commit(git, &toplevel, target)?;
             let mut args = vec!["diff", "--no-color", "-M", base.as_str(), "--"];
             if let Some(old) = &change.old_path {
                 args.push(old);
@@ -261,6 +267,21 @@ pub fn file_diff(git: &Path, dir: &Path, path: &str) -> Result<String, String> {
         }
     };
     Ok(bounded(diff, is_cut))
+}
+
+/// The changed files against `target`.
+fn changes_for(git: &Path, toplevel: &Path, target: DiffTarget) -> Result<Vec<FileChange>, String> {
+    match target {
+        DiffTarget::Head => changes_at(git, toplevel),
+        DiffTarget::Base => Ok(diff_stats(git, toplevel, target)?
+            .into_iter()
+            .map(|stat| FileChange {
+                path: stat.path,
+                old_path: stat.old_path,
+                kind: stat.kind,
+            })
+            .collect()),
+    }
 }
 
 /// Cuts a diff to `MAX_DIFF_CHARS`, on a character boundary, and says so.
@@ -343,12 +364,18 @@ pub fn session_file_diff(
     store: State<'_, AppStore>,
     path: String,
     file: String,
+    target: Option<DiffTarget>,
 ) -> Result<String, String> {
     ensure_known_workspace(&path, |p| store.is_known_workspace(p))?;
     if !is_inside(&file) {
         return Err(format!("{file} is not a file in this repository"));
     }
-    file_diff(&git_binary(), Path::new(&path), &file)
+    file_diff(
+        &git_binary(),
+        Path::new(&path),
+        &file,
+        target.unwrap_or(DiffTarget::Head),
+    )
 }
 
 /// Commits the chosen changed files.

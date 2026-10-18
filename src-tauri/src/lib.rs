@@ -2,6 +2,7 @@ pub mod acp;
 pub mod appearance;
 pub mod changes;
 pub mod data_migration;
+pub mod diff_stats;
 pub mod env_resolver;
 pub mod files;
 pub mod fork_handoff;
@@ -317,6 +318,8 @@ pub fn run() {
             pull_requests::repo_pull_requests,
             changes::session_changes,
             changes::session_file_diff,
+            diff_stats::session_diff_targets,
+            diff_stats::session_diff_stats,
             changes::commit_session_changes,
             worktrees::create_session_worktree,
             worktrees::remove_session_worktree,
