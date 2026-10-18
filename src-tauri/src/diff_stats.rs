@@ -311,21 +311,31 @@ fn count_lines(path: &Path) -> std::io::Result<Counts> {
     })
 }
 
-/// A new file counted whole; a new link is one line, where it points. None
-/// for a file that cannot be read or resolves outside the repository.
+/// A file listed as changed whose lines are not counted: it cannot be read,
+/// or it is not a regular file (a pipe or socket, which reading could block
+/// on). It is kept as binary, so the UI still shows it, without contents.
+const UNCOUNTED: Counts = Counts {
+    added: 0,
+    removed: 0,
+    is_binary: true,
+};
+
+/// A new file counted whole; a new link is one line, where it points. A
+/// file that cannot be read, or is not a regular file, is kept uncounted.
+/// None for a path that resolves outside the repository, or no longer
+/// resolves at all (it is gone).
 fn untracked_stat(toplevel: &Path, path: String) -> Option<FileStat> {
     let full = toplevel.join(&path);
-    let is_link = full.symlink_metadata().ok()?.file_type().is_symlink();
-    let counts = if is_link {
-        Counts {
+    let file_type = full.symlink_metadata().map(|meta| meta.file_type());
+    let counts = match file_type {
+        Ok(kind) if kind.is_symlink() => Counts {
             added: 1,
             removed: 0,
             is_binary: false,
-        }
-    } else if resolves_inside(toplevel, &path) {
-        count_lines(&full).ok()?
-    } else {
-        return None;
+        },
+        _ if !resolves_inside(toplevel, &path) => return None,
+        Ok(kind) if kind.is_file() => count_lines(&full).unwrap_or(UNCOUNTED),
+        _ => UNCOUNTED,
     };
     Some(FileStat {
         path,
@@ -386,4 +396,36 @@ pub fn session_diff_stats(
 ) -> Result<Vec<FileStat>, String> {
     ensure_known_workspace(&path, |p| store.is_known_workspace(p))?;
     diff_stats(&git_binary(), Path::new(&path), target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn keeps_a_named_pipe_uncounted_without_opening_it() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("zorvo-stats-pipe-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let status = Command::new("mkfifo")
+            .arg(dir.join("pipe"))
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed");
+
+        // Opening a pipe with no writer blocks, so returning at all shows it was not opened.
+        let stat = untracked_stat(&dir, "pipe".to_string());
+        std::fs::remove_dir_all(&dir).ok();
+
+        let stat = stat.expect("the pipe is listed");
+        assert!(stat.is_binary);
+        assert_eq!((stat.added, stat.removed), (0, 0));
+        assert_eq!(stat.kind, ChangeKind::Untracked);
+    }
 }

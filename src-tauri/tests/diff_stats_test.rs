@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use zorvo_lib::changes::ChangeKind;
 use zorvo_lib::diff_stats::{diff_stats, diff_targets, BaseBranch, DiffTarget, FileStat};
@@ -181,4 +183,58 @@ fn offers_no_base_before_the_first_commit_or_when_detached() {
     git(&detached, &["checkout", "-q", "--detach"]);
     let targets = diff_targets(&git_path(), &detached).expect("targets");
     assert_eq!(targets.base, None);
+}
+
+/// How long a stats read may take before it counts as stuck on a file.
+const STUCK_AFTER: Duration = Duration::from_secs(20);
+
+/// Reads the stats on another thread, so one stuck opening a file fails the
+/// test instead of hanging it.
+fn stats_within_limit(repo: &Path, target: DiffTarget) -> Option<Vec<FileStat>> {
+    let (sender, receiver) = mpsc::channel();
+    let dir = repo.to_path_buf();
+    thread::spawn(move || {
+        let _ = sender.send(diff_stats(&git_path(), &dir, target));
+    });
+    receiver
+        .recv_timeout(STUCK_AFTER)
+        .ok()
+        .map(|stats| stats.expect("stats"))
+}
+
+#[test]
+fn reads_the_stats_of_a_repository_holding_a_named_pipe_without_hanging() {
+    let repo = repo("fifo");
+    let status = Command::new("mkfifo")
+        .arg(repo.join("pipe"))
+        .status()
+        .expect("run mkfifo");
+    assert!(status.success(), "mkfifo failed");
+    fs::write(repo.join("new.md"), "a\n").expect("write");
+
+    let stats = stats_within_limit(&repo, DiffTarget::Head);
+    fs::remove_dir_all(&repo).ok();
+
+    let stats = stats.expect("reading the stats got stuck on the pipe");
+    assert_eq!(stat_of(&stats, "new.md").added, 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn keeps_an_unreadable_untracked_file_as_binary() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = repo("unreadable");
+    let secret = repo.join("secret.txt");
+    fs::write(&secret, "hidden\n").expect("write");
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).expect("chmod");
+
+    let stats = diff_stats(&git_path(), &repo, DiffTarget::Head);
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o644)).ok();
+    fs::remove_dir_all(&repo).ok();
+
+    let stats = stats.expect("stats");
+    let secret = stat_of(&stats, "secret.txt");
+    assert!(secret.is_binary);
+    assert_eq!((secret.added, secret.removed), (0, 0));
 }
