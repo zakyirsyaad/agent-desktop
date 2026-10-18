@@ -1,0 +1,40 @@
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
+
+export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  label: string;
+  variant?: "ghost" | "primary";
+  children: ReactNode;
+  ref?: Ref<HTMLButtonElement>;
+}
+
+const BASE =
+  "inline-flex h-7 w-7 items-center justify-center transition-colors " +
+  "focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring " +
+  "disabled:cursor-not-allowed disabled:opacity-40";
+
+const VARIANTS: Record<NonNullable<IconButtonProps["variant"]>, string> = {
+  ghost: "rounded-md text-fg-muted hover:bg-surface-hover hover:text-fg",
+  primary: "rounded-lg bg-primary text-on-primary hover:bg-primary-hover",
+};
+
+export function IconButton({
+  label,
+  variant = "ghost",
+  className,
+  type = "button",
+  children,
+  ...rest
+}: IconButtonProps) {
+  const classes = [BASE, VARIANTS[variant], className].filter(Boolean).join(" ");
+  return (
+    <button
+      type={type}
+      aria-label={label}
+      title={label}
+      className={classes}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}
