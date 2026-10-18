@@ -189,17 +189,21 @@ fn write_fork_handoff(
         .map_err(|p| format!("Handoff path is not valid UTF-8: {}", p.to_string_lossy()))
 }
 
-/// Copies sessions and transcripts from the pre-rename data dir on first launch.
+/// Builds the store over `data_dir`, first copying sessions and transcripts
+/// from the pre-rename data dir on first launch.
 ///
 /// A failed copy must not stop the app from starting: it opens with empty
 /// state and the legacy directory is still there to retry from next launch.
-fn migrate_from_legacy_data_dir(data_dir: &std::path::Path) {
-    let Some(legacy_dir) = data_migration::legacy_root_for(data_dir) else {
-        return;
+/// Migrated sessions keep their worktrees in the legacy folder, so the store
+/// is told about it to still be able to remove them.
+fn build_store(data_dir: std::path::PathBuf) -> AppStore {
+    let Some(legacy_dir) = data_migration::legacy_root_for(&data_dir) else {
+        return AppStore::new(data_dir);
     };
-    if let Err(e) = data_migration::migrate_legacy_data(&legacy_dir, data_dir) {
+    if let Err(e) = data_migration::migrate_legacy_data(&legacy_dir, &data_dir) {
         eprintln!("Could not copy data from {}: {e}", legacy_dir.display());
     }
+    AppStore::new(data_dir).with_legacy_worktrees_root(legacy_dir.join(store::WORKTREES_DIR))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -266,8 +270,7 @@ pub fn run() {
                     e
                 )
             })?;
-            migrate_from_legacy_data_dir(&data_dir);
-            app.manage(AppStore::new(data_dir));
+            app.manage(build_store(data_dir));
 
             // Warm the login-shell environment off the main thread so the first
             // session spawn and profile scan do not pay for it.

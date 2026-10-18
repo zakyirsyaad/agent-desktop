@@ -161,3 +161,35 @@ fn finishes_a_copy_that_was_interrupted_before_state_json() {
     assert_eq!(read(&new_root.join("state.json")), r#"{"version":1}"#);
     fs::remove_dir_all(&parent).ok();
 }
+
+#[test]
+fn skips_when_the_legacy_root_has_no_state_json() {
+    let parent = unique_parent("no-legacy-state");
+    let legacy = parent.join(LEGACY_IDENTIFIER);
+    write(&legacy.join("transcripts/s1.json"), "[old]");
+    let new_root = parent.join("xyz.zorvo.desktop");
+    write(&new_root.join("transcripts/s1.json"), "[new]");
+
+    let outcome = migrate_legacy_data(&legacy, &new_root).expect("migration succeeds");
+
+    assert_eq!(outcome, Migration::NotNeeded);
+    assert_eq!(read(&new_root.join("transcripts/s1.json")), "[new]");
+    fs::remove_dir_all(&parent).ok();
+}
+
+#[cfg(unix)]
+#[test]
+fn does_not_follow_symlinks_out_of_the_legacy_root() {
+    let parent = unique_parent("symlink");
+    let legacy = seed_legacy(&parent);
+    let outside = parent.join("outside");
+    write(&outside.join("secret.txt"), "private");
+    std::os::unix::fs::symlink(&outside, legacy.join("transcripts/linked")).expect("symlink");
+    let new_root = parent.join("xyz.zorvo.desktop");
+
+    migrate_legacy_data(&legacy, &new_root).expect("migration succeeds");
+
+    assert!(!new_root.join("transcripts/linked").exists());
+    assert_eq!(read(&new_root.join("transcripts/s1.json")), "[1]");
+    fs::remove_dir_all(&parent).ok();
+}

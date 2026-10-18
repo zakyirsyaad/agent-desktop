@@ -142,7 +142,13 @@ fn removes_a_clean_worktree_but_keeps_its_branch() {
     let (base, repo, root) = repo("remove");
     let worktree = create_worktree(&git_path(), &repo, &root, "Cleanup").expect("create");
 
-    remove_worktree(&git_path(), &repo, &root, Path::new(&worktree.path)).expect("remove");
+    remove_worktree(
+        &git_path(),
+        &repo,
+        std::slice::from_ref(&root),
+        Path::new(&worktree.path),
+    )
+    .expect("remove");
 
     assert!(!Path::new(&worktree.path).exists());
     assert_eq!(
@@ -158,7 +164,13 @@ fn keeps_a_worktree_with_uncommitted_changes() {
     let worktree = create_worktree(&git_path(), &repo, &root, "Work").expect("create");
     fs::write(Path::new(&worktree.path).join("new.txt"), "draft\n").expect("write");
 
-    let error = remove_worktree(&git_path(), &repo, &root, Path::new(&worktree.path)).unwrap_err();
+    let error = remove_worktree(
+        &git_path(),
+        &repo,
+        std::slice::from_ref(&root),
+        Path::new(&worktree.path),
+    )
+    .unwrap_err();
 
     assert!(error.contains("uncommitted"), "{error}");
     assert!(Path::new(&worktree.path).join("new.txt").is_file());
@@ -169,7 +181,8 @@ fn keeps_a_worktree_with_uncommitted_changes() {
 fn refuses_to_remove_a_folder_outside_the_worktrees_folder() {
     let (base, repo, root) = repo("outside");
 
-    let error = remove_worktree(&git_path(), &repo, &root, &repo).unwrap_err();
+    let error =
+        remove_worktree(&git_path(), &repo, std::slice::from_ref(&root), &repo).unwrap_err();
 
     assert!(error.contains("not a session worktree"), "{error}");
     assert!(repo.join("packages/web/README.md").is_file());
@@ -194,5 +207,37 @@ fn refuses_a_subfolder_the_last_commit_does_not_have() {
         !root.join("my-app/notes").exists(),
         "no checkout is left behind"
     );
+    fs::remove_dir_all(base).ok();
+}
+
+#[test]
+fn removes_a_worktree_under_any_of_the_given_roots() {
+    let (base, repo, root) = repo("legacy-root");
+    let legacy_root = base.join("legacy/worktrees");
+    let worktree = create_worktree(&git_path(), &repo, &legacy_root, "Old").expect("create");
+
+    remove_worktree(
+        &git_path(),
+        &repo,
+        &[root, legacy_root],
+        Path::new(&worktree.path),
+    )
+    .expect("remove");
+
+    assert!(!Path::new(&worktree.path).exists());
+    fs::remove_dir_all(base).ok();
+}
+
+#[test]
+fn refuses_a_worktree_outside_every_given_root() {
+    let (base, repo, root) = repo("other-root");
+    let elsewhere = base.join("elsewhere/worktrees");
+    let worktree = create_worktree(&git_path(), &repo, &elsewhere, "Stray").expect("create");
+
+    let error =
+        remove_worktree(&git_path(), &repo, &[root], Path::new(&worktree.path)).unwrap_err();
+
+    assert!(error.contains("not a session worktree"), "{error}");
+    assert!(Path::new(&worktree.path).exists());
     fs::remove_dir_all(base).ok();
 }

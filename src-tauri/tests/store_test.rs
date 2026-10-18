@@ -604,3 +604,21 @@ fn drops_malformed_organizing_fields_but_keeps_the_saved_sessions() {
     assert!(!state.sessions[0].has_unread);
     fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn worktree_roots_are_the_store_worktrees_folder_by_default() {
+    let root = unique_temp_root("roots-default");
+    let store = AppStore::new(root.clone());
+
+    assert_eq!(store.worktree_roots(), vec![root.join("worktrees")]);
+}
+
+#[test]
+fn worktree_roots_include_a_legacy_worktrees_folder() {
+    let root = unique_temp_root("roots-legacy");
+    let legacy = PathBuf::from("/data/com.agentdesktop.app/worktrees");
+    let store = AppStore::new(root.clone()).with_legacy_worktrees_root(legacy.clone());
+
+    assert_eq!(store.worktrees_root(), root.join("worktrees"));
+    assert_eq!(store.worktree_roots(), vec![root.join("worktrees"), legacy]);
+}

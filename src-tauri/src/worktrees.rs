@@ -185,15 +185,24 @@ pub fn create_worktree(
 
 /// Removes a session worktree that has no uncommitted changes; its branch,
 /// with any commits on it, stays in the repository.
-pub fn remove_worktree(git: &Path, repo: &Path, root: &Path, path: &Path) -> Result<(), String> {
-    let not_a_worktree = || format!("{} is not a session worktree", path.display());
+///
+/// `path` must lie inside one of `roots`, the folders session worktrees are made in.
+pub fn remove_worktree(
+    git: &Path,
+    repo: &Path,
+    roots: &[PathBuf],
+    path: &Path,
+) -> Result<(), String> {
     let canonical = path
         .canonicalize()
         .map_err(|e| format!("{}: {e}", path.display()))?;
-    // Without the worktrees folder there is no session worktree to remove.
-    let root = root.canonicalize().map_err(|_| not_a_worktree())?;
-    if canonical == root || !canonical.starts_with(&root) {
-        return Err(not_a_worktree());
+    // A root that does not exist holds no session worktree to remove.
+    let inside_a_root = roots
+        .iter()
+        .filter_map(|root| root.canonicalize().ok())
+        .any(|root| canonical != root && canonical.starts_with(&root));
+    if !inside_a_root {
+        return Err(format!("{} is not a session worktree", path.display()));
     }
     let changes = run_git(git, &canonical, &["status", "--porcelain"])?;
     if !changes.is_empty() {
@@ -257,7 +266,7 @@ pub fn remove_session_worktree(
     remove_worktree(
         &git_binary(),
         Path::new(&repo_path),
-        &store.worktrees_root(),
+        &store.worktree_roots(),
         Path::new(&path),
     )
 }
