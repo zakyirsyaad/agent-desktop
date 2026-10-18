@@ -401,8 +401,14 @@ pub fn terminate(task: &TaskProcess, rows: &[ProcessRow]) -> Result<(), String> 
 
     thread::spawn(move || {
         thread::sleep(KILL_GRACE);
-        let Ok(now) = read_processes() else {
-            return;
+        // Nothing can be shown from here, so a failure is logged; without a
+        // fresh read the KILL is skipped rather than sent to reused pids.
+        let now = match read_processes() {
+            Ok(now) => now,
+            Err(error) => {
+                eprintln!("Could not check what is left of the stopped task to KILL: {error}");
+                return;
+            }
         };
         let lingering: Vec<u32> = members
             .iter()
@@ -415,8 +421,11 @@ pub fn terminate(task: &TaskProcess, rows: &[ProcessRow]) -> Result<(), String> 
             })
             .map(|row| row.pid)
             .collect();
-        if !lingering.is_empty() {
-            let _ = send_signal("-KILL", &lingering);
+        if lingering.is_empty() {
+            return;
+        }
+        if let Err(error) = send_signal("-KILL", &lingering) {
+            eprintln!("Could not KILL what is left of the stopped task {lingering:?}: {error}");
         }
     });
     Ok(())
