@@ -168,6 +168,51 @@ fn prefers_origin_head_for_the_base_name() {
 }
 
 #[test]
+fn compares_with_the_remote_branch_when_there_is_no_local_one() {
+    let repo = repo("remote-only");
+    git(
+        &repo,
+        &["update-ref", "refs/remotes/origin/develop", "HEAD"],
+    );
+    git(
+        &repo,
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/develop",
+        ],
+    );
+    git(&repo, &["checkout", "-q", "-b", "feat"]);
+    fs::write(repo.join("src/app.ts"), "one\nTWO\nthree\n").expect("write");
+    git(&repo, &["commit", "-q", "-am", "feat"]);
+
+    let targets = diff_targets(&git_path(), &repo).expect("targets");
+    let stats = diff_stats(&git_path(), &repo, DiffTarget::Base).expect("stats");
+
+    assert_eq!(
+        targets.base,
+        Some(BaseBranch {
+            name: "develop".to_string()
+        })
+    );
+    assert!(stats.iter().any(|s| s.path == "src/app.ts"));
+}
+
+#[test]
+fn compares_with_the_branch_not_a_tag_of_the_same_name() {
+    let repo = repo("tag-clash");
+    git(&repo, &["checkout", "-q", "-b", "feat"]);
+    fs::write(repo.join("src/app.ts"), "one\nTWO\nthree\n").expect("write");
+    git(&repo, &["commit", "-q", "-am", "feat"]);
+    // A tag named like the base branch, on the feature's own commit.
+    git(&repo, &["tag", "main", "HEAD"]);
+
+    let stats = diff_stats(&git_path(), &repo, DiffTarget::Base).expect("stats");
+
+    assert!(stats.iter().any(|s| s.path == "src/app.ts"));
+}
+
+#[test]
 fn offers_no_base_before_the_first_commit_or_when_detached() {
     let fresh = temp_dir("fresh");
     fs::create_dir_all(&fresh).expect("create");

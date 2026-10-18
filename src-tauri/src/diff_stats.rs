@@ -63,8 +63,24 @@ fn git_succeeds(git: &Path, dir: &Path, args: &[&str]) -> bool {
     run_git(git, dir, args).is_ok()
 }
 
-/// The default branch's name: the remote's HEAD, else `main` or `master`.
-fn default_branch_name(git: &Path, toplevel: &Path) -> Option<String> {
+/// A branch to compare with: its short name, and the full ref to read it
+/// from, so a tag or a remote branch of the same name is never picked up.
+struct BaseRef {
+    name: String,
+    reference: String,
+}
+
+fn ref_exists(git: &Path, toplevel: &Path, reference: &str) -> bool {
+    git_succeeds(
+        git,
+        toplevel,
+        &["rev-parse", "--verify", "--quiet", reference],
+    )
+}
+
+/// The default branch: the remote's HEAD (read locally when that branch is
+/// checked out here, else from the remote), else a local `main` or `master`.
+fn default_branch(git: &Path, toplevel: &Path) -> Option<BaseRef> {
     let remote = run_git(
         git,
         toplevel,
@@ -78,25 +94,27 @@ fn default_branch_name(git: &Path, toplevel: &Path) -> Option<String> {
     .ok()
     .map(|name| name.trim().trim_start_matches("origin/").to_string())
     .filter(|name| !name.is_empty());
-    remote.or_else(|| {
-        DEFAULT_BRANCHES
-            .iter()
-            .find(|name| {
-                let reference = format!("refs/heads/{name}");
-                git_succeeds(
-                    git,
-                    toplevel,
-                    &["rev-parse", "--verify", "--quiet", &reference],
-                )
-            })
-            .map(|name| name.to_string())
+    if let Some(name) = remote {
+        let local = format!("refs/heads/{name}");
+        let tracking = format!("refs/remotes/origin/{name}");
+        let reference = [local, tracking]
+            .into_iter()
+            .find(|reference| ref_exists(git, toplevel, reference))?;
+        return Some(BaseRef { name, reference });
+    }
+    DEFAULT_BRANCHES.iter().find_map(|name| {
+        let reference = format!("refs/heads/{name}");
+        ref_exists(git, toplevel, &reference).then(|| BaseRef {
+            name: name.to_string(),
+            reference,
+        })
     })
 }
 
 /// The default branch to compare with, when there is a point in doing so:
 /// there is a commit, a branch is checked out other than the default one,
 /// and the two share history.
-fn base_branch(git: &Path, toplevel: &Path) -> Option<String> {
+fn base_branch(git: &Path, toplevel: &Path) -> Option<BaseRef> {
     if !git_succeeds(git, toplevel, &["rev-parse", "--verify", "--quiet", "HEAD"]) {
         return None;
     }
@@ -106,15 +124,15 @@ fn base_branch(git: &Path, toplevel: &Path) -> Option<String> {
         &["symbolic-ref", "--quiet", "--short", "HEAD"],
     )
     .ok()?;
-    let name = default_branch_name(git, toplevel)?;
-    let shares_history = git_succeeds(git, toplevel, &["merge-base", &name, "HEAD"]);
-    (current.trim() != name && shares_history).then_some(name)
+    let base = default_branch(git, toplevel)?;
+    let shares_history = git_succeeds(git, toplevel, &["merge-base", &base.reference, "HEAD"]);
+    (current.trim() != base.name && shares_history).then_some(base)
 }
 
 pub fn diff_targets(git: &Path, dir: &Path) -> Result<DiffTargets, String> {
     let toplevel = toplevel_of(git, dir)?;
     Ok(DiffTargets {
-        base: base_branch(git, &toplevel).map(|name| BaseBranch { name }),
+        base: base_branch(git, &toplevel).map(|base| BaseBranch { name: base.name }),
     })
 }
 
@@ -124,9 +142,9 @@ pub fn base_commit(git: &Path, toplevel: &Path, target: DiffTarget) -> Result<St
     match target {
         DiffTarget::Head => diff_base(git, toplevel),
         DiffTarget::Base => {
-            let name = base_branch(git, toplevel)
+            let base = base_branch(git, toplevel)
                 .ok_or_else(|| "There is no base branch to compare with".to_string())?;
-            run_git(git, toplevel, &["merge-base", &name, "HEAD"])
+            run_git(git, toplevel, &["merge-base", &base.reference, "HEAD"])
                 .map(|hash| hash.trim().to_string())
         }
     }
