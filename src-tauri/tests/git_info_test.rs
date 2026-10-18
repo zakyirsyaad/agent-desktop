@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use agent_desktop_lib::git_info::{branch_of, display_location};
+use zorvo_lib::git_info::{branch_of, display_location};
 
 fn unique_temp_root(tag: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -10,7 +10,7 @@ fn unique_temp_root(tag: &str) -> PathBuf {
         .expect("system clock is before the unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "agent-desktop-git-{}-{}-{}",
+        "zorvo-git-{}-{}-{}",
         tag,
         std::process::id(),
         nanos

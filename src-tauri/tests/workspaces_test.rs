@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use agent_desktop_lib::workspaces::{list_workspaces_in, Workspace};
+use zorvo_lib::workspaces::{list_workspaces_in, Workspace};
 
 /// Builds a root path that is unique to this process and this call, so tests
 /// running in parallel (or a leftover directory from a killed run) cannot
@@ -13,7 +13,7 @@ fn unique_temp_root(tag: &str) -> PathBuf {
         .expect("system clock is before the unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "agent-desktop-workspaces-{}-{}-{}",
+        "zorvo-workspaces-{}-{}-{}",
         tag,
         std::process::id(),
         nanos

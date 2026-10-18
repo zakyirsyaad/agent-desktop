@@ -2,8 +2,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::time::Duration;
 
-use agent_desktop_lib::acp::manager::{AcpEvent, AcpLaunch, AcpManager};
 use serde_json::Value;
+use zorvo_lib::acp::manager::{AcpEvent, AcpLaunch, AcpManager};
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -247,7 +247,7 @@ fn reports_that_the_agent_needs_a_sign_in_with_its_methods() {
     let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
 
     let methods = error
-        .strip_prefix(agent_desktop_lib::acp::manager::AUTH_REQUIRED_PREFIX)
+        .strip_prefix(zorvo_lib::acp::manager::AUTH_REQUIRED_PREFIX)
         .expect("an auth-required error");
     let methods: Value = serde_json::from_str(methods).expect("auth methods as JSON");
     assert_eq!(methods[0]["id"], "browser");
@@ -294,7 +294,7 @@ fn keeps_the_sign_in_methods_parseable_when_the_agent_logs_to_stderr() {
     let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
 
     let methods = error
-        .strip_prefix(agent_desktop_lib::acp::manager::AUTH_REQUIRED_PREFIX)
+        .strip_prefix(zorvo_lib::acp::manager::AUTH_REQUIRED_PREFIX)
         .expect("an auth-required error");
     serde_json::from_str::<Value>(methods).expect("auth methods stay valid JSON");
 }
@@ -309,7 +309,7 @@ fn reports_a_generic_server_error_as_is_rather_than_as_a_sign_in() {
 
     let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
 
-    assert!(!error.starts_with(agent_desktop_lib::acp::manager::AUTH_REQUIRED_PREFIX));
+    assert!(!error.starts_with(zorvo_lib::acp::manager::AUTH_REQUIRED_PREFIX));
     assert!(error.contains("disk full"), "unexpected error: {error}");
 }
 
@@ -332,7 +332,7 @@ fn recognizes_a_sign_in_request_however_the_agent_phrases_it() {
         let error = manager.start("s-1", &cwd(), &launch).unwrap_err();
 
         assert!(
-            error.starts_with(agent_desktop_lib::acp::manager::AUTH_REQUIRED_PREFIX),
+            error.starts_with(zorvo_lib::acp::manager::AUTH_REQUIRED_PREFIX),
             "{message:?} gave {error}"
         );
     }

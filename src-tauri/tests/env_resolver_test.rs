@@ -1,5 +1,5 @@
-use agent_desktop_lib::env_resolver::{find_binary_in_user_path, resolve_user_env};
 use std::path::PathBuf;
+use zorvo_lib::env_resolver::{find_binary_in_user_path, resolve_user_env};
 
 #[test]
 fn test_resolve_user_env_contains_essential_paths() {

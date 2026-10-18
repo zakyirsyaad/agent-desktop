@@ -1,6 +1,4 @@
-use agent_desktop_lib::profiles::{
-    get_available_agent_profiles, get_default_profiles, AgentProfile,
-};
+use zorvo_lib::profiles::{get_available_agent_profiles, get_default_profiles, AgentProfile};
 
 fn find<'a>(profiles: &'a [AgentProfile], id: &str) -> &'a AgentProfile {
     profiles
@@ -380,7 +378,7 @@ fn test_detection_flags_match_system_binaries() {
             assert!(!profile.detected);
             assert!(profile.detected_path.is_none());
         } else {
-            let found = agent_desktop_lib::env_resolver::find_binary_in_user_path(&profile.command);
+            let found = zorvo_lib::env_resolver::find_binary_in_user_path(&profile.command);
             match found {
                 Some(path) => {
                     assert!(

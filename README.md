@@ -1,9 +1,11 @@
-# Agent Desktop
+# Zorvo
 
 [![CI](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/ci.yml)
 [![Security](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/security.yml/badge.svg)](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/security.yml)
 [![Release](https://img.shields.io/github/v/release/zakyirsyaad/agent-desktop?include_prereleases)](https://github.com/zakyirsyaad/agent-desktop/releases)
 ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
+
+**Every coding agent. One desktop.**
 
 A desktop app for the coding agents you already use. Qwen Code, Claude Code
 and Codex run in a real chat UI, and terminal agents (Oh-My-Pi, Aider) run in
@@ -100,15 +102,15 @@ in Settings.
 
 Download the `.dmg` from the
 [latest release](https://github.com/zakyirsyaad/agent-desktop/releases) and
-drag Agent Desktop into Applications.
+drag Zorvo into Applications.
 
 The build is not yet signed, so macOS blocks it the first time you open it.
 Open it once, then go to **System Settings → Privacy & Security** and click
-**Open Anyway** next to the Agent Desktop message. macOS 15 no longer offers
+**Open Anyway** next to the Zorvo message. macOS 15 no longer offers
 right-click → Open for this. You can also run this in a terminal:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/Agent Desktop.app"
+xattr -dr com.apple.quarantine "/Applications/Zorvo.app"
 ```
 
 ## Getting started
@@ -142,8 +144,10 @@ or runs commands.
   requests itself: its Content Security Policy only allows the local IPC
   bridge. Your agents talk to their own services as they always do.
 - **Where your data lives.** Sessions and transcripts are stored in
-  `~/Library/Application Support/com.agentdesktop.app/`, as `state.json` and
-  `transcripts/`. Session worktrees live in `worktrees/` there.
+  `~/Library/Application Support/xyz.zorvo.desktop/`, as `state.json` and
+  `transcripts/`. Session worktrees live in `worktrees/` there. On first
+  launch, Zorvo copies sessions and transcripts from the folder earlier builds
+  used (`com.agentdesktop.app/`) and leaves that folder as it was.
 - **Folder limits.** The backend only reads and runs in folders you opened in
   the app.
 

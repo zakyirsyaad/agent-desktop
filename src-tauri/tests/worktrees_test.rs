@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use agent_desktop_lib::worktrees::{branch_slug, create_worktree, remove_worktree};
+use zorvo_lib::worktrees::{branch_slug, create_worktree, remove_worktree};
 
 fn unique_temp_root(tag: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -11,12 +11,7 @@ fn unique_temp_root(tag: &str) -> PathBuf {
         .expect("system clock is before the unix epoch")
         .as_nanos();
     std::env::temp_dir()
-        .join(format!(
-            "agent-desktop-wt-{}-{}-{}",
-            tag,
-            std::process::id(),
-            nanos
-        ))
+        .join(format!("zorvo-wt-{}-{}-{}", tag, std::process::id(), nanos))
         .canonicalize_or_self()
 }
 

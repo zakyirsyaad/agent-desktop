@@ -1,7 +1,7 @@
-use agent_desktop_lib::acp::jsonrpc::{
+use serde_json::json;
+use zorvo_lib::acp::jsonrpc::{
     error_response, notification, parse_incoming, request, response, Incoming,
 };
-use serde_json::json;
 
 #[test]
 fn builds_newline_free_request_lines() {

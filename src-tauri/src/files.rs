@@ -180,7 +180,7 @@ mod tests {
                 .expect("system clock is before the unix epoch")
                 .as_nanos();
             let path = std::env::temp_dir().join(format!(
-                "agent-desktop-files-{}-{}-{}",
+                "zorvo-files-{}-{}-{}",
                 tag,
                 std::process::id(),
                 nanos

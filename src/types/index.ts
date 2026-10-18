@@ -1,5 +1,5 @@
 /**
- * Core type definitions for Agent Desktop GUI
+ * Core type definitions for Zorvo GUI
  */
 
 import type { AgentOptions } from '../lib/acp-draft';

@@ -1,12 +1,12 @@
 [package]
-name = "agent-desktop"
+name = "zorvo"
 version = "0.2.0"
-description = "Generic Desktop GUI Wrapper for Terminal Coding Agents"
+description = "Every coding agent, one desktop."
 authors = ["zakyirsyaad <zkyxentertain@gmail.com>"]
 edition = "2021"
 
 [lib]
-name = "agent_desktop_lib"
+name = "zorvo_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

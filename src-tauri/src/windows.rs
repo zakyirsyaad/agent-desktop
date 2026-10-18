@@ -17,7 +17,7 @@ use tauri::TitleBarStyle;
 pub const MAX_SESSION_ID_LEN: usize = 64;
 /// Prefix that turns a session id into a window label unique to that session.
 pub const SESSION_WINDOW_LABEL_PREFIX: &str = "session-";
-pub const SESSION_WINDOW_TITLE: &str = "Agent Desktop";
+pub const SESSION_WINDOW_TITLE: &str = "Zorvo";
 pub const SESSION_WINDOW_WIDTH: f64 = 900.0;
 pub const SESSION_WINDOW_HEIGHT: f64 = 700.0;
 
@@ -321,7 +321,7 @@ mod tests {
             .expect("system clock is before the unix epoch")
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "agent-desktop-windows-{}-{}-{}",
+            "zorvo-windows-{}-{}-{}",
             tag,
             std::process::id(),
             nanos

@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod changes;
+pub mod data_migration;
 pub mod env_resolver;
 pub mod files;
 pub mod fork_handoff;
@@ -188,6 +189,19 @@ fn write_fork_handoff(
         .map_err(|p| format!("Handoff path is not valid UTF-8: {}", p.to_string_lossy()))
 }
 
+/// Copies sessions and transcripts from the pre-rename data dir on first launch.
+///
+/// A failed copy must not stop the app from starting: it opens with empty
+/// state and the legacy directory is still there to retry from next launch.
+fn migrate_from_legacy_data_dir(data_dir: &std::path::Path) {
+    let Some(legacy_dir) = data_migration::legacy_root_for(data_dir) else {
+        return;
+    };
+    if let Err(e) = data_migration::migrate_legacy_data(&legacy_dir, data_dir) {
+        eprintln!("Could not copy data from {}: {e}", legacy_dir.display());
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_handle_holder: Arc<std::sync::Mutex<Option<AppHandle>>> =
@@ -252,6 +266,7 @@ pub fn run() {
                     e
                 )
             })?;
+            migrate_from_legacy_data_dir(&data_dir);
             app.manage(AppStore::new(data_dir));
 
             // Warm the login-shell environment off the main thread so the first

@@ -1,5 +1,5 @@
-use agent_desktop_lib::profiles::{AgentProfile, EffortLevel, PermissionModeOption};
-use agent_desktop_lib::spawn_plan::{build_spawn_plan, SpawnOptions};
+use zorvo_lib::profiles::{AgentProfile, EffortLevel, PermissionModeOption};
+use zorvo_lib::spawn_plan::{build_spawn_plan, SpawnOptions};
 
 fn strs(values: &[&str]) -> Vec<String> {
     values.iter().map(|&s| s.to_string()).collect()

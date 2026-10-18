@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
 
-use agent_desktop_lib::store::{
+use zorvo_lib::store::{
     AppStore, PersistedState, RecentFolder, SessionRecord, SessionWorktreeRecord, Settings,
     STATE_VERSION,
 };
@@ -18,7 +18,7 @@ fn unique_temp_root(tag: &str) -> PathBuf {
         .expect("system clock is before the unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "agent-desktop-store-{}-{}-{}",
+        "zorvo-store-{}-{}-{}",
         tag,
         std::process::id(),
         nanos

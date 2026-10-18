@@ -497,11 +497,7 @@ fn refuse(routes: &Arc<Mutex<Routes>>, connection_key: u64, id: &Value) {
             .map(|e| Arc::clone(&e.connection))
     });
     if let Some(connection) = connection {
-        let _ = connection.respond_error(
-            id,
-            METHOD_NOT_FOUND,
-            "Method not supported by Agent Desktop",
-        );
+        let _ = connection.respond_error(id, METHOD_NOT_FOUND, "Method not supported by Zorvo");
     }
 }
 
@@ -559,7 +555,7 @@ fn initialize(connection: &AcpConnection) -> Result<Value, String> {
         json!({
             "protocolVersion": PROTOCOL_VERSION,
             "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
-            "clientInfo": { "name": "agent-desktop", "version": env!("CARGO_PKG_VERSION") },
+            "clientInfo": { "name": "zorvo", "version": env!("CARGO_PKG_VERSION") },
         }),
         HANDSHAKE_TIMEOUT,
     )

@@ -189,7 +189,7 @@ describe("TopBar", () => {
 
       expect(screen.queryByText(/new session \(fork\)/i)).toBeNull();
       expect(screen.queryByText("ai-perpetual-trading")).toBeNull();
-      expect(screen.getByText("Agent Desktop")).toBeDefined();
+      expect(screen.getByText("Zorvo")).toBeDefined();
     });
 
     it("shows only the folder when no session is open", () => {

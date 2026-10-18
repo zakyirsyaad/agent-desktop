@@ -1,10 +1,14 @@
 # Changelog
 
-All notable changes to Agent Desktop. Versions follow [Semantic Versioning](https://semver.org).
+All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
 To be released as 0.2.0.
+
+### Changed
+
+- **Agent Desktop is now Zorvo.** New name, icon and bundle identifier (`xyz.zorvo.desktop`). On first launch Zorvo copies your sessions and transcripts from the old `com.agentdesktop.app` data folder and leaves that folder untouched.
 
 ### Added
 
