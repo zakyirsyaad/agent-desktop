@@ -81,4 +81,45 @@ describe("useBackgroundProcesses", () => {
     await advance(5_000);
     expect(onError).toHaveBeenCalledTimes(2);
   });
+
+  it("switches from 5s to 2s polling when the menu opens", async () => {
+    const spy = stub(() => Promise.resolve([]));
+    const { rerender } = renderHook(({ open }) => useBackgroundProcesses(true, open), { initialProps: { open: false } });
+    await advance(0);
+    rerender({ open: true });
+    await advance(0);
+    const before = spy.mock.calls.length;
+    await advance(2_000);
+    expect(spy.mock.calls.length).toBe(before + 1);
+  });
+
+  it("ignores a read that resolves after a newer one", async () => {
+    const resolvers: ((v: unknown) => void)[] = [];
+    stub(() => new Promise((r) => resolvers.push(r)));
+    const { result } = renderHook(() => useBackgroundProcesses(true, false));
+    await advance(0);
+    await advance(5_000);
+    const B = { ...PROC, pid: 2 };
+    await act(async () => { resolvers[1]([B]); });
+    await act(async () => { resolvers[0]([PROC]); });
+    expect(result.current.processes).toEqual([B]);
+  });
+
+  it("keeps the failure report once across effect restarts", async () => {
+    let fail = true;
+    stub(() => (fail ? Promise.reject(new Error("x")) : Promise.resolve([])));
+    const onError = vi.fn();
+    const { rerender, result } = renderHook(({ open }) => useBackgroundProcesses(true, open, onError), { initialProps: { open: false } });
+    await advance(0);
+    rerender({ open: true });
+    await advance(0);
+    act(() => result.current.reload());
+    await advance(0);
+    expect(onError).toHaveBeenCalledTimes(1);
+    fail = false;
+    await advance(2_000);
+    fail = true;
+    await advance(2_000);
+    expect(onError).toHaveBeenCalledTimes(2);
+  });
 });

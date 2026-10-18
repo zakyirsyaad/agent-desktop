@@ -26,15 +26,23 @@ function stopCall(task: BackgroundTask): Promise<unknown> {
 }
 
 /** What is running in the background, for the TopBar menu, with Open and Stop. */
-export function useBackgroundTasks(args: BackgroundTasksArgs) {
+export interface BackgroundTasks {
+  tasks: BackgroundTask[];
+  isMenuOpen: boolean;
+  setMenuOpen: (open: boolean) => void;
+  open: (task: BackgroundTask) => void;
+  stop: (task: BackgroundTask) => Promise<void>;
+}
+
+export function useBackgroundTasks(args: BackgroundTasksArgs): BackgroundTasks {
   const { sessions, isAcp, isBusy, busySince, needsApproval, onOpenSession, onError } = args;
   const [isMenuOpen, setMenuOpen] = useState(false);
   const hasLiveSessions = sessions.some((s) => s.status === 'running');
-  const { processes, reload } = useBackgroundProcesses(hasLiveSessions, isMenuOpen, onError);
+  const { processes, readAt, reload } = useBackgroundProcesses(hasLiveSessions, isMenuOpen, onError);
 
   const tasks = useMemo(
-    () => backgroundTasksOf({ sessions, isAcp, isBusy, busySince, needsApproval, processes, now: Date.now() }),
-    [sessions, isAcp, isBusy, busySince, needsApproval, processes],
+    () => backgroundTasksOf({ sessions, isAcp, isBusy, busySince, needsApproval, processes, now: readAt, processesReadAt: readAt }),
+    [sessions, isAcp, isBusy, busySince, needsApproval, processes, readAt],
   );
 
   const open = useCallback((task: BackgroundTask) => onOpenSession(task.sessionId), [onOpenSession]);

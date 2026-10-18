@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useLatest } from './useLatest';
 import type { BackgroundProcess } from '../lib/background-tasks';
@@ -15,28 +15,31 @@ export function useBackgroundProcesses(
   hasLiveSessions: boolean,
   isMenuOpen: boolean,
   onError?: (message: string) => void,
-): { processes: BackgroundProcess[]; reload: () => void } {
-  const [processes, setProcesses] = useState<BackgroundProcess[]>([]);
+): { processes: BackgroundProcess[]; readAt: number; reload: () => void } {
+  const [read, setRead] = useState<{ processes: BackgroundProcess[]; readAt: number }>({ processes: [], readAt: 0 });
+  const latestReadRef = useRef(0);
+  const hasReportedFailureRef = useRef(false);
   const [reloads, setReloads] = useState(0);
   const onErrorRef = useLatest(onError);
 
   useEffect(() => {
     if (!hasLiveSessions) {
-      setProcesses((prev) => (prev.length === 0 ? prev : []));
+      setRead((prev) => (prev.processes.length === 0 ? prev : { processes: [], readAt: Date.now() }));
       return;
     }
     let isCancelled = false;
-    let hasReportedFailure = false;
     const poll = () => {
+      latestReadRef.current += 1;
+      const readId = latestReadRef.current;
       invoke<BackgroundProcess[]>('background_processes')
         .then((list) => {
-          if (isCancelled) return;
-          hasReportedFailure = false;
-          setProcesses(list);
+          if (isCancelled || readId !== latestReadRef.current) return;
+          hasReportedFailureRef.current = false;
+          setRead({ processes: list, readAt: Date.now() });
         })
         .catch((error) => {
-          if (isCancelled || hasReportedFailure) return;
-          hasReportedFailure = true;
+          if (isCancelled || readId !== latestReadRef.current || hasReportedFailureRef.current) return;
+          hasReportedFailureRef.current = true;
           onErrorRef.current?.(`Could not read background processes: ${String(error)}`);
         });
     };
@@ -50,5 +53,5 @@ export function useBackgroundProcesses(
 
   const reload = useCallback(() => setReloads((n) => n + 1), []);
 
-  return { processes, reload };
+  return { processes: read.processes, readAt: read.readAt, reload };
 }
