@@ -97,7 +97,8 @@ The logo is the **double prompt** symbol beside the `zorvo` wordmark.
 Both draw in `currentColor`, so they take the color of the text around them.
 
 - **App icon:** the symbol in `#FAFAFA` on a `#0A0A0A` macOS squircle,
-  symbol at about 55% of the tile.
+  the symbol's 40-unit grid at 55% of the tile (the strokes themselves span
+  about 45%).
 - **Don't:** recolor the symbol, add gradients or glows, outline it, rotate
   it, or set the wordmark in another typeface.
 
@@ -105,14 +106,15 @@ Both draw in `currentColor`, so they take the color of the text around them.
 
 `src-tauri/icons/` is generated from the symbol geometry. To regenerate it:
 
-1. Draw the 1024px masters (needs Pillow):
+1. Draw the 1024px masters (needs Pillow 9.1 or later):
    `python3 scripts/generate-app-icon.py <out>`. This writes
    `zorvo-icon-1024.png` (full symbol) and `zorvo-icon-small-1024.png`
    (small variant).
 2. Generate every size Tauri bundles: `pnpm tauri icon <out>/zorvo-icon-1024.png`.
 3. Replace the images under 32px with the small variant, resized from
-   `zorvo-icon-small-1024.png`: the 16 and 24 entries in `icon.ico`, the 16
-   entries in `icon.icns`, `Square30x30Logo.png`, and the iOS
+   `zorvo-icon-small-1024.png`: the 16 and 24 entries in `icon.ico`, the
+   16px `ic04` entry in `icon.icns` (not `ic11`, the 16@2x entry, which is
+   32px and keeps the full symbol), `Square30x30Logo.png`, and the iOS
    `AppIcon-20x20@1x.png` and `AppIcon-29x29@1x.png`.
 
 The script's geometry is copied from the SVGs in `assets/`; if a path or

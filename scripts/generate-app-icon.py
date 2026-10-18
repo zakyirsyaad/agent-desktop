@@ -3,7 +3,7 @@
 Usage: python3 scripts/generate-app-icon.py <out_dir>
 Writes zorvo-icon-1024.png (full symbol) and zorvo-icon-small-1024.png
 (small variant: no cursor, heavier stroke) per docs/brand/zorvo-brand-brief.md.
-Needs Pillow (pip install pillow).
+Needs Pillow 9.1 or later (pip install "pillow>=9.1").
 """
 import math
 import sys
