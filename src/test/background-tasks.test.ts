@@ -12,7 +12,7 @@ const base = {
   busySince: () => undefined,
   needsApproval: () => false,
   processes: [],
-  now: 100_000,
+  processesReadAt: 100_000,
 };
 
 describe("formatElapsed", () => {

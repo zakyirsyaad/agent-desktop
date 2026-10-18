@@ -29,16 +29,13 @@ export interface BackgroundTasksInput {
   busySince: (sessionId: string) => number | undefined;
   needsApproval: (sessionId: string) => boolean;
   processes: readonly BackgroundProcess[];
-  /** Fallback clock for process start times. */
-  now: number;
   /** When `processes` was read; process start times are anchored to it. */
-  processesReadAt?: number;
+  processesReadAt: number;
 }
 
 /** Everything running in the background, oldest first. */
 export function backgroundTasksOf(input: BackgroundTasksInput): BackgroundTask[] {
-  const { sessions, isAcp, isBusy, busySince, needsApproval, processes, now, processesReadAt } = input;
-  const readAt = processesReadAt ?? now;
+  const { sessions, isAcp, isBusy, busySince, needsApproval, processes, processesReadAt } = input;
   const names = new Map(sessions.map((s) => [s.id, s.name]));
 
   const sessionTasks = sessions.flatMap((session): BackgroundTask[] => {
@@ -78,7 +75,7 @@ export function backgroundTasksOf(input: BackgroundTasksInput): BackgroundTask[]
       name: process.command,
       ...(detail ? { detail } : {}),
       status: 'Running',
-      startedAt: readAt - process.elapsedSecs * 1000,
+      startedAt: processesReadAt - process.elapsedSecs * 1000,
       sessionId: process.sessionId,
       pid: process.pid,
     };

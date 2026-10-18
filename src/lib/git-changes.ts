@@ -22,9 +22,9 @@ export interface UnifiedRow {
 
 /** Rows rendered at most, so a huge diff cannot freeze the panel. */
 const MAX_ROWS = 1500;
-/** git's file header lines, which the panel already shows as the file's name. */
 /** A hunk header's starting line numbers; an omitted count means one line. */
 const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+/** git's file header lines, which the panel already shows as the file's name. */
 const FILE_HEADER = /^(diff --git |index |--- |\+\+\+ |new file mode |deleted file mode |similarity index |rename (from|to) |old mode |new mode )/;
 
 /** Display rows for git's unified diff: its file header dropped, each line marked. */
