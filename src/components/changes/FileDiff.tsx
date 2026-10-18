@@ -3,6 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { unifiedDiffRows, type FileChange } from "../../lib/git-changes";
 import type { DiffTargetId } from "../../lib/diff-stats";
 import { DiffRows } from "./DiffRows";
+import { createLimiter } from "../../lib/limiter";
+
+/** Diffs read at once: each is a git process, and "Expand all" may open hundreds. */
+const MAX_DIFF_READS = 4;
+const readDiff = createLimiter(MAX_DIFF_READS);
 
 type DiffState = { status: "loading" } | { status: "ready"; diff: string; key: string } | { status: "failed"; error: string };
 
@@ -21,16 +26,15 @@ export function FileDiff({ rootPath, change, version, target = "head" }: {
   const key = `${rootPath}\0${path}\0${target}`;
   // Read again with every new list (`version`): the file may have changed since.
   useEffect(() => {
-    let isCancelled = false;
+    const controller = new AbortController();
     // A diff already shown stays while a refresh (new `version`) arrives, so it does not flash.
     // A different file or target starts over.
     setState((prev) => (prev.status === "ready" && prev.key === key ? prev : { status: "loading" }));
-    invoke<string>("session_file_diff", { path: rootPath, file: path, target })
-      .then((diff) => !isCancelled && setState({ status: "ready", diff: diff ?? "", key }))
-      .catch((error) => !isCancelled && setState({ status: "failed", error: String(error) }));
-    return () => {
-      isCancelled = true;
-    };
+    readDiff(() => invoke<string>("session_file_diff", { path: rootPath, file: path, target }), controller.signal)
+      .then((diff) => !controller.signal.aborted && setState({ status: "ready", diff: diff ?? "", key }))
+      .catch((error) => !controller.signal.aborted && setState({ status: "failed", error: String(error) }));
+    // Gives up its turn (or its slot) so a closed section never holds up the others.
+    return () => controller.abort();
   }, [rootPath, path, kind, version, target, key]);
 
   const rows = useMemo(() => (state.status === "ready" ? unifiedDiffRows(state.diff) : []), [state]);

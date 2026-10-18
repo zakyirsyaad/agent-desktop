@@ -295,6 +295,18 @@ describe("DiffView", () => {
     expect(diffReads().slice(3)).toEqual(["src/app.ts"]);
   });
 
+  it("reads a few diffs at a time when many sections are open", async () => {
+    const files = Array.from({ length: 10 }, (_, i) => statOf(`src/f${i}.ts`));
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) => {
+      if (cmd === "session_diff_targets") return Promise.resolve({ base: null });
+      if (cmd === "session_diff_stats") return Promise.resolve(files);
+      return new Promise(() => {});
+    });
+    await renderView();
+
+    expect(spy.mock.calls.filter((c) => c[0] === "session_file_diff")).toHaveLength(4);
+  });
+
   it("hands expand and close to its owner", async () => {
     mockDiff(THREE);
     const { onToggleExpanded, onClose } = await renderView();
