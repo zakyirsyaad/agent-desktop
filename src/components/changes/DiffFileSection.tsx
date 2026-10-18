@@ -12,9 +12,11 @@ export function DiffFileSection({ rootPath, stat, target, version, isOpen, onTog
   isOpen: boolean;
   onToggle: () => void;
 }) {
-  const slash = stat.path.lastIndexOf("/");
-  const name = stat.path.slice(slash + 1);
-  const folder = slash > 0 ? stat.path.slice(0, slash) : "";
+  // A nested repository is listed as a folder, "vendor/lib/": named by its last part.
+  const shown = stat.path.replace(/\/+$/, "");
+  const slash = shown.lastIndexOf("/");
+  const name = shown.slice(slash + 1);
+  const folder = slash > 0 ? shown.slice(0, slash) : "";
   return (
     <section>
       <button

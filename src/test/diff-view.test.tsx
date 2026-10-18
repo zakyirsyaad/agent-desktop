@@ -1,3 +1,4 @@
+import { useLayoutEffect } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { DiffStatChip } from "../components/changes/DiffStatChip";
@@ -102,6 +103,40 @@ describe("DiffFileSection", () => {
     renderSection(STAT, false);
 
     expect(screen.getByRole("button", { expanded: false }).getAttribute("title")).toBe("src/lib/app.ts");
+  });
+
+  it("names a nested repository by its folder", () => {
+    renderSection({ ...STAT, path: "vendor/lib/", kind: "untracked", isBinary: true }, false);
+
+    // Name "lib", then its folder "vendor"; not an empty name under "vendor/lib".
+    expect(screen.getByRole("button", { expanded: false }).textContent?.startsWith("libvendor")).toBe(true);
+  });
+
+  it("never shows the previous target's error in the first frame of the next", async () => {
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((_cmd, args) =>
+      args?.target === "head" ? Promise.reject("no such base") : new Promise<string>(() => {}),
+    );
+    const frames: string[] = [];
+    function FirstFrame() {
+      useLayoutEffect(() => {
+        frames.push(document.body.textContent ?? "");
+      });
+      return null;
+    }
+    const view = (target: "head" | "base") => (
+      <>
+        <DiffFileSection rootPath="/w" stat={STAT} target={target} version={1} isOpen onToggle={() => {}} />
+        <FirstFrame />
+      </>
+    );
+    const { rerender } = render(view("head"));
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toContain("no such base");
+    frames.length = 0;
+
+    rerender(view("base"));
+
+    expect(frames[0]).not.toContain("no such base");
   });
 
   it("drops the diff of the previous target while the new one is read", async () => {

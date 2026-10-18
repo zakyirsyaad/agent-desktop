@@ -9,9 +9,9 @@ import { createLimiter } from "../../lib/limiter";
 const MAX_DIFF_READS = 4;
 const readDiff = createLimiter(MAX_DIFF_READS);
 
-type DiffState = { status: "loading" } | { status: "ready"; diff: string; key: string } | { status: "failed"; error: string };
+type DiffState = { status: "loading" } | { status: "ready"; diff: string; key: string } | { status: "failed"; error: string; key: string };
 
-/** One changed file's diff against the last commit, read when it is opened. */
+/** One changed file's diff against `target` (the last commit unless told otherwise), read when it is opened. */
 export function FileDiff({ rootPath, change, version, target = "head" }: {
   rootPath: string;
   change: FileChange;
@@ -32,7 +32,7 @@ export function FileDiff({ rootPath, change, version, target = "head" }: {
     setState((prev) => (prev.status === "ready" && prev.key === key ? prev : { status: "loading" }));
     readDiff(() => invoke<string>("session_file_diff", { path: rootPath, file: path, target }), controller.signal)
       .then((diff) => !controller.signal.aborted && setState({ status: "ready", diff: diff ?? "", key }))
-      .catch((error) => !controller.signal.aborted && setState({ status: "failed", error: String(error) }));
+      .catch((error) => !controller.signal.aborted && setState({ status: "failed", error: String(error), key }));
     // Gives up its turn (or its slot) so a closed section never holds up the others.
     return () => controller.abort();
   }, [rootPath, path, kind, version, target, key]);
@@ -40,7 +40,7 @@ export function FileDiff({ rootPath, change, version, target = "head" }: {
   const rows = useMemo(() => (state.status === "ready" ? unifiedDiffRows(state.diff) : []), [state]);
 
   // The effect has not yet reset a state left over from another file or target.
-  const isStale = state.status === "ready" && state.key !== key;
+  const isStale = state.status !== "loading" && state.key !== key;
   if (state.status === "loading" || isStale) return <p className="px-3 py-1.5 text-[11px] text-fg-subtle">Loading the diff…</p>;
   if (state.status === "failed") {
     return (
