@@ -345,6 +345,29 @@ impl PtySessionManager {
             .count()
     }
 
+    /// Each running session's process id, by session id. A process that has
+    /// exited is left out: its pid may already belong to another process.
+    pub fn root_pids(&self) -> Vec<(String, u32)> {
+        let mut roots: Vec<(String, u32)> = self
+            .sessions
+            .lock()
+            .map(|sessions| {
+                sessions
+                    .iter()
+                    .filter_map(|(id, handle)| {
+                        let mut child = handle.child.lock().ok()?;
+                        match child.try_wait() {
+                            Ok(None) => Some((id.clone(), child.process_id()?)),
+                            _ => None,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        roots.sort();
+        roots
+    }
+
     /// Kills the running child process and cleans up the session.
     pub fn kill_session(&self, session_id: &str) -> Result<(), String> {
         let handle = {

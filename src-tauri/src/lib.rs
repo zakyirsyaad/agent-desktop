@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod appearance;
+pub mod background_processes;
 pub mod changes;
 pub mod data_migration;
 pub mod diff_stats;
@@ -301,6 +302,8 @@ pub fn run() {
             resize_session,
             terminate_session,
             end_orphaned_sessions,
+            background_processes::background_processes,
+            background_processes::stop_background_process,
             load_app_state,
             save_app_state,
             load_transcript,
