@@ -225,10 +225,10 @@ export function TerminalDrawer({
         <div
           ref={containerRef}
           data-testid="xterm-terminal-container"
-          className="flex-1 w-full overflow-hidden p-2 bg-bg"
+          className="flex-1 w-full overflow-hidden p-2 bg-terminal-bg"
         />
       ) : (
-        <div className="flex flex-1 items-center justify-center gap-2 bg-bg text-xs text-fg-subtle">
+        <div className="flex flex-1 items-center justify-center gap-2 bg-terminal-bg text-xs text-fg-subtle">
           <TerminalIcon size={14} className="text-fg-subtle" aria-hidden="true" />
           <span>{emptyMessage}</span>
         </div>
