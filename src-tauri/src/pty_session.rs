@@ -348,22 +348,29 @@ impl PtySessionManager {
     /// Each running session's process id, by session id. A process that has
     /// exited is left out: its pid may already belong to another process.
     pub fn root_pids(&self) -> Vec<(String, u32)> {
-        let mut roots: Vec<(String, u32)> = self
+        // Copy the handles out first: a child's lock can be held by its wait
+        // thread, and waiting for it must not hold up every other session.
+        let children: Vec<_> = self
             .sessions
             .lock()
             .map(|sessions| {
                 sessions
                     .iter()
-                    .filter_map(|(id, handle)| {
-                        let mut child = handle.child.lock().ok()?;
-                        match child.try_wait() {
-                            Ok(None) => Some((id.clone(), child.process_id()?)),
-                            _ => None,
-                        }
-                    })
+                    .map(|(id, handle)| (id.clone(), Arc::clone(&handle.child)))
                     .collect()
             })
             .unwrap_or_default();
+        // A child whose lock is taken is being waited on: it has ended.
+        let mut roots: Vec<(String, u32)> = children
+            .into_iter()
+            .filter_map(|(id, child)| {
+                let mut child = child.try_lock().ok()?;
+                match child.try_wait() {
+                    Ok(None) => Some((id, child.process_id()?)),
+                    _ => None,
+                }
+            })
+            .collect();
         roots.sort();
         roots
     }

@@ -402,3 +402,37 @@ fn kill_all_ends_every_running_session() {
     assert!(manager.write_stdin("orphan-1", "x").is_err());
     assert!(manager.write_stdin("orphan-2", "x").is_err());
 }
+
+#[test]
+fn root_pids_does_not_wait_for_a_child_that_closed_its_terminal() {
+    let manager = PtySessionManager::new(Box::new(|_| {}));
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    // The child lets go of the terminal but keeps running: the session's
+    // wait thread then blocks in `wait()` while holding the child's lock.
+    manager
+        .start_session(
+            "closed-terminal",
+            &cwd,
+            "/bin/sh",
+            &[
+                "-c".to_string(),
+                "exec </dev/null >/dev/null 2>&1; sleep 4".to_string(),
+            ],
+            &[],
+        )
+        .expect("start session");
+    std::thread::sleep(Duration::from_millis(500));
+
+    let (tx, rx) = mpsc::channel();
+    let probe = manager.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(probe.root_pids());
+    });
+    let answered = rx.recv_timeout(Duration::from_millis(1500));
+
+    manager.kill_all();
+    assert!(answered.is_ok(), "root_pids blocked behind the wait thread");
+}
