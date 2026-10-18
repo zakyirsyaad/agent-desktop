@@ -11,7 +11,7 @@ export function NoticeBanner({ message, onDismiss }: { message: string; onDismis
         type="button"
         onClick={onDismiss}
         aria-label="Dismiss notice"
-        className="shrink-0 ml-3 rounded p-0.5 text-danger hover:text-fg focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+        className="shrink-0 ml-3 rounded p-0.5 text-danger hover:text-fg focus-ring"
       >
         <X size={13} />
       </button>

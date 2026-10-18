@@ -78,7 +78,7 @@ function ExternalLink({ href, children }: { href?: string; children?: ReactNode 
         // The backend only refuses what OPENABLE_URL already excludes.
         invoke("open_external_url", { url: href }).catch(() => {});
       }}
-      className="text-fg underline decoration-fg-subtle underline-offset-2 hover:decoration-fg-muted"
+      className="text-fg underline decoration-fg-muted underline-offset-2 hover:decoration-fg"
     >
       {children}
     </a>

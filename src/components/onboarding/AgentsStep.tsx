@@ -85,7 +85,7 @@ export function AgentsStep({ agents, onRecheckAgents }: AgentsStepProps) {
           type="button"
           onClick={handleRecheck}
           disabled={isChecking}
-          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-50 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-50 focus-ring"
         >
           <RefreshCw size={12} className={isChecking ? "animate-spin" : undefined} aria-hidden="true" />
           Check again

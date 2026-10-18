@@ -37,6 +37,14 @@
   --shadow-dialog: 0 24px 64px -12px rgba(0, 0, 0, 0.7);
 }
 
+/* The one keyboard focus ring every control uses. */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 1px solid var(--color-focus-ring);
+    outline-offset: 1px;
+  }
+}
+
 @layer base {
   body {
     background-color: var(--color-bg);

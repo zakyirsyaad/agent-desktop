@@ -152,7 +152,7 @@ export function TopBar({
             onClick={onToggleTerminal}
             aria-label="Toggle terminal drawer"
             aria-pressed={isTerminalOpen}
-            className={`flex items-center rounded-md p-1.5 transition-all focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring ${
+            className={`flex items-center rounded-md p-1.5 transition-all focus-ring ${
               isTerminalOpen
                 ? "bg-surface-hover border border-border-strong text-fg"
                 : "bg-surface-2 border border-border text-fg-secondary hover:bg-surface-hover hover:text-fg"
@@ -170,7 +170,7 @@ export function TopBar({
           <button
             type="button"
             onClick={onToggleChanges}
-            className="flex items-center gap-1 rounded-md p-1.5 text-fg-muted hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+            className="flex items-center gap-1 rounded-md p-1.5 text-fg-muted hover:bg-surface-hover hover:text-fg-secondary focus-ring"
             aria-label="Toggle changes panel"
             aria-pressed={isChangesOpen}
             title="Changes"

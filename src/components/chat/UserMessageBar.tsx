@@ -10,7 +10,7 @@ export interface UserMessageBarProps {
 }
 
 const ICON_BUTTON =
-  "rounded p-0.5 text-fg-subtle hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring";
+  "rounded p-0.5 text-fg-subtle hover:text-fg-secondary focus-ring";
 
 /** How long Rewind waits for its confirming second click. */
 const CONFIRM_REWIND_MS = 4000;
@@ -37,7 +37,7 @@ function RewindButton({ onRewind }: { onRewind: () => void }) {
           setIsConfirming(false);
           onRewind();
         }}
-        className="rounded bg-danger-surface px-1.5 py-0.5 text-[10px] font-medium text-danger focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+        className="rounded bg-danger-surface px-1.5 py-0.5 text-[10px] font-medium text-danger focus-ring"
       >
         Rewind?
       </button>

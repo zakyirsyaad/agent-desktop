@@ -6,7 +6,7 @@ import { useDismiss } from "../../hooks/useDismiss";
 import { AgentLogo } from "../AgentLogo";
 
 const ROW_ACTION =
-  "mr-1 rounded p-1 text-fg-subtle opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-danger focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring";
+  "mr-1 rounded p-1 text-fg-subtle opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-danger focus-ring";
 const MENU_ITEM =
   "flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg";
 
@@ -46,7 +46,7 @@ function DeleteButton({ onDelete }: { onDelete: () => void }) {
         aria-label="Confirm delete"
         title="Delete this session and its conversation for good"
         onClick={onDelete}
-        className="mr-1 rounded bg-danger-surface px-1.5 py-0.5 text-[10px] font-medium text-danger focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
+        className="mr-1 rounded bg-danger-surface px-1.5 py-0.5 text-[10px] font-medium text-danger focus-ring"
       >
         Delete?
       </button>
@@ -157,7 +157,7 @@ function RenameField({ session, onDone }: { session: Session; onDone: (name: str
       }}
       onBlur={() => finish(name)}
       aria-label={`Rename ${session.name}`}
-      className="mx-1 my-0.5 min-w-0 flex-1 rounded border border-border-strong bg-surface-2 px-1.5 py-1 text-xs text-fg outline-none focus:border-focus-ring"
+      className="mx-1 my-0.5 min-w-0 flex-1 rounded border border-border-strong bg-surface-2 px-1.5 py-1 text-xs text-fg focus-ring"
     />
   );
 }
