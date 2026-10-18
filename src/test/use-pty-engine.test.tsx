@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
+
+type Listener = (event: { payload: unknown }) => void;
+const listeners = new Map<string, Listener>();
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: (event: string, cb: Listener) => {
+    listeners.set(event, cb);
+    return Promise.resolve(() => listeners.delete(event));
+  },
+  emit: () => Promise.resolve(),
+}));
+
 import { usePtyEngine } from "../hooks/session-engine/usePtyEngine";
 import { createPtyOutputStore } from "../lib/pty-output-store";
 import type { Session } from "../types";
@@ -25,16 +37,29 @@ function renderEngine(reportError = vi.fn()) {
   );
 }
 
+async function agentPrints(data: string) {
+  await waitFor(() => expect(listeners.has("pty-output")).toBe(true));
+  await act(async () => listeners.get("pty-output")?.({ payload: { session_id: "s-1", data } }));
+}
+
+async function agentExits() {
+  await waitFor(() => expect(listeners.has("pty-exit")).toBe(true));
+  await act(async () => listeners.get("pty-exit")?.({ payload: { session_id: "s-1", exit_code: 0 } }));
+}
+
 function callsTo(spy: { mock: { calls: unknown[][] } }, cmd: string) {
   return spy.mock.calls.filter((call) => call[0] === cmd).map((call) => call[1]);
 }
 
 describe("usePtyEngine", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    listeners.clear();
+  });
 
-  // A TUI reads text and Enter arriving in one write as a paste, and keeps the
+  // A TUI reads text and Enter arriving in one read as a paste, and keeps the
   // Enter inside its prompt instead of submitting.
-  it("types a message, then presses Enter on its own", async () => {
+  it("types a message, then presses Enter on its own, for an agent without paste mode", async () => {
     const spy = vi.spyOn(tauriInternals(), "invoke").mockResolvedValue(undefined);
     const { result } = renderEngine();
 
@@ -45,6 +70,36 @@ describe("usePtyEngine", () => {
     expect(callsTo(spy, "send_input")).toEqual([
       { sessionId: "s-1", data: "run the tests" },
       { sessionId: "s-1", data: "\r" },
+    ]);
+  });
+
+  // Oh-My-Pi turns paste mode on; a bracketed message submits however the
+  // agent's reads split it, even while it is busy starting up.
+  it("sends a bracketed message and its Enter in one write once the agent turned paste mode on", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockResolvedValue(undefined);
+    const { result } = renderEngine();
+    await agentPrints("omp v18\x1b[?2004h❯ ");
+
+    await act(async () => {
+      await result.current.send("s-1", "run the tests");
+    });
+
+    expect(callsTo(spy, "send_input")).toEqual([{ sessionId: "s-1", data: "\x1b[200~run the tests\x1b[201~\r" }]);
+  });
+
+  it("never interleaves two messages sent at once", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockResolvedValue(undefined);
+    const { result } = renderEngine();
+
+    await act(async () => {
+      await Promise.all([result.current.send("s-1", "first"), result.current.send("s-1", "second")]);
+    });
+
+    expect(callsTo(spy, "send_input").map((args) => (args as { data: string }).data)).toEqual([
+      "first",
+      "\r",
+      "second",
+      "\r",
     ]);
   });
 
@@ -78,5 +133,16 @@ describe("usePtyEngine", () => {
     act(() => result.current.resize("s-1", 100, 40));
 
     await waitFor(() => expect(callsTo(spy, "resize_session")).toEqual([{ sessionId: "s-1", cols: 100, rows: 40 }]));
+  });
+
+  it("stops resizing a session once its agent has exited", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockResolvedValue(undefined);
+    const { result } = renderEngine();
+    await act(async () => result.current.start(SESSION, {} as never));
+
+    await agentExits();
+    act(() => result.current.resize("s-1", 100, 40));
+
+    expect(callsTo(spy, "resize_session")).toEqual([]);
   });
 });
