@@ -107,6 +107,26 @@ describe("useAcpSessions", () => {
     expect(h.onTurnEnd).toHaveBeenCalledWith("s-1", { stopReason: "end_turn" });
   });
 
+  it("tracks when a turn started and forgets it at turn end", async () => {
+    stubInvoke({
+      acp_start_session: () => Promise.resolve(STARTED),
+      acp_prompt: () => Promise.resolve(),
+    });
+    const { result } = renderHook(() => useAcpSessions(handlers()));
+    await act(async () => {
+      await result.current.start("s-1", "/w", "qwen");
+    });
+    expect(result.current.busySinceOf("s-1")).toBeUndefined();
+
+    await act(async () => {
+      await result.current.prompt("s-1", "hello");
+    });
+    expect(typeof result.current.busySinceOf("s-1")).toBe("number");
+
+    await emit({ sessionId: "s-1", kind: "turn-end", stopReason: "end_turn" });
+    expect(result.current.busySinceOf("s-1")).toBeUndefined();
+  });
+
   it("is not busy when the prompt could not be sent", async () => {
     stubInvoke({ acp_prompt: () => Promise.reject("Session 's-1' not found") });
     const { result } = renderHook(() => useAcpSessions(handlers()));
