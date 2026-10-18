@@ -12,7 +12,7 @@ use std::thread;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::diff_stats::{base_commit, diff_stats, DiffTarget};
+use crate::diff_stats::{base_commit, changes_since, DiffTarget};
 use crate::files::ensure_known_workspace;
 use crate::git_info::git_binary;
 use crate::store::AppStore;
@@ -225,7 +225,8 @@ pub(crate) fn resolves_inside(toplevel: &Path, path: &str) -> bool {
 /// repository, so nothing outside can be read.
 pub fn file_diff(git: &Path, dir: &Path, path: &str, target: DiffTarget) -> Result<String, String> {
     let toplevel = toplevel_of(git, dir)?;
-    let change = changes_for(git, &toplevel, target)?
+    let base = base_commit(git, &toplevel, target)?;
+    let change = changes_for(git, &toplevel, target, &base)?
         .into_iter()
         .find(|change| change.path == path)
         .ok_or_else(|| format!("{path} is not a changed file in this repository"))?;
@@ -257,7 +258,6 @@ pub fn file_diff(git: &Path, dir: &Path, path: &str, target: DiffTarget) -> Resu
             )?
         }
         _ => {
-            let base = base_commit(git, &toplevel, target)?;
             let mut args = vec!["diff", "--no-color", "-M", base.as_str(), "--"];
             if let Some(old) = &change.old_path {
                 args.push(old);
@@ -269,18 +269,16 @@ pub fn file_diff(git: &Path, dir: &Path, path: &str, target: DiffTarget) -> Resu
     Ok(bounded(diff, is_cut))
 }
 
-/// The changed files against `target`.
-fn changes_for(git: &Path, toplevel: &Path, target: DiffTarget) -> Result<Vec<FileChange>, String> {
+/// The changed files against `target`, whose commit is `base`, by path only.
+fn changes_for(
+    git: &Path,
+    toplevel: &Path,
+    target: DiffTarget,
+    base: &str,
+) -> Result<Vec<FileChange>, String> {
     match target {
         DiffTarget::Head => changes_at(git, toplevel),
-        DiffTarget::Base => Ok(diff_stats(git, toplevel, target)?
-            .into_iter()
-            .map(|stat| FileChange {
-                path: stat.path,
-                old_path: stat.old_path,
-                kind: stat.kind,
-            })
-            .collect()),
+        DiffTarget::Base => changes_since(git, toplevel, base),
     }
 }
 

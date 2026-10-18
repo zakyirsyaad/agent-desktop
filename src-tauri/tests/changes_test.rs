@@ -320,3 +320,28 @@ fn diffs_against_the_merge_base_for_the_base_target() {
         .expect_err("not changed against head")
         .contains("is not a changed file"));
 }
+
+#[test]
+fn base_target_shows_branch_and_untracked_files_and_refuses_unchanged_ones() {
+    let repo = repo("base-members");
+    git(&repo, &["checkout", "-q", "-b", "feat"]);
+    git(&repo, &["mv", "old.md", "new.md"]);
+    git(&repo, &["commit", "-q", "-m", "rename"]);
+    fs::write(repo.join("fresh.txt"), "hello\n").expect("write");
+
+    let renamed = file_diff(&git_path(), &repo, "new.md", DiffTarget::Base).expect("rename diff");
+    let untracked =
+        file_diff(&git_path(), &repo, "fresh.txt", DiffTarget::Base).expect("untracked diff");
+    let unchanged = file_diff(&git_path(), &repo, "src/app.ts", DiffTarget::Base);
+    let missing = file_diff(&git_path(), &repo, "nowhere.txt", DiffTarget::Base);
+
+    assert!(renamed.contains("rename from old.md"), "{renamed}");
+    assert!(untracked.contains("+hello"), "{untracked}");
+    assert!(unchanged
+        .expect_err("unchanged against base")
+        .contains("is not a changed file"));
+    assert!(missing
+        .expect_err("not in the repository")
+        .contains("is not a changed file"));
+    fs::remove_dir_all(repo).ok();
+}

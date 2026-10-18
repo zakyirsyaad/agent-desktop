@@ -203,20 +203,46 @@ fn parse_numstat(output: &str) -> HashMap<String, Counts> {
     counts
 }
 
-/// Tracked files that differ from `base`, with their line counts.
-fn tracked_stats(git: &Path, toplevel: &Path, base: &str) -> Result<Vec<FileStat>, String> {
-    let status = run_git(
+/// Tracked files that differ from `base`, by path only.
+fn tracked_changes(git: &Path, toplevel: &Path, base: &str) -> Result<Vec<FileChange>, String> {
+    run_git(
         git,
         toplevel,
         &["diff", "--name-status", "-z", "-M", base, "--"],
-    )?;
+    )
+    .map(|status| parse_name_status(&status))
+}
+
+/// Every file that differs from `base`, tracked or untracked, by path only:
+/// no line is counted and no file is read.
+pub(crate) fn changes_since(
+    git: &Path,
+    toplevel: &Path,
+    base: &str,
+) -> Result<Vec<FileChange>, String> {
+    let mut changes = tracked_changes(git, toplevel, base)?;
+    changes.extend(
+        untracked_paths(git, toplevel)?
+            .into_iter()
+            .map(|path| FileChange {
+                path,
+                old_path: None,
+                kind: ChangeKind::Untracked,
+            }),
+    );
+    Ok(changes)
+}
+
+/// Tracked files that differ from `base`, with their line counts.
+fn tracked_stats(git: &Path, toplevel: &Path, base: &str) -> Result<Vec<FileStat>, String> {
+    let changes = tracked_changes(git, toplevel, base)?;
     let numstat = run_git(
         git,
         toplevel,
         &["diff", "--numstat", "-z", "-M", base, "--"],
     )?;
     let counts = parse_numstat(&numstat);
-    Ok(parse_name_status(&status)
+    Ok(changes
         .into_iter()
         .map(|change| {
             let found = counts.get(&change.path).copied();
