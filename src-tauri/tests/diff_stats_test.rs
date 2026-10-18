@@ -288,6 +288,13 @@ fn keeps_an_unreadable_untracked_file_as_binary() {
 fn keeps_a_file_fingerprint_until_the_file_changes() {
     let repo = repo("fingerprint");
     fs::write(repo.join("src/app.ts"), "one\nTWO\nthree\n").expect("write");
+    // Changed long ago: a file changed a moment ago never keeps its fingerprint.
+    let status = Command::new("touch")
+        .args(["-t", "202001010000"])
+        .arg(repo.join("src/app.ts"))
+        .status()
+        .expect("touch");
+    assert!(status.success());
     let first = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
     let again = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
     assert_eq!(
@@ -296,7 +303,6 @@ fn keeps_a_file_fingerprint_until_the_file_changes() {
     );
 
     // The same line counts, other contents: the diff to show is different.
-    thread::sleep(Duration::from_millis(1100));
     fs::write(repo.join("src/app.ts"), "one\nTWX\nthree\n").expect("write");
     let edited = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
 
@@ -312,6 +318,13 @@ fn keeps_a_file_fingerprint_until_the_file_changes() {
 fn changes_a_file_fingerprint_when_the_base_moves() {
     let repo = repo("fingerprint-base");
     fs::write(repo.join("src/app.ts"), "one\nTWO\nthree\n").expect("write");
+    // Changed long ago, so only the base can change the fingerprint here.
+    let status = Command::new("touch")
+        .args(["-t", "202001010000"])
+        .arg(repo.join("src/app.ts"))
+        .status()
+        .expect("touch");
+    assert!(status.success());
     let first = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
 
     // An unrelated commit: src/app.ts is untouched but now compared with another commit.
@@ -330,6 +343,13 @@ fn does_not_read_an_unchanged_untracked_file_again() {
     let repo = repo("count-cache");
     let file = repo.join("notes.md");
     fs::write(&file, "a\nb\n").expect("write");
+    // Written long ago: a file changed a moment ago is never trusted (see below).
+    let status = Command::new("touch")
+        .args(["-t", "202001010000"])
+        .arg(&file)
+        .status()
+        .expect("touch");
+    assert!(status.success());
     let first = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
     assert_eq!(stat_of(&first, "notes.md").added, 2);
 
@@ -356,4 +376,35 @@ fn does_not_read_an_unchanged_untracked_file_again() {
     let again = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
 
     assert_eq!(stat_of(&again, "notes.md").added, 2);
+}
+
+#[test]
+fn reads_a_file_changed_a_moment_ago_again_even_at_the_same_size_and_time() {
+    let repo = repo("racy");
+    let file = repo.join("notes.md");
+    fs::write(&file, "a\nb\n").expect("write");
+    let first = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
+
+    // Rewritten within the same timestamp tick (a coarse file system), same size.
+    let reference = repo.join(".git/notes-time");
+    fs::write(&reference, "").expect("write");
+    let touch = |from: &Path, to: &Path| {
+        let status = Command::new("touch")
+            .arg("-r")
+            .arg(from)
+            .arg(to)
+            .status()
+            .expect("touch");
+        assert!(status.success());
+    };
+    touch(&file, &reference);
+    fs::write(&file, "abcd").expect("write");
+    touch(&reference, &file);
+    let second = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
+
+    assert_eq!(stat_of(&second, "notes.md").added, 1);
+    assert_ne!(
+        stat_of(&first, "notes.md").fingerprint,
+        stat_of(&second, "notes.md").fingerprint
+    );
 }

@@ -8,7 +8,7 @@ use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -344,7 +344,23 @@ const MAX_REMEMBERED_COUNTS: usize = 20_000;
 /// read again (the same test git's index uses).
 type Stamp = (u64, u128);
 
+/// A file modified this recently may change again within the same timestamp
+/// tick (2 s on exFAT) keeping its size, so its size and time prove nothing
+/// yet: git calls such an entry "racily clean" and checks its contents.
+const RACY_WITHIN: Duration = Duration::from_secs(3);
+
+/// Whether `meta`'s modification time is too recent to trust.
+fn is_racy(meta: &Metadata) -> bool {
+    meta.modified()
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .is_none_or(|age| age < RACY_WITHIN)
+}
+
 fn stamp_of(meta: &Metadata) -> Option<Stamp> {
+    if is_racy(meta) {
+        return None;
+    }
     let modified = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     Some((meta.len(), modified.as_nanos()))
 }
@@ -458,7 +474,8 @@ pub fn diff_stats(git: &Path, dir: &Path, target: DiffTarget) -> Result<Vec<File
 }
 
 /// `base_id` with the size and modification time of `path` as it is now;
-/// a file that is gone has neither.
+/// a file that is gone has neither. A file changed a moment ago gets a new
+/// fingerprint on every read (see `is_racy`), so its diff is read again.
 fn fingerprint(toplevel: &Path, base_id: &str, path: &str) -> String {
     let file = toplevel.join(path).symlink_metadata().ok().map(|meta| {
         let modified = meta
@@ -466,7 +483,14 @@ fn fingerprint(toplevel: &Path, base_id: &str, path: &str) -> String {
             .ok()
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .map_or(0, |since| since.as_nanos());
-        format!("{}:{modified}", meta.len())
+        if is_racy(&meta) {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |since| since.as_nanos());
+            format!("{}:{modified}:racy-{now}", meta.len())
+        } else {
+            format!("{}:{modified}", meta.len())
+        }
     });
     format!("{base_id}:{}", file.unwrap_or_else(|| "gone".to_string()))
 }
