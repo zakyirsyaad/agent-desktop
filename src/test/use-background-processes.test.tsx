@@ -39,6 +39,23 @@ describe("useBackgroundProcesses", () => {
     expect(spy).toHaveBeenLastCalledWith("background_processes", { withPorts: true }, undefined);
   });
 
+  it("keeps the ports it last saw while polling without them", async () => {
+    const withPort = { ...PROC, ports: [5173] };
+    vi.spyOn(internals(), "invoke").mockImplementation((_cmd, args) =>
+      Promise.resolve([(args as { withPorts: boolean }).withPorts ? withPort : PROC]),
+    );
+    const { result, rerender } = renderHook(({ isOpen }) => useBackgroundProcesses(true, isOpen), {
+      initialProps: { isOpen: true },
+    });
+    await advance(0);
+    expect(result.current.processes[0].ports).toEqual([5173]);
+
+    rerender({ isOpen: false });
+    await advance(0);
+
+    expect(result.current.processes[0].ports).toEqual([5173]);
+  });
+
   it("polls immediately, then every 5s", async () => {
     const spy = stub(() => Promise.resolve([PROC]));
     const { result } = renderHook(() => useBackgroundProcesses(true, false));
