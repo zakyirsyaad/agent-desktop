@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, act } from "@testing-library/react";
+import { render, act, screen } from "@testing-library/react";
 import type { ITerminalOptions } from "@xterm/xterm";
 import { createPtyOutputStore } from "../lib/pty-output-store";
 
@@ -124,6 +124,12 @@ describe("TerminalView", () => {
     expect(theme?.cursor).toBe("#fafafa");
     expect(theme?.selectionBackground).toBe("rgba(250, 250, 250, 0.2)");
     expect(theme?.red).toBe("#ef4444");
+  });
+
+  it("keeps a dark background in either theme", () => {
+    render(<TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />);
+
+    expect(screen.getByTestId("terminal-view").className).toContain("bg-terminal-bg");
   });
 });
 

@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ChatMessage, PersistedState, Session, SessionWorktree } from '../types';
+import { normalizeAppearance } from './appearance';
 import type { AgentOptions } from './acp-draft';
 import { toCommands, toConfigOptions, toModes } from '../hooks/useAcpSessions';
 
@@ -8,7 +9,7 @@ export const STATE_VERSION = 1;
 export function emptyPersistedState(): PersistedState {
   return {
     version: STATE_VERSION,
-    settings: { defaultAgentId: null, onboardingCompleted: false },
+    settings: { appearance: 'system', defaultAgentId: null, onboardingCompleted: false },
     recentFolders: [],
     sessions: [],
   };
@@ -88,6 +89,7 @@ export function normalizePersistedState(raw: unknown): PersistedState {
   return {
     version: typeof raw.version === 'number' ? raw.version : STATE_VERSION,
     settings: {
+      appearance: normalizeAppearance(settings.appearance),
       defaultAgentId: typeof settings.defaultAgentId === 'string' ? settings.defaultAgentId : null,
       onboardingCompleted: settings.onboardingCompleted === true,
     },

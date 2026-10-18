@@ -43,3 +43,17 @@ describe("normalizePersistedState", () => {
     expect(state.agentOptions?.codex.preferredConfig).toBeUndefined();
   });
 });
+
+describe("normalizePersistedState — appearance", () => {
+  it("defaults a missing appearance to system", () => {
+    expect(normalizePersistedState({ settings: {} }).settings.appearance).toBe("system");
+  });
+
+  it.each(["light", "dark"])("keeps %s", (appearance) => {
+    expect(normalizePersistedState({ settings: { appearance } }).settings.appearance).toBe(appearance);
+  });
+
+  it.each(["sepia", 42])("treats %j as system", (appearance) => {
+    expect(normalizePersistedState({ settings: { appearance } }).settings.appearance).toBe("system");
+  });
+});

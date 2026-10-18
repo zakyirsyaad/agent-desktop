@@ -76,6 +76,8 @@ pub struct Settings {
     pub default_agent_id: Option<String>,
     /// Whether the first-run walkthrough has been completed.
     pub onboarding_completed: bool,
+    /// `system`, `light` or `dark`; anything else follows the system.
+    pub appearance: String,
 }
 
 /// A folder the user opened an agent in.

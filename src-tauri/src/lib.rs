@@ -1,4 +1,5 @@
 pub mod acp;
+pub mod appearance;
 pub mod changes;
 pub mod data_migration;
 pub mod env_resolver;
@@ -275,6 +276,13 @@ pub fn run() {
             app.manage(store);
             if let Err(error) = migration {
                 report_migration_failure(app.handle(), &error);
+            }
+
+            // Apply the saved appearance before any window content is shown. A
+            // load error leaves the system theme; the UI reports load failures.
+            if let Ok(state) = app.state::<store::AppStore>().load_state() {
+                app.handle()
+                    .set_theme(appearance::theme_for(&state.settings.appearance));
             }
 
             // Warm the login-shell environment off the main thread so the first

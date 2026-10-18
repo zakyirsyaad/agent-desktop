@@ -37,6 +37,7 @@ import {
   nextSessionName,
   patchSessionIn,
 } from "./lib/session-helpers";
+import { useAppearance } from "./hooks/useAppearance";
 import { usePersistedState } from "./hooks/usePersistedState";
 import { useTranscripts } from "./hooks/useTranscripts";
 import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
@@ -93,6 +94,7 @@ export default function App() {
 
   const reportError = useCallback((message: string) => setNotice(message), []);
   const { state, isLoaded, updateState } = usePersistedState(reportError);
+  useAppearance(state.settings.appearance, isLoaded, reportError);
   const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
   const { agents, refresh: refreshAgents } = useAgentProfiles(reportError);
   const suggestedFolders = useSuggestedFolders();
@@ -698,6 +700,8 @@ export default function App() {
       </section>
       {isSettingsOpen && (
         <SettingsPanel
+          appearance={state.settings.appearance}
+          onChangeAppearance={(appearance) => updateSettings({ appearance })}
           agents={agents}
           defaultAgentId={state.settings.defaultAgentId}
           recentFolders={workspaces}

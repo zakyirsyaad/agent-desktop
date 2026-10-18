@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, within, fireEvent, act } from "@testing-library/react";
 import { SettingsPanel } from "../components/SettingsPanel";
 import { RECHECK_ERROR } from "../lib/agent-readiness";
+import type { Appearance } from "../lib/appearance";
 import type { AgentProfile } from "../types";
 import { makeProfile } from "./fixtures/agents";
 
@@ -40,6 +41,8 @@ const RECENT_FOLDERS = [
 ];
 
 type SettingsPanelProps = {
+  appearance: Appearance;
+  onChangeAppearance: (appearance: Appearance) => void;
   agents: AgentProfile[];
   defaultAgentId: string | null;
   recentFolders: { name: string; path: string }[];
@@ -52,6 +55,8 @@ type SettingsPanelProps = {
 
 function renderSettings(overrides: Partial<SettingsPanelProps> = {}): SettingsPanelProps {
   const props: SettingsPanelProps = {
+    appearance: "system",
+    onChangeAppearance: vi.fn(),
     agents: AGENTS,
     defaultAgentId: "claude-code",
     recentFolders: RECENT_FOLDERS,
@@ -213,5 +218,24 @@ describe("SettingsPanel — agents", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent(RECHECK_ERROR);
     expect(screen.getByRole("button", { name: "Check again for installed agents" })).toBeEnabled();
+  });
+});
+
+describe("SettingsPanel — appearance", () => {
+  it("lists System, Light and Dark and shows the current value", () => {
+    renderSettings({ appearance: "dark" });
+
+    const select = screen.getByRole("combobox", { name: "Appearance" });
+
+    expect(select).toHaveValue("dark");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["System", "Light", "Dark"]);
+  });
+
+  it("reports the chosen appearance", () => {
+    const props = renderSettings();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Appearance" }), { target: { value: "light" } });
+
+    expect(props.onChangeAppearance).toHaveBeenCalledWith("light");
   });
 });

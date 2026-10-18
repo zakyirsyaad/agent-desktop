@@ -3,6 +3,7 @@
  */
 
 import type { AgentOptions } from '../lib/acp-draft';
+import type { Appearance } from '../lib/appearance';
 
 /** A reasoning-effort choice backed by a real CLI flag or env var. */
 export interface EffortLevel {
@@ -117,6 +118,7 @@ export interface Session {
 }
 
 export interface Settings {
+  appearance: Appearance;
   defaultAgentId: string | null;
   onboardingCompleted: boolean;
 }

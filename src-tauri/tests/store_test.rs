@@ -80,6 +80,7 @@ fn populated_state() -> PersistedState {
         settings: Settings {
             default_agent_id: Some("claude".to_string()),
             onboarding_completed: true,
+            appearance: String::new(),
         },
         recent_folders: vec![RecentFolder {
             name: "agent-desktop".to_string(),
@@ -621,4 +622,44 @@ fn worktree_roots_include_a_legacy_worktrees_folder() {
 
     assert_eq!(store.worktrees_root(), root.join("worktrees"));
     assert_eq!(store.worktree_roots(), vec![root.join("worktrees"), legacy]);
+}
+
+#[test]
+fn settings_round_trip_appearance() {
+    let root = unique_temp_root("appearance-round-trip");
+    let store = AppStore::new(root.clone());
+    let mut state = populated_state();
+    state.settings.appearance = "light".to_string();
+
+    store.save_state(&state).expect("save state");
+    let loaded = store.load_state().expect("load state");
+
+    assert_eq!(loaded, state);
+    assert_eq!(loaded.settings.appearance, "light");
+    let raw = fs::read_to_string(root.join("state.json")).expect("read state file");
+    assert!(
+        raw.contains("\"appearance\""),
+        "appearance is saved in the UI's camelCase: {raw}"
+    );
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn state_without_appearance_loads_empty() {
+    let root = unique_temp_root("no-appearance");
+    fs::create_dir_all(&root).expect("create root");
+    fs::write(
+        root.join("state.json"),
+        r#"{"version":1,"settings":{"defaultAgentId":"claude","onboardingCompleted":true},
+            "recentFolders":[],"sessions":[]}"#,
+    )
+    .expect("write state file");
+    let store = AppStore::new(root.clone());
+
+    let state = store.load_state().expect("load state");
+
+    assert_eq!(state.settings.appearance, "");
+    assert_eq!(state.settings.default_agent_id.as_deref(), Some("claude"));
+    assert!(state.settings.onboarding_completed);
+    fs::remove_dir_all(&root).ok();
 }

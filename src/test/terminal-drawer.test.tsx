@@ -156,6 +156,7 @@ describe("TerminalDrawer", () => {
     // Terminal container element with data-testid
     const termContainer = screen.getByTestId("xterm-terminal-container");
     expect(termContainer).toBeDefined();
+    expect(termContainer.className).toContain("bg-terminal-bg");
 
     // Verifies Tauri event listener is attached for pty-output
     expect(mockListen).toHaveBeenCalledWith("pty-output", expect.any(Function));
