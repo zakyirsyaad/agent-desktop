@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, Cog, ListChecks, Terminal, type LucideIcon } from "lucide-react";
+import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { useDismiss } from "../../hooks/useDismiss";
 import { formatElapsed, type BackgroundTask, type BackgroundTaskKind } from "../../lib/background-tasks";
@@ -25,10 +26,6 @@ const STATUS_CLASSES: Record<BackgroundTask["status"], string> = {
   Running: "text-status-running",
   "Needs approval": "text-status-attention",
 };
-
-const ROW_BUTTON =
-  "rounded-md border border-border px-2 py-1 text-[11px] text-fg-secondary transition-colors " +
-  "hover:bg-surface-hover hover:text-fg focus-ring disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
 
 /** The current time, refreshed every second while `isActive`. */
 function useNow(isActive: boolean): number {
@@ -108,26 +105,26 @@ export function BackgroundTasksMenu({ tasks, isOpen, onOpenChange, onOpenTask, o
                       </p>
                       {task.detail && <p className="truncate text-[11px] text-fg-subtle">{task.detail}</p>}
                     </div>
-                    <button
-                      type="button"
+                    <Button
+                      variant="outline"
                       aria-label={`Open ${task.name}`}
-                      className={ROW_BUTTON}
+                      className="shrink-0"
                       onClick={() => {
                         onOpenTask(task);
                         onOpenChange(false);
                       }}
                     >
                       Open
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="outline"
                       aria-label={`Stop ${task.name}`}
-                      className={ROW_BUTTON}
+                      className="shrink-0"
                       disabled={isStopping}
                       onClick={() => stop(task)}
                     >
                       {isStopping ? "Stopping…" : "Stop"}
-                    </button>
+                    </Button>
                   </li>
                 );
               })}
