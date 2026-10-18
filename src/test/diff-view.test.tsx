@@ -158,7 +158,21 @@ describe("DiffView", () => {
     await renderView();
 
     expect(screen.getByRole("button", { name: "Diff target: main → working tree" })).toBeDefined();
-    expect(spy).toHaveBeenCalledWith("session_diff_stats", { path: "/w", target: "base" }, undefined);
+    expect(statCalls(spy).map((c) => (c[1] as { target: string }).target)).toEqual(["base"]);
+  });
+
+  it("reads HEAD and reports once when the targets cannot be read", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) =>
+      cmd === "session_diff_targets"
+        ? Promise.reject("boom")
+        : Promise.resolve(cmd === "session_diff_stats" ? THREE : ""),
+    );
+    const { onError } = await renderView();
+
+    expect(statCalls(spy).map((c) => (c[1] as { target: string }).target)).toEqual(["head"]);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0][0]).toContain("/w");
+    expect(screen.getByText("HEAD → working tree")).toBeDefined();
   });
 
   it("reads against HEAD after choosing it in the dropdown", async () => {

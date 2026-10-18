@@ -5,9 +5,25 @@ import { useLatest } from './useLatest';
 
 const NO_TARGETS: DiffTargets = { base: null };
 
-/** What the diff can be measured against in `path`'s repository; `{ base: null }` until read. */
-export function useDiffTargets(path: string | undefined, isRepository: boolean, version: number): DiffTargets {
+export interface DiffTargetsRead {
+  targets: DiffTargets;
+  /** True once the read has answered or failed; until then `targets` has no base yet. */
+  isLoaded: boolean;
+}
+
+/**
+ * What the diff can be measured against in `path`'s repository. A failed read
+ * counts as loaded without a base (HEAD still works) and is reported once per folder.
+ */
+export function useDiffTargets(
+  path: string | undefined,
+  isRepository: boolean,
+  version: number,
+  onError: (message: string) => void,
+): DiffTargetsRead {
   const [state, setState] = useState<{ path: string; targets: DiffTargets } | null>(null);
+  const onErrorRef = useLatest(onError);
+  const reportedPath = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!path || !isRepository) return;
@@ -16,14 +32,20 @@ export function useDiffTargets(path: string | undefined, isRepository: boolean, 
       .then((targets) => {
         if (!isCancelled && targets) setState({ path, targets });
       })
-      // Without a base the diff still works against HEAD, so a failure is not worth a message.
-      .catch(() => {});
+      .catch((error) => {
+        if (isCancelled) return;
+        setState({ path, targets: NO_TARGETS });
+        if (reportedPath.current === path) return;
+        reportedPath.current = path;
+        onErrorRef.current(`Could not read the diff targets in ${path}: ${String(error)}`);
+      });
     return () => {
       isCancelled = true;
     };
-  }, [path, isRepository, version]);
+  }, [path, isRepository, version, onErrorRef]);
 
-  return isRepository && state !== null && state.path === path ? state.targets : NO_TARGETS;
+  const isCurrent = isRepository && state !== null && state.path === path;
+  return { targets: isCurrent ? state.targets : NO_TARGETS, isLoaded: isCurrent };
 }
 
 export interface DiffStats {

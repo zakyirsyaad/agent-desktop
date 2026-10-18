@@ -72,11 +72,27 @@ describe("useDiffStats", () => {
 describe("useDiffTargets", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("has no base until read", async () => {
+  it("has no base and is not loaded until read", async () => {
     vi.spyOn(tauriInternals(), "invoke").mockResolvedValue({ base: { name: "main" } });
-    const { result } = renderHook(() => useDiffTargets("/w", true, 1));
+    const { result } = renderHook(() => useDiffTargets("/w", true, 1, () => {}));
 
-    expect(result.current).toEqual({ base: null });
-    await waitFor(() => expect(result.current).toEqual({ base: { name: "main" } }));
+    expect(result.current).toEqual({ targets: { base: null }, isLoaded: false });
+    await waitFor(() => expect(result.current).toEqual({ targets: { base: { name: "main" } }, isLoaded: true }));
+  });
+
+  it("settles without a base and reports once when the read fails", async () => {
+    vi.spyOn(tauriInternals(), "invoke").mockRejectedValue("boom");
+    const onError = vi.fn();
+    const { result, rerender } = renderHook(({ version }) => useDiffTargets("/w", true, version, onError), {
+      initialProps: { version: 1 },
+    });
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    expect(result.current.targets).toEqual({ base: null });
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0][0]).toContain("/w");
+
+    rerender({ version: 2 });
+    await act(async () => {});
+    expect(onError).toHaveBeenCalledOnce();
   });
 });

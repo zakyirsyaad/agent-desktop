@@ -19,10 +19,10 @@ export interface DiffViewProps {
 
 /** A whole repository's diff: one collapsible section per changed file. */
 export function DiffView({ rootPath, version, isExpanded, onToggleExpanded, onClose, onError }: DiffViewProps) {
-  const targets = useDiffTargets(rootPath, true, version);
+  const { targets, isLoaded: areTargetsLoaded } = useDiffTargets(rootPath, true, version, onError);
   const [chosen, setChosen] = useState<DiffTargetId | null>(null);
   const target: DiffTargetId = chosen ?? (targets.base ? "base" : "head");
-  const { stats, statsVersion, reload } = useDiffStats(rootPath, true, target, version, onError);
+  const { stats, statsVersion, reload } = useDiffStats(rootPath, areTargetsLoaded, target, version, onError);
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState("");
   // Null until the first list arrives: only that one decides what starts open.
