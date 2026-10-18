@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "design-system": "vite docs/design-system --port 5180 --open",
     "build": "tsc && vite build",
     "lint": "tsc --noEmit && eslint --max-warnings=0 .",
     "preview": "vite preview",
