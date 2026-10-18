@@ -19,13 +19,13 @@ const SHOWN_AT_FIRST = 5;
 export const MAX_LISTED = 30;
 
 const MENU_ITEM =
-  "flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs text-neutral-300 transition-colors hover:bg-neutral-800/60 hover:text-neutral-100";
+  "flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg";
 
 const STATE_LOOK: Record<string, { icon: LucideIcon; name: string; style: string }> = {
-  open: { icon: GitPullRequest, name: "Open", style: "text-emerald-400" },
-  draft: { icon: GitPullRequestDraft, name: "Draft", style: "text-neutral-400" },
-  merged: { icon: GitMerge, name: "Merged", style: "text-purple-400" },
-  closed: { icon: GitPullRequestClosed, name: "Closed", style: "text-rose-400" },
+  open: { icon: GitPullRequest, name: "Open", style: "text-status-running" },
+  draft: { icon: GitPullRequestDraft, name: "Draft", style: "text-fg-muted" },
+  merged: { icon: GitMerge, name: "Merged", style: "text-status-merged" },
+  closed: { icon: GitPullRequestClosed, name: "Closed", style: "text-danger" },
 };
 
 /** "repo #N", the repository read from the pull request's link; just "#N" when the link has none. */
@@ -92,7 +92,7 @@ function RowMenu({ pullRequest, onOpen }: { pullRequest: PullRequestSummary; onO
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={toggle}
-        className={`rounded p-1 text-neutral-500 opacity-0 hover:text-neutral-200 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-neutral-600 group-hover:opacity-100 ${isOpen ? "opacity-100" : ""}`}
+        className={`rounded p-1 text-fg-muted opacity-0 hover:text-fg-secondary focus:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring group-hover:opacity-100 ${isOpen ? "opacity-100" : ""}`}
       >
         <EllipsisVertical size={12} />
       </button>
@@ -101,7 +101,7 @@ function RowMenu({ pullRequest, onOpen }: { pullRequest: PullRequestSummary; onO
           role="menu"
           aria-label={`Actions for #${pullRequest.number}`}
           style={place}
-          className="fixed z-50 w-40 rounded-lg border border-neutral-800 bg-[#181818] p-1 shadow-2xl"
+          className="fixed z-50 w-40 rounded-lg border border-border bg-surface-3 p-1 shadow-popover"
         >
           <button type="button" role="menuitem" onClick={pick(() => onOpen(pullRequest.url))} className={MENU_ITEM}>
             <ExternalLink size={12} aria-hidden="true" /> Open in browser
@@ -120,7 +120,7 @@ function PullRequestRow({ pullRequest, onOpen }: { pullRequest: PullRequestSumma
   const look = STATE_LOOK[state] ?? STATE_LOOK.open;
   const Icon = look.icon;
   return (
-    <div className="group flex items-center gap-1 rounded-md px-1.5 text-neutral-400 hover:bg-neutral-900/60 hover:text-neutral-200">
+    <div className="group flex items-center gap-1 rounded-md px-1.5 text-fg-muted hover:bg-surface-hover hover:text-fg-secondary">
       <Icon size={13} role="img" aria-label={look.name} className={`shrink-0 ${look.style}`} />
       <button
         type="button"
@@ -128,8 +128,8 @@ function PullRequestRow({ pullRequest, onOpen }: { pullRequest: PullRequestSumma
         title={pullRequest.title}
         className="min-w-0 flex-1 py-1 pl-1 text-left"
       >
-        <span className="block truncate text-neutral-200">{pullRequest.title}</span>
-        <span className="block truncate text-[10px] text-neutral-500">{repoLabelOf(pullRequest)}</span>
+        <span className="block truncate text-fg-secondary">{pullRequest.title}</span>
+        <span className="block truncate text-[10px] text-fg-muted">{repoLabelOf(pullRequest)}</span>
       </button>
       <RowMenu pullRequest={pullRequest} onOpen={onOpen} />
     </div>
@@ -155,18 +155,18 @@ export function PullRequestList({ pullRequests, onOpen }: {
   const count = pullRequests.length > MAX_LISTED ? `${MAX_LISTED}+` : String(pullRequests.length);
 
   return (
-    <section className="border-b border-neutral-800/60 p-1.5">
+    <section className="border-b border-border p-1.5">
       <button
         type="button"
         onClick={() => setIsExpanded((open) => !open)}
         aria-expanded={isExpanded}
-        className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-[11px] font-medium text-neutral-400 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+        className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-[11px] font-medium text-fg-muted hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
       >
         <ChevronRight size={11} aria-hidden="true" className={`transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-        Pull requests <span className="text-neutral-600">({count})</span>
+        Pull requests <span className="text-fg-subtle">({count})</span>
       </button>
       {isExpanded && pullRequests.length === 0 && (
-        <p className="px-2 py-1 text-[11px] text-neutral-500">No pull requests of yours here yet.</p>
+        <p className="px-2 py-1 text-[11px] text-fg-subtle">No pull requests of yours here yet.</p>
       )}
       {isExpanded && pullRequests.length > 0 && (
         <>
@@ -181,7 +181,7 @@ export function PullRequestList({ pullRequests, onOpen }: {
             <button
               type="button"
               onClick={() => setIsShowingAll((all) => !all)}
-              className="mt-0.5 px-2 py-1 text-[11px] text-neutral-500 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+              className="mt-0.5 px-2 py-1 text-[11px] text-fg-subtle hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
             >
               {isShowingAll ? "Show less" : `Show all (${count})`}
             </button>

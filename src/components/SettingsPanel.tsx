@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Folder, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
 import { RECHECK_ERROR, readyAgents, type AgentSummary } from "../lib/agent-readiness";
+import { Button } from "./ui/Button";
 import type { FolderOption } from "./onboarding/types";
 
 export interface SettingsPanelProps {
@@ -16,7 +17,7 @@ export interface SettingsPanelProps {
 }
 
 const SECTION_HEADING =
-  "mb-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-500";
+  "mb-2 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle";
 
 /** Calls `onEscape` for Escape presses anywhere in the document while mounted. */
 function useEscapeKey(onEscape: () => void) {
@@ -36,25 +37,25 @@ interface RecentFolderListProps {
 
 function RecentFolderList({ folders, onRemove }: RecentFolderListProps) {
   if (folders.length === 0) {
-    return <p className="text-xs text-neutral-500">No recent folders yet.</p>;
+    return <p className="text-xs text-fg-subtle">No recent folders yet.</p>;
   }
   return (
     <ul aria-label="Recent folders" className="flex flex-col gap-1">
       {folders.map((folder) => (
         <li
           key={folder.path}
-          className="flex items-center gap-2.5 rounded-lg border border-[#262626] bg-[#121212] px-3 py-2"
+          className="flex items-center gap-2.5 rounded-lg border border-border bg-surface-2 px-3 py-2"
         >
-          <Folder size={14} className="shrink-0 text-neutral-500" aria-hidden="true" />
+          <Folder size={14} className="shrink-0 text-fg-subtle" aria-hidden="true" />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs font-medium text-neutral-100">{folder.name}</span>
-            <span className="block truncate font-mono text-[11px] text-neutral-500">{folder.path}</span>
+            <span className="block truncate text-xs font-medium text-fg">{folder.name}</span>
+            <span className="block truncate font-mono text-[11px] text-fg-subtle">{folder.path}</span>
           </span>
           <button
             type="button"
             onClick={() => onRemove(folder.path)}
             aria-label={`Remove ${folder.name} from recent folders`}
-            className="rounded p-1 text-neutral-500 transition-colors hover:bg-neutral-800 hover:text-red-400 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            className="rounded p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-danger focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
           >
             <Trash2 size={13} aria-hidden="true" />
           </button>
@@ -89,15 +90,15 @@ export function SettingsPanel({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay px-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex w-full max-w-md flex-col gap-5 rounded-xl border border-[#262626] bg-[#0d0d0d] p-5 text-neutral-200 shadow-2xl"
+        className="flex w-full max-w-md flex-col gap-5 rounded-xl border border-border bg-surface-1 p-5 text-fg-secondary shadow-dialog"
       >
         <header className="flex items-center justify-between">
-          <h2 id={titleId} className="text-base font-semibold text-neutral-100">
+          <h2 id={titleId} className="text-base font-semibold text-fg">
             Settings
           </h2>
           <button
@@ -105,7 +106,7 @@ export function SettingsPanel({
             type="button"
             onClick={onClose}
             aria-label="Close settings"
-            className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+            className="rounded p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
           >
             <X size={15} aria-hidden="true" />
           </button>
@@ -116,13 +117,13 @@ export function SettingsPanel({
             Default agent
           </label>
           {ready.length === 0 ? (
-            <p className="text-xs text-neutral-500">No agents are installed yet.</p>
+            <p className="text-xs text-fg-subtle">No agents are installed yet.</p>
           ) : (
             <select
               id={selectId}
               value={defaultAgentId ?? ""}
               onChange={(event) => onChangeDefaultAgent(event.target.value)}
-              className="w-full rounded-lg border border-[#262626] bg-[#121212] px-3 py-2 text-xs text-neutral-200 focus:border-neutral-700 focus:outline-none focus:ring-1 focus:ring-amber-500/20"
+              className="w-full rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-xs text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
             >
               {defaultAgentId === null && (
                 <option value="" disabled>
@@ -137,8 +138,7 @@ export function SettingsPanel({
             </select>
           )}
           {onRecheckAgents && (
-            <button
-              type="button"
+            <Button
               aria-label="Check again for installed agents"
               disabled={isChecking}
               onClick={() => {
@@ -148,14 +148,14 @@ export function SettingsPanel({
                   .catch(() => setCheckError(RECHECK_ERROR))
                   .finally(() => setIsChecking(false));
               }}
-              className="mt-2 flex items-center gap-1.5 rounded-lg border border-neutral-800/60 px-2.5 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-amber-500/40"
+              icon={<RefreshCw size={12} className={isChecking ? "animate-spin" : undefined} aria-hidden="true" />}
+              className="mt-2"
             >
-              <RefreshCw size={12} className={isChecking ? "animate-spin" : undefined} aria-hidden="true" />
               Check again
-            </button>
+            </Button>
           )}
           {checkError && (
-            <p role="alert" className="mt-1.5 text-[11px] text-red-400">
+            <p role="alert" className="mt-1.5 text-[11px] text-danger">
               {checkError}
             </p>
           )}
@@ -166,15 +166,10 @@ export function SettingsPanel({
           <RecentFolderList folders={recentFolders} onRemove={onRemoveRecentFolder} />
         </section>
 
-        <footer className="flex justify-end border-t border-neutral-800/60 pt-4">
-          <button
-            type="button"
-            onClick={onRunOnboarding}
-            className="flex items-center gap-1.5 rounded-lg border border-neutral-800 px-3 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-amber-500/40"
-          >
-            <RotateCcw size={13} aria-hidden="true" />
+        <footer className="flex justify-end border-t border-border pt-4">
+          <Button onClick={onRunOnboarding} icon={<RotateCcw size={13} aria-hidden="true" />}>
             Run setup again
-          </button>
+          </Button>
         </footer>
       </div>
     </div>

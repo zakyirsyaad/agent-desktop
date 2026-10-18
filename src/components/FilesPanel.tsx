@@ -35,9 +35,9 @@ export interface FilesPanelProps {
 const BASE_INDENT_PX = 8;
 const INDENT_STEP_PX = 12;
 const HEADER_BUTTON =
-  "rounded p-1 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-neutral-700";
+  "rounded p-1 text-fg-subtle hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring";
 const ROW =
-  "group flex items-center rounded-md text-neutral-400 hover:bg-neutral-900/60 hover:text-neutral-200";
+  "group flex items-center rounded-md text-fg-muted hover:bg-surface-hover hover:text-fg-secondary";
 const NOTE = "py-1 pr-2 text-[11px]";
 
 interface TreeView {
@@ -70,14 +70,14 @@ function FolderRow({ entry, depth, view }: { entry: DirEntryInfo; depth: number;
           onClick={() => view.tree.toggleFolder(path)}
           title={path}
           style={indent(depth)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left focus:outline-none focus:ring-1 focus:ring-neutral-700"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
         >
           <ChevronRight
             size={12}
             aria-hidden="true"
-            className={`shrink-0 text-neutral-600 transition-transform ${expanded ? "rotate-90" : ""}`}
+            className={`shrink-0 text-fg-muted transition-transform ${expanded ? "rotate-90" : ""}`}
           />
-          <Icon size={13} aria-hidden="true" className="shrink-0 text-neutral-500" />
+          <Icon size={13} aria-hidden="true" className="shrink-0 text-fg-muted" />
           <span className="truncate">{entry.name}</span>
         </button>
       </div>
@@ -101,9 +101,9 @@ function FileRow({ entry, depth, view }: { entry: DirEntryInfo; depth: number; v
           title={`Open ${entry.relativePath}`}
           // Files line up with folder names, past the folder chevron.
           style={indent(depth + 1)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left focus:outline-none focus:ring-1 focus:ring-neutral-700"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
         >
-          <File size={13} aria-hidden="true" className="shrink-0 text-neutral-500" />
+          <File size={13} aria-hidden="true" className="shrink-0 text-fg-muted" />
           <span className="truncate">{entry.name}</span>
         </button>
         {onInsertPath && (
@@ -112,7 +112,7 @@ function FileRow({ entry, depth, view }: { entry: DirEntryInfo; depth: number; v
             aria-label={`Add ${entry.name} to prompt`}
             title="Add to prompt"
             onClick={() => onInsertPath(joinWorkspacePath(view.rootPath, entry.relativePath))}
-            className="mr-1 rounded p-1 text-neutral-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-amber-300 focus:outline-none focus:ring-1 focus:ring-neutral-600"
+            className="mr-1 rounded p-1 text-fg-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-fg focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
           >
             <Plus size={12} aria-hidden="true" />
           </button>
@@ -130,7 +130,7 @@ function FolderChildren({ folder, depth, view }: { folder: string; depth: number
   if (error) {
     return (
       <li role="none">
-        <p role="alert" style={indent(depth + 1)} className={`${NOTE} text-red-400`}>
+        <p role="alert" style={indent(depth + 1)} className={`${NOTE} text-danger`}>
           {error}
         </p>
       </li>
@@ -138,14 +138,14 @@ function FolderChildren({ folder, depth, view }: { folder: string; depth: number
   }
   if (!entries) {
     return tree.isLoading(folder) && !visible ? (
-      <li role="none" style={indent(depth + 1)} className={`${NOTE} text-neutral-600`}>
+      <li role="none" style={indent(depth + 1)} className={`${NOTE} text-fg-subtle`}>
         Loading…
       </li>
     ) : null;
   }
   if (entries.length === 0 && !visible) {
     return (
-      <li role="none" style={indent(depth + 1)} className={`${NOTE} text-neutral-600`}>
+      <li role="none" style={indent(depth + 1)} className={`${NOTE} text-fg-subtle`}>
         Empty folder
       </li>
     );
@@ -177,11 +177,11 @@ interface PanelHeaderProps {
 
 function PanelHeader({ rootName, rootPath, query, onQueryChange, onRefresh, onRevealRoot, onClose }: PanelHeaderProps) {
   return (
-    <div className="flex flex-col gap-2 border-b border-neutral-800/60 p-3">
+    <div className="flex flex-col gap-2 border-b border-border p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Files</h2>
-          <span title={rootPath} className="truncate font-mono text-[11px] text-neutral-400">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">Files</h2>
+          <span title={rootPath} className="truncate font-mono text-[11px] text-fg-muted">
             {rootName}
           </span>
         </div>
@@ -203,7 +203,7 @@ function PanelHeader({ rootName, rootPath, query, onQueryChange, onRefresh, onRe
         <Search
           size={13}
           aria-hidden="true"
-          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500"
+          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
         />
         <input
           type="text"
@@ -211,7 +211,7 @@ function PanelHeader({ rootName, rootPath, query, onQueryChange, onRefresh, onRe
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder="Filter files"
           aria-label="Filter files"
-          className="w-full rounded-md border border-neutral-800/80 bg-neutral-900/90 py-1.5 pl-8 pr-3 text-xs text-neutral-200 placeholder-neutral-500 outline-none focus:border-neutral-700 focus:ring-1 focus:ring-neutral-700"
+          className="w-full rounded-md border border-border-strong bg-surface-2 py-1.5 pl-8 pr-3 text-xs text-fg-secondary placeholder-fg-subtle focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
         />
       </div>
     </div>
@@ -237,7 +237,7 @@ export function FilesPanel({ rootPath, rootName, onClose, onInsertPath, onReveal
   return (
     <aside
       aria-label="Files panel"
-      className="flex h-full w-72 shrink-0 flex-col border-l border-neutral-800/80 bg-[#0d0d0d] text-xs text-neutral-300 select-none"
+      className="flex h-full w-72 shrink-0 flex-col border-l border-border bg-surface-1 text-xs text-fg-secondary select-none"
     >
       <PanelHeader
         rootName={rootName}
@@ -249,7 +249,7 @@ export function FilesPanel({ rootPath, rootName, onClose, onInsertPath, onReveal
         onClose={onClose}
       />
       {openError && (
-        <p role="alert" className="border-b border-neutral-800/60 px-3 py-1.5 text-[11px] text-red-400">
+        <p role="alert" className="border-b border-border px-3 py-1.5 text-[11px] text-danger">
           {openError}
         </p>
       )}
@@ -258,7 +258,7 @@ export function FilesPanel({ rootPath, rootName, onClose, onInsertPath, onReveal
           <FolderChildren folder={ROOT_FOLDER} depth={0} view={view} />
         </ul>
         {visible?.size === 0 && (
-          <p className="px-2 py-1 text-[11px] text-neutral-500">No loaded files match “{query.trim()}”.</p>
+          <p className="px-2 py-1 text-[11px] text-fg-subtle">No loaded files match “{query.trim()}”.</p>
         )}
       </div>
     </aside>

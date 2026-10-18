@@ -42,16 +42,9 @@ function findViolations(): Violation[] {
 
 // Files not yet migrated to the design system tokens. Each migration task removes its files.
 const PENDING: ReadonlySet<string> = new Set<string>([
-  "src/components/AppPlaceholders.tsx",
-  "src/components/AuthPanel.tsx",
-  "src/components/FilesPanel.tsx",
   "src/components/Onboarding.tsx",
-  "src/components/SettingsPanel.tsx",
   "src/components/TerminalDrawer.tsx",
   "src/components/TerminalView.tsx",
-  "src/components/changes/ChangesPanel.tsx",
-  "src/components/changes/FileDiff.tsx",
-  "src/components/changes/PullRequestList.tsx",
   "src/components/onboarding/AgentsStep.tsx",
   "src/components/onboarding/CopyButton.tsx",
   "src/components/onboarding/DefaultAgentStep.tsx",

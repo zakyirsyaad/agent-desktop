@@ -3,11 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { unifiedDiffRows, type FileChange, type UnifiedRowKind } from "../../lib/git-changes";
 
 const ROW_STYLE: Record<UnifiedRowKind, string> = {
-  added: "bg-emerald-950/50 text-emerald-200",
-  removed: "bg-rose-950/50 text-rose-200",
-  context: "text-neutral-400",
-  hunk: "text-sky-400/80",
-  note: "text-neutral-600 italic",
+  added: "bg-diff-added text-status-running",
+  removed: "bg-diff-removed text-danger",
+  context: "text-fg-muted",
+  hunk: "text-fg-muted",
+  note: "text-fg-subtle italic",
 };
 
 const ROW_SIGN: Record<UnifiedRowKind, string> = { added: "+", removed: "-", context: " ", hunk: "", note: "" };
@@ -34,19 +34,19 @@ export function FileDiff({ rootPath, change, version }: { rootPath: string; chan
 
   const rows = useMemo(() => (state.status === "ready" ? unifiedDiffRows(state.diff) : []), [state]);
 
-  if (state.status === "loading") return <p className="px-3 py-1.5 text-[11px] text-neutral-500">Loading the diff…</p>;
+  if (state.status === "loading") return <p className="px-3 py-1.5 text-[11px] text-fg-subtle">Loading the diff…</p>;
   if (state.status === "failed") {
     return (
-      <p role="alert" className="px-3 py-1.5 text-[11px] text-rose-400">
+      <p role="alert" className="px-3 py-1.5 text-[11px] text-danger">
         Could not show the diff: {state.error}
       </p>
     );
   }
-  if (rows.length === 0) return <p className="px-3 py-1.5 text-[11px] text-neutral-500">No text changes.</p>;
+  if (rows.length === 0) return <p className="px-3 py-1.5 text-[11px] text-fg-subtle">No text changes.</p>;
   return (
     <div
       aria-label={`Diff of ${change.path}`}
-      className="mx-1.5 mb-1.5 max-h-80 overflow-auto rounded-md border border-neutral-800 bg-[#0a0a0a] py-1 font-mono text-[11px] leading-5"
+      className="mx-1.5 mb-1.5 max-h-80 overflow-auto rounded-md border border-border bg-bg py-1 font-mono text-[11px] leading-5"
     >
       {rows.map((row, index) => (
         <div key={index} data-line={row.kind} className={`flex whitespace-pre px-2 ${ROW_STYLE[row.kind]}`}>
