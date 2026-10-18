@@ -56,7 +56,7 @@ function FolderList({ label, folders, selectedPath, onSelect }: FolderListProps)
                 />
                 <span className="min-w-0">
                   <span className="block truncate text-xs font-medium text-fg">{folder.name}</span>
-                  <span className="block truncate font-mono text-[11px] text-fg-subtle">{folder.path}</span>
+                  <span className={`block truncate font-mono text-[11px] ${selected ? "text-fg-muted" : "text-fg-subtle"}`}>{folder.path}</span>
                 </span>
               </button>
             </li>

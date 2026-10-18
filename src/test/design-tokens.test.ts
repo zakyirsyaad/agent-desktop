@@ -49,6 +49,11 @@ describe("design tokens", () => {
     expect(violations).toEqual([]);
   });
 
+  it("has no raw colors in index.html", () => {
+    const html = readFileSync(join(ROOT, "index.html"), "utf8");
+    expect(rawColorsIn(html)).toEqual([]);
+  });
+
   it("catches side and axis prefixed utilities", () => {
     expect(rawColorsIn("border-l-amber-500 border-t-neutral-800 divide-y-red-500")).toEqual([
       "border-l-amber-500",

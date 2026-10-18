@@ -14,10 +14,10 @@ const BASE =
   "disabled:cursor-not-allowed disabled:opacity-40";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: "border-transparent bg-primary text-on-primary hover:bg-primary-hover",
+  primary: "border-transparent bg-primary text-on-primary enabled:hover:bg-primary-hover",
   outline:
-    "border-border-strong text-fg-secondary hover:bg-surface-hover hover:text-fg",
-  ghost: "border-transparent text-fg-muted hover:bg-surface-hover hover:text-fg",
+    "border-border-strong text-fg-secondary enabled:hover:bg-surface-hover enabled:hover:text-fg",
+  ghost: "border-transparent text-fg-muted enabled:hover:bg-surface-hover enabled:hover:text-fg",
   danger: "border-transparent bg-danger-surface text-danger",
 };
 

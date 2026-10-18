@@ -13,8 +13,8 @@ const BASE =
   "disabled:cursor-not-allowed disabled:opacity-40";
 
 const VARIANTS: Record<NonNullable<IconButtonProps["variant"]>, string> = {
-  ghost: "rounded-md text-fg-muted hover:bg-surface-hover hover:text-fg",
-  primary: "rounded-lg bg-primary text-on-primary hover:bg-primary-hover",
+  ghost: "rounded-md text-fg-muted enabled:hover:bg-surface-hover enabled:hover:text-fg",
+  primary: "rounded-lg bg-primary text-on-primary enabled:hover:bg-primary-hover",
 };
 
 export function IconButton({

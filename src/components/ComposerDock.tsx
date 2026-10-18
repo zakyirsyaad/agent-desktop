@@ -230,7 +230,6 @@ export function ComposerDock({
     <footer ref={containerRef} className="w-full max-w-3xl flex flex-col items-center px-4 select-none">
       <div
         className="relative w-full rounded-xl border border-border bg-surface-2 p-3 shadow-popover transition-all focus-within:border-border-strong"
-        style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }}
       >
         {attachments.length > 0 && (
           <div className="mb-2">

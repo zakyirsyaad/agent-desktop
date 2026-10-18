@@ -36,6 +36,8 @@ describe("Button", () => {
     );
     const primary = screen.getByRole("button", { name: "P" });
     expect(primary).toHaveClass("bg-primary", "text-on-primary");
+    expect(primary).toHaveClass("enabled:hover:bg-primary-hover");
+    expect(primary).not.toHaveClass("hover:bg-primary-hover");
     expect(screen.getByRole("button", { name: "O" })).toHaveClass("border-border-strong");
     expect(screen.getByRole("button", { name: "G" })).toHaveClass("text-fg-muted");
     expect(screen.getByRole("button", { name: "D" })).toHaveClass(
