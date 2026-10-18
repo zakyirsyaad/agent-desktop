@@ -221,7 +221,6 @@ describe("SettingsPanel — agents", () => {
   });
 });
 
-
 describe("SettingsPanel — appearance", () => {
   it("lists System, Light and Dark and shows the current value", () => {
     renderSettings({ appearance: "dark" });

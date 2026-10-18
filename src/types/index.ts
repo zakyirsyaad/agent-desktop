@@ -1,9 +1,9 @@
-import type { Appearance } from '../lib/appearance';
 /**
  * Core type definitions for Zorvo GUI
  */
 
 import type { AgentOptions } from '../lib/acp-draft';
+import type { Appearance } from '../lib/appearance';
 
 /** A reasoning-effort choice backed by a real CLI flag or env var. */
 export interface EffortLevel {
