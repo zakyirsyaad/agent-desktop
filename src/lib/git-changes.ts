@@ -14,11 +14,17 @@ export type UnifiedRowKind = 'added' | 'removed' | 'context' | 'hunk' | 'note';
 export interface UnifiedRow {
   kind: UnifiedRowKind;
   text: string;
+  /** Line number in the old file; absent on added, hunk and note rows. */
+  oldLine?: number;
+  /** Line number in the new file; absent on removed, hunk and note rows. */
+  newLine?: number;
 }
 
 /** Rows rendered at most, so a huge diff cannot freeze the panel. */
 const MAX_ROWS = 1500;
 /** git's file header lines, which the panel already shows as the file's name. */
+/** A hunk header's starting line numbers; an omitted count means one line. */
+const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 const FILE_HEADER = /^(diff --git |index |--- |\+\+\+ |new file mode |deleted file mode |similarity index |rename (from|to) |old mode |new mode )/;
 
 /** Display rows for git's unified diff: its file header dropped, each line marked. */
@@ -27,13 +33,20 @@ export function unifiedDiffRows(diff: string): UnifiedRow[] {
   if (lines[lines.length - 1] === '') lines.pop();
   // The header only comes before the first hunk; inside one, "--- x" is a removed "-- x".
   const firstHunk = lines.findIndex((line) => line.startsWith('@@'));
+  let oldLine = 0;
+  let newLine = 0;
   const rows = lines
     .filter((line, index) => !(FILE_HEADER.test(line) && (firstHunk < 0 || index < firstHunk)))
     .map((line): UnifiedRow => {
-      if (line.startsWith('@@')) return { kind: 'hunk', text: line };
-      if (line.startsWith('+')) return { kind: 'added', text: line.slice(1) };
-      if (line.startsWith('-')) return { kind: 'removed', text: line.slice(1) };
-      if (line.startsWith(' ')) return { kind: 'context', text: line.slice(1) };
+      if (line.startsWith('@@')) {
+        const match = HUNK_HEADER.exec(line);
+        oldLine = match ? Number(match[1]) : 0;
+        newLine = match ? Number(match[2]) : 0;
+        return { kind: 'hunk', text: line };
+      }
+      if (line.startsWith('+')) return { kind: 'added', text: line.slice(1), newLine: newLine++ };
+      if (line.startsWith('-')) return { kind: 'removed', text: line.slice(1), oldLine: oldLine++ };
+      if (line.startsWith(' ')) return { kind: 'context', text: line.slice(1), oldLine: oldLine++, newLine: newLine++ };
       // "\ No newline at end of file", "Binary files … differ", a cut notice.
       return { kind: 'note', text: line };
     });
