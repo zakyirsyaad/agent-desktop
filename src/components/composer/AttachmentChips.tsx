@@ -18,16 +18,16 @@ export function AttachmentChips({ paths, onRemove }: AttachmentChipsProps) {
           <li
             key={path}
             title={path}
-            className="flex items-center gap-1 rounded-md border border-neutral-700/80 bg-neutral-900 px-2 py-0.5 text-[11px] text-neutral-300"
+            className="flex items-center gap-1 rounded-md border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-fg-secondary"
           >
-            <Icon size={11} className="text-neutral-500" />
+            <Icon size={11} className="text-fg-subtle" />
             <span className="max-w-48 truncate">{name}</span>
             {onRemove && (
               <button
                 type="button"
                 aria-label={`Remove ${name}`}
                 onClick={() => onRemove(path)}
-                className="ml-0.5 rounded text-neutral-500 hover:text-neutral-200"
+                className="ml-0.5 rounded text-fg-subtle hover:text-fg"
               >
                 <X size={11} />
               </button>

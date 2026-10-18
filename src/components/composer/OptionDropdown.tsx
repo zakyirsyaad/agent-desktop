@@ -55,18 +55,18 @@ export function OptionDropdown({
         onClick={onToggle}
         disabled={disabled}
         title={disabled ? disabledTitle : valueLabel}
-        className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 transition-colors cursor-pointer border border-neutral-800/60 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+        className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-fg-secondary hover:bg-surface-hover hover:text-fg transition-colors cursor-pointer border border-border disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
       >
         {icon}
         <span className="max-w-[140px] truncate">{chipLabelOf(valueLabel)}</span>
-        <ChevronDown size={11} className="text-neutral-500" />
+        <ChevronDown size={11} className="text-fg-subtle" />
       </button>
 
       {isOpen && !disabled && (
         <div
           role="listbox"
           aria-label={label}
-          className={`absolute bottom-full mb-2 min-w-40 rounded-lg border border-neutral-800 bg-[#181818] p-1 shadow-2xl z-50 ${
+          className={`absolute bottom-full mb-2 min-w-40 rounded-lg border border-border bg-surface-3 p-1 shadow-popover z-50 ${
             align === "left" ? "left-0" : "right-0"
           }`}
         >
@@ -81,12 +81,12 @@ export function OptionDropdown({
                 onClick={() => onSelect(option.value)}
                 className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-xs text-left transition-colors cursor-pointer ${
                   isSelected
-                    ? "bg-neutral-800 text-amber-400 font-medium"
-                    : "text-neutral-300 hover:bg-neutral-800/60 hover:text-neutral-100"
+                    ? "bg-surface-hover text-fg font-medium"
+                    : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
                 }`}
               >
                 <span className="truncate">{option.label}</span>
-                {isSelected && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />}
+                {isSelected && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-fg" />}
               </button>
             );
           })}

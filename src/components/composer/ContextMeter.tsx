@@ -9,9 +9,9 @@ const WARN_AT = 80;
 const FULL_AT = 95;
 
 function toneFor(percent: number): string {
-  if (percent >= FULL_AT) return "text-rose-400";
-  if (percent >= WARN_AT) return "text-amber-400";
-  return "text-neutral-400";
+  if (percent >= FULL_AT) return "text-danger";
+  if (percent >= WARN_AT) return "text-status-attention";
+  return "text-fg-muted";
 }
 
 const tokens = (n: number) => `${n.toLocaleString("en-US")} tokens`;
@@ -94,7 +94,7 @@ export function ContextMeter({ used, size, cost }: ContextUsage) {
         aria-label="Context details"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
-        className="rounded px-1 py-0.5 text-[11px] text-neutral-400 hover:bg-neutral-800 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+        className="rounded px-1 py-0.5 text-[11px] text-fg-muted hover:bg-surface-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-focus-ring"
       >
         <Gauge used={used} size={size} />
       </button>
@@ -102,19 +102,19 @@ export function ContextMeter({ used, size, cost }: ContextUsage) {
         <div
           role="dialog"
           aria-label="Context usage"
-          className="absolute bottom-full right-0 z-50 mb-2 w-56 rounded-lg border border-neutral-800 bg-[#181818] p-3 text-xs shadow-2xl"
+          className="absolute bottom-full right-0 z-50 mb-2 w-56 rounded-lg border border-border bg-surface-3 p-3 text-xs shadow-popover"
         >
-          <p className="mb-2 font-medium text-neutral-200">Context usage</p>
+          <p className="mb-2 font-medium text-fg-secondary">Context usage</p>
           <dl className="space-y-1">
             {rows.map(([name, value]) => (
               <div key={name} className="flex justify-between gap-3">
-                <dt className="text-neutral-500">{name}</dt>
-                <dd className="tabular-nums text-neutral-200">{value}</dd>
+                <dt className="text-fg-subtle">{name}</dt>
+                <dd className="tabular-nums text-fg-secondary">{value}</dd>
               </div>
             ))}
           </dl>
           {percent !== null && percent >= WARN_AT && (
-            <p className="mt-2 text-[11px] text-amber-400">
+            <p className="mt-2 text-[11px] text-status-attention">
               The window is nearly full; the agent may summarize or drop older context.
             </p>
           )}
