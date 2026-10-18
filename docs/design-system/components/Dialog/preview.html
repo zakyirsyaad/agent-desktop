@@ -1,0 +1,21 @@
+<!-- @dsCard group="Feedback" height=330 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Dialog — preview</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&amp;family=Geist+Mono:wght@400&amp;display=swap"></head>
+<body>
+<div class="z-overlay">
+  <div class="z-dialog" role="dialog" aria-label="Settings">
+    <div class="z-dialog__head">Settings <button class="z-icon-btn" type="button" aria-label="Close"><svg class="z-ico" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+    <div class="z-field">
+      <label for="codex-path">Codex path</label>
+      <input id="codex-path" value="/opt/homebrew/bin/codex">
+      <span class="z-field__hint">Found on your login shell's PATH.</span>
+    </div>
+    <div class="z-dialog__foot">
+      <button class="z-btn z-btn--ghost" type="button">Cancel</button>
+      <button class="z-btn z-btn--primary" type="button">Save</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

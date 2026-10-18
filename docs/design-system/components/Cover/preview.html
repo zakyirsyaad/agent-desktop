@@ -1,0 +1,50 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Zorvo — cover</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&amp;family=Geist+Mono:wght@400&amp;display=swap">
+<style>
+  html, body { margin: 0; background: var(--bg); }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; background: var(--bg); }
+  .cover svg { position: absolute; left: 480px; top: 0; }
+  .text { position: absolute; left: 48px; bottom: 40px; width: 420px; display: flex; flex-direction: column; gap: 12px; }
+  .name { margin: 0; font: 600 120px/0.92 var(--font-sans); letter-spacing: -0.04em; color: var(--fg); }
+  .tag { margin: 0; font: 400 14px/20px var(--font-sans); color: var(--fg-muted); }
+  .a { fill: var(--primary); rx: var(--radius-xl); }
+  .b { fill: var(--border-strong); rx: var(--radius-xl); }
+  .c { fill: var(--surface-hover); rx: var(--radius-xl); }
+  .d { fill: var(--status-running); rx: var(--radius-full); }
+  .p { fill: none; stroke: var(--fg-subtle); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .q { fill: none; stroke: var(--on-primary); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<div class="cover">
+  <svg width="480" height="288" viewBox="0 0 480 288" role="img" aria-label="Zorvo palette and prompt pattern">
+    <!--
+      blocks: primary 168x216 (slab, radius-xl), border-strong 120x192 bleeding right, surface-hover 144x120 bleeding bottom, status-running 24 disc (signal).
+      arrangement: one tall slab with satellites, every edge on the 24px (space-6) grid.
+      pattern: a grid of > prompts at space-6 pitch, because the system is precise, mono and terminal-first and its symbol is two stepped prompts; the symbol itself is cut into the slab in on-primary.
+      steps and radii: space-6 (24px) pitch and sides; radius-xl on blocks, radius-full on the signal.
+    -->
+    <rect class="c" x="48" y="168" width="144" height="144"/>
+    <rect class="a" x="192" y="24" width="168" height="216"/>
+    <rect class="b" x="360" y="96" width="144" height="216"/>
+    <circle class="d" cx="396" cy="60" r="12"/>
+    <g class="p">
+      <path d="M24 28l8 6-8 6"/><path d="M48 28l8 6-8 6"/><path d="M72 28l8 6-8 6"/><path d="M96 28l8 6-8 6"/><path d="M120 28l8 6-8 6"/><path d="M144 28l8 6-8 6"/>
+      <path d="M24 52l8 6-8 6"/><path d="M48 52l8 6-8 6"/><path d="M72 52l8 6-8 6"/><path d="M96 52l8 6-8 6"/><path d="M120 52l8 6-8 6"/><path d="M144 52l8 6-8 6"/>
+      <path d="M24 76l8 6-8 6"/><path d="M48 76l8 6-8 6"/><path d="M72 76l8 6-8 6"/><path d="M96 76l8 6-8 6"/><path d="M120 76l8 6-8 6"/><path d="M144 76l8 6-8 6"/>
+      <path d="M24 100l8 6-8 6"/><path d="M48 100l8 6-8 6"/><path d="M72 100l8 6-8 6"/><path d="M96 100l8 6-8 6"/><path d="M120 100l8 6-8 6"/><path d="M144 100l8 6-8 6"/>
+      <path d="M24 124l8 6-8 6"/><path d="M48 124l8 6-8 6"/><path d="M72 124l8 6-8 6"/><path d="M96 124l8 6-8 6"/><path d="M120 124l8 6-8 6"/><path d="M144 124l8 6-8 6"/>
+    </g>
+    <g class="q" transform="translate(228 120) scale(2.4)">
+      <path d="M6 7l10 7-10 7"/><path d="M18 19l10 7-10 7"/><path d="M30 33h5"/>
+    </g>
+  </svg>
+  <div class="text">
+    <p class="name">Zorvo</p>
+    <p class="tag">Every coding agent. One desktop.</p>
+  </div>
+</div>
+</body>
+</html>

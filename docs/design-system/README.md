@@ -1,17 +1,20 @@
-# Zorvo design system
-
 Zorvo is a native macOS desktop for every coding agent a developer already uses: Claude Code, Codex and Qwen Code in a chat UI over ACP, Aider and Oh-My-Pi as real terminals. The identity is futuristic and a little mysterious in what it says, clean and monochrome in how it looks. The symbol and the type carry the brand; color only ever means a state.
 
-- [`tokens.json`](tokens.json): every color, type style, space, radius, shadow and size, with a usage note each.
-- [`components.md`](components.md): how each component looks and what its caller provides.
-- [Brand brief](../brand/zorvo-brand-brief.md): name, positioning and the symbol's construction.
-- [Visual reference](https://claude.ai/artifact/8w2xRW4Fs8KZV7SyLYddpJ): swatches, type specimens and live component previews.
+## Where this system lives
+
+The repository's `docs/design-system/` folder is the source, and the [Zorvo Design System](https://claude.ai/artifact/8w2xRW4Fs8KZV7SyLYddpJ) reference is published from it: each file there sits at the same path under `project/`. Change the folder, then republish it, so the two never differ.
+
+- `tokens.json`: every color, type style, space, radius, shadow and size, with a usage note each.
+- `components/<Name>/README.md` and `preview.html`: each component's guideline and live preview, styled by `components/bundle.css`.
+- `assets/Logos/`: the symbol in ink and paper, and the app icon.
+- `adopting.md`: how the app's old classes mapped onto these tokens.
+- `index.html`: the same reference, local. Run `npm run design-system` to open it.
 
 ## In the code
 
-[`src/styles/globals.css`](../../src/styles/globals.css) is the source of truth. Its `@theme` block holds the dark values and turns each token into Tailwind utilities, so `surface-2` is `bg-surface-2`, `fg-muted` is `text-fg-muted` and `border-strong` is `border-border-strong`. The `@media (prefers-color-scheme: light)` block overrides the same variables for light mode.
+`src/styles/globals.css` is the app's source of truth. Its `@theme` block holds the dark values and turns each token into Tailwind utilities, so `surface-2` is `bg-surface-2`, `fg-muted` is `text-fg-muted` and `border-strong` is `border-border-strong`. The `@media (prefers-color-scheme: light)` block overrides the same variables for light mode.
 
-- Change a value in `globals.css` and `tokens.json` together. `src/test/design-system-docs.test.ts` fails when they drift.
+- Change a value in `globals.css` and `tokens.json` together. `src/test/design-system-docs.test.ts` fails when they drift, when `bundle.css` uses a variable `tokens.json` lacks or a raw color, and when a component is missing its guideline or preview.
 - Never write a raw color in a component: no `bg-neutral-800`, `text-white` or `bg-[#121212]`. `src/test/design-tokens.test.ts` fails on them.
 - Light-mode text and edges must meet their contrast floor; `src/test/theme-contrast.test.ts` checks them.
 - Use the primitives in `src/components/ui/` (`Button`, `IconButton`) before styling a `<button>` by hand.
@@ -41,8 +44,9 @@ The logo is the **double prompt** symbol beside the `zorvo` wordmark. Two `>` pr
 
 - Set the wordmark in `wordmark` (Instrument Sans 600, lowercase, −0.04em). Never `ZORVO`, never another typeface.
 - Lock up symbol left, wordmark right, the gap 30% of the symbol's height. Keep clear space equal to the symbol's height on every side.
-- Use [`zorvo-symbol.svg`](../brand/assets/zorvo-symbol.svg) at 32px and up, [`zorvo-symbol-small.svg`](../brand/assets/zorvo-symbol-small.svg) under 32px (no cursor, heavier stroke). Both stroke in `currentColor`: inline them and color them with a text token.
-- The app icon is the paper symbol on an ink macOS squircle, the symbol about 55% of the tile (`src-tauri/icons/`).
+- Use `zorvo-symbol-*` at 32px and up, `zorvo-symbol-small-*` under 32px (no cursor, heavier stroke).
+- Use the `-ink` files on light grounds and `-paper` files on dark grounds. In app code, inline `docs/brand/assets/zorvo-symbol.svg`, which strokes in `currentColor`, instead.
+- The app icon is the paper symbol on an ink macOS squircle, the symbol about 55% of the tile.
 - Never recolor the symbol, add gradients or glows, outline it or rotate it.
 
 ## Color
@@ -64,7 +68,7 @@ Monochrome on the zinc scale, in a dark and a light theme. The app follows the M
 
 ## Type
 
-- Set all UI in **Instrument Sans** (`sans`) and all code, commands, paths and branch names in **Geist Mono** (`mono`). Both are free under the SIL Open Font License. The app bundles them through `@fontsource-variable/instrument-sans` and `@fontsource-variable/geist-mono`, because its Content Security Policy blocks Google Fonts.
+- Set all UI in **Instrument Sans** (`sans`) and all code, commands, paths and branch names in **Geist Mono** (`mono`). Both are free under the SIL Open Font License; the app bundles them through `@fontsource-variable/instrument-sans` and `@fontsource-variable/geist-mono`, because its Content Security Policy blocks Google Fonts.
 - `ui` (12px) is the workhorse: buttons, menus, rows. Messages and the composer use `body` (14px). Hints use `caption` (11px). `micro` (10px) is for badges, never sentences.
 - Marketing headlines use `display` and `headline`: tight tracking, two lines at most.
 - Never go below 10px. Never use weights other than 400, 500 and 600.
@@ -85,4 +89,4 @@ Monochrome on the zinc scale, in a dark and a light theme. The app follows the M
 
 ## Iconography
 
-Use **Lucide** (`lucide-react`) at `size-icon`, stroke width 1.75, colored by the text token of their context (`fg-muted` by default). Agents appear with their own logos at 14–16px; never recolor an agent's logo. No emoji anywhere in the UI.
+Use **Lucide** (`lucide-react`, already in the app) at `size-icon`, stroke width 1.75, colored by the text token of their context (`fg-muted` by default). Agents appear with their own logos at 14–16px; never recolor an agent's logo. No emoji anywhere in the UI.

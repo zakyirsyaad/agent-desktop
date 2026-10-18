@@ -1,0 +1,74 @@
+/* Zorvo components: static reference styles built only from tokens.css variables. */
+html, body { margin: 0; background: var(--bg); color: var(--fg-secondary); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+.z-stage { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-4); }
+.z-col { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); }
+.z-ico { width: var(--size-icon); height: var(--size-icon); flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+.z-btn { display: inline-flex; align-items: center; gap: var(--space-1\.5); padding: var(--space-1\.5) var(--space-3); border-radius: var(--radius-lg); border: 1px solid transparent; font: 500 12px/16px var(--font-sans); cursor: pointer; transition: background-color 150ms, color 150ms; }
+.z-btn:focus-visible, .z-icon-btn:focus-visible, .z-select:focus-visible, .z-row:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 1px; }
+.z-btn--primary { background: var(--primary); color: var(--on-primary); }
+.z-btn--primary:enabled:hover { background: var(--primary-hover); }
+.z-btn--outline { background: transparent; color: var(--fg-secondary); border-color: var(--border-strong); }
+.z-btn--outline:enabled:hover { background: var(--surface-hover); color: var(--fg); }
+.z-btn--ghost { background: transparent; color: var(--fg-muted); }
+.z-btn--ghost:enabled:hover { background: var(--surface-hover); color: var(--fg); }
+.z-btn--danger { background: var(--danger-surface); color: var(--danger); }
+.z-btn:disabled { opacity: .4; cursor: not-allowed; }
+.z-btn--primary:disabled { opacity: 1; background: var(--surface-hover); color: var(--fg-muted); }
+
+.z-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: var(--size-control); height: var(--size-control); border-radius: var(--radius-md); border: 0; background: transparent; color: var(--fg-muted); cursor: pointer; transition: background-color 150ms, color 150ms; }
+.z-icon-btn:enabled:hover { background: var(--surface-hover); color: var(--fg); }
+.z-icon-btn--primary { border-radius: var(--radius-lg); background: var(--primary); color: var(--on-primary); }
+.z-icon-btn--primary:enabled:hover { background: var(--primary-hover); color: var(--on-primary); }
+.z-icon-btn:disabled { opacity: .4; cursor: not-allowed; }
+.z-icon-btn--primary:disabled { opacity: 1; background: var(--surface-hover); color: var(--fg-muted); }
+
+.z-composer { width: 100%; max-width: 560px; box-sizing: border-box; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border-radius: var(--radius-xl); border: 1px solid var(--border); background: var(--surface-2); box-shadow: var(--shadow-popover); }
+.z-composer:focus-within { border-color: var(--border-strong); }
+.z-composer textarea { width: 100%; min-height: 26px; resize: none; border: 0; outline: 0; background: transparent; color: var(--fg); font: 400 14px/22px var(--font-sans); }
+.z-composer textarea::placeholder { color: var(--fg-subtle); }
+.z-composer__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.z-composer__tools { display: flex; align-items: center; gap: var(--space-1); }
+
+.z-select { display: inline-flex; align-items: center; gap: var(--space-1\.5); padding: var(--space-1) var(--space-2); border-radius: var(--radius-lg); border: 1px solid var(--border); background: transparent; color: var(--fg-secondary); font: 400 12px/16px var(--font-sans); cursor: pointer; }
+.z-select:hover { background: var(--surface-hover); color: var(--fg); }
+.z-menu { min-width: 180px; box-sizing: border-box; padding: var(--space-1); border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--surface-3); box-shadow: var(--shadow-popover); }
+.z-menu__item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-1\.5) var(--space-2\.5); border-radius: var(--radius-sm); color: var(--fg-secondary); font: 400 12px/16px var(--font-sans); }
+.z-menu__item:hover, .z-menu__item[aria-selected="true"] { background: var(--surface-hover); color: var(--fg); }
+.z-menu__hint { color: var(--fg-subtle); font: 400 11px/16px var(--font-sans); }
+
+.z-dot { display: inline-block; width: var(--size-dot); height: var(--size-dot); border-radius: var(--radius-full); flex: none; }
+.z-dot--running { background: var(--status-running); animation: z-pulse 1.6s ease-in-out infinite; }
+.z-dot--attention { background: var(--status-attention); }
+.z-dot--unread { background: var(--status-unread); }
+@keyframes z-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .z-dot--running { animation: none; } }
+
+.z-sidebar { width: 260px; box-sizing: border-box; padding: var(--space-2); background: var(--surface-1); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+.z-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-1\.5) var(--space-2); border-radius: var(--radius-md); color: var(--fg-muted); font: 400 12px/16px var(--font-sans); }
+.z-row:hover { background: var(--surface-hover); color: var(--fg); }
+.z-row[aria-current="true"] { background: var(--surface-hover); color: var(--fg); }
+.z-row__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.z-row__meta { display: flex; align-items: center; gap: var(--space-1\.5); color: var(--fg-subtle); font: 400 11px/16px var(--font-sans); }
+
+.z-chip { display: inline-flex; align-items: center; gap: var(--space-1); padding: var(--space-0\.5) var(--space-2); border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-2); color: var(--fg-secondary); font: 400 11px/16px var(--font-sans); }
+.z-chip--code { border-radius: var(--radius-sm); font: 400 11px/16px var(--font-mono); color: var(--fg-muted); }
+.z-chip button { display: inline-flex; padding: 0; border: 0; background: none; color: var(--fg-subtle); cursor: pointer; }
+.z-chip button:hover { color: var(--fg); }
+
+.z-permission { max-width: 560px; box-sizing: border-box; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-xl); border: 1px solid var(--attention-border); background: var(--attention-surface); }
+.z-permission__head { display: flex; align-items: center; gap: var(--space-2); color: var(--fg); font: 600 14px/22px var(--font-sans); }
+.z-permission__head .z-ico { color: var(--status-attention); }
+.z-permission__body { color: var(--fg-secondary); font: 400 12px/18px var(--font-sans); margin: 0; }
+.z-permission pre { margin: 0; padding: var(--space-2\.5); overflow-x: auto; border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--bg); color: var(--fg-secondary); font: 400 12px/18px var(--font-mono); }
+.z-permission__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+
+.z-overlay { display: flex; align-items: center; justify-content: center; padding: var(--space-6); background: var(--overlay); }
+.z-dialog { width: 100%; max-width: 420px; box-sizing: border-box; display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-5); border-radius: var(--radius-xl); border: 1px solid var(--border); background: var(--surface-1); box-shadow: var(--shadow-dialog); }
+.z-dialog__head { display: flex; align-items: center; justify-content: space-between; color: var(--fg); font: 600 16px/24px var(--font-sans); }
+.z-field { display: flex; flex-direction: column; gap: var(--space-1\.5); }
+.z-field label { color: var(--fg); font: 500 12px/16px var(--font-sans); }
+.z-field input { box-sizing: border-box; width: 100%; padding: var(--space-1\.5) var(--space-2\.5); border-radius: var(--radius-lg); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--fg); font: 400 12px/16px var(--font-mono); outline: 0; }
+.z-field input:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 1px; }
+.z-field__hint { color: var(--fg-subtle); font: 400 11px/16px var(--font-sans); }
+.z-dialog__foot { display: flex; justify-content: flex-end; gap: var(--space-2); padding-top: var(--space-4); border-top: 1px solid var(--border); }
