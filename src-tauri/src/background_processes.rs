@@ -322,7 +322,8 @@ fn read_processes() -> Result<Vec<ProcessRow>, String> {
 
 /// The TCP ports `pids` listen on. lsof exits non-zero when one of the pids
 /// listens on nothing, so its output is read whatever its status; not being
-/// able to run it means no ports.
+/// able to run it means no ports. `-b` keeps a stale network mount from
+/// blocking every scan, and `-w` drops the warnings that come with it.
 fn listening_ports(pids: &[u32]) -> HashMap<u32, Vec<u16>> {
     if pids.is_empty() {
         return HashMap::new();
@@ -333,7 +334,17 @@ fn listening_ports(pids: &[u32]) -> HashMap<u32, Vec<u16>> {
         .collect::<Vec<_>>()
         .join(",");
     Command::new("/usr/sbin/lsof")
-        .args(["-nP", "-a", "-p", &list, "-iTCP", "-sTCP:LISTEN", "-Fpn"])
+        .args([
+            "-b",
+            "-w",
+            "-nP",
+            "-a",
+            "-p",
+            &list,
+            "-iTCP",
+            "-sTCP:LISTEN",
+            "-Fpn",
+        ])
         .stderr(Stdio::null())
         .output()
         .map(|output| parse_lsof_ports(&String::from_utf8_lossy(&output.stdout)))

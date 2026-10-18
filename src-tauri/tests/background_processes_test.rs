@@ -310,3 +310,28 @@ fn kills_a_task_that_ignores_term_even_when_part_of_it_already_exited() {
         "the shell or its sleep is still running"
     );
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn reports_the_port_a_task_listens_on() {
+    let root = Command::new("/bin/sh")
+        .args([
+            "-c",
+            "/bin/sh -c 'python3 -m http.server 0 --bind 127.0.0.1; :' & wait",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn the root");
+    let guard = TreeGuard(root);
+    let roots = [("s1".to_string(), guard.0.id())];
+
+    let listening = eventually(Duration::from_secs(10), || {
+        scan(&roots)
+            .expect("scan")
+            .iter()
+            .any(|task| !task.ports.is_empty())
+    });
+
+    assert!(listening, "the server's port never showed up");
+}
