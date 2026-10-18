@@ -13,6 +13,7 @@ To be released as 0.2.0.
 
 ### Added
 
+- **Light mode.** Zorvo follows your Mac's appearance, or pin it to Light or Dark in Settings → Appearance. The terminal stays dark either way. ([#36])
 - **Sessions by workspace.** The sidebar groups sessions under their folder, with forks nested under the session they came from. A new session is set up (folder, agent, model, effort) before its first message starts it. ([#5])
 - **Worktrees.** A session can run in its own git worktree on an `agent/<title>` branch, so agents working in one repository at once never edit the same files. ([#6])
 - **Changes panel.** Review every uncommitted file with its diff, and commit the files you choose. It never pushes or throws changes away. ([#7])
@@ -70,3 +71,4 @@ To be released as 0.2.0.
 [#16]: https://github.com/zakyirsyaad/agent-desktop/pull/16
 [#17]: https://github.com/zakyirsyaad/agent-desktop/pull/17
 [#35]: https://github.com/zakyirsyaad/agent-desktop/pull/35
+[#36]: https://github.com/zakyirsyaad/agent-desktop/pull/36
