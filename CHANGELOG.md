@@ -4,16 +4,19 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 ## [Unreleased]
 
-To be released as 0.2.0.
+## [0.2.0] - 2026-10-19
 
 ### Changed
 
 - **Agent Desktop is now Zorvo.** New name, icon and bundle identifier (`xyz.zorvo.desktop`). On first launch Zorvo copies your sessions and transcripts from the old `com.agentdesktop.app` data folder and leaves that folder untouched. Delete Agent Desktop from Applications afterwards: both apps share the old sessions' worktrees, so deleting a session in one removes its worktree for the other. macOS ties notification and folder permissions to the bundle identifier, so grant them to Zorvo again.
 - **A new look.** Zorvo uses its own design system: Instrument Sans for the interface, Geist Mono for code and the terminal, and one set of colors throughout. Amber now only marks an agent that is waiting on you, hints and timestamps are easier to read, and keyboard focus shows a clear ring. ([#35])
+- App logic moved out of `App.tsx` into focused hooks. ([#8], [#12])
 
 ### Added
 
 - **Light mode.** Zorvo follows your Mac's appearance, or pin it to Light or Dark in Settings → Appearance. The terminal stays dark either way. ([#36])
+- **Diff view.** A `+N −M` chip beside Changes totals the uncommitted lines. Click it to read every changed file's diff with line numbers, against `HEAD` or the branch's base on `main`, with a path filter and Expand all. ([#39], [#40])
+- **Background tasks.** A top-bar menu lists what is running: agents mid-turn, terminals, and the shell commands and dev servers your agents started, with their port and how long they have run. Open one, or stop it. ([#39], [#40])
 - **Sessions by workspace.** The sidebar groups sessions under their folder, with forks nested under the session they came from. A new session is set up (folder, agent, model, effort) before its first message starts it. ([#5])
 - **Worktrees.** A session can run in its own git worktree on an `agent/<title>` branch, so agents working in one repository at once never edit the same files. ([#6])
 - **Changes panel.** Review every uncommitted file with its diff, and commit the files you choose. It never pushes or throws changes away. ([#7])
@@ -29,15 +32,14 @@ To be released as 0.2.0.
 - **Workspace header.** The session's folder and branch sit above its conversation. ([#15])
 - **Check again in Settings.** Detect an agent installed while the app runs, without running setup again. ([#17])
 
-### Changed
-
-- App logic moved out of `App.tsx` into focused hooks. ([#8], [#12])
-
 ### Fixed
 
 - A rewound session restarts on the model and effort it ran with. ([#16])
 - `gh` calls time out instead of piling up on a stalled network. ([#16])
 - The pull request menu stays open while an agent streams. ([#16])
+- Terminal agents keep drawing in the released app. Oh-My-Pi's screen froze on its first frame because the release build broke how the terminal answers its startup queries. ([#41])
+- Your message to a terminal agent is submitted, not left sitting in its prompt. ([#41])
+- A new terminal session no longer shows "Failed to resize the terminal". ([#41])
 
 ## [0.1.0] - 2026-10-17
 
@@ -52,7 +54,8 @@ To be released as 0.2.0.
 
 - Approval safety, terminal handling, the stream parser and working folders. ([#1])
 
-[Unreleased]: https://github.com/zakyirsyaad/agent-desktop/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/zakyirsyaad/agent-desktop/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/zakyirsyaad/agent-desktop/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zakyirsyaad/agent-desktop/releases/tag/v0.1.0
 [#1]: https://github.com/zakyirsyaad/agent-desktop/pull/1
 [#2]: https://github.com/zakyirsyaad/agent-desktop/pull/2
@@ -72,3 +75,6 @@ To be released as 0.2.0.
 [#17]: https://github.com/zakyirsyaad/agent-desktop/pull/17
 [#35]: https://github.com/zakyirsyaad/agent-desktop/pull/35
 [#36]: https://github.com/zakyirsyaad/agent-desktop/pull/36
+[#39]: https://github.com/zakyirsyaad/agent-desktop/pull/39
+[#40]: https://github.com/zakyirsyaad/agent-desktop/pull/40
+[#41]: https://github.com/zakyirsyaad/agent-desktop/pull/41
