@@ -17,7 +17,7 @@ const BASE =
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
     "border-transparent bg-primary text-on-primary enabled:hover:bg-primary-hover " +
-    "disabled:bg-surface-hover disabled:text-fg-subtle",
+    "disabled:bg-surface-hover disabled:text-fg-muted",
   outline:
     "border-border-strong text-fg-secondary enabled:hover:bg-surface-hover enabled:hover:text-fg disabled:opacity-40",
   ghost:

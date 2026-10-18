@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { BookOpen, CircleAlert, CircleCheck, RefreshCw } from "lucide-react";
 import { RECHECK_ERROR, installHintFor, isAgentReady, type AgentSummary } from "../../lib/agent-readiness";
+import { Button } from "../ui/Button";
 import { CopyButton } from "./CopyButton";
 
 export interface AgentsStepProps {
@@ -81,15 +82,13 @@ export function AgentsStep({ agents, onRecheckAgents }: AgentsStepProps) {
         ))}
       </ul>
       <div className="flex items-center gap-3">
-        <button
-          type="button"
+        <Button
           onClick={handleRecheck}
           disabled={isChecking}
-          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-50 focus-ring"
+          icon={<RefreshCw size={12} className={isChecking ? "animate-spin" : undefined} aria-hidden="true" />}
         >
-          <RefreshCw size={12} className={isChecking ? "animate-spin" : undefined} aria-hidden="true" />
           Check again
-        </button>
+        </Button>
         {error && (
           <p role="alert" className="text-[11px] text-danger">
             {error}

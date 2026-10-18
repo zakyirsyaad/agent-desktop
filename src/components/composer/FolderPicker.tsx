@@ -65,7 +65,7 @@ export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, wo
             }}
             placeholder="Search folders..."
             aria-label="Search folders"
-            className="w-full border-b border-border bg-transparent px-3 py-2 text-xs text-fg-secondary placeholder-fg-subtle outline-none"
+            className="w-full border-b border-border bg-transparent px-3 py-2 text-xs text-fg-secondary placeholder-fg-subtle focus-ring"
           />
           <div className="max-h-64 overflow-y-auto p-1">
             <p className="px-2.5 pb-1 pt-1.5 text-[11px] text-fg-subtle">Recent</p>

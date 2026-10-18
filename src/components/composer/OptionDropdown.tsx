@@ -55,7 +55,7 @@ export function OptionDropdown({
         onClick={onToggle}
         disabled={disabled}
         title={disabled ? disabledTitle : valueLabel}
-        className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-fg-secondary hover:bg-surface-hover hover:text-fg transition-colors cursor-pointer border border-border disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+        className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-fg-secondary hover:bg-surface-hover hover:text-fg transition-colors cursor-pointer border border-border focus-ring disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
       >
         {icon}
         <span className="max-w-[140px] truncate">{chipLabelOf(valueLabel)}</span>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Folder, FolderOpen } from "lucide-react";
+import { Button } from "../ui/Button";
 import type { FolderOption } from "./types";
 
 export interface FolderStepProps {
@@ -94,15 +95,14 @@ export function FolderStep({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <button
-          type="button"
+        <Button
           onClick={handlePick}
           disabled={isPicking}
-          className="flex w-fit items-center gap-2 rounded-lg border border-border-strong bg-surface-2 px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-surface-hover disabled:opacity-50 focus-ring"
+          className="w-fit"
+          icon={<FolderOpen size={14} className="text-fg-muted" aria-hidden="true" />}
         >
-          <FolderOpen size={14} className="text-fg-muted" aria-hidden="true" />
           Open folder…
-        </button>
+        </Button>
         {error && (
           <p role="alert" className="text-[11px] text-danger">
             {error}
