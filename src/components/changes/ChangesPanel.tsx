@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ChevronRight, GitBranch, RefreshCw, X } from "lucide-react";
 import { commitPathsOf, type ChangeKind, type FileChange } from "../../lib/git-changes";
 import { Button } from "../ui/Button";
+import { DiffStatChip } from "./DiffStatChip";
 import { FileDiff } from "./FileDiff";
 import { PullRequestList } from "./PullRequestList";
 import type { PullRequestSummary } from "../../hooks/useRepoPullRequests";
@@ -21,6 +22,9 @@ export interface ChangesPanelProps {
   /** The user's pull requests in this repository, newest first; none shown when null (gh missing, not on GitHub). */
   pullRequests?: PullRequestSummary[] | null;
   onOpenPullRequest?: (url: string) => void;
+  /** Lines added and removed against HEAD; a chip that opens the diff view shows when set. */
+  diffStats?: { added: number; removed: number };
+  onOpenDiff?: () => void;
 }
 
 const KIND_LABEL: Record<ChangeKind, { letter: string; name: string; style: string }> = {
@@ -88,6 +92,8 @@ export function ChangesPanel({
   onClose,
   pullRequests,
   onOpenPullRequest,
+  diffStats,
+  onOpenDiff,
 }: ChangesPanelProps) {
   // Files left out of the commit; any new change is included by default.
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set());
@@ -153,6 +159,11 @@ export function ChangesPanel({
         </button>
       </div>
 
+      {diffStats && (diffStats.added > 0 || diffStats.removed > 0) && onOpenDiff && (
+        <div className="flex border-b border-border px-3 py-1.5">
+          <DiffStatChip added={diffStats.added} removed={diffStats.removed} onOpen={onOpenDiff} />
+        </div>
+      )}
       {pullRequests && onOpenPullRequest && (
         <div className="max-h-[45%] shrink-0 overflow-y-auto">
           <PullRequestList pullRequests={pullRequests} onOpen={onOpenPullRequest} />

@@ -18,9 +18,9 @@ describe("unifiedDiffRows", () => {
 
     expect(unifiedDiffRows(diff)).toEqual([
       { kind: "hunk", text: "@@ -1,3 +1,3 @@" },
-      { kind: "context", text: "one" },
-      { kind: "removed", text: "two" },
-      { kind: "added", text: "2" },
+      { kind: "context", text: "one", oldLine: 1, newLine: 1 },
+      { kind: "removed", text: "two", oldLine: 2 },
+      { kind: "added", text: "2", newLine: 2 },
       { kind: "note", text: "\\ No newline at end of file" },
     ]);
   });
@@ -28,8 +28,8 @@ describe("unifiedDiffRows", () => {
   it("keeps a line whose content starts like a header marker", () => {
     expect(unifiedDiffRows("@@ -1 +1 @@\n---- divider\n+++ plus\n")).toEqual([
       { kind: "hunk", text: "@@ -1 +1 @@" },
-      { kind: "removed", text: "--- divider" },
-      { kind: "added", text: "++ plus" },
+      { kind: "removed", text: "--- divider", oldLine: 1 },
+      { kind: "added", text: "++ plus", newLine: 1 },
     ]);
   });
 
@@ -38,6 +38,24 @@ describe("unifiedDiffRows", () => {
 
     expect(rows).toHaveLength(1501);
     expect(rows.at(-1)).toEqual({ kind: "note", text: "500 more lines not shown" });
+  });
+});
+
+describe("unifiedDiffRows line numbers", () => {
+  it("numbers context, removed and added rows from the hunk header", () => {
+    const diff = "@@ -10,3 +10,4 @@\n ctx\n-old\n+new\n+more\n ctx2\n";
+    expect(unifiedDiffRows(diff)).toEqual([
+      { kind: "hunk", text: "@@ -10,3 +10,4 @@" },
+      { kind: "context", text: "ctx", oldLine: 10, newLine: 10 },
+      { kind: "removed", text: "old", oldLine: 11 },
+      { kind: "added", text: "new", newLine: 11 },
+      { kind: "added", text: "more", newLine: 12 },
+      { kind: "context", text: "ctx2", oldLine: 12, newLine: 13 },
+    ]);
+  });
+
+  it("starts at 1 when the hunk header omits a count", () => {
+    expect(unifiedDiffRows("@@ -0,0 +1 @@\n+first\n")[1]).toEqual({ kind: "added", text: "first", newLine: 1 });
   });
 });
 

@@ -118,6 +118,8 @@ function toInfo(raw: unknown): AcpSessionInfo {
  */
 export function useAcpSessions(handlers: AcpHandlers) {
   const [info, setInfo] = useState<Record<string, AcpSessionInfo>>({});
+  // When each busy session's current turn started.
+  const [busySince, setBusySince] = useState<Record<string, number>>({});
   const handlersRef = useLatest(handlers);
   // Commands an agent announces once its session exists but before the start
   // call has returned; they are announced once, so they must not be lost.
@@ -129,7 +131,14 @@ export function useAcpSessions(handlers: AcpHandlers) {
   }, []);
 
   const setBusy = useCallback(
-    (sessionId: string, isBusy: boolean) => patch(sessionId, (current) => ({ ...current, isBusy })),
+    (sessionId: string, isBusy: boolean) => {
+      patch(sessionId, (current) => ({ ...current, isBusy }));
+      setBusySince((prev) => {
+        if (isBusy) return { ...prev, [sessionId]: Date.now() };
+        const { [sessionId]: _ended, ...rest } = prev;
+        return sessionId in prev ? rest : prev;
+      });
+    },
     [patch],
   );
 
@@ -282,7 +291,8 @@ export function useAcpSessions(handlers: AcpHandlers) {
   }, []);
 
   const isBusy = useCallback((sessionId: string) => info[sessionId]?.isBusy ?? false, [info]);
+  const busySinceOf = useCallback((sessionId: string): number | undefined => busySince[sessionId], [busySince]);
   const canFork = useCallback((sessionId: string) => info[sessionId]?.canFork ?? false, [info]);
 
-  return { info, start, load, fork, prompt, cancel, respondPermission, setMode, setConfigOption, stop, isBusy, canFork };
+  return { info, start, load, fork, prompt, cancel, respondPermission, setMode, setConfigOption, stop, isBusy, busySinceOf, canFork };
 }

@@ -11,6 +11,8 @@ import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
 import { WorkspaceSummary } from "./components/workspace/WorkspaceSummary";
 import { ChangesPanel } from "./components/changes/ChangesPanel";
+import { DiffView } from "./components/changes/DiffView";
+import { totalsOf } from "./lib/diff-stats";
 import { useSidePanel } from "./hooks/useSidePanel";
 import { useTurnsEnded } from "./hooks/useTurnsEnded";
 import { usePullRequest } from "./hooks/usePullRequest";
@@ -39,6 +41,7 @@ import {
 } from "./lib/session-helpers";
 import { useAppearance } from "./hooks/useAppearance";
 import { usePersistedState } from "./hooks/usePersistedState";
+import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useTranscripts } from "./hooks/useTranscripts";
 import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
 import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
@@ -251,6 +254,15 @@ export default function App() {
 
   const turnsEnded = useTurnsEnded(Boolean(activeSessionId) && isSessionBusy(activeSessionId));
   const sidePanel = useSidePanel(filesFolder?.path, isRepository, turnsEnded, reportError);
+  const diffStats = sidePanel.headStats ? totalsOf(sidePanel.headStats) : undefined;
+  // The folder whose diff view is expanded: another folder's view starts unexpanded.
+  const [expandedDiffFolder, setExpandedDiffFolder] = useState<string | null>(null);
+  const isDiffOpen = sidePanel.open === "diff" && Boolean(filesFolder) && isRepository;
+  const isDiffExpanded = isDiffOpen && expandedDiffFolder === filesFolder?.path;
+  // An expanded diff view starts over the next time it opens.
+  useEffect(() => {
+    if (!isDiffOpen) setExpandedDiffFolder(null);
+  }, [isDiffOpen]);
   const pullRequest = usePullRequest(
     isRepository ? shownFolderPath : undefined,
     workspaceDetails?.branch ?? undefined,
@@ -364,6 +376,25 @@ export default function App() {
     if (workspacePath && workspaces.some((ws) => ws.path === workspacePath)) selectWorkspace(workspacePath);
   };
 
+  /** Stops the agent's current turn; the session stays open for the next message. */
+  const handleInterrupt = (sessionId: string) => {
+    // A rewound session's fresh agent has not started yet: only its start is called off.
+    if (isRestarting(sessionId)) cancelRestart(sessionId);
+    else if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
+    else pty.interrupt(sessionId);
+  };
+
+  const backgroundTasks = useBackgroundTasks({
+    sessions,
+    isAcp,
+    isBusy: acp.isBusy,
+    busySince: acp.busySinceOf,
+    needsApproval: (id) => isAwaitingPermission(transcripts[id] ?? []),
+    onOpenSession: handleSelectSession,
+    stopAgent: handleInterrupt,
+    onError: reportError,
+  });
+
   const navigateTo = (sessionId: string | null) => {
     if (sessionId) handleSelectSession(sessionId);
   };
@@ -400,14 +431,6 @@ export default function App() {
   const handleRunOnboarding = () => {
     setIsSettingsOpen(false);
     updateSettings({ onboardingCompleted: false });
-  };
-
-  /** Stops the agent's current turn; the session stays open for the next message. */
-  const handleInterrupt = (sessionId: string) => {
-    // A rewound session's fresh agent has not started yet: only its start is called off.
-    if (isRestarting(sessionId)) cancelRestart(sessionId);
-    else if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
-    else pty.interrupt(sessionId);
   };
 
   useUnreadMarks(sessions, activeSessionId, isSessionBusy, patchSession);
@@ -541,9 +564,17 @@ export default function App() {
         isFilesOpen={sidePanel.open === "files" && Boolean(filesFolder)}
         onToggleChanges={filesFolder && isRepository ? () => sidePanel.toggle("changes") : undefined}
         isChangesOpen={sidePanel.open === "changes" && Boolean(filesFolder) && isRepository}
-        changeCount={sidePanel.changes.changes?.length}
+        diffStats={diffStats}
+        onOpenDiff={() => sidePanel.show("diff")}
         onPopout={activeSession ? handlePopout : undefined}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        backgroundTasks={{
+          tasks: backgroundTasks.tasks,
+          isOpen: backgroundTasks.isMenuOpen,
+          onOpenChange: backgroundTasks.setMenuOpen,
+          onOpenTask: backgroundTasks.open,
+          onStopTask: backgroundTasks.stop,
+        }}
       />
 
       <section className="flex flex-1 overflow-hidden">
@@ -575,7 +606,7 @@ export default function App() {
           }
         />
 
-        <article className="flex-1 flex flex-col bg-bg relative overflow-hidden">
+        <article className={`${isDiffOpen && isDiffExpanded ? "hidden" : "flex"} flex-1 flex-col bg-bg relative overflow-hidden`}>
           {isDraggingFiles && <FileDropOverlay />}
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
           {authRequest && (
@@ -685,6 +716,19 @@ export default function App() {
             onClose={sidePanel.close}
             pullRequests={repoPullRequests}
             onOpenPullRequest={openPullRequest}
+            diffStats={diffStats}
+            onOpenDiff={() => sidePanel.show("diff")}
+          />
+        )}
+        {isDiffOpen && filesFolder && (
+          <DiffView
+            key={filesFolder.path}
+            rootPath={filesFolder.path}
+            version={sidePanel.changes.version}
+            isExpanded={isDiffExpanded}
+            onToggleExpanded={() => setExpandedDiffFolder(isDiffExpanded ? null : filesFolder.path)}
+            onClose={sidePanel.close}
+            onError={reportError}
           />
         )}
         {sidePanel.open === "files" && filesFolder && (

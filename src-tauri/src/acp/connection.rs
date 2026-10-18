@@ -256,6 +256,16 @@ impl AcpConnection {
             .unwrap_or_default()
     }
 
+    /// The agent's pid while it runs; none once it has exited, when the pid
+    /// may already belong to another process.
+    pub fn pid(&self) -> Option<u32> {
+        let mut child = self.child.lock().ok()?;
+        match child.try_wait() {
+            Ok(None) => Some(child.id()),
+            _ => None,
+        }
+    }
+
     pub fn kill(&self) {
         if let Ok(mut child) = self.child.lock() {
             let _ = child.kill();

@@ -357,6 +357,24 @@ impl AcpManager {
         ids.len()
     }
 
+    /// Each running session's agent pid, by session id; sessions sharing an
+    /// agent each list its pid.
+    pub fn root_pids(&self) -> Vec<(String, u32)> {
+        let mut roots: Vec<(String, u32)> = self
+            .routes
+            .lock()
+            .map(|routes| {
+                routes
+                    .sessions
+                    .iter()
+                    .filter_map(|(id, entry)| Some((id.clone(), entry.connection.pid()?)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        roots.sort();
+        roots
+    }
+
     /// Forgets the session; kills the agent once no other session uses it.
     pub fn stop(&self, app_session_id: &str) {
         let Ok(mut routes) = self.routes.lock() else {

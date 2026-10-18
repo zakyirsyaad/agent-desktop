@@ -335,6 +335,7 @@ export function useAcpEngine({
     setConfigOption,
     stop,
     isBusy,
+    busySinceOf: acp.busySinceOf,
     canFork: acp.canFork,
   };
 }

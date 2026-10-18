@@ -4,6 +4,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use zorvo_lib::changes::{commit_files, file_diff, list_changes, ChangeKind, FileChange};
+use zorvo_lib::diff_stats::DiffTarget;
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -100,8 +101,8 @@ fn diffs_a_changed_file_against_the_last_commit_and_shows_a_new_one_whole() {
     fs::write(repo.join("src/app.ts"), "one\n2\nthree\n").expect("modify");
     fs::write(repo.join("notes.md"), "hello\nworld\n").expect("untracked");
 
-    let modified = file_diff(&git_path(), &repo, "src/app.ts").expect("diff");
-    let untracked = file_diff(&git_path(), &repo, "notes.md").expect("diff");
+    let modified = file_diff(&git_path(), &repo, "src/app.ts", DiffTarget::Head).expect("diff");
+    let untracked = file_diff(&git_path(), &repo, "notes.md", DiffTarget::Head).expect("diff");
 
     assert!(modified.contains("-two\n+2\n"), "{modified}");
     assert!(untracked.contains("+hello\n+world\n"), "{untracked}");
@@ -237,8 +238,13 @@ fn refuses_to_show_a_file_outside_the_repository_through_a_link() {
     std::os::unix::fs::symlink(outside.join("secret.txt"), repo.join("linked-file"))
         .expect("link a file");
 
-    let through_folder = file_diff(&git_path(), &repo, "linked-dir/secret.txt");
-    let through_file = file_diff(&git_path(), &repo, "linked-file");
+    let through_folder = file_diff(
+        &git_path(),
+        &repo,
+        "linked-dir/secret.txt",
+        DiffTarget::Head,
+    );
+    let through_file = file_diff(&git_path(), &repo, "linked-file", DiffTarget::Head);
 
     assert!(through_folder.is_err(), "{through_folder:?}");
     assert!(
@@ -264,7 +270,7 @@ fn diffs_a_staged_file_before_the_first_commit() {
     fs::write(repo.join("first.md"), "hello\n").expect("write");
     git(&repo, &["add", "first.md"]);
 
-    let diff = file_diff(&git_path(), &repo, "first.md").expect("diff");
+    let diff = file_diff(&git_path(), &repo, "first.md", DiffTarget::Head).expect("diff");
 
     assert!(diff.contains("+hello"), "{diff}");
     fs::remove_dir_all(repo).ok();
@@ -276,7 +282,7 @@ fn cuts_a_huge_diff_without_reading_it_all() {
     let line = "x".repeat(99) + "\n";
     fs::write(repo.join("big.txt"), line.repeat(50_000)).expect("write a 5 MB file");
 
-    let diff = file_diff(&git_path(), &repo, "big.txt").expect("diff");
+    let diff = file_diff(&git_path(), &repo, "big.txt", DiffTarget::Head).expect("diff");
 
     assert!(
         diff.chars().count() < 210_000,
@@ -293,8 +299,49 @@ fn shows_where_a_new_link_points_even_when_nothing_is_there() {
     std::os::unix::fs::symlink("missing/target.md", repo.join("dangling"))
         .expect("make a dangling link");
 
-    let diff = file_diff(&git_path(), &repo, "dangling").expect("diff");
+    let diff = file_diff(&git_path(), &repo, "dangling", DiffTarget::Head).expect("diff");
 
     assert!(diff.contains("+missing/target.md"), "{diff}");
+    fs::remove_dir_all(repo).ok();
+}
+
+#[test]
+fn diffs_against_the_merge_base_for_the_base_target() {
+    let repo = repo("base-diff");
+    git(&repo, &["checkout", "-q", "-b", "feat"]);
+    fs::write(repo.join("src/app.ts"), "one\nTWO\nthree\n").expect("modify");
+    git(&repo, &["commit", "-q", "-am", "feature"]);
+
+    let against_base = file_diff(&git_path(), &repo, "src/app.ts", DiffTarget::Base).expect("diff");
+    let against_head = file_diff(&git_path(), &repo, "src/app.ts", DiffTarget::Head);
+
+    assert!(against_base.contains("+TWO"), "{against_base}");
+    assert!(against_head
+        .expect_err("not changed against head")
+        .contains("is not a changed file"));
+}
+
+#[test]
+fn base_target_shows_branch_and_untracked_files_and_refuses_unchanged_ones() {
+    let repo = repo("base-members");
+    git(&repo, &["checkout", "-q", "-b", "feat"]);
+    git(&repo, &["mv", "old.md", "new.md"]);
+    git(&repo, &["commit", "-q", "-m", "rename"]);
+    fs::write(repo.join("fresh.txt"), "hello\n").expect("write");
+
+    let renamed = file_diff(&git_path(), &repo, "new.md", DiffTarget::Base).expect("rename diff");
+    let untracked =
+        file_diff(&git_path(), &repo, "fresh.txt", DiffTarget::Base).expect("untracked diff");
+    let unchanged = file_diff(&git_path(), &repo, "src/app.ts", DiffTarget::Base);
+    let missing = file_diff(&git_path(), &repo, "nowhere.txt", DiffTarget::Base);
+
+    assert!(renamed.contains("rename from old.md"), "{renamed}");
+    assert!(untracked.contains("+hello"), "{untracked}");
+    assert!(unchanged
+        .expect_err("unchanged against base")
+        .contains("is not a changed file"));
+    assert!(missing
+        .expect_err("not in the repository")
+        .contains("is not a changed file"));
     fs::remove_dir_all(repo).ok();
 }

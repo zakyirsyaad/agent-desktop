@@ -279,6 +279,34 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_cancel")).toHaveLength(1);
   });
 
+  it("stops an agent waiting for approval from the background tasks menu through the interrupt path", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("clean up");
+    await acpEvent({
+      sessionId,
+      kind: "permission",
+      requestId: 21,
+      toolCall: { title: "Delete build" },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Background tasks/ }));
+    });
+    const list = screen.getByRole("list", { name: "Running tasks" });
+    await act(async () => {
+      fireEvent.click(within(list).getByRole("button", { name: /^Stop / }));
+    });
+
+    expect(callsTo(spy, "acp_respond_permission").map(([, a]) => a)).toContainEqual({
+      sessionId,
+      requestId: 21,
+      optionId: null,
+    });
+    expect(callsTo(spy, "acp_cancel")).toHaveLength(1);
+  });
+
   it("keeps the card open when answering the agent fails", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);

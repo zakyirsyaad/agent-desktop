@@ -1,40 +1,42 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { unifiedDiffRows, type FileChange, type UnifiedRowKind } from "../../lib/git-changes";
+import { unifiedDiffRows, type FileChange } from "../../lib/git-changes";
+import type { DiffTargetId } from "../../lib/diff-stats";
+import { DiffRows } from "./DiffRows";
 
-const ROW_STYLE: Record<UnifiedRowKind, string> = {
-  added: "bg-diff-added text-status-running",
-  removed: "bg-diff-removed text-danger",
-  context: "text-fg-muted",
-  hunk: "bg-surface-2 text-fg-muted",
-  note: "text-fg-subtle italic",
-};
-
-const ROW_SIGN: Record<UnifiedRowKind, string> = { added: "+", removed: "-", context: " ", hunk: "", note: "" };
-
-type DiffState = { status: "loading" } | { status: "ready"; diff: string } | { status: "failed"; error: string };
+type DiffState = { status: "loading" } | { status: "ready"; diff: string; key: string } | { status: "failed"; error: string };
 
 /** One changed file's diff against the last commit, read when it is opened. */
-export function FileDiff({ rootPath, change, version }: { rootPath: string; change: FileChange; version: number }) {
+export function FileDiff({ rootPath, change, version, target = "head" }: {
+  rootPath: string;
+  change: FileChange;
+  version: number;
+  target?: DiffTargetId;
+}) {
   const [state, setState] = useState<DiffState>({ status: "loading" });
 
   const { path, kind } = change;
+  // What is being read; a diff of anything else must never show.
+  const key = `${rootPath}\0${path}\0${target}`;
   // Read again with every new list (`version`): the file may have changed since.
   useEffect(() => {
     let isCancelled = false;
-    // A diff already shown stays until the new one arrives, so a refresh does not flash.
-    setState((prev) => (prev.status === "ready" ? prev : { status: "loading" }));
-    invoke<string>("session_file_diff", { path: rootPath, file: path })
-      .then((diff) => !isCancelled && setState({ status: "ready", diff: diff ?? "" }))
+    // A diff already shown stays while a refresh (new `version`) arrives, so it does not flash.
+    // A different file or target starts over.
+    setState((prev) => (prev.status === "ready" && prev.key === key ? prev : { status: "loading" }));
+    invoke<string>("session_file_diff", { path: rootPath, file: path, target })
+      .then((diff) => !isCancelled && setState({ status: "ready", diff: diff ?? "", key }))
       .catch((error) => !isCancelled && setState({ status: "failed", error: String(error) }));
     return () => {
       isCancelled = true;
     };
-  }, [rootPath, path, kind, version]);
+  }, [rootPath, path, kind, version, target, key]);
 
   const rows = useMemo(() => (state.status === "ready" ? unifiedDiffRows(state.diff) : []), [state]);
 
-  if (state.status === "loading") return <p className="px-3 py-1.5 text-[11px] text-fg-subtle">Loading the diff…</p>;
+  // The effect has not yet reset a state left over from another file or target.
+  const isStale = state.status === "ready" && state.key !== key;
+  if (state.status === "loading" || isStale) return <p className="px-3 py-1.5 text-[11px] text-fg-subtle">Loading the diff…</p>;
   if (state.status === "failed") {
     return (
       <p role="alert" className="px-3 py-1.5 text-[11px] text-danger">
@@ -43,19 +45,5 @@ export function FileDiff({ rootPath, change, version }: { rootPath: string; chan
     );
   }
   if (rows.length === 0) return <p className="px-3 py-1.5 text-[11px] text-fg-subtle">No text changes.</p>;
-  return (
-    <div
-      aria-label={`Diff of ${change.path}`}
-      className="mx-1.5 mb-1.5 max-h-80 overflow-auto rounded-md border border-border bg-bg py-1 font-mono text-[11px] leading-5"
-    >
-      {rows.map((row, index) => (
-        <div key={index} data-line={row.kind} className={`flex whitespace-pre px-2 ${ROW_STYLE[row.kind]}`}>
-          <span aria-hidden="true" className="w-3.5 shrink-0 select-none opacity-60">
-            {ROW_SIGN[row.kind]}
-          </span>
-          <span>{row.text}</span>
-        </div>
-      ))}
-    </div>
-  );
+  return <DiffRows rows={rows} label={`Diff of ${change.path}`} />;
 }
