@@ -461,9 +461,14 @@ pub fn diff_stats(git: &Path, dir: &Path, target: DiffTarget) -> Result<Vec<File
     let mut stats = tracked_stats(git, &toplevel, &base)?;
     stats.extend(untracked_stats(git, &toplevel, target)?);
     stats.sort_by(|a, b| a.path.cmp(&b.path));
-    let base_id = run_git(git, &toplevel, &["rev-parse", &base])
-        .map(|id| id.trim().to_string())
-        .unwrap_or(base);
+    // The base target's base is already a commit id; HEAD is resolved, so a
+    // new commit changes every fingerprint.
+    let base_id = match target {
+        DiffTarget::Base => base,
+        DiffTarget::Head => run_git(git, &toplevel, &["rev-parse", &base])
+            .map(|id| id.trim().to_string())
+            .unwrap_or(base),
+    };
     Ok(stats
         .into_iter()
         .map(|stat| FileStat {
