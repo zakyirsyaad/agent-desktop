@@ -8,8 +8,10 @@ export const BACKGROUND_POLL_OPEN_MS = 2000;
 
 /**
  * Polls the shell processes agents started while any session is alive, faster
- * while the background tasks menu is open. A failed poll keeps the previous
- * list and is reported once, until a poll succeeds again.
+ * while the background tasks menu is open. A tick is skipped while a read is
+ * still running, so a scan slower than the interval is not superseded before
+ * it answers; `reload` still starts a new read at once. A failed poll keeps
+ * the previous list and is reported once, until a poll succeeds again.
  */
 export function useBackgroundProcesses(
   hasLiveSessions: boolean,
@@ -28,9 +30,11 @@ export function useBackgroundProcesses(
       return;
     }
     let isCancelled = false;
+    let isReading = false;
     const poll = () => {
       latestReadRef.current += 1;
       const readId = latestReadRef.current;
+      isReading = true;
       invoke<BackgroundProcess[]>('background_processes')
         .then((list) => {
           if (isCancelled || readId !== latestReadRef.current) return;
@@ -42,10 +46,16 @@ export function useBackgroundProcesses(
           if (isCancelled || readId !== latestReadRef.current || hasReportedFailureRef.current) return;
           hasReportedFailureRef.current = true;
           onErrorRef.current?.(`Could not read background processes: ${String(error)}`);
+        })
+        .finally(() => {
+          isReading = false;
         });
     };
+    const tick = () => {
+      if (!isReading) poll();
+    };
     poll();
-    const timer = setInterval(poll, isMenuOpen ? BACKGROUND_POLL_OPEN_MS : BACKGROUND_POLL_MS);
+    const timer = setInterval(tick, isMenuOpen ? BACKGROUND_POLL_OPEN_MS : BACKGROUND_POLL_MS);
     return () => {
       isCancelled = true;
       clearInterval(timer);

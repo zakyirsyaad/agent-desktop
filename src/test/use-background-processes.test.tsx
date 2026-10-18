@@ -93,12 +93,27 @@ describe("useBackgroundProcesses", () => {
     expect(spy.mock.calls.length).toBe(before + 1);
   });
 
+  it("skips a tick while a read is still running, then polls on the next one", async () => {
+    const resolvers: ((v: unknown) => void)[] = [];
+    const spy = stub(() => new Promise((r) => resolvers.push(r)));
+    const { result } = renderHook(() => useBackgroundProcesses(true, false));
+    await advance(0);
+    await advance(5_000);
+    expect(spy).toHaveBeenCalledTimes(1);
+    await act(async () => { resolvers[0]([PROC]); });
+    expect(result.current.processes).toEqual([PROC]);
+    await advance(5_000);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores a read that resolves after a newer one", async () => {
     const resolvers: ((v: unknown) => void)[] = [];
     stub(() => new Promise((r) => resolvers.push(r)));
     const { result } = renderHook(() => useBackgroundProcesses(true, false));
     await advance(0);
-    await advance(5_000);
+    // A reload starts a new read even while the first is still running.
+    act(() => result.current.reload());
+    await advance(0);
     const B = { ...PROC, pid: 2 };
     await act(async () => { resolvers[1]([B]); });
     await act(async () => { resolvers[0]([PROC]); });
