@@ -3,8 +3,11 @@
 
 use std::collections::HashMap;
 use std::fs::File;
+use std::fs::Metadata;
 use std::io::Read;
 use std::path::Path;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
@@ -334,6 +337,48 @@ fn count_lines(path: &Path) -> std::io::Result<Counts> {
     })
 }
 
+/// How many untracked files' counts are remembered; past this the memory starts over.
+const MAX_REMEMBERED_COUNTS: usize = 20_000;
+
+/// A file's size and modification time: while both stay, its lines are not
+/// read again (the same test git's index uses).
+type Stamp = (u64, u128);
+
+fn stamp_of(meta: &Metadata) -> Option<Stamp> {
+    let modified = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    Some((meta.len(), modified.as_nanos()))
+}
+
+/// Untracked files' line counts by path, with the stamp they were read at.
+fn remembered_counts() -> &'static Mutex<HashMap<PathBuf, (Stamp, Counts)>> {
+    static COUNTS: OnceLock<Mutex<HashMap<PathBuf, (Stamp, Counts)>>> = OnceLock::new();
+    COUNTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// `count_lines` for a regular file, read only when it changed since the
+/// last count; the counts are read on every focus, so a big untracked file
+/// must not be read each time.
+fn count_lines_once(path: &Path, meta: &Metadata) -> std::io::Result<Counts> {
+    let Some(stamp) = stamp_of(meta) else {
+        return count_lines(path);
+    };
+    if let Ok(counts) = remembered_counts().lock() {
+        if let Some((seen, counts)) = counts.get(path) {
+            if *seen == stamp {
+                return Ok(*counts);
+            }
+        }
+    }
+    let counts = count_lines(path)?;
+    if let Ok(mut remembered) = remembered_counts().lock() {
+        if remembered.len() >= MAX_REMEMBERED_COUNTS {
+            remembered.clear();
+        }
+        remembered.insert(path.to_path_buf(), (stamp, counts));
+    }
+    Ok(counts)
+}
+
 /// A file listed as changed whose lines are not counted: it cannot be read,
 /// or it is not a regular file (a pipe or socket, which reading could block
 /// on). It is kept as binary, so the UI still shows it, without contents.
@@ -349,15 +394,17 @@ const UNCOUNTED: Counts = Counts {
 /// resolves at all (it is gone).
 fn untracked_stat(toplevel: &Path, path: String) -> Option<FileStat> {
     let full = toplevel.join(&path);
-    let file_type = full.symlink_metadata().map(|meta| meta.file_type());
-    let counts = match file_type {
-        Ok(kind) if kind.is_symlink() => Counts {
+    let meta = full.symlink_metadata();
+    let counts = match &meta {
+        Ok(meta) if meta.file_type().is_symlink() => Counts {
             added: 1,
             removed: 0,
             is_binary: false,
         },
         _ if !resolves_inside(toplevel, &path) => return None,
-        Ok(kind) if kind.is_file() => count_lines(&full).unwrap_or(UNCOUNTED),
+        Ok(meta) if meta.file_type().is_file() => {
+            count_lines_once(&full, meta).unwrap_or(UNCOUNTED)
+        }
         _ => UNCOUNTED,
     };
     Some(FileStat {

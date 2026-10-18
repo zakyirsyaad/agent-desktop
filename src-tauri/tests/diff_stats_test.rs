@@ -324,3 +324,36 @@ fn changes_a_file_fingerprint_when_the_base_moves() {
         stat_of(&after, "src/app.ts").fingerprint
     );
 }
+
+#[test]
+fn does_not_read_an_unchanged_untracked_file_again() {
+    let repo = repo("count-cache");
+    let file = repo.join("notes.md");
+    fs::write(&file, "a\nb\n").expect("write");
+    let first = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
+    assert_eq!(stat_of(&first, "notes.md").added, 2);
+
+    // Other contents of the same size, its modification time put back: to a
+    // reader that trusts size and time (as git's own index does) it is unchanged.
+    let reference = repo.join(".git/notes-time");
+    fs::write(&reference, "").expect("write");
+    let status = Command::new("touch")
+        .arg("-r")
+        .arg(&file)
+        .arg(&reference)
+        .status()
+        .expect("touch");
+    assert!(status.success());
+    fs::write(&file, "abcd").expect("write");
+    let status = Command::new("touch")
+        .arg("-r")
+        .arg(&reference)
+        .arg(&file)
+        .status()
+        .expect("touch");
+    assert!(status.success());
+
+    let again = diff_stats(&git_path(), &repo, DiffTarget::Head).expect("stats");
+
+    assert_eq!(stat_of(&again, "notes.md").added, 2);
+}
