@@ -359,37 +359,45 @@ pub fn scan(roots: &[(String, u32)]) -> Result<Vec<BackgroundProcess>, String> {
         .collect())
 }
 
-/// Sends `signal` to `pids` with `/bin/kill`; whether it reached them all.
-fn send_signal(signal: &str, pids: &[u32]) -> Result<bool, String> {
-    let output = Command::new("/bin/kill")
+/// Sends `signal` to `pids` with `/bin/kill`. kill exits non-zero when any
+/// one pid is not reached (one that exited since the scan, or one this user
+/// may not signal) yet still signals the rest, so only failing to run it is
+/// an error.
+fn send_signal(signal: &str, pids: &[u32]) -> Result<(), String> {
+    Command::new("/bin/kill")
         .arg(signal)
         .args(pids.iter().map(u32::to_string))
-        .output()
-        .map_err(|e| format!("Could not run kill: {e}"))?;
-    Ok(output.status.success())
+        .stderr(Stdio::null())
+        .status()
+        .map(|_| ())
+        .map_err(|e| format!("Could not run kill: {e}"))
 }
 
-/// Stops the task `pid` under `roots`: `TERM` to it and everything under it,
-/// then, after `KILL_GRACE`, `KILL` to whichever of them is still the same
-/// process (same command, running at least as long).
+/// Stops the task `pid` under `roots`, if a fresh scan still lists it; see
+/// `terminate`.
 pub fn stop(roots: &[(String, u32)], pid: u32) -> Result<(), String> {
     let rows = read_processes()?;
     let task = select_tasks(&rows, roots)
         .into_iter()
         .find(|task| task.pid == pid)
         .ok_or_else(|| format!("Process {pid} is no longer running"))?;
+    terminate(&task, &rows)
+}
+
+/// Sends `TERM` to `task` and everything under it, then, after
+/// `KILL_GRACE`, `KILL` to whichever of them `rows` (the scan `task` came
+/// from) lists and is still the same process: same command, running at
+/// least as long. The escalation is scheduled whenever `TERM` was sent; an
+/// error means kill could not be run at all.
+pub fn terminate(task: &TaskProcess, rows: &[ProcessRow]) -> Result<(), String> {
     let members: Vec<ProcessRow> = task
         .subtree
         .iter()
         .filter_map(|member| rows.iter().find(|row| row.pid == *member).cloned())
         .collect();
 
-    // A process may exit on its own before its signal arrives (a shell
-    // whose command was just stopped), so a signal that did not land is only
-    // a failure while the task is still there.
-    if !send_signal("-TERM", &task.subtree)? && send_signal("-0", &[pid])? {
-        return Err(format!("Could not stop process {pid}"));
-    }
+    // Whatever ignored or missed TERM is left to the KILL below.
+    send_signal("-TERM", &task.subtree)?;
 
     thread::spawn(move || {
         thread::sleep(KILL_GRACE);

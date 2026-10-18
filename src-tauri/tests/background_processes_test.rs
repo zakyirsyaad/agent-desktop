@@ -4,7 +4,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use zorvo_lib::background_processes::{
-    display_command, parse_etime, parse_lsof_ports, parse_ps, scan, select_tasks, stop, ProcessRow,
+    display_command, parse_etime, parse_lsof_ports, parse_ps, scan, select_tasks, stop, terminate,
+    ProcessRow, TaskProcess,
 };
 
 fn row(pid: u32, ppid: u32, command: &str) -> ProcessRow {
@@ -236,5 +237,60 @@ fn stops_a_running_task_and_everything_it_started() {
         eventually(Duration::from_secs(3), || !is_alive(task.pid)
             && !is_alive(sleep_pid)),
         "the task or its sleep is still running"
+    );
+}
+
+/// Every process, from `ps`.
+fn ps_rows() -> Vec<ProcessRow> {
+    let output = Command::new("/bin/ps")
+        .args(["-axo", "pid=,ppid=,etime=,command="])
+        .output()
+        .expect("run ps");
+    parse_ps(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn kills_a_task_that_ignores_term_even_when_part_of_it_already_exited() {
+    // A process that has exited and been reaped: signalling it fails.
+    let mut gone = Command::new("/usr/bin/true").spawn().expect("spawn true");
+    gone.wait().expect("reap true");
+    let gone_pid = gone.id();
+    // The shell and its sleep both ignore TERM, so only KILL ends them.
+    let shell = Command::new("/bin/sh")
+        .args(["-c", "trap '' TERM; sleep 30; :"])
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn the shell");
+    let mut guard = TreeGuard(shell);
+    let shell_pid = guard.0.id();
+
+    let mut rows = Vec::new();
+    let started = eventually(Duration::from_secs(5), || {
+        rows = ps_rows();
+        rows.iter()
+            .any(|r| r.ppid == shell_pid && r.command.starts_with("sleep"))
+    });
+    assert!(started, "the shell never started sleep");
+    let sleep_pid = rows
+        .iter()
+        .find(|r| r.ppid == shell_pid && r.command.starts_with("sleep"))
+        .expect("sleep")
+        .pid;
+    let task = TaskProcess {
+        pid: shell_pid,
+        session_id: "s1".to_string(),
+        command: "/bin/sh -c trap '' TERM; sleep 30; :".to_string(),
+        elapsed_secs: 0,
+        subtree: vec![gone_pid, sleep_pid, shell_pid],
+    };
+
+    terminate(&task, &rows).expect("stop the task");
+
+    assert!(
+        eventually(Duration::from_secs(5), || {
+            matches!(guard.0.try_wait(), Ok(Some(_))) && !is_alive(sleep_pid)
+        }),
+        "the shell or its sleep is still running"
     );
 }
