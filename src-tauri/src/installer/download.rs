@@ -64,9 +64,9 @@ pub enum DownloadError {
         max: u64,
     },
     ChecksumMismatch,
-    /// `origin` is the refused address's scheme and host only, since a redirect's
-    /// path or query may carry a signed token; an address that does not parse is
-    /// given whole (it is Zorvo's own pinned URL, never a redirect).
+    /// `origin` is the refused address's scheme and host only, since its path
+    /// or query may carry a signed token. That holds for an address that does
+    /// not parse too: a registry agent's archive URL comes from the registry.
     InsecureUrl {
         origin: String,
     },
@@ -132,7 +132,7 @@ fn fetch_to(
         return Err(DownloadError::ChecksumMismatch);
     }
     let start = Url::parse(url).map_err(|_| DownloadError::InsecureUrl {
-        origin: url.to_string(),
+        origin: origin_of_text(url),
     })?;
     let (final_url, response) = open(check_scheme(start, limits.require_https)?, limits, cancel)?;
     let total = response.body().content_length();
@@ -377,6 +377,19 @@ fn network_host(host: &str, reason: String) -> DownloadError {
     }
 }
 
+/// The scheme and host of an address `Url` cannot parse, cut by hand: the
+/// text before the path, query or fragment, without any user info.
+fn origin_of_text(text: &str) -> String {
+    let (scheme, rest) = text.split_once("://").unwrap_or(("", text));
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    if scheme.is_empty() {
+        host.to_string()
+    } else {
+        format!("{scheme}://{host}")
+    }
+}
+
 fn host_of(url: &Url) -> String {
     url.host_str().unwrap_or_default().to_string()
 }
@@ -410,6 +423,26 @@ mod tests {
             next_location(&url("https://a/x"), "http://b:8080/y?token=secret", true),
             Err(DownloadError::InsecureUrl {
                 origin: "http://b".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn an_unparsable_url_is_refused_without_its_path_or_query() {
+        let limits = DownloadLimits::production();
+        let dest = std::env::temp_dir().join("zorvo-download-unparsable-test");
+        let result = fetch_to(
+            "https://user:pw@exa mple.com/dist/agent.tar.gz?token=secret",
+            &"0".repeat(64),
+            &dest,
+            &limits,
+            &AtomicBool::new(false),
+            &mut |_, _| {},
+        );
+        assert_eq!(
+            result,
+            Err(DownloadError::InsecureUrl {
+                origin: "https://exa mple.com".to_string()
             })
         );
     }
