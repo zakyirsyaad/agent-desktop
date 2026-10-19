@@ -144,6 +144,21 @@ describe("useTerminalSignIn", () => {
     expect(result.current.dialog).toBeNull();
   });
 
+  it("stays failed when the login exits before the start resolves", async () => {
+    let finishStart!: () => void;
+    const spy = mockStart(() => new Promise<void>((resolve) => (finishStart = resolve)));
+    const { result } = renderHook(() => useTerminalSignIn());
+    const { outcome } = await startRun(result);
+    const id = result.current.dialog?.terminalId;
+
+    await terminalEvent({ terminalId: id, kind: "exit", exitCode: 1 });
+    await act(async () => finishStart());
+
+    await expect(outcome).resolves.toEqual({ ok: false, reason: "The sign-in ended with code 1" });
+    expect(result.current.dialog).toMatchObject({ phase: "failed", error: "The sign-in ended with code 1" });
+    expect(callsTo(spy, "terminate_session")).toHaveLength(0);
+  });
+
   it("reports a method the agent no longer offers", async () => {
     const payload = JSON.stringify([{ id: "other", name: "Other", type: "terminal" }]);
     mockStart(() => Promise.reject(`ACP_AUTH_REQUIRED:${payload}`));

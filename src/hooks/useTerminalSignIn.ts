@@ -105,7 +105,10 @@ export function useTerminalSignIn() {
               current.settle(CANCELLED);
               return;
             }
-            patch(terminalId, { phase: 'running' });
+            // The login may already have ended (its exit can beat this reply).
+            setDialog((state) =>
+              state?.terminalId === terminalId && state.phase === 'starting' ? { ...state, phase: 'running' } : state,
+            );
           },
           (error: unknown) => {
             if (current.isCancelled) return current.settle(CANCELLED);
@@ -116,7 +119,7 @@ export function useTerminalSignIn() {
         );
       });
     },
-    [output, patch, finish],
+    [output, finish],
   );
 
   const showChecking = useCallback(() => {
