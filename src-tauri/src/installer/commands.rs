@@ -74,12 +74,32 @@ pub fn install_agent(
 ) -> Result<(), String> {
     let installer = installer.get()?;
     let id = canonical_agent_id(&agent_id);
-    let (name, steps) = install_steps_for(id, &versions_in_use(&store))
+    let (_, steps) = install_steps_for(id, &versions_in_use(&store))
         .ok_or_else(|| format!("Unknown agent '{agent_id}'"))?;
-    if steps.is_empty() {
-        return Err(format!("{name} is already installed"));
-    }
-    run_job(&app, installer, id, &steps)
+    run_plan(
+        &steps,
+        |steps| run_job(&app, installer, id, steps),
+        || profiles_changed(&app),
+    )
+}
+
+/// Runs the plan with `run`, then calls `notify` however it ended: a failed
+/// or cancelled job may have installed its first steps, which changes the
+/// plan the UI shows. An empty plan means the agent is installed already (the
+/// UI's plan was stale), so there is nothing to run, only a reload.
+fn run_plan(
+    steps: &[PlannedStep],
+    run: impl FnOnce(&[PlannedStep]) -> Result<(), String>,
+    notify: impl FnOnce(),
+) -> Result<(), String> {
+    let result = if steps.is_empty() { Ok(()) } else { run(steps) };
+    notify();
+    result
+}
+
+/// Tells the UI to reload the profiles, whose availability and plans changed.
+fn profiles_changed(app: &AppHandle) {
+    let _ = app.emit(AGENT_PROFILES_CHANGED, ());
 }
 
 /// Installs Zorvo's pinned `node` or `uv`, as the job `runtime:<kind>`.
@@ -101,11 +121,15 @@ pub fn install_runtime(
         return Ok(());
     }
     let job_id = format!("runtime:{kind}");
-    run_job(&app, installer, &job_id, &[PlannedStep::Runtime(runtime)])
+    run_plan(
+        &[PlannedStep::Runtime(runtime)],
+        |steps| run_job(&app, installer, &job_id, steps),
+        || profiles_changed(&app),
+    )
 }
 
 /// Asks the job `agent_id` (an agent id, or `runtime:<kind>`) to stop; false
-/// when it is not running. Sync: it only sets a flag.
+/// when it is not running yet. Sync: it only takes the job map's short lock.
 #[tauri::command]
 pub fn cancel_agent_install(installer: State<'_, AppInstaller>, agent_id: String) -> bool {
     installer
@@ -126,7 +150,7 @@ pub fn remove_agent_install(
 ) -> Result<(), String> {
     let installer = installer.get()?;
     let id = canonical_agent_id(&agent_id);
-    installer.cancel(id);
+    installer.stop_if_running(id);
     if acp.is_running_under(&installer.tools().root().join("agents").join(id)) {
         return Ok(());
     }
@@ -138,12 +162,12 @@ pub fn remove_agent_install(
         .filter(|other| other != id)
         .collect();
     installer.remove_agent(id, &prereqs_needed_by(&others))?;
-    let _ = app.emit(AGENT_PROFILES_CHANGED, ());
+    profiles_changed(&app);
     Ok(())
 }
 
 /// Runs `steps` as the job `job_id` with the user's environment, reporting
-/// progress to the UI and telling it to reload the profiles on success.
+/// progress to the UI.
 fn run_job(
     app: &AppHandle,
     installer: &Installer,
@@ -155,9 +179,7 @@ fn run_job(
     let report = |progress: InstallProgress| {
         let _ = app.emit(AGENT_INSTALL_PROGRESS, progress);
     };
-    installer.run(job_id, steps, &env, user_node_major, &report)?;
-    let _ = app.emit(AGENT_PROFILES_CHANGED, ());
-    Ok(())
+    installer.run(job_id, steps, &env, user_node_major, &report)
 }
 
 /// Deletes what no enabled agent uses any more. Runs once at start, on the
@@ -183,5 +205,42 @@ pub fn clean_up_at_start(app: &AppHandle) {
     let inputs = cleanup_inputs(&settings, &agent_profiles(&settings.agent_versions));
     if installer.clean_up(&inputs).is_none() {
         eprintln!("Skipped the clean-up of old installs: an install is running");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    use super::super::install::INSTALL_CANCELLED;
+
+    fn node() -> Vec<PlannedStep> {
+        vec![PlannedStep::Runtime(RuntimeKind::Node)]
+    }
+
+    #[test]
+    fn a_failed_or_cancelled_plan_still_tells_the_ui_to_reload() {
+        for error in ["Checksum mismatch for Node.js", INSTALL_CANCELLED] {
+            let notified = Cell::new(false);
+            let result = run_plan(&node(), |_| Err(error.to_string()), || notified.set(true));
+            assert_eq!(result, Err(error.to_string()));
+            assert!(notified.get(), "{error}: the plan may have changed");
+        }
+    }
+
+    #[test]
+    fn an_empty_plan_means_installed_and_reloads_without_running() {
+        let notified = Cell::new(false);
+        let result = run_plan(&[], |_| panic!("nothing to run"), || notified.set(true));
+        assert_eq!(result, Ok(()));
+        assert!(notified.get());
+    }
+
+    #[test]
+    fn a_successful_plan_reloads() {
+        let notified = Cell::new(false);
+        assert_eq!(run_plan(&node(), |_| Ok(()), || notified.set(true)), Ok(()));
+        assert!(notified.get());
     }
 }

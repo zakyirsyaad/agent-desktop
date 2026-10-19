@@ -735,3 +735,76 @@ fn clean_up_waits_for_no_job_and_skips_while_one_runs() {
     assert_eq!(install.clean_up(&inputs), Some(Vec::new()));
     assert!(!left_over.exists());
 }
+
+#[test]
+fn a_cancel_during_a_slow_clean_up_returns_promptly_and_ends_the_waiting_install() {
+    let server = Server::start(vec![("/node.tar.gz", Reply::Ok(node_archive()))]);
+    let d = data_dir();
+    let install = installer(&d, &server);
+    let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (finish_tx, finish_rx) = std::sync::mpsc::channel::<()>();
+
+    thread::scope(|s| {
+        // A clean-up that deletes until the test lets it finish.
+        let install = &install;
+        let started_tx = started_tx.clone();
+        let cleaning = s.spawn(move || {
+            install.run_exclusive(|| {
+                started_tx.send(()).unwrap();
+                let _ = finish_rx.recv_timeout(Duration::from_secs(3));
+            })
+        });
+        started_rx.recv().unwrap();
+        let job = s.spawn(|| install.run("job", &steps, &env(), None, &no_progress));
+        thread::sleep(Duration::from_millis(200));
+
+        let asked = Instant::now();
+        install.cancel("job");
+        let cancel_took = asked.elapsed();
+        let ended = job.join().unwrap();
+        let job_took = asked.elapsed();
+        let _ = finish_tx.send(());
+        assert!(cleaning.join().unwrap().is_some());
+
+        assert!(cancel_took < Duration::from_millis(500), "{cancel_took:?}");
+        assert_eq!(ended, Err(INSTALL_CANCELLED.to_string()));
+        assert!(job_took < Duration::from_secs(2), "{job_took:?}");
+    });
+    assert_eq!(server.hits("/node.tar.gz"), 0);
+}
+
+#[test]
+fn a_cancel_before_the_job_starts_is_not_lost() {
+    let server = Server::start(vec![("/node.tar.gz", Reply::Ok(node_archive()))]);
+    let d = data_dir();
+    let install = installer(&d, &server);
+    let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
+
+    install.cancel("job");
+    assert_eq!(
+        install.run("job", &steps, &env(), None, &no_progress),
+        Err(INSTALL_CANCELLED.to_string())
+    );
+    assert_eq!(server.hits("/node.tar.gz"), 0);
+
+    // The cancel is used up: the next install runs.
+    assert_eq!(
+        install.run("job", &steps, &env(), None, &no_progress),
+        Ok(())
+    );
+}
+
+#[test]
+fn stopping_a_job_that_is_not_running_records_nothing() {
+    let server = Server::start(vec![("/node.tar.gz", Reply::Ok(node_archive()))]);
+    let d = data_dir();
+    let install = installer(&d, &server);
+    let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
+
+    assert!(!install.stop_if_running("job"));
+    assert_eq!(
+        install.run("job", &steps, &env(), None, &no_progress),
+        Ok(())
+    );
+}

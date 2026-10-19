@@ -13,7 +13,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
@@ -35,6 +35,11 @@ const UNKNOWN_FORMAT: &str = "Zorvo cannot unpack this archive format";
 
 /// How often a job waiting for another job's target checks its cancel flag.
 const LOCK_POLL: Duration = Duration::from_millis(50);
+
+/// How long a cancel that came before its job started still stops it. It
+/// covers the command's work before the job registers (reading the
+/// environment can probe the user's Node); a stray cancel expires after it.
+const EARLY_CANCEL_WINDOW: Duration = Duration::from_secs(30);
 
 const PHASE_DOWNLOAD: &str = "download";
 const PHASE_VERIFY: &str = "verify";
@@ -65,8 +70,19 @@ pub struct Installer {
     /// One lock per target: `node`, `uv`, `agent:<id>`, `prereq:<command>`.
     /// Entries are never removed; there are only as many as targets.
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// Running jobs and the clean-up. Never held during I/O, so a cancel
+    /// (sent from the main thread) never waits on a download or a delete.
+    jobs: Mutex<Jobs>,
+}
+
+#[derive(Default)]
+struct Jobs {
     /// The cancel flag of each running job.
-    jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    running: HashMap<String, Arc<AtomicBool>>,
+    /// True while the clean-up deletes; jobs wait for it, cancellably.
+    cleaning: bool,
+    /// Cancels that came before their job registered, and when.
+    early_cancels: HashMap<String, Instant>,
 }
 
 impl Installer {
@@ -84,7 +100,7 @@ impl Installer {
             download,
             unpack,
             locks: Mutex::new(HashMap::new()),
-            jobs: Mutex::new(HashMap::new()),
+            jobs: Mutex::new(Jobs::default()),
         }
     }
 
@@ -124,15 +140,29 @@ impl Installer {
         Ok(())
     }
 
-    /// Asks the job to stop; false when no such job is running.
+    /// Asks the job to stop; false when no such job is running. A job that
+    /// starts soon after (its command was still preparing) is stopped too.
     pub fn cancel(&self, job_id: &str) -> bool {
-        match lock(&self.jobs).get(job_id) {
-            Some(flag) => {
-                flag.store(true, Ordering::Relaxed);
-                true
-            }
-            None => false,
+        let mut jobs = lock(&self.jobs);
+        if let Some(flag) = jobs.running.get(job_id) {
+            flag.store(true, Ordering::Relaxed);
+            return true;
         }
+        jobs.early_cancels
+            .retain(|_, at| at.elapsed() < EARLY_CANCEL_WINDOW);
+        jobs.early_cancels
+            .insert(job_id.to_string(), Instant::now());
+        false
+    }
+
+    /// Stops the job if it runs, and records nothing when it does not, for
+    /// callers that are not answering the user's Cancel.
+    pub fn stop_if_running(&self, job_id: &str) -> bool {
+        lock(&self.jobs)
+            .running
+            .get(job_id)
+            .inspect(|flag| flag.store(true, Ordering::Relaxed))
+            .is_some()
     }
 
     /// The tools dir this installer writes to.
@@ -144,9 +174,22 @@ impl Installer {
     /// until it ends, so it never deletes a staging dir or an install a job
     /// is writing. `None` when a job was running; else the errors it logged.
     pub fn clean_up(&self, inputs: &CleanupInputs) -> Option<Vec<String>> {
-        let jobs = lock(&self.jobs);
-        jobs.is_empty()
-            .then(|| clean_up(&self.tools, &self.manifest, &self.platform, inputs))
+        self.run_exclusive(|| clean_up(&self.tools, &self.manifest, &self.platform, inputs))
+    }
+
+    /// Runs `work` while no job runs, holding off new jobs until it ends;
+    /// `None` when a job (or another clean-up) was running. Jobs that start
+    /// meanwhile wait for it and can still be cancelled.
+    pub fn run_exclusive<R>(&self, work: impl FnOnce() -> R) -> Option<R> {
+        {
+            let mut jobs = lock(&self.jobs);
+            if !jobs.running.is_empty() || jobs.cleaning {
+                return None;
+            }
+            jobs.cleaning = true;
+        }
+        let _done = Cleaning(&self.jobs);
+        Some(work())
     }
 
     /// Deletes every installed version of the agent, and those of its
@@ -176,18 +219,32 @@ impl Installer {
         Ok(())
     }
 
+    /// Registers the job, then waits for a clean-up that is deleting. A
+    /// cancel that came first, or comes while it waits, ends it.
     fn start_job(&self, job_id: &str) -> Result<Job<'_>, String> {
-        let mut jobs = lock(&self.jobs);
-        if jobs.contains_key(job_id) {
-            return Err(format!("{job_id} is already installing"));
+        let job = {
+            let mut jobs = lock(&self.jobs);
+            if jobs.running.contains_key(job_id) {
+                return Err(format!("{job_id} is already installing"));
+            }
+            let cancelled_early = jobs
+                .early_cancels
+                .remove(job_id)
+                .is_some_and(|at| at.elapsed() < EARLY_CANCEL_WINDOW);
+            let cancel = Arc::new(AtomicBool::new(cancelled_early));
+            jobs.running.insert(job_id.to_string(), Arc::clone(&cancel));
+            Job {
+                jobs: &self.jobs,
+                id: job_id.to_string(),
+                cancel,
+            }
+        };
+        while lock(&self.jobs).cleaning {
+            check_cancel(&job.cancel)?;
+            thread::sleep(LOCK_POLL);
         }
-        let cancel = Arc::new(AtomicBool::new(false));
-        jobs.insert(job_id.to_string(), Arc::clone(&cancel));
-        Ok(Job {
-            jobs: &self.jobs,
-            id: job_id.to_string(),
-            cancel,
-        })
+        check_cancel(&job.cancel)?;
+        Ok(job)
     }
 
     /// The target's lock, cloned out so the map is never held while waiting.
@@ -357,14 +414,23 @@ impl Installer {
 
 /// A running job's entry in the job map, removed when the run ends.
 struct Job<'a> {
-    jobs: &'a Mutex<HashMap<String, Arc<AtomicBool>>>,
+    jobs: &'a Mutex<Jobs>,
     id: String,
     cancel: Arc<AtomicBool>,
 }
 
 impl Drop for Job<'_> {
     fn drop(&mut self) {
-        lock(self.jobs).remove(&self.id);
+        lock(self.jobs).running.remove(&self.id);
+    }
+}
+
+/// Marks the clean-up done when it ends, even by a panic.
+struct Cleaning<'a>(&'a Mutex<Jobs>);
+
+impl Drop for Cleaning<'_> {
+    fn drop(&mut self) {
+        lock(self.0).cleaning = false;
     }
 }
 
