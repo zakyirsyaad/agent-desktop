@@ -7,6 +7,7 @@ import { makeProfile } from "./fixtures/agents";
 
 const claudeCode: AgentProfile = makeProfile({
   id: "claude-acp",
+  source: "registry",
   name: "Claude Code",
   command: "claude",
   detected: true,
@@ -34,7 +35,6 @@ const aider: AgentProfile = makeProfile({
 const AGENTS = [claudeCode, omp, aider];
 
 const CLAUDE_INSTALL_COMMAND = "npm install -g @anthropic-ai/claude-code";
-const AIDER_INSTALL_COMMAND = "python -m pip install aider-install && aider-install";
 
 /** Recent folders may carry persistence fields the component must not forward. */
 type FolderFixture = { name: string; path: string; lastOpenedAt?: number };
@@ -50,6 +50,7 @@ type OnboardingResult = { defaultAgentId: string; folder: { name: string; path: 
 
 type OnboardingProps = {
   agents: AgentProfile[];
+  settings?: { enabledAgents?: string[] };
   recentFolders: FolderFixture[];
   suggestedFolders: FolderFixture[];
   onRecheckAgents: () => void | Promise<void>;
@@ -160,7 +161,7 @@ describe("Onboarding — agent step", () => {
     renderOnboarding();
 
     const items = within(screen.getByRole("list", { name: "Agents" })).getAllByRole("listitem");
-    expect(items).toHaveLength(3);
+    expect(items).toHaveLength(2);
 
     const claude = agentItem("Claude Code");
     expect(claude).toHaveTextContent("Ready");
@@ -170,8 +171,18 @@ describe("Onboarding — agent step", () => {
     expect(aider).toHaveTextContent("Ready");
     expect(aider).toHaveTextContent("/usr/local/bin/aider");
 
-    const missing = agentItem("Oh-My-Pi");
-    expect(missing).toHaveTextContent("Not installed");
+    expect(screen.queryByText("Oh-My-Pi")).toBeNull();
+  });
+
+  it("lists only the agents in use", () => {
+    const gemini = makeProfile({ id: "gemini", name: "Gemini CLI", source: "registry", detected: true });
+    renderOnboarding({
+      agents: [claudeCode, gemini],
+      settings: { enabledAgents: ["claude-acp"] },
+    });
+
+    expect(agentItem("Claude Code")).toBeInTheDocument();
+    expect(screen.queryByText("Gemini CLI")).toBeNull();
   });
 
   it("blocks Continue and says why when no agent is installed", () => {
@@ -208,28 +219,6 @@ describe("Onboarding — agent step", () => {
       expect(clipboardWriteText).toHaveBeenCalledWith(CLAUDE_INSTALL_COMMAND);
     });
     expect(clipboardWriteText).toHaveBeenCalledTimes(1);
-  });
-
-  it("offers the aider-install command when Aider is missing", () => {
-    renderOnboarding({ agents: [claudeCode, omp, notDetected(aider)] });
-
-    const item = agentItem("Aider");
-    const command = within(item).getByText(AIDER_INSTALL_COMMAND);
-    expect(command.closest("code")).not.toBeNull();
-    expect(
-      within(item).getByRole("button", { name: "Copy install command for Aider" })
-    ).toBeInTheDocument();
-  });
-
-  it("points to the omp documentation instead of an install command", () => {
-    renderOnboarding();
-
-    const item = agentItem("Oh-My-Pi");
-
-    expect(within(item).getByText(/See the omp documentation/)).toBeInTheDocument();
-    expect(
-      within(item).queryByRole("button", { name: /Copy install command/ })
-    ).toBeNull();
   });
 
   it("re-runs agent detection when Check again is clicked", async () => {

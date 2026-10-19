@@ -50,3 +50,12 @@ describe("installHintFor", () => {
     });
   });
 });
+
+describe("resolveDefaultAgentId with a candidate filter", () => {
+  it("never picks an agent the filter rejects", () => {
+    const isAider = (agent: AgentSummary) => agent.id === "aider";
+
+    expect(resolveDefaultAgentId([claude, aider], "claude-acp", isAider)).toBe("aider");
+    expect(resolveDefaultAgentId([claude], null, isAider)).toBeNull();
+  });
+});

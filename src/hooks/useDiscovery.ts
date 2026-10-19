@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { AgentProfile, Workspace } from '../types';
 import { useLatest } from './useLatest';
 
@@ -32,6 +33,18 @@ export function useAgentProfiles(onError: (message: string) => void): AgentProfi
     detect(false).catch(() => {
       // Already reported through onError.
     });
+  }, [detect]);
+
+  /** The backend refreshed the registry or found a changed install: read the profiles again. */
+  useEffect(() => {
+    const unlisten = listen('agent-profiles-changed', () => {
+      detect(false).catch(() => {
+        // Already reported through onError.
+      });
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
   }, [detect]);
 
   /** "Check again": detects with a fresh PATH. */

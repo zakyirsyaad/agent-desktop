@@ -366,9 +366,10 @@ describe("Navigation and Layout Components", () => {
       expect(screen.getAllByText("Refactor plan (fork)")).toHaveLength(1);
     });
 
-    function renderWithAgents(agents: AgentProfile[]) {
+    function renderWithAgents(agents: AgentProfile[], settings?: { enabledAgents?: string[] }) {
       return render(
         <Sidebar
+          settings={settings}
           workspaces={workspaces}
           sessions={mockSessions}
           agents={agents}
@@ -393,6 +394,21 @@ describe("Navigation and Layout Components", () => {
       ]);
       expect(screen.queryByText("Aider")).toBeNull();
       expect(screen.queryByText("Not found")).toBeNull();
+    });
+
+    it("lists only the agents in use", () => {
+      renderWithAgents(
+        [
+          makeProfile({ id: "claude-acp", name: "Claude Code", source: "registry", detected: true }),
+          makeProfile({ id: "gemini", name: "Gemini CLI", source: "registry", detected: true }),
+        ],
+        { enabledAgents: ["claude-acp"] },
+      );
+
+      const items = within(screen.getByRole("list", { name: "Detected agents" })).getAllByRole("listitem");
+      expect(items).toHaveLength(1);
+      expect(items[0].textContent).toContain("Claude Code");
+      expect(screen.queryByText("Gemini CLI")).toBeNull();
     });
 
     it("pins detected agents directly above the footer, outside the scrolling area", () => {

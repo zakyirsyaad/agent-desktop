@@ -14,12 +14,16 @@ export function readyAgents<T extends AgentSummary>(agents: readonly T[]): T[] {
   return agents.filter(isAgentReady);
 }
 
-/** Keeps `preferredId` when it names a ready agent, else falls back to the first ready one. */
-export function resolveDefaultAgentId(
-  agents: readonly AgentSummary[],
-  preferredId: string | null
+/**
+ * Keeps `preferredId` when it names a ready agent, else falls back to the first ready one.
+ * `isCandidate` narrows the choice, e.g. to the agents the user has in use.
+ */
+export function resolveDefaultAgentId<T extends AgentSummary>(
+  agents: readonly T[],
+  preferredId: string | null,
+  isCandidate: (agent: T) => boolean = () => true
 ): string | null {
-  const ready = readyAgents(agents);
+  const ready = readyAgents(agents).filter(isCandidate);
   const preferred = ready.find((agent) => agent.id === preferredId);
   return (preferred ?? ready[0])?.id ?? null;
 }

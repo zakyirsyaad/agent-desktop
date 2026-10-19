@@ -67,6 +67,7 @@ import { pickFiles } from "./lib/file-picker";
 import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
+import { isInUse, withAutoEnabled } from "./lib/enabled-agents";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
 import {
@@ -111,6 +112,14 @@ export default function App() {
   useAppearance(state.settings.appearance, isLoaded, reportError);
   const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
   const { agents, refresh: refreshAgents } = useAgentProfiles(reportError);
+  // Installed registry agents join the ones in use, and each one's version is recorded.
+  useEffect(() => {
+    if (!isLoaded || agents.length === 0) return;
+    updateState((prev) => {
+      const settings = withAutoEnabled(prev.settings, agents);
+      return settings === prev.settings ? prev : { ...prev, settings };
+    });
+  }, [agents, isLoaded, updateState]);
   const suggestedFolders = useSuggestedFolders();
   const userProfile = useUserProfile();
   const navigation = useNavigationHistory();
@@ -128,7 +137,9 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
-  const defaultAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId);
+  const defaultAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId, (agent) =>
+    isInUse(agent, state.settings),
+  );
   const newSessionAgentId =
     agents.find((a) => a.id === pickedAgentId && a.detected)?.id ?? defaultAgentId;
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
@@ -565,6 +576,7 @@ export default function App() {
     return (
       <Onboarding
         agents={agents}
+        settings={state.settings}
         recentFolders={workspaces}
         suggestedFolders={suggestedFolders}
         onRecheckAgents={refreshAgents}
@@ -611,6 +623,7 @@ export default function App() {
           sessions={sessions}
           activeSessionId={activeSessionId}
           agents={agents}
+          settings={state.settings}
           onNewSession={() => openNewSession()}
           onSelectSession={handleSelectSession}
           onNewSessionIn={openNewSession}
