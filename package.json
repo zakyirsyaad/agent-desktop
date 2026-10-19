@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "registry:update": "node scripts/registry-update.mjs",
+    "runtimes:update": "node scripts/runtimes-update.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
