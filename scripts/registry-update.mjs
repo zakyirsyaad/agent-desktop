@@ -10,7 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { isUsableEntry, mergeObserved, sortHistory } from "./registry-history.mjs";
+import { mergeObserved, sortHistory } from "./registry-history.mjs";
 
 const REGISTRY_URL = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 const HISTORY_PATH = fileURLToPath(new URL("../src-tauri/resources/registry-history.json", import.meta.url));
@@ -18,6 +18,14 @@ const HISTORY_PATH = fileURLToPath(new URL("../src-tauri/resources/registry-hist
 const toSeconds = (iso) => {
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
+};
+
+const parseJson = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 };
 
 const run = (cmd, args) => {
@@ -40,7 +48,7 @@ const npmTimes = new Map();
 const npmPublishTimes = (name) => {
   if (!npmTimes.has(name)) {
     const out = run("npm", ["view", name, "time", "--json"]);
-    npmTimes.set(name, out ? JSON.parse(out) : {});
+    npmTimes.set(name, (out && parseJson(out)) || {});
   }
   return npmTimes.get(name);
 };
@@ -53,7 +61,7 @@ const npmPublishedAt = (name, version) => {
 const pypiPublishedAt = (name, version) => {
   const out = run("curl", ["-fsS", "--max-time", "20", `https://pypi.org/pypi/${name}/${version}/json`]);
   if (!out) return null;
-  const iso = JSON.parse(out).urls?.[0]?.upload_time_iso_8601;
+  const iso = parseJson(out)?.urls?.[0]?.upload_time_iso_8601;
   return iso ? toSeconds(iso) : null;
 };
 
@@ -90,7 +98,7 @@ const includes = process.argv.flatMap((arg, i, all) => (all[i - 1] === "--includ
 
 const response = await fetch(REGISTRY_URL, { signal: AbortSignal.timeout(20_000) });
 if (!response.ok) throw new Error(`Registry request failed: ${response.status}`);
-const registryEntries = (await response.json()).agents.filter(isUsableEntry);
+const registryEntries = (await response.json()).agents;
 
 const existing = existsSync(HISTORY_PATH) ? JSON.parse(readFileSync(HISTORY_PATH, "utf8")) : { agents: {} };
 const entries = [...registryEntries, ...includes.map((spec) => includedEntry(spec, registryEntries))];

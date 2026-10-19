@@ -113,11 +113,15 @@ pub fn parse_registry(json: &str) -> Result<Vec<RegistryEntry>, String> {
         .get("agents")
         .and_then(Value::as_array)
         .ok_or_else(|| "registry has no agents list".to_string())?;
-    Ok(agents
-        .iter()
-        .filter_map(|value| serde_json::from_value::<RegistryEntry>(value.clone()).ok())
+    Ok(agents.iter().filter_map(parse_entry).collect())
+}
+
+/// Deserializes one registry entry and applies the validation rules; `None` when
+/// it is malformed or fails them. Shared by the registry and the version history.
+pub fn parse_entry(value: &Value) -> Option<RegistryEntry> {
+    serde_json::from_value::<RegistryEntry>(value.clone())
+        .ok()
         .filter(is_valid_entry)
-        .collect())
 }
 
 /// The platform key the registry uses for this machine, e.g. `darwin-aarch64`.

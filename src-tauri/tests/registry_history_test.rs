@@ -105,3 +105,43 @@ fn bundled_history_offers_the_default_agents() {
         assert!(h.offered(id, generated_at).is_some(), "{id} is not offered");
     }
 }
+
+fn record(id: &str, version: &str, package: &str) -> String {
+    format!(
+        r#""{version}": {{"first_seen": 5, "entry": {{"id": "{id}", "name": "{id}", "version": "{version}",
+        "distribution": {{"npx": {{"package": "{package}"}}}}}}}}"#
+    )
+}
+
+#[test]
+fn skips_invalid_records_and_keeps_the_rest() {
+    let json = format!(
+        r#"{{"agents": {{"a": {{ {good}, {unpinned}, {two_kinds} }}}}}}"#,
+        good = record("a", "1.0.0", "a@1.0.0"),
+        unpinned = record("a", "2.0.0", "a"),
+        two_kinds = r#""3.0.0": {"first_seen": 5, "entry": {"id": "a", "name": "a", "version": "3.0.0",
+            "distribution": {"npx": {"package": "a@3.0.0"}, "uvx": {"package": "a@3.0.0"}}}}"#,
+    );
+    let h = VersionHistory::from_json(&json).unwrap();
+    assert!(h.version("a", "1.0.0").is_some());
+    assert!(h.version("a", "2.0.0").is_none());
+    assert!(h.version("a", "3.0.0").is_none());
+}
+
+#[test]
+fn skips_a_record_whose_entry_does_not_match_its_key() {
+    let json = format!(
+        r#"{{"agents": {{"a": {{ {} }}}}}}"#,
+        record("a", "9.9.9", "a@9.9.9").replace("\"9.9.9\": {", "\"1.0.0\": {")
+    );
+    assert!(VersionHistory::from_json(&json)
+        .unwrap()
+        .version("a", "1.0.0")
+        .is_none());
+}
+
+#[test]
+fn rejects_a_file_without_agents() {
+    assert!(VersionHistory::from_json("{}").is_err());
+    assert!(VersionHistory::from_json("[]").is_err());
+}

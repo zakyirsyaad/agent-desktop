@@ -28,16 +28,3 @@ export function sortHistory(history) {
   }
   return { agents };
 }
-
-/** True when the entry has the fields the app's parser requires: one distribution key, complete binary targets. */
-export function isUsableEntry(entry) {
-  if (!entry || typeof entry !== "object") return false;
-  const { id, name, version, distribution } = entry;
-  if (![id, name, version].every((v) => typeof v === "string" && v)) return false;
-  if (!distribution || typeof distribution !== "object") return false;
-  if (["npx", "uvx", "binary"].filter((k) => distribution[k] != null).length !== 1) return false;
-  if (distribution.binary == null) return true;
-  return Object.values(distribution.binary).every(
-    (target) => target && ["archive", "cmd", "sha256"].every((k) => typeof target[k] === "string"),
-  );
-}

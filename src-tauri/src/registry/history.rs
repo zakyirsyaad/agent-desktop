@@ -6,8 +6,9 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use super::schema::RegistryEntry;
+use super::schema::{parse_entry, RegistryEntry};
 
 /// How long a version must have been seen before it is offered: seven days.
 pub const MIN_AGE_SECS: u64 = 7 * 24 * 60 * 60;
@@ -24,9 +25,39 @@ pub struct HistoryRecord {
     pub entry: RegistryEntry,
 }
 
+/// A record is kept when its date is a number and its entry is valid and matches its keys.
+fn parse_record(id: &str, version: &str, raw: &Value) -> Option<HistoryRecord> {
+    let first_seen = raw.get("first_seen")?.as_u64()?;
+    let entry = parse_entry(raw.get("entry")?)?;
+    (entry.id == id && entry.version == version).then_some(HistoryRecord { first_seen, entry })
+}
+
 impl VersionHistory {
+    /// Parses a history file, keeping every record that is valid and skipping the
+    /// rest. Fails only when the file is not an object with an `agents` object.
     pub fn from_json(json: &str) -> Result<Self, String> {
-        serde_json::from_str(json).map_err(|e| format!("version history is not valid: {e}"))
+        let root: Value =
+            serde_json::from_str(json).map_err(|e| format!("version history is not valid: {e}"))?;
+        let agents = root
+            .get("agents")
+            .and_then(Value::as_object)
+            .ok_or_else(|| "version history has no agents object".to_string())?;
+        let mut history = Self::default();
+        for (id, versions) in agents {
+            let Some(versions) = versions.as_object() else {
+                continue;
+            };
+            for (version, raw) in versions {
+                if let Some(record) = parse_record(id, version, raw) {
+                    history
+                        .agents
+                        .entry(id.clone())
+                        .or_default()
+                        .insert(version.clone(), record);
+                }
+            }
+        }
+        Ok(history)
     }
 
     pub fn to_json(&self) -> String {
