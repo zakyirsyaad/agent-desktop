@@ -9,6 +9,7 @@ import { makeProfile } from "./fixtures/agents";
 const claudeCode: AgentProfile = makeProfile({
   id: "claude-acp",
   source: "registry",
+  distribution: "npx",
   name: "Claude Code",
   command: "claude",
   detected: true,

@@ -7,9 +7,9 @@ import {
   type AgentSummary,
 } from "../lib/agent-readiness";
 
-const claude: AgentSummary = { id: "claude-acp", name: "Claude Code", detected: true };
-const omp: AgentSummary = { id: "omp", name: "Oh-My-Pi", detected: false };
-const aider: AgentSummary = { id: "aider", name: "Aider", detected: true };
+const claude: AgentSummary = { id: "claude-acp", name: "Claude Code", detected: true, distribution: "npx" };
+const omp: AgentSummary = { id: "omp", name: "Oh-My-Pi", detected: false, distribution: null };
+const aider: AgentSummary = { id: "aider", name: "Aider", detected: true, distribution: null };
 
 describe("readyAgents", () => {
   it("keeps only detected agents in their original order", () => {
@@ -47,15 +47,22 @@ describe("installHintFor", () => {
     const gemini: AgentSummary = { id: "gemini", name: "Gemini CLI", detected: false, distribution: "npx" };
 
     expect(installHintFor(claude)).toEqual(nodeHint);
-    expect(installHintFor({ id: "codex-acp", name: "Codex", detected: false })).toEqual(nodeHint);
-    expect(installHintFor({ id: "qwen-code", name: "Qwen Code", detected: false })).toEqual(nodeHint);
     expect(installHintFor(gemini)).toEqual(nodeHint);
     expect(NODE_HINT).toContain("Node.js 22");
     expect(NODE_HINT).toContain("https://nodejs.org");
   });
 
+  it("goes by the distribution, not the agent id", () => {
+    const binaryCodex: AgentSummary = { id: "codex-acp", name: "Codex", detected: false, distribution: "binary" };
+
+    expect(installHintFor(binaryCodex)).toEqual({
+      kind: "docs",
+      text: "See the Codex documentation for install steps.",
+    });
+  });
+
   it("points unknown agents to their own documentation", () => {
-    const custom: AgentSummary = { id: "custom", name: "Custom Agent", detected: false };
+    const custom: AgentSummary = { id: "custom", name: "Custom Agent", detected: false, distribution: null };
 
     expect(installHintFor(custom)).toEqual({
       kind: "docs",
@@ -64,11 +71,9 @@ describe("installHintFor", () => {
   });
 });
 
-describe("resolveDefaultAgentId with a candidate filter", () => {
-  it("never picks an agent the filter rejects", () => {
-    const isAider = (agent: AgentSummary) => agent.id === "aider";
-
-    expect(resolveDefaultAgentId([claude, aider], "claude-acp", isAider)).toBe("aider");
-    expect(resolveDefaultAgentId([claude], null, isAider)).toBeNull();
+describe("resolveDefaultAgentId takes the candidates as given", () => {
+  it("has no filter of its own: callers pass only the agents to choose from", () => {
+    // @ts-expect-error -- there is no third parameter; the list is already filtered.
+    expect(resolveDefaultAgentId([claude, aider], "claude-acp", () => false)).toBe("claude-acp");
   });
 });
