@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import Home from "../../site/app/page";
+import robots from "../../site/app/robots";
+import sitemap from "../../site/app/sitemap";
+import { siteUrl } from "../../site/lib/site";
 
 const ROOT = join(__dirname, "..", "..");
 const appCss = readFileSync(join(ROOT, "src", "styles", "globals.css"), "utf8");
@@ -134,5 +137,34 @@ describe("landing page", () => {
       const id = link.getAttribute("href")!.slice(1);
       expect(document.getElementById(id), `#${id}`).not.toBeNull();
     }
+  });
+});
+
+describe("search engines", () => {
+  it("takes the site's address from SITE_URL, then Vercel's production domain, then localhost", () => {
+    expect(siteUrl({ SITE_URL: "https://zorvo.xyz", VERCEL_PROJECT_PRODUCTION_URL: "zorvo.vercel.app" }).href).toBe(
+      "https://zorvo.xyz/",
+    );
+    expect(siteUrl({ VERCEL_PROJECT_PRODUCTION_URL: "zorvo.vercel.app" }).href).toBe("https://zorvo.vercel.app/");
+    expect(siteUrl({}).href).toBe("http://localhost:3100/");
+  });
+
+  it("lets crawlers in and points them at a sitemap of the page", () => {
+    const base = siteUrl().href;
+    expect(robots()).toMatchObject({ rules: { userAgent: "*", allow: "/" }, sitemap: `${base}sitemap.xml` });
+    expect(sitemap().map((entry) => entry.url)).toEqual([base]);
+  });
+
+  it("describes Zorvo as a free macOS app in structured data", () => {
+    const html = renderToStaticMarkup(<Home />);
+    const json = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector('script[type="application/ld+json"]')?.textContent;
+    expect(JSON.parse(json ?? "null")).toMatchObject({
+      "@type": "SoftwareApplication",
+      name: "Zorvo",
+      operatingSystem: "macOS",
+      offers: { price: "0" },
+    });
   });
 });

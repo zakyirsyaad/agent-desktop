@@ -4,16 +4,24 @@ import type { ReactNode } from "react";
 import "@fontsource-variable/instrument-sans";
 import "@fontsource-variable/geist-mono";
 import "./globals.css";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, siteUrl } from "../lib/site";
 
-const TITLE = "Zorvo — every coding agent, one desktop";
-const DESCRIPTION =
-  "Claude Code, Codex, Qwen and Aider in one native app. Bring the agent you already use. No lock-in, no API keys.";
-
+// app/opengraph-image.tsx adds og:image and twitter:image to these.
 export const metadata: Metadata = {
-  title: TITLE,
-  description: DESCRIPTION,
-  openGraph: { title: TITLE, description: DESCRIPTION, type: "website", siteName: "Zorvo" },
-  twitter: { card: "summary", title: TITLE, description: DESCRIPTION },
+  metadataBase: siteUrl(),
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    type: "website",
+    siteName: SITE_NAME,
+    url: "/",
+    locale: "en_US",
+  },
+  twitter: { card: "summary_large_image", title: SITE_TITLE, description: SITE_DESCRIPTION },
 };
 
 export const viewport: Viewport = {
