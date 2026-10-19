@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::resolve::LEGACY_IDS;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegistryEntry {
     pub id: String,
@@ -145,14 +147,24 @@ pub fn current_platform() -> &'static str {
     }
 }
 
+/// Ids the app already uses for something else: the old built-in ACP agents
+/// (migrated to their registry ids) and the terminal agents.
+const TERMINAL_AGENT_IDS: [&str; 2] = ["omp", "aider"];
+
+fn is_reserved_id(id: &str) -> bool {
+    LEGACY_IDS.iter().any(|(legacy, _)| *legacy == id) || TERMINAL_AGENT_IDS.contains(&id)
+}
+
 fn is_valid_entry(entry: &RegistryEntry) -> bool {
     is_valid_id(&entry.id)
+        && !is_reserved_id(&entry.id)
         && match &entry.distribution {
             Distribution::Npx { package, env, .. } => {
-                is_pinned_package(package) && is_safe_env(env)
+                is_pinned_npm_package(package) && is_safe_env(env)
             }
             Distribution::Uvx { package, env, .. } => {
-                (is_pinned_package(package) || is_pinned_pypi_package(package)) && is_safe_env(env)
+                (is_pinned_npm_package(package) || is_pinned_pypi_package(package))
+                    && is_safe_env(env)
             }
             Distribution::Binary { platforms } => {
                 // Only this machine's target matters; others are kept but never run.
@@ -172,23 +184,78 @@ fn is_valid_id(id: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-/// The text after the last `@` (not counting a leading scope `@`) must be an exact version.
-fn is_pinned_package(package: &str) -> bool {
+/// `name@X.Y.Z` where `name` is a plain npm package name, so the package can
+/// never be read as a command-line option or a URL.
+fn is_pinned_npm_package(package: &str) -> bool {
     let Some(at) = package.rfind('@').filter(|&i| i > 0) else {
         return false;
     };
-    is_exact_version(&package[at + 1..])
+    is_npm_name(&package[..at]) && is_exact_version(&package[at + 1..])
 }
 
-/// PyPI style `name==X.Y.Z`.
+/// `^(@[a-z0-9~][a-z0-9-._~]*/)?[a-z0-9~][a-z0-9-._~]*$`: no leading `-` or
+/// `.`, no `:`, and `/` only after a scope.
+fn is_npm_name(name: &str) -> bool {
+    match name.strip_prefix('@') {
+        Some(scoped) => scoped
+            .split_once('/')
+            .is_some_and(|(scope, rest)| is_npm_name_part(scope) && is_npm_name_part(rest)),
+        None => is_npm_name_part(name),
+    }
+}
+
+fn is_npm_name_part(part: &str) -> bool {
+    let mut chars = part.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '~')
+        && chars.all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '.' | '_' | '~')
+        })
+}
+
+/// PyPI style `name==X.Y.Z`, `name` matching `^[A-Za-z0-9][A-Za-z0-9._-]*$`.
 fn is_pinned_pypi_package(package: &str) -> bool {
     package
         .split_once("==")
-        .is_some_and(|(name, version)| !name.is_empty() && is_exact_version(version))
+        .is_some_and(|(name, version)| is_pypi_name(name) && is_exact_version(version))
 }
 
-/// Variable names must look like `^[A-Z_][A-Z0-9_]*$` and must not steer the
-/// process loader or search path.
+fn is_pypi_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Prefixes of variables that steer the loader, a runtime or a package manager.
+const DENIED_ENV_PREFIXES: [&str; 7] = [
+    "DYLD_",
+    "LD_",
+    "NPM_CONFIG_",
+    "UV_",
+    "PIP_",
+    "PYTHON",
+    "NODE_",
+];
+
+/// Variables that steer the search path, the shell, proxies or trusted certificates.
+const DENIED_ENV_KEYS: [&str; 13] = [
+    "PATH",
+    "HOME",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "BASH_ENV",
+    "ENV",
+    "SHELL",
+];
+
+/// Variable names must look like `^[A-Z_][A-Z0-9_]*$` and must not be denied.
 fn is_safe_env(env: &BTreeMap<String, String>) -> bool {
     env.keys().all(|key| {
         let mut chars = key.chars();
@@ -196,9 +263,10 @@ fn is_safe_env(env: &BTreeMap<String, String>) -> bool {
             .next()
             .is_some_and(|c| c.is_ascii_uppercase() || c == '_')
             && chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
-            && !matches!(key.as_str(), "PATH" | "HOME" | "NODE_OPTIONS")
-            && !key.starts_with("DYLD_")
-            && !key.starts_with("LD_")
+            && !DENIED_ENV_KEYS.contains(&key.as_str())
+            && !DENIED_ENV_PREFIXES
+                .iter()
+                .any(|prefix| key.starts_with(prefix))
     })
 }
 

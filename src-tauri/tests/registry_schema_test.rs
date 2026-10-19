@@ -262,3 +262,89 @@ fn unsafe_env_names_skip_the_entry() {
     ]);
     assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["ok"]);
 }
+
+#[test]
+fn skips_a_package_name_that_is_an_option_or_a_url() {
+    let json = doc(&[
+        npx("opt", "--registry=https://evil.example/@1.0.0"),
+        npx("url", "https://evil.example/a.tgz#@1.0.0"),
+        uvx("git", "git+https://x/y@1.0.0"),
+        uvx("index", "--index-url=https://x==1.0.0"),
+        npx("dash", "-x@1.0.0"),
+        npx("dot", ".x@1.0.0"),
+        npx("deep", "a/b@1.0.0"),
+        npx("scoped", "@scope-1/pkg.name_x@1.0.0"),
+        npx("plain", "pkg-name.js@1.0.0"),
+        uvx("pypi", "Fast_Agent-acp.x==0.10.1"),
+    ]);
+    assert_eq!(
+        ids(&parse_registry(&json).unwrap()),
+        vec!["scoped", "plain", "pypi"]
+    );
+}
+
+#[test]
+fn env_that_steers_package_managers_or_the_network_skips_the_entry() {
+    let denied = [
+        "NPM_CONFIG_REGISTRY",
+        "UV_INDEX_URL",
+        "PIP_INDEX_URL",
+        "PYTHONPATH",
+        "NODE_TLS_REJECT_UNAUTHORIZED",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "BASH_ENV",
+        "ENV",
+        "SHELL",
+    ];
+    let mut entries: Vec<String> = denied
+        .iter()
+        .map(|key| {
+            npx_env(
+                &key.to_lowercase().replace('_', "-"),
+                &format!(r#"{{"{key}":"x"}}"#),
+            )
+        })
+        .collect();
+    entries.push(npx_env("ok", r#"{"GOOD_NAME":"1"}"#));
+    assert_eq!(ids(&parse_registry(&doc(&entries)).unwrap()), vec!["ok"]);
+}
+
+#[test]
+fn keeps_the_env_keys_real_registry_agents_use() {
+    let json = doc(&[
+        npx_env("auggie", r#"{"AUGMENT_DISABLE_AUTO_UPDATE":"1"}"#),
+        npx_env(
+            "factory-droid",
+            r#"{"DROID_DISABLE_AUTO_UPDATE":"1","FACTORY_DROID_AUTO_UPDATE_ENABLED":"false"}"#,
+        ),
+        npx_env("fast-agent", r#"{"FAST_AGENT_MODEL":"m"}"#),
+        npx_env(
+            "vtcode",
+            r#"{"VT_ACP_ENABLED":"1","VT_ACP_ZED_ENABLED":"1"}"#,
+        ),
+    ]);
+    assert_eq!(
+        ids(&parse_registry(&json).unwrap()),
+        vec!["auggie", "factory-droid", "fast-agent", "vtcode"]
+    );
+}
+
+#[test]
+fn skips_an_id_that_collides_with_a_legacy_or_terminal_agent() {
+    let json = doc(&[
+        npx("claude-code", "a@1.0.0"),
+        npx("codex", "a@1.0.0"),
+        npx("qwen", "a@1.0.0"),
+        npx("omp", "a@1.0.0"),
+        npx("aider", "a@1.0.0"),
+        npx("claude-acp", "a@1.0.0"),
+    ]);
+    assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["claude-acp"]);
+}
