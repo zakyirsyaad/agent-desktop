@@ -18,7 +18,7 @@ import { useTurnsEnded } from "./hooks/useTurnsEnded";
 import { usePullRequest } from "./hooks/usePullRequest";
 import { useRepoPullRequests } from "./hooks/useRepoPullRequests";
 import { useAgentAuth } from "./hooks/useAgentAuth";
-import { useAgentProbe } from "./hooks/useAgentProbe";
+import { useDraftAgentCheck } from "./hooks/useDraftAgentCheck";
 import { useLatest } from "./hooks/useLatest";
 import { createSessionWorktree } from "./lib/session-worktree";
 import {
@@ -70,7 +70,6 @@ import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
 import {
-  hasReportedOptions,
   NO_CHOICES,
   rememberedChoice,
   withPreferred,
@@ -78,7 +77,6 @@ import {
   withRewound,
   type AcpChoices,
   type AgentOptions,
-  type ProbedOptions,
 } from "./lib/acp-draft";
 import type { Session, SessionWorktree, Settings } from "./types";
 import { TRANSPORT_ACP } from "./types";
@@ -105,7 +103,8 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const composerRef = useRef<ComposerHandle>(null);
   const [ptyOutput] = useState(createPtyOutputStore);
-  const { authRequest, requestSignIn, signIn, dismiss: dismissSignIn } = useAgentAuth();
+  const agentAuth = useAgentAuth();
+  const { authRequest, requestSignIn, signIn, dismiss: dismissSignIn } = agentAuth;
 
   const reportError = useCallback((message: string) => setNotice(message), []);
   const { state, isLoaded, updateState } = usePersistedState(reportError);
@@ -200,40 +199,17 @@ export default function App() {
   };
 
   // A draft asks its ACP agent what it offers, and whether it needs a sign-in, before the first message.
-  const agentProbe = useAgentProbe({
+  const agentCheck = useDraftAgentCheck({
     agent: isActiveRunning ? undefined : draftAgent,
     cwd: shownFolderPath ?? undefined,
-    isKnown: (profileId) => hasReportedOptions(state.agentOptions?.[profileId]),
-    onProbed: (profileId: string, probed: ProbedOptions) => {
+    agentOptions: state.agentOptions,
+    rememberProbed: (profileId, probed) =>
       updateState((prev) => ({
         ...prev,
         agentOptions: { ...prev.agentOptions, [profileId]: withProbed(prev.agentOptions?.[profileId], probed) },
-      }));
-      // The agent answered without asking for a sign-in: someone signed in, maybe in a terminal.
-      if (authRequest?.profileId === profileId && authRequest.status !== "signing-in") dismissSignIn();
-    },
-    onAuthRequired: (profileId, cwd, methods) => {
-      // A sign-in already under way for this agent (a refused start) is not reset by the probe's own answer.
-      if (authRequest?.profileId !== profileId) requestSignIn(profileId, cwd, methods);
-    },
+      })),
+    auth: agentAuth,
   });
-  const { reprobe } = agentProbe;
-  const signedInAgentId = authRequest?.status === "signed-in" ? authRequest.profileId : undefined;
-  // Signed in: the agent now opens a session, so its models and commands can be asked for.
-  useEffect(() => {
-    if (signedInAgentId) reprobe(signedInAgentId);
-  }, [signedInAgentId, reprobe]);
-  // An agent whose sign-in runs in a terminal is signed in outside the app: ask it again when the user comes back.
-  const awaitingSignInAgentId =
-    authRequest && authRequest.status !== "signing-in" && authRequest.status !== "signed-in"
-      ? authRequest.profileId
-      : undefined;
-  useEffect(() => {
-    if (!awaitingSignInAgentId) return;
-    const askAgain = () => reprobe(awaitingSignInAgentId);
-    window.addEventListener("focus", askAgain);
-    return () => window.removeEventListener("focus", askAgain);
-  }, [awaitingSignInAgentId, reprobe]);
 
   // Read when an agent answers, seconds after the closure that waits for it was made.
   const activeSessionIdRef = useLatest(activeSessionId);
@@ -730,7 +706,7 @@ export default function App() {
               handleRef={composerRef}
               commands={composerCommands}
               note={
-                !isActiveRunning && draftAgent && agentProbe.isProbing(draftAgent.id)
+                !isActiveRunning && draftAgent && agentCheck.isProbing(draftAgent.id)
                   ? `Loading ${draftAgent.name}'s models and commands…`
                   : undefined
               }

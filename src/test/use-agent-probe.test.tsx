@@ -28,6 +28,7 @@ const PROBED = {
     },
   ],
   commands: [{ name: "review", description: "Review the changes" }],
+  signInChecked: true,
 };
 
 function probeCalls(spy: { mock: { calls: unknown[][] } }) {
@@ -55,8 +56,9 @@ describe("useAgentProbe", () => {
     const { result } = renderHook(() => useAgentProbe(props));
 
     await waitFor(() => expect(props.onProbed).toHaveBeenCalledTimes(1));
-    expect(probeCalls(spy)[0][1]).toEqual({ profileId: "qwen", cwd: CWD, openSession: true });
-    const [profileId, options] = props.onProbed.mock.calls[0];
+    expect(probeCalls(spy)[0][1]).toEqual({ profileId: "qwen", cwd: CWD, needsOptions: true });
+    const [profileId, options, signInChecked] = props.onProbed.mock.calls[0];
+    expect(signInChecked).toBe(true);
     expect(profileId).toBe("qwen");
     expect(options.modes?.currentModeId).toBe("default");
     expect(options.configOptions[0].id).toBe("model");
@@ -158,13 +160,13 @@ describe("useAgentProbe", () => {
     expect(result.current.isProbing("qwen")).toBe(true);
   });
 
-  it("only asks who is signed in when the agent's options are already known, opening no session", async () => {
+  it("tells the backend when the agent's options are already known, so it need not open a session for them", async () => {
     const spy = vi.spyOn(tauriInternals(), "invoke").mockResolvedValue(structuredClone(PROBED));
     const props = deps({ isKnown: (id) => id === "qwen" });
 
     renderHook(() => useAgentProbe(props));
 
     await waitFor(() => expect(props.onProbed).toHaveBeenCalledTimes(1));
-    expect(probeCalls(spy)[0][1]).toEqual({ profileId: "qwen", cwd: CWD, openSession: false });
+    expect(probeCalls(spy)[0][1]).toEqual({ profileId: "qwen", cwd: CWD, needsOptions: false });
   });
 });

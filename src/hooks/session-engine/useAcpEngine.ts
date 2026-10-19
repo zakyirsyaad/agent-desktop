@@ -161,6 +161,13 @@ export function useAcpEngine({
     onAuthRequired(session, methods, unsent);
   };
 
+  /** The context a refused prompt left for this session, once: the next message the agent takes carries it. */
+  const takeUnsentContext = (sessionId: string): string | undefined => {
+    const context = unsentContextRef.current.get(sessionId);
+    unsentContextRef.current.delete(sessionId);
+    return context;
+  };
+
   const reportFailure = (what: string) => (error: unknown) => reportError(`${what}: ${String(error)}`);
 
   /** Prompts the agent with a message already shown in the chat; removes it if the prompt is refused. */
@@ -183,9 +190,7 @@ export function useAcpEngine({
     // Shown before the prompt goes out, so the agent's reply always lands after it.
     const message = userMessage(text, attachments);
     updateMessages(sessionId, (prev) => [...prev, message]);
-    const context = unsentContextRef.current.get(sessionId);
-    unsentContextRef.current.delete(sessionId);
-    return prompt(sessionId, message, context);
+    return prompt(sessionId, message, takeUnsentContext(sessionId));
   };
 
   /**
@@ -258,7 +263,11 @@ export function useAcpEngine({
       if (settled.configOptions !== info.configOptions) {
         rememberOptions(session.profileId, { configOptions: settled.configOptions });
       }
-      if (message && !isStopped(session.id)) await prompt(session.id, message, options.first?.context);
+      if (message && !isStopped(session.id)) {
+        // A launch's own context (a rewind's) is newer than one a refused prompt left behind.
+        const leftOver = takeUnsentContext(session.id);
+        await prompt(session.id, message, options.first?.context ?? leftOver);
+      }
     } finally {
       markStarting(session.id, false);
     }
@@ -310,6 +319,8 @@ export function useAcpEngine({
    */
   const stop = (sessionId: string): Promise<boolean> => {
     stoppedRef.current.add(sessionId);
+    lastPromptRef.current.delete(sessionId);
+    unsentContextRef.current.delete(sessionId);
     return acp.stop(sessionId).then(
       () => true,
       (error) => {

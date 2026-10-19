@@ -124,7 +124,8 @@ const handlers = {
       availableCommands: [{ name: "review", description: "Review the changes" }],
     });
   },
-  "session/delete": (id) => reply(id, {}),
+  // FAKE_ACP_SLOW_DELETE: takes three seconds to delete a session.
+  "session/delete": (id) => setTimeout(() => reply(id, {}), process.env.FAKE_ACP_SLOW_DELETE ? 3000 : 0),
   "session/fork": (id) => reply(id, { sessionId: `fake-${nextSession++}` }),
   "session/prompt": handlePrompt,
   "session/set_mode": (id, params) => {

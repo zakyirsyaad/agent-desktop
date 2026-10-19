@@ -477,7 +477,7 @@ describe("ACP sessions in the app", () => {
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "acp_probe_agent"
         ? signedIn
-          ? Promise.resolve({ modes: null, configOptions: [], commands: [] })
+          ? Promise.resolve({ modes: null, configOptions: [], commands: [], signInChecked: true })
           : Promise.reject(`ACP_AUTH_REQUIRED:${JSON.stringify([])}`)
         : realInvoke(cmd, args)
     );
@@ -494,6 +494,30 @@ describe("ACP sessions in the app", () => {
     });
 
     await waitFor(() => expect(screen.queryByRole("region", { name: "Sign in to Qwen Code" })).toBeNull());
+  });
+
+  it("keeps the sign-in panel when the agent's answer could not tell whether anyone signed in", async () => {
+    realInvoke = tauriInternals().invoke;
+    let asked = 0;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "acp_probe_agent"
+        ? ++asked === 1
+          ? Promise.reject(`ACP_AUTH_REQUIRED:${JSON.stringify([])}`)
+          : Promise.resolve({ modes: null, configOptions: [], commands: [], signInChecked: false })
+        : realInvoke(cmd, args)
+    );
+    fakeStore().state.settings.defaultAgentId = "qwen";
+    await act(async () => {
+      render(<App />);
+    });
+    expect(await screen.findByRole("region", { name: "Sign in to Qwen Code" })).toBeDefined();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(asked).toBe(2));
+
+    expect(screen.getByRole("region", { name: "Sign in to Qwen Code" })).toBeDefined();
   });
 
   it("does not say the agent's options are loading once its session runs", async () => {

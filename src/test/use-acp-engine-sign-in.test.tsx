@@ -69,4 +69,37 @@ describe("useAcpEngine when the agent refuses a prompt for a sign-in", () => {
 
     expect(promptsSent(spy)[1]).toBe("EARLIER CONVERSATION\n\ntry again");
   });
+
+  it("hands the hidden context over with the first message of a resumed session, then no more", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+    const { result } = renderHook(() =>
+      useAcpEngine({
+        sessions: [SESSION],
+        agents: fakeProfiles,
+        updateMessages: () => {},
+        patchSession: () => {},
+        reportError: () => {},
+        rememberOptions: () => {},
+        onAuthRequired: () => {},
+      }),
+    );
+    await act(async () => {
+      await result.current.start(SESSION, { text: "try again", context: "EARLIER CONVERSATION" });
+    });
+    await waitFor(() => expect(promptsSent(spy)).toHaveLength(1));
+    await act(async () => {
+      listeners.get("acp-event")?.({
+        payload: { sessionId: "s-1", kind: "turn-end", error: `ACP_AUTH_REQUIRED:${JSON.stringify([])}` },
+      });
+    });
+
+    await act(async () => {
+      await result.current.resume(SESSION, "acp-s-1", { text: "next" });
+    });
+    await act(async () => {
+      await result.current.send("s-1", "and then");
+    });
+
+    expect(promptsSent(spy).slice(1)).toEqual(["EARLIER CONVERSATION\n\nnext", "and then"]);
+  });
 });

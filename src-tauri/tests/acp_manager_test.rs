@@ -451,6 +451,19 @@ fn method_log(name: &str) -> std::path::PathBuf {
     path
 }
 
+/// Waits up to two seconds for the agent to be called with `method`: the
+/// probe deletes its session in the background.
+fn eventually_called(path: &std::path::Path, method: &str) -> bool {
+    let until = std::time::Instant::now() + Duration::from_secs(2);
+    while std::time::Instant::now() < until {
+        if methods_in(path).iter().any(|m| m == method) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
+}
+
 fn methods_in(path: &std::path::Path) -> Vec<String> {
     std::fs::read_to_string(path)
         .unwrap_or_default()
@@ -467,24 +480,76 @@ fn probing_deletes_the_session_it_opened() {
 
     manager.probe(&cwd(), &launch, true).expect("probe");
 
-    let methods = methods_in(&log);
-    assert!(methods.contains(&"session/new".to_string()), "{methods:?}");
+    assert!(methods_in(&log).contains(&"session/new".to_string()));
     assert!(
-        methods.contains(&"session/delete".to_string()),
-        "{methods:?}"
+        eventually_called(&log, "session/delete"),
+        "{:?}",
+        methods_in(&log)
     );
 }
 
 #[test]
-fn probing_an_agent_whose_options_are_known_opens_no_session() {
+fn probing_a_known_agent_that_reports_its_sign_in_opens_no_session() {
     let (manager, _rx) = manager();
     let log = method_log("light");
-    let launch = with_env(fake_agent(), "FAKE_ACP_METHOD_LOG", log.to_str().unwrap());
+    let launch = with_env(
+        with_env(fake_agent(), "FAKE_ACP_METHOD_LOG", log.to_str().unwrap()),
+        "FAKE_ACP_AUTH_STATUS",
+        "account",
+    );
 
     let probed = manager.probe(&cwd(), &launch, false).expect("probe");
 
     assert_eq!(methods_in(&log), vec!["initialize".to_string()]);
     assert!(probed.modes.is_null());
+    assert!(probed.sign_in_checked);
+}
+
+#[test]
+fn probing_a_known_agent_that_cannot_report_its_sign_in_opens_a_session_to_check() {
+    let (manager, _rx) = manager();
+    let log = method_log("check");
+    let launch = with_env(fake_agent(), "FAKE_ACP_METHOD_LOG", log.to_str().unwrap());
+
+    let probed = manager.probe(&cwd(), &launch, false).expect("probe");
+
+    assert!(methods_in(&log).contains(&"session/new".to_string()));
+    assert!(probed.sign_in_checked);
+}
+
+#[test]
+fn probing_a_known_agent_reports_a_sign_in_when_it_refuses_the_session() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_REQUIRED", "1");
+
+    let error = manager.probe(&cwd(), &launch, false).unwrap_err();
+
+    assert_eq!(auth_methods_in(&error)[0]["id"], "browser");
+}
+
+#[test]
+fn probing_returns_without_waiting_for_the_agent_to_delete_its_session() {
+    let (manager, _rx) = manager();
+    let log = method_log("slow-delete");
+    let launch = with_env(
+        with_env(fake_agent(), "FAKE_ACP_METHOD_LOG", log.to_str().unwrap()),
+        "FAKE_ACP_SLOW_DELETE",
+        "1",
+    );
+    let started = std::time::Instant::now();
+
+    manager.probe(&cwd(), &launch, true).expect("probe");
+
+    assert!(
+        started.elapsed() < Duration::from_millis(2500),
+        "took {:?}",
+        started.elapsed()
+    );
+    assert!(
+        eventually_called(&log, "session/delete"),
+        "{:?}",
+        methods_in(&log)
+    );
 }
 
 #[test]

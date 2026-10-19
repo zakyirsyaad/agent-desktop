@@ -89,19 +89,19 @@ pub fn acp_start_session(
 }
 
 /// Learns what an agent offers (modes, models, efforts, commands) before a
-/// session starts, or that it needs a sign-in first. `open_session` is for an
-/// agent whose options are not known yet; otherwise only the sign-in is read.
+/// session starts, or that it needs a sign-in first. `needs_options` is for an
+/// agent whose options are not known yet; otherwise the sign-in is what is checked.
 #[tauri::command(async)]
 pub fn acp_probe_agent(
     manager: State<'_, AcpManager>,
     store: State<'_, AppStore>,
     profile_id: String,
     cwd: String,
-    open_session: bool,
+    needs_options: bool,
 ) -> Result<ProbedAgent, String> {
     // It runs the agent in `cwd`, so only in one of the user's own folders.
     ensure_known_workspace(&cwd, |path| store.is_known_workspace(path))?;
-    manager.probe(&cwd, &launch_for(&profile_id)?, open_session)
+    manager.probe(&cwd, &launch_for(&profile_id)?, needs_options)
 }
 
 /// Signs in to an agent with one of the auth methods it reported.

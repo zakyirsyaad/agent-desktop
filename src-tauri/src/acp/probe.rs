@@ -7,15 +7,20 @@
 //! user writes a message.
 //!
 //! Opening a session is not free: the agent may run the user's session hooks
-//! and record the session in its history. So a session is opened only to
-//! learn the options of an agent that never ran, and deleted afterwards; an
-//! agent whose options are known is only asked who is signed in.
+//! and record the session in its history. So a session is opened only when
+//! needed, and deleted afterwards: to learn the options of an agent that never
+//! ran, or to learn whether someone is signed in to an agent that cannot say
+//! so on its own. An agent that reports its sign-in (Claude Code) and whose
+//! options are known is only asked who is signed in.
 
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
+use std::sync::Arc;
+
 use serde_json::{json, Value};
 
+use super::connection::AcpConnection;
 use super::manager::{
     auth_methods_of, auth_required_error, failure_message, initialize, open_request,
     spawn_unrouted, AcpLaunch, AcpManager, OpenError,
@@ -43,16 +48,9 @@ pub struct ProbedAgent {
     pub config_options: Value,
     /// The slash commands, as the agent's `available_commands_update` lists them.
     pub commands: Value,
-}
-
-impl ProbedAgent {
-    fn empty() -> Self {
-        Self {
-            modes: Value::Null,
-            config_options: Value::Array(Vec::new()),
-            commands: Value::Array(Vec::new()),
-        }
-    }
+    /// Whether the agent showed someone is signed in: it opened a session, or
+    /// reported an account. False when it said nothing either way.
+    pub sign_in_checked: bool,
 }
 
 /// What the agent pushes on its own while a probe waits.
@@ -69,15 +67,16 @@ struct Awaited {
 
 impl AcpManager {
     /// Asks the agent what it offers and whether someone is signed in, then
-    /// ends it. With `open_session`, a throwaway session is opened (and
-    /// deleted) to learn the modes, options and commands; without, only the
-    /// sign-in status is read. Fails with the sign-in error the UI parses when
-    /// the agent will not open a session, or says nobody is signed in.
+    /// ends it. With `needs_options`, or when the agent cannot report its
+    /// sign-in, a throwaway session is opened (and deleted in the background)
+    /// to learn the modes, options and commands; otherwise only the sign-in
+    /// status is read. Fails with the sign-in error the UI parses when the
+    /// agent will not open a session, or says nobody is signed in.
     pub fn probe(
         &self,
         cwd: &str,
         launch: &AcpLaunch,
-        open_session: bool,
+        needs_options: bool,
     ) -> Result<ProbedAgent, String> {
         validate_cwd(cwd)?;
         let started = Instant::now();
@@ -105,42 +104,51 @@ impl AcpManager {
             .and_then(|init| {
                 let reports_auth = init["agentCapabilities"]["_meta"]["authStatus"].is_object();
                 let auth_until = reports_auth.then(|| started + AUTH_STATUS_TIMEOUT);
-                let (probed, auth_kind) = if open_session {
-                    let session = open_request(
-                        &connection,
-                        &init,
-                        "session/new",
-                        json!({ "cwd": cwd, "mcpServers": [] }),
-                    )?;
-                    let awaited = Awaited {
-                        commands_until: Some(Instant::now() + COMMANDS_TIMEOUT),
-                        auth_until,
-                    };
-                    let (commands, auth_kind) = settle(&rx, &awaited);
-                    discard_session(&connection, &init, &session);
-                    let probed = ProbedAgent {
-                        modes: session["modes"].clone(),
-                        config_options: session["configOptions"].clone(),
-                        commands: commands.unwrap_or_else(|| Value::Array(Vec::new())),
-                    };
-                    (probed, auth_kind)
-                } else {
+                if !needs_options && reports_auth {
                     let awaited = Awaited {
                         commands_until: None,
                         auth_until,
                     };
-                    (ProbedAgent::empty(), settle(&rx, &awaited).1)
-                };
-                if auth_kind.as_deref() == Some(SIGNED_OUT) {
-                    return Err(OpenError::Agent(auth_required_error(&auth_methods_of(
-                        &init,
-                    ))));
+                    let auth_kind = settle(&rx, &awaited).1;
+                    let probed = ProbedAgent {
+                        modes: Value::Null,
+                        config_options: Value::Array(Vec::new()),
+                        commands: Value::Array(Vec::new()),
+                        sign_in_checked: auth_kind.is_some(),
+                    };
+                    return signed_in(&init, auth_kind.as_deref()).map(|()| (probed, None));
                 }
-                Ok(probed)
+                // Opening a session is also how an agent that cannot report its sign-in refuses it.
+                let session = open_request(
+                    &connection,
+                    &init,
+                    "session/new",
+                    json!({ "cwd": cwd, "mcpServers": [] }),
+                )?;
+                let awaited = Awaited {
+                    commands_until: Some(Instant::now() + COMMANDS_TIMEOUT),
+                    auth_until,
+                };
+                let (commands, auth_kind) = settle(&rx, &awaited);
+                let probed = ProbedAgent {
+                    modes: session["modes"].clone(),
+                    config_options: session["configOptions"].clone(),
+                    commands: commands.unwrap_or_else(|| Value::Array(Vec::new())),
+                    sign_in_checked: true,
+                };
+                let discard =
+                    discard_method(&init).map(|method| (method, session["sessionId"].clone()));
+                if let Err(error) = signed_in(&init, auth_kind.as_deref()) {
+                    if let Some((method, session_id)) = &discard {
+                        discard_session(&connection, method, session_id);
+                    }
+                    return Err(error);
+                }
+                Ok((probed, discard))
             });
         match result {
-            Ok(probed) => {
-                connection.kill();
+            Ok((probed, discard)) => {
+                finish_in_background(connection, discard);
                 Ok(probed)
             }
             Err(error) => Err(failure_message(&connection, error)),
@@ -148,22 +156,45 @@ impl AcpManager {
     }
 }
 
-/// Deletes the throwaway session from the agent's history, or at least closes
-/// it, when the agent offers that. A failure only leaves it as it was.
-fn discard_session(connection: &super::connection::AcpConnection, init: &Value, session: &Value) {
-    let capabilities = &init["agentCapabilities"]["sessionCapabilities"];
-    let method = if capabilities["delete"].is_object() {
-        "session/delete"
-    } else if capabilities["close"].is_object() {
-        "session/close"
-    } else {
+/// Fails with the sign-in error when the agent said nobody is signed in.
+fn signed_in(init: &Value, auth_kind: Option<&str>) -> Result<(), OpenError> {
+    if auth_kind == Some(SIGNED_OUT) {
+        return Err(OpenError::Agent(auth_required_error(&auth_methods_of(
+            init,
+        ))));
+    }
+    Ok(())
+}
+
+/// Ends the agent; first, off the caller's thread, deletes the throwaway
+/// session, so the options are not held back while the agent tears it down.
+fn finish_in_background(connection: Arc<AcpConnection>, discard: Option<(&'static str, Value)>) {
+    let Some((method, session_id)) = discard else {
+        connection.kill();
         return;
     };
-    let _ = connection.request(
-        method,
-        json!({ "sessionId": session["sessionId"] }),
-        DISCARD_TIMEOUT,
-    );
+    std::thread::spawn(move || {
+        discard_session(&connection, method, &session_id);
+        connection.kill();
+    });
+}
+
+/// How to remove a throwaway session: delete it from the agent's history, or
+/// at least close it; nothing when the agent offers neither.
+fn discard_method(init: &Value) -> Option<&'static str> {
+    let capabilities = &init["agentCapabilities"]["sessionCapabilities"];
+    if capabilities["delete"].is_object() {
+        Some("session/delete")
+    } else if capabilities["close"].is_object() {
+        Some("session/close")
+    } else {
+        None
+    }
+}
+
+/// Removes the throwaway session. A failure only leaves it as it was.
+fn discard_session(connection: &AcpConnection, method: &str, session_id: &Value) {
+    let _ = connection.request(method, json!({ "sessionId": session_id }), DISCARD_TIMEOUT);
 }
 
 /// Collects the pushes `awaited` names until each arrived or its deadline
