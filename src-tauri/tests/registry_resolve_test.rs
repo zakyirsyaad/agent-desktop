@@ -8,7 +8,8 @@ use zorvo_lib::installer::runtimes::{
     parse_manifest, InstalledRuntime, RuntimeKind, RuntimeManifest, BUNDLED_RUNTIMES,
 };
 use zorvo_lib::registry::resolve::{
-    canonical_agent_id, missing_reason, planned_steps, resolve_profile, SystemTools,
+    canonical_agent_id, is_system_tool_path, missing_reason, planned_steps, resolve_profile,
+    SystemTools,
 };
 use zorvo_lib::registry::schema::{current_platform, BinaryTarget, Distribution, RegistryEntry};
 
@@ -742,5 +743,66 @@ fn missing_reason_asks_for_a_newer_node_when_npx_is_found() {
     assert_eq!(
         missing_reason(&profile).as_deref(),
         Some("Gemini CLI needs Node.js 22 or newer")
+    );
+}
+
+#[test]
+fn recognises_apple_system_tool_paths() {
+    for path in [
+        "/usr/bin/git",
+        "/bin/ls",
+        "/usr/sbin/sshd",
+        "/sbin/mount",
+        "/System/Library/Frameworks/Python.framework/python3",
+        "/Library/Developer/CommandLineTools/usr/bin/swift",
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xcrun",
+        "/Applications/Xcode-beta.app/Contents/Developer/usr/bin/lldb",
+    ] {
+        assert!(is_system_tool_path(path), "{path} is a system tool");
+    }
+    for path in [
+        "/usr/local/bin/opencode",
+        "/opt/homebrew/bin/goose",
+        "/Users/me/.local/bin/cursor-agent",
+        "/usr/bin2/agent",
+        "/Applications/OpenCode.app/Contents/MacOS/opencode",
+    ] {
+        assert!(!is_system_tool_path(path), "{path} is not a system tool");
+    }
+}
+
+#[test]
+fn a_binary_found_only_among_system_tools_is_not_installed() {
+    let mut platforms = BTreeMap::new();
+    platforms.insert(
+        current_platform().to_string(),
+        BinaryTarget {
+            archive: "https://example.com/ls.tar.gz".to_string(),
+            cmd: "./ls".to_string(),
+            args: vec!["acp".to_string()],
+            sha256: "0".repeat(64),
+            env: BTreeMap::new(),
+        },
+    );
+    let lister = entry("lister", "Lister", Distribution::Binary { platforms });
+    let globals = BTreeSet::new();
+    let installed = InstalledTools::none();
+    let tools = SystemTools {
+        path_var: Some("/bin"),
+        npm_globals: &globals,
+        installed: &installed,
+    };
+    assert!(Path::new("/bin/ls").is_file(), "the test needs /bin/ls");
+
+    let profile = resolve_profile(&lister, &tools, true);
+
+    assert!(!profile.installed_on_system);
+    assert_eq!(profile.availability, "not_installed");
+    assert!(!profile.detected);
+    assert_eq!(profile.acp_program_path, None);
+    // Install downloads the registry's own copy instead.
+    assert!(
+        matches!(&planned_steps(&lister, &tools)[..], [PlannedStep::Agent { cmd, .. }] if cmd == "./ls"),
+        "the agent's archive is planned"
     );
 }

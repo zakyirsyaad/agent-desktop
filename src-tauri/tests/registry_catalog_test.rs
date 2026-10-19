@@ -423,14 +423,6 @@ fn offers_no_version_newer_than_the_one_the_registry_lists() {
     let profiles = no_tools_profiles(&reopened, &BTreeMap::new(), now);
     assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("1.0.0"));
 
-    let recorded = BTreeMap::from([("gemini".to_string(), "2.0.0".to_string())]);
-    let pinned = no_tools_profiles(&catalog, &recorded, now);
-    assert_eq!(
-        find(&pinned, "gemini").version.as_deref(),
-        Some("2.0.0"),
-        "the version an agent started with still wins"
-    );
-
     catalog
         .refresh(
             || Ok(registry_of(&[npx_entry("gemini", "2.0.0")])),
@@ -438,7 +430,11 @@ fn offers_no_version_newer_than_the_one_the_registry_lists() {
         )
         .expect("refresh succeeds");
     let profiles = no_tools_profiles(&catalog, &BTreeMap::new(), now + DAY);
-    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("2.0.0"));
+    assert_eq!(
+        find(&profiles, "gemini").version.as_deref(),
+        Some("1.0.0"),
+        "a withdrawn version stays withdrawn even if the registry lists it again"
+    );
 }
 
 #[test]
@@ -521,4 +517,255 @@ fn plans_the_install_of_the_version_in_use() {
     assert!(catalog
         .planned_steps_for("unknown", &tools, &in_use, now)
         .is_none());
+}
+
+/// A catalog of gemini 1.0.0 and 2.0.0 (both old enough) after a fetch listing `listed`.
+fn catalog_listing(dir: &TempDir, listed: &str, now: u64) -> Catalog {
+    let bundle = bundle_of(&[
+        (npx_entry("gemini", "1.0.0"), T0),
+        (npx_entry("gemini", "2.0.0"), T0 + DAY),
+    ]);
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+    catalog
+        .refresh(|| Ok(registry_of(&[npx_entry("gemini", listed)])), now)
+        .expect("refresh succeeds");
+    catalog
+}
+
+#[test]
+fn a_recorded_version_the_registry_withdrew_is_not_launched() {
+    let dir = TempDir::new("recorded-withdrawn");
+    let now = T0 + 30 * DAY;
+    let catalog = catalog_listing(&dir, "1.0.0", now);
+    let recorded = BTreeMap::from([("gemini".to_string(), "2.0.0".to_string())]);
+
+    let profiles = no_tools_profiles(&catalog, &recorded, now);
+
+    let gemini = find(&profiles, "gemini");
+    assert_eq!(gemini.version.as_deref(), Some("1.0.0"));
+    assert!(
+        gemini.acp_args.contains(&"gemini-pkg@1.0.0".to_string()),
+        "{:?}",
+        gemini.acp_args
+    );
+}
+
+#[test]
+fn a_recorded_version_the_registry_still_lists_is_launched() {
+    let dir = TempDir::new("recorded-listed");
+    let now = T0 + 30 * DAY;
+    let catalog = catalog_listing(&dir, "2.0.0", now);
+    let recorded = BTreeMap::from([("gemini".to_string(), "2.0.0".to_string())]);
+
+    let profiles = no_tools_profiles(&catalog, &recorded, now);
+
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("2.0.0"));
+}
+
+#[test]
+fn a_recorded_version_older_than_the_listed_one_still_wins() {
+    let dir = TempDir::new("recorded-older");
+    let now = T0 + 30 * DAY;
+    let catalog = catalog_listing(&dir, "2.0.0", now);
+    let recorded = BTreeMap::from([("gemini".to_string(), "1.0.0".to_string())]);
+
+    let profiles = no_tools_profiles(&catalog, &recorded, now);
+
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("1.0.0"));
+}
+
+#[test]
+fn profile_resolves_one_agent_like_profiles_does() {
+    let dir = TempDir::new("one-profile");
+    let now = T0 + 30 * DAY;
+    let catalog = catalog_listing(&dir, "1.0.0", now);
+    let npm = BTreeSet::new();
+    let tools = SystemTools {
+        path_var: Some(""),
+        npm_globals: &npm,
+        installed: &InstalledTools::none(),
+    };
+
+    for versions in [
+        BTreeMap::new(),
+        BTreeMap::from([("gemini".to_string(), "2.0.0".to_string())]),
+        BTreeMap::from([("gemini".to_string(), "1.0.0".to_string())]),
+    ] {
+        let all = catalog.profiles(&tools, &versions, now);
+        assert_eq!(
+            catalog.profile("gemini", &tools, &versions, now).as_ref(),
+            Some(find(&all, "gemini"))
+        );
+    }
+    assert_eq!(
+        catalog.profile("no-such-agent", &tools, &BTreeMap::new(), now),
+        None
+    );
+}
+
+/// A catalog whose bundle holds gemini at each of `versions`, all old enough.
+fn catalog_of_versions(dir: &TempDir, versions: &[&str]) -> (Catalog, String) {
+    let bundle = bundle_of(
+        &versions
+            .iter()
+            .map(|v| (npx_entry("gemini", v), T0))
+            .collect::<Vec<_>>(),
+    );
+    (Catalog::open(dir.path().to_path_buf(), &bundle), bundle)
+}
+
+#[test]
+fn a_withdrawn_recorded_version_stays_withdrawn_after_a_newer_release() {
+    let dir = TempDir::new("withdrawn-permanent");
+    let (catalog, _) = catalog_of_versions(&dir, &["0.29.0", "0.30.0"]);
+    let recorded = BTreeMap::from([("gemini".to_string(), "0.30.0".to_string())]);
+    let first = T0 + 30 * DAY;
+    catalog
+        .refresh(|| Ok(registry_of(&[npx_entry("gemini", "0.29.0")])), first)
+        .expect("refresh succeeds");
+    let profiles = no_tools_profiles(&catalog, &recorded, first);
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("0.29.0"));
+
+    let second = first + DAY;
+    catalog
+        .refresh(|| Ok(registry_of(&[npx_entry("gemini", "0.31.0")])), second)
+        .expect("refresh succeeds");
+
+    let settled = second + MIN_AGE_SECS;
+    let profiles = no_tools_profiles(&catalog, &recorded, settled);
+    let gemini = find(&profiles, "gemini");
+    assert_eq!(gemini.version.as_deref(), Some("0.31.0"));
+    assert!(
+        gemini.acp_args.contains(&"gemini-pkg@0.31.0".to_string()),
+        "{:?}",
+        gemini.acp_args
+    );
+    let offered = no_tools_profiles(&catalog, &BTreeMap::new(), second);
+    assert_eq!(
+        find(&offered, "gemini").version.as_deref(),
+        Some("0.29.0"),
+        "0.30.0 is never offered again"
+    );
+}
+
+#[test]
+fn a_withdrawn_recorded_version_keeps_running_when_nothing_else_is_offered() {
+    let dir = TempDir::new("withdrawn-nothing-offered");
+    let (catalog, _) = catalog_of_versions(&dir, &["0.30.0"]);
+    let recorded = BTreeMap::from([("gemini".to_string(), "0.30.0".to_string())]);
+    let now = T0 + 30 * DAY;
+    catalog
+        .refresh(|| Ok(registry_of(&[npx_entry("gemini", "0.29.1")])), now)
+        .expect("refresh succeeds");
+
+    let profiles = no_tools_profiles(&catalog, &recorded, now);
+
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("0.30.0"));
+}
+
+#[test]
+fn withdrawn_versions_survive_reopening_the_catalog() {
+    let dir = TempDir::new("withdrawn-reopen");
+    let (catalog, bundle) = catalog_of_versions(&dir, &["0.29.0", "0.30.0"]);
+    let first = T0 + 30 * DAY;
+    catalog
+        .refresh(|| Ok(registry_of(&[npx_entry("gemini", "0.29.0")])), first)
+        .expect("refresh succeeds");
+    let second = first + DAY;
+    catalog
+        .refresh(|| Ok(registry_of(&[npx_entry("gemini", "0.31.0")])), second)
+        .expect("refresh succeeds");
+
+    let reopened = Catalog::open(dir.path().to_path_buf(), &bundle);
+
+    let recorded = BTreeMap::from([("gemini".to_string(), "0.30.0".to_string())]);
+    let profiles = no_tools_profiles(&reopened, &recorded, second);
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("0.29.0"));
+    let profiles = no_tools_profiles(&reopened, &BTreeMap::new(), second);
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("0.29.0"));
+}
+
+#[test]
+fn a_refresh_that_only_withdraws_a_version_is_a_change() {
+    let dir = TempDir::new("withdrawn-change");
+    let (catalog, _) = catalog_of_versions(&dir, &["1.0.0", "2.0.0"]);
+    let now = T0 + 30 * DAY;
+    catalog
+        .refresh(|| Ok(registry_of(&[npx_entry("gemini", "2.0.0")])), now)
+        .expect("refresh succeeds");
+    // 2.0.0 is still offered (it is too new to be replaced), but a third
+    // version appearing above the listed one must be withdrawn and reported.
+    catalog
+        .refresh(
+            || Ok(registry_of(&[npx_entry("gemini", "3.0.0")])),
+            now + DAY,
+        )
+        .expect("refresh succeeds");
+
+    let changed = catalog
+        .refresh(
+            || Ok(registry_of(&[npx_entry("gemini", "2.0.0")])),
+            now + 2 * DAY,
+        )
+        .expect("refresh succeeds");
+
+    assert!(changed, "withdrawing 3.0.0 is a change");
+}
+
+#[test]
+fn loads_a_cache_written_before_withdrawn_versions_were_recorded() {
+    let dir = TempDir::new("old-cache-withdrawn");
+    let (_, bundle) = catalog_of_versions(&dir, &["1.0.0", "2.0.0"]);
+    std::fs::write(
+        dir.path().join("registry-cache.json"),
+        r#"{"last_fetch":1790000000,"listed":["gemini"],"listed_versions":{"gemini":"1.0.0"}}"#,
+    )
+    .expect("write old cache");
+
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+
+    assert_eq!(catalog.last_fetch(), Some(T0));
+    let profiles = no_tools_profiles(&catalog, &BTreeMap::new(), T0 + 30 * DAY);
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("1.0.0"));
+}
+
+#[test]
+fn plans_the_offered_version_when_the_one_in_use_was_withdrawn() {
+    use zorvo_lib::installer::plan::PlannedStep;
+
+    let dir = TempDir::new("plan-withdrawn");
+    let bundle = bundle_of(&[
+        (binary_entry("opencode", "1.0.0"), T0),
+        (binary_entry("opencode", "2.0.0"), T0 + DAY),
+    ]);
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+    let now = T0 + 30 * DAY;
+    catalog
+        .refresh(
+            || Ok(registry_of(&[binary_entry("opencode", "1.0.0")])),
+            now,
+        )
+        .expect("refresh succeeds");
+    let npm = BTreeSet::new();
+    let installed = InstalledTools::none();
+    let tools = SystemTools {
+        path_var: Some(""),
+        npm_globals: &npm,
+        installed: &installed,
+    };
+    let in_use = BTreeMap::from([("opencode".to_string(), "2.0.0".to_string())]);
+
+    let (_, steps) = catalog
+        .planned_steps_for("opencode", &tools, &in_use, now)
+        .expect("opencode is in the catalog");
+
+    // The plan installs the version the profile shows, not the withdrawn one.
+    let shown = catalog
+        .profile("opencode", &tools, &in_use, now)
+        .and_then(|p| p.version);
+    assert_eq!(shown.as_deref(), Some("1.0.0"));
+    assert!(
+        matches!(&steps[..], [PlannedStep::Agent { version, .. }] if version == "1.0.0"),
+        "{steps:?}"
+    );
 }

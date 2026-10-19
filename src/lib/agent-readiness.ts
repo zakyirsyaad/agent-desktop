@@ -4,8 +4,8 @@ import type { AgentProfile } from "../types";
 export const RECHECK_ERROR = "Couldn't check your agents. Try again.";
 
 /** The subset of `AgentProfile` the setup screens read. */
-export type AgentSummary = Pick<AgentProfile, "id" | "name" | "detected" | "detected_path"> &
-  Partial<Pick<AgentProfile, "distribution" | "install_plan">>;
+export type AgentSummary = Pick<AgentProfile, "id" | "name" | "detected" | "detected_path" | "distribution"> &
+  Partial<Pick<AgentProfile, "install_plan">>;
 
 export function isAgentReady(agent: AgentSummary): boolean {
   return agent.detected;
@@ -27,14 +27,10 @@ export function readyAgents<T extends AgentSummary>(agents: readonly T[]): T[] {
 
 /**
  * Keeps `preferredId` when it names a ready agent, else falls back to the first ready one.
- * `isCandidate` narrows the choice, e.g. to the agents the user has in use.
+ * `agents` are the candidates, e.g. only the agents the user has in use.
  */
-export function resolveDefaultAgentId<T extends AgentSummary>(
-  agents: readonly T[],
-  preferredId: string | null,
-  isCandidate: (agent: T) => boolean = () => true
-): string | null {
-  const ready = readyAgents(agents).filter(isCandidate);
+export function resolveDefaultAgentId(agents: readonly AgentSummary[], preferredId: string | null): string | null {
+  const ready = readyAgents(agents);
   const preferred = ready.find((agent) => agent.id === preferredId);
   return (preferred ?? ready[0])?.id ?? null;
 }
@@ -63,6 +59,33 @@ export function resolveUsableAgentId<T extends AgentSummary>(
   return (preferred ?? readyAgents(usable)[0] ?? usable[0])?.id ?? null;
 }
 
+/** English list joining: "A", "A and B", "A, B and C". */
+function joinNames(names: readonly string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Why no session can start, built from the agents in use that are not ready
+ * but Zorvo can install: the ones that run through `npx` are named as needing
+ * Node.js (which Install sets up), else the others are named. With none, it
+ * asks to install one of the agents.
+ */
+export function noAgentNotice(agentsInUse: readonly AgentSummary[]): string {
+  const installable = agentsInUse.filter((agent) => !isAgentReady(agent) && canInstall(agent));
+  if (installable.length === 0) {
+    return "No agent is ready. Install one of your agents, then check again in Settings.";
+  }
+  const needNode = installable.filter((agent) => agent.distribution === "npx").map((agent) => agent.name);
+  const named = needNode.length > 0 ? needNode : installable.map((agent) => agent.name);
+  const isOne = named.length === 1;
+  const action = isOne ? "Click Install to set it up." : "Choose one and click Install.";
+  if (needNode.length > 0) {
+    return `No agent is ready. ${joinNames(named)} ${isOne ? "needs" : "need"} Node.js 22 or later, which Zorvo installs for you. ${action}`;
+  }
+  return `No agent is ready. ${joinNames(named)} ${isOne ? "is" : "are"} not installed yet. ${action}`;
+}
+
 export type InstallHint =
   | { kind: "command"; command: string }
   | { kind: "docs"; text: string };
@@ -73,9 +96,6 @@ export const NODE_HINT = "Needs Node.js 22 or later. Zorvo installs it when you 
 /** A registry agent Zorvo can download for this Mac. */
 export const INSTALLABLE_HINT = "Zorvo installs it when you click Install in a new session.";
 
-/** Registry agents that run through `npx`, for profiles that do not say so. */
-const NPX_AGENT_IDS: readonly string[] = ["claude-acp", "codex-acp", "qwen-code"];
-
 const INSTALL_HINTS: Readonly<Record<string, InstallHint>> = {
   aider: { kind: "command", command: "python -m pip install aider-install && aider-install" },
   omp: { kind: "docs", text: "See the omp documentation for install steps." },
@@ -83,7 +103,7 @@ const INSTALL_HINTS: Readonly<Record<string, InstallHint>> = {
 
 /** How to install a missing agent; agents without a verified command get a docs pointer. */
 export function installHintFor(agent: AgentSummary): InstallHint {
-  if (agent.distribution === "npx" || NPX_AGENT_IDS.includes(agent.id)) {
+  if (agent.distribution === "npx") {
     return { kind: "docs", text: NODE_HINT };
   }
   if (canInstall(agent)) return { kind: "docs", text: INSTALLABLE_HINT };

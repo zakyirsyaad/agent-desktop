@@ -36,6 +36,7 @@ export function makeProfile(overrides: Partial<AgentProfile> & Pick<AgentProfile
 export const claudeProfile = makeProfile({
   id: "claude-acp",
   source: "registry",
+  distribution: "npx",
   name: "Claude Code",
   command: "claude",
   detected: true,
@@ -81,6 +82,7 @@ export const aiderProfile = makeProfile({
 export const qwenProfile = makeProfile({
   id: "qwen-code",
   source: "registry",
+  distribution: "npx",
   name: "Qwen Code",
   command: "qwen",
   detected: true,

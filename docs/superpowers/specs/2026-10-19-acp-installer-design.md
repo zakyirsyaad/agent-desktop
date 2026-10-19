@@ -24,7 +24,7 @@ feature usable: an install panel in the new-session draft.
 |---|---|
 | Node.js for `npx` agents | The user's own `node`/`npx` when its major version is at least 22; otherwise Zorvo's own Node |
 | `uv` for `uvx` agents | The user's own `uvx`, any version; otherwise Zorvo's own `uv` |
-| Binary agents | A `cmd` found on `PATH` is used as it is; otherwise Zorvo's own copy |
+| Binary agents | A `cmd` found on `PATH` (outside Apple's system tool directories) is used as it is; otherwise Zorvo's own copy |
 | Runtime versions and hashes | Pinned in Zorvo's source (`src-tauri/resources/runtimes.json`), filled by `pnpm runtimes:update` from releases at least 7 days old; runtimes change version with Zorvo releases |
 | When installs happen | Only when the user clicks **Install**; nothing is downloaded without a click |
 | Disk use | Only the version in use is kept, for each agent and each runtime |
@@ -180,10 +180,12 @@ A script in `scripts/`, run by a maintainer and committed:
 
 The resolver looks for a binary agent's command in this order:
 
-1. its `cmd` basename on the user's `PATH` (as in sub-project 1);
+1. its `cmd` basename on the user's `PATH` outside Apple's system tool
+   directories (as in sub-project 1);
 2. Zorvo's copy, `tools/agents/<id>/<version>/<cmd>`, where `<version>` is
-   the version in use (`settings.agentVersions[id]`, else the offered one,
-   exactly as sub-project 1 resolves the entry);
+   the version in use (`settings.agentVersions[id]` unless the registry
+   withdrew it, else the offered one, exactly as sub-project 1 resolves the
+   entry);
 3. otherwise `not_installed`.
 
 Zorvo's copy runs by absolute path.

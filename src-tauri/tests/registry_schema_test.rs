@@ -377,3 +377,69 @@ fn skips_an_id_that_collides_with_a_legacy_or_terminal_agent() {
     ]);
     assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["claude-acp"]);
 }
+
+#[test]
+fn skips_a_binary_whose_cmd_is_an_interpreter_shell_or_package_runner() {
+    let json = doc(&[
+        binary("runs-node", "https://h/o.zip", "./node", SHA),
+        binary("runs-bash", "https://h/o.zip", "./bash", SHA),
+        binary("runs-npx", "https://h/o.zip", "bin/NPX", SHA),
+        binary("runs-python", "https://h/o.zip", "python3", SHA),
+        binary("opencode", "https://h/o.zip", "./opencode", SHA),
+    ]);
+    assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["opencode"]);
+}
+
+#[test]
+fn skips_a_binary_named_like_a_general_purpose_program() {
+    let json = doc(&[
+        binary("runs-git", "https://h/o.zip", "./git", SHA),
+        binary("runs-python312", "https://h/o.zip", "./python3.12", SHA),
+        binary("runs-awk", "https://h/o.zip", "./awk", SHA),
+        binary("runs-node22", "https://h/o.zip", "./Node22", SHA),
+        binary("runs-lua", "https://h/o.zip", "bin/lua5.4", SHA),
+        binary("runs-swift", "https://h/o.zip", "./swift", SHA),
+        binary("runs-ssh", "https://h/o.zip", "./ssh", SHA),
+        binary("runs-curl", "https://h/o.zip", "./curl", SHA),
+        binary("runs-pwsh", "https://h/o.zip", "./pwsh-preview", SHA),
+        binary("opencode", "https://h/o.zip", "./opencode", SHA),
+        binary("goose", "https://h/o.zip", "./goose", SHA),
+        binary("cursor-agent", "https://h/o.zip", "./cursor-agent", SHA),
+    ]);
+    assert_eq!(
+        ids(&parse_registry(&json).unwrap()),
+        vec!["opencode", "goose", "cursor-agent"]
+    );
+}
+
+/// The bundle with its binary entry's `cmd` for this machine replaced by `cmd`.
+fn with_cmd(entry: &serde_json::Value, cmd: &str) -> String {
+    let mut entry = entry.clone();
+    entry["distribution"]["binary"][current_platform()]["cmd"] = cmd.into();
+    format!(r#"{{"agents":[{entry}]}}"#)
+}
+
+/// No binary agent the bundle has for this machine is dropped for its `cmd`:
+/// each one parses the same as with a neutral `cmd`. (Some are skipped for
+/// other reasons, such as a missing sha256.)
+#[test]
+fn keeps_every_binary_agent_in_the_bundled_history() {
+    let bundle: serde_json::Value =
+        serde_json::from_str(include_str!("../resources/registry-history.json")).unwrap();
+    let agents = bundle["agents"].as_object().expect("agents object");
+    let mut kept = 0;
+    for (id, versions) in agents {
+        for (version, record) in versions.as_object().expect("versions object") {
+            let entry = &record["entry"];
+            let Some(target) = entry["distribution"]["binary"].get(current_platform()) else {
+                continue;
+            };
+            let cmd = target["cmd"].as_str().expect("cmd");
+            let as_is = ids(&parse_registry(&with_cmd(entry, cmd)).unwrap()).len();
+            let neutral = ids(&parse_registry(&with_cmd(entry, "./zorvo-agent")).unwrap()).len();
+            assert_eq!(as_is, neutral, "{id} {version} ({cmd}) must not be skipped");
+            kept += as_is;
+        }
+    }
+    assert!(kept > 0, "the bundle has binary agents this machine keeps");
+}

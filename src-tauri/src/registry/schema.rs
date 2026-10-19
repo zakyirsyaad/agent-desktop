@@ -294,6 +294,73 @@ fn is_valid_binary_target(target: &BinaryTarget) -> bool {
     target.archive.starts_with("https://")
         && is_sha256(&target.sha256)
         && is_safe_relative_cmd(&target.cmd)
+        && !is_generic_program(&target.cmd)
+}
+
+/// Programs a Mac may already have that run whatever they are given. A binary
+/// agent is found on `PATH` by its `cmd`'s file name, so one named like these
+/// would count as installed and run the registry's args with that program.
+const GENERIC_PROGRAMS: &[&str] = &[
+    "git",
+    "awk",
+    "gawk",
+    "nawk",
+    "sed",
+    "tclsh",
+    "wish",
+    "expect",
+    "ssh",
+    "scp",
+    "curl",
+    "wget",
+    "make",
+    "xargs",
+    "env",
+    "sudo",
+    "open",
+    "osascript",
+    "sh",
+    "bash",
+    "zsh",
+    "fish",
+    "dash",
+    "ksh",
+    "csh",
+    "tcsh",
+    "deno",
+    "bun",
+    "npx",
+    "npm",
+    "pnpm",
+    "yarn",
+    "uv",
+    "uvx",
+];
+
+/// Interpreter and runtime families, matched as a prefix so versioned names
+/// (`python3.12`, `node22`, `lua5.4`) are caught too.
+const GENERIC_PROGRAM_PREFIXES: &[&str] = &[
+    "python",
+    "pip",
+    "node",
+    "ruby",
+    "perl",
+    "php",
+    "lua",
+    "java",
+    "swift",
+    "pwsh",
+    "powershell",
+];
+
+/// True when `cmd`'s file name (any case) is a general-purpose program or
+/// starts like an interpreter or runtime.
+fn is_generic_program(cmd: &str) -> bool {
+    let name = cmd.rsplit('/').next().unwrap_or(cmd).to_ascii_lowercase();
+    GENERIC_PROGRAMS.contains(&name.as_str())
+        || GENERIC_PROGRAM_PREFIXES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
 }
 
 fn is_sha256(value: &str) -> bool {

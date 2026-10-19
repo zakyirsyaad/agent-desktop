@@ -303,16 +303,59 @@ pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
 ///
 /// Uses the cached user environment to avoid launching the login shell multiple times.
 pub fn agent_profiles(versions: &BTreeMap<String, String>) -> Vec<AgentProfile> {
-    let path_var = user_path();
-    let from_registry = with_system_tools(path_var.as_deref(), |tools| {
-        registry::catalog().profiles(tools, versions, registry::unix_now())
-    });
-    let terminal: Vec<AgentProfile> = get_default_profiles()
-        .into_iter()
-        .filter(|builtin| from_registry.iter().all(|p| p.id != builtin.id))
-        .map(|profile| detect(profile, path_var.as_deref()))
-        .collect();
-    from_registry.into_iter().chain(terminal).collect()
+    with_system_tools(|catalog, tools| {
+        let from_registry = catalog.profiles(tools, versions, registry::unix_now());
+        let terminal: Vec<AgentProfile> = get_default_profiles()
+            .into_iter()
+            .filter(|builtin| from_registry.iter().all(|p| p.id != builtin.id))
+            .map(|profile| detect(profile, tools.path_var))
+            .collect();
+        from_registry.into_iter().chain(terminal).collect()
+    })
+}
+
+/// The one profile [`agent_profiles`] would give for `id`, resolving only that
+/// agent rather than every one; `None` for an unknown id.
+pub fn agent_profile(id: &str, versions: &BTreeMap<String, String>) -> Option<AgentProfile> {
+    with_system_tools(|catalog, tools| {
+        agent_profile_from(catalog, tools, id, versions, registry::unix_now())
+    })
+}
+
+/// [`agent_profile`] from a given catalog and system at time `now`.
+pub fn agent_profile_from(
+    catalog: &registry::Catalog,
+    tools: &SystemTools,
+    id: &str,
+    versions: &BTreeMap<String, String>,
+    now: u64,
+) -> Option<AgentProfile> {
+    catalog.profile(id, tools, versions, now).or_else(|| {
+        get_default_profiles()
+            .into_iter()
+            .find(|builtin| builtin.id == id)
+            .map(|profile| detect(profile, tools.path_var))
+    })
+}
+
+/// Runs `f` with the catalog and what this machine has: the user's login-shell
+/// `PATH` (this process's as a fallback), the global npm packages and what
+/// Zorvo installed.
+pub(crate) fn with_system_tools<R>(f: impl FnOnce(&registry::Catalog, &SystemTools) -> R) -> R {
+    let path_var = env_resolver::cached_user_env()
+        .ok()
+        .and_then(|env_map| env_map.get("PATH").cloned())
+        .or_else(|| std::env::var("PATH").ok());
+
+    let catalog = registry::catalog();
+    let npm_globals = catalog.npm_globals();
+    let installed = installer::installed_tools();
+    let tools = SystemTools {
+        path_var: path_var.as_deref(),
+        npm_globals: &npm_globals,
+        installed: &installed,
+    };
+    f(catalog, &tools)
 }
 
 /// The registry agent's name and what an install of it would do, at the
@@ -323,29 +366,8 @@ pub fn install_steps_for(
     id: &str,
     versions: &BTreeMap<String, String>,
 ) -> Option<(String, Vec<PlannedStep>)> {
-    let path_var = user_path();
-    with_system_tools(path_var.as_deref(), |tools| {
-        registry::catalog().planned_steps_for(id, tools, versions, registry::unix_now())
-    })
-}
-
-/// The login shell's `PATH`, else the process's.
-fn user_path() -> Option<String> {
-    env_resolver::cached_user_env()
-        .ok()
-        .and_then(|env_map| env_map.get("PATH").cloned())
-        .or_else(|| std::env::var("PATH").ok())
-}
-
-/// Runs `f` with what this machine has now: `path_var`, the global npm
-/// packages and what Zorvo installed.
-fn with_system_tools<T>(path_var: Option<&str>, f: impl FnOnce(&SystemTools) -> T) -> T {
-    let npm_globals = registry::catalog().npm_globals();
-    let installed = installer::installed_tools();
-    f(&SystemTools {
-        path_var,
-        npm_globals: &npm_globals,
-        installed: &installed,
+    with_system_tools(|catalog, tools| {
+        catalog.planned_steps_for(id, tools, versions, registry::unix_now())
     })
 }
 

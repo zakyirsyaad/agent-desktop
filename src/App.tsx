@@ -69,7 +69,7 @@ import { attentionBody, notifyIfAway } from "./lib/notify";
 import { pickFiles } from "./lib/file-picker";
 import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
-import { resolveDraftAgentId } from "./lib/agent-readiness";
+import { isAgentReady, noAgentNotice, resolveDraftAgentId } from "./lib/agent-readiness";
 import { isInUse, withAutoEnabled } from "./lib/enabled-agents";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
@@ -86,8 +86,6 @@ import type { Session, SessionWorktree, Settings } from "./types";
 import { TRANSPORT_ACP } from "./types";
 
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
-const NO_AGENT_NOTICE =
-  "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
 // Only the main window installs agents; a popout only mirrors it.
 const IS_MAIN_WINDOW = readWindowMode(window.location.search).kind === "main";
@@ -117,7 +115,7 @@ export default function App() {
   const { state, isLoaded, updateState } = usePersistedState(reportError);
   useAppearance(state.settings.appearance, isLoaded, reportError);
   const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
-  const { agents, refresh: refreshAgents } = useAgentProfiles(reportError);
+  const { agents, isLoaded: areAgentsLoaded, refresh: refreshAgents } = useAgentProfiles(reportError);
   // Installed registry agents join the ones in use, and each one's version is recorded.
   useEffect(() => {
     if (!isLoaded || agents.length === 0) return;
@@ -359,7 +357,7 @@ export default function App() {
       return;
     }
     if (!newSessionAgent) {
-      setNotice(NO_AGENT_NOTICE);
+      setNotice(noAgentNotice(agentsInUse));
       return;
     }
     rememberFolder(activeWorkspace);
@@ -703,6 +701,7 @@ export default function App() {
               workspace={activeWorkspace}
               details={workspaceDetails}
               agentName={newSessionAgent?.name}
+              unavailableReason={areAgentsLoaded && !agentsInUse.some(isAgentReady) ? noAgentNotice(agentsInUse) : undefined}
             />
           ) : (
             <EmptySessionState />

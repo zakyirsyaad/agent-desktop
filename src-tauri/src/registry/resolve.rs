@@ -59,6 +59,39 @@ impl SystemTools<'_> {
             RuntimeKind::Uv => self.installed.pinned_uv_installed,
         }
     }
+
+    /// The first `binary` on `PATH` that is not one of Apple's system tools,
+    /// so a binary agent named like one never counts as installed.
+    fn locate_user_installed(&self, binary: &str) -> Option<String> {
+        self.path_var?
+            .split(':')
+            .filter_map(|dir| find_binary_in_path_str(binary, dir))
+            .find(|path| !is_system_tool(path))
+            .map(|path| path.to_string_lossy().to_string())
+    }
+}
+
+/// Where Apple keeps its own command-line tools and developer tools.
+pub const SYSTEM_TOOL_DIRS: &[&str] = &[
+    "/usr/bin/",
+    "/bin/",
+    "/usr/sbin/",
+    "/sbin/",
+    "/System/",
+    "/Library/Developer/",
+    "/Applications/Xcode",
+];
+
+/// True when `path` is inside one of [`SYSTEM_TOOL_DIRS`].
+pub fn is_system_tool_path(path: &str) -> bool {
+    SYSTEM_TOOL_DIRS.iter().any(|dir| path.starts_with(dir))
+}
+
+/// [`is_system_tool_path`] for `path` as found or as it resolves through symlinks.
+fn is_system_tool(path: &Path) -> bool {
+    is_system_tool_path(&path.to_string_lossy())
+        || std::fs::canonicalize(path)
+            .is_ok_and(|real| is_system_tool_path(&real.to_string_lossy()))
 }
 
 /// `@scope/name@1.2.3` -> `@scope/name`; `name@1` -> `name`.
@@ -173,10 +206,10 @@ fn uvx_program(tools: &SystemTools) -> (Program, Option<RuntimeKind>) {
     (program, Some(RuntimeKind::Uv))
 }
 
-/// The `cmd` basename on `PATH`, else Zorvo's copy at the entry's version,
-/// run by its full path inside the install dir.
+/// The `cmd` basename on `PATH` outside Apple's system tool dirs, else Zorvo's
+/// copy at the entry's version, run by its full path inside the install dir.
 fn binary_program(entry: &RegistryEntry, target: &BinaryTarget, tools: &SystemTools) -> Program {
-    if let Some(path) = tools.locate(basename(&target.cmd)) {
+    if let Some(path) = tools.locate_user_installed(basename(&target.cmd)) {
         return Program::Found(Located::as_is(path));
     }
     let key = (entry.id.clone(), entry.version.clone());
@@ -210,7 +243,8 @@ fn resolve<'e>(entry: &'e RegistryEntry, tools: &SystemTools) -> Resolution<'e> 
             let target = platforms.get(current_platform());
             let command = target.map_or_else(String::new, |t| basename(&t.cmd).to_string());
             let args = target.map_or_else(Vec::new, |t| t.args.clone());
-            let installed = tools.locate(&command).is_some();
+            // Apple's own tools never count as the agent (see `locate_user_installed`).
+            let installed = tools.locate_user_installed(&command).is_some();
             ("binary", command, args, installed, target)
         }
     };

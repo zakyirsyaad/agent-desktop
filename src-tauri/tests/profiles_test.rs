@@ -1,4 +1,8 @@
-use zorvo_lib::profiles::{get_available_agent_profiles, get_default_profiles, AgentProfile};
+use std::collections::BTreeMap;
+
+use zorvo_lib::profiles::{
+    agent_profile, get_available_agent_profiles, get_default_profiles, AgentProfile,
+};
 
 fn find<'a>(profiles: &'a [AgentProfile], id: &str) -> &'a AgentProfile {
     profiles
@@ -385,4 +389,13 @@ fn test_terminal_profiles_carry_no_install_plan() {
         assert!(profile.acp_path_prepend.is_empty(), "{}", profile.id);
         assert!(profile.acp_path_append.is_empty(), "{}", profile.id);
     }
+}
+
+#[test]
+fn test_agent_profile_matches_the_listed_profile_for_each_id() {
+    let none = BTreeMap::new();
+    for listed in get_available_agent_profiles() {
+        assert_eq!(agent_profile(&listed.id, &none).as_ref(), Some(&listed));
+    }
+    assert_eq!(agent_profile("no-such-agent", &none), None);
 }
