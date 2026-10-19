@@ -29,7 +29,7 @@ export type InstallHint =
   | { kind: "docs"; text: string };
 
 const INSTALL_HINTS: Readonly<Record<string, InstallHint>> = {
-  "claude-code": { kind: "command", command: "npm install -g @anthropic-ai/claude-code" },
+  "claude-acp": { kind: "command", command: "npm install -g @anthropic-ai/claude-code" },
   aider: { kind: "command", command: "python -m pip install aider-install && aider-install" },
   omp: { kind: "docs", text: "See the omp documentation for install steps." },
 };

@@ -90,7 +90,7 @@ describe("ACP sessions in the app", () => {
     const sessionId = await startQwenSession(spy);
 
     const [, startArgs] = callsTo(spy, "acp_start_session")[0];
-    expect(startArgs).toMatchObject({ profileId: "qwen", cwd: "/Users/test/developer/ai-perpetual-trading" });
+    expect(startArgs).toMatchObject({ profileId: "qwen-code", cwd: "/Users/test/developer/ai-perpetual-trading" });
     expect(callsTo(spy, "spawn_session")).toHaveLength(0);
     // The fake agent reports "yolo" as its current mode.
     await waitFor(() =>
@@ -400,7 +400,7 @@ describe("ACP sessions in the app", () => {
 
     await waitFor(() => {
       const options = fakeStore().state.agentOptions as Record<string, { modes?: { availableModes: unknown[] } }>;
-      expect(options?.qwen?.modes?.availableModes).toHaveLength(2);
+      expect(options?.["qwen-code"]?.modes?.availableModes).toHaveLength(2);
     });
   });
 
@@ -561,7 +561,7 @@ describe("ACP sessions in the app", () => {
     await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
     expect(callsTo(spy, "acp_load_session")[0][1]).toMatchObject({
       sessionId: "s-old",
-      profileId: "qwen",
+      profileId: "qwen-code",
       cwd: "/Users/test/developer/ai-perpetual-trading",
       acpSessionId: "qwen-old",
     });
@@ -672,7 +672,7 @@ describe("ACP sessions in the app", () => {
     expect(screen.getAllByRole("option").map((o) => o.getAttribute("data-command"))).toEqual(["init", "compress"]);
     await waitFor(() => {
       const options = fakeStore().state.agentOptions as Record<string, { commands?: { name: string; hint?: string }[] }>;
-      expect(options?.qwen?.commands).toEqual([
+      expect(options?.["qwen-code"]?.commands).toEqual([
         { name: "init", description: "Create a QWEN.md" },
         { name: "compress", description: "Compress the context", hint: "optional focus" },
       ]);
@@ -738,7 +738,7 @@ describe("ACP sessions in the app", () => {
     });
 
     expect(callsTo(spy, "acp_authenticate")[0][1]).toEqual({
-      profileId: "qwen",
+      profileId: "qwen-code",
       cwd: "/Users/test/developer/ai-perpetual-trading",
       methodId: "chat-gpt",
     });
@@ -1374,7 +1374,7 @@ describe("ACP sessions in the app", () => {
       expect(setIndex).toBeLessThan(later.findIndex(([cmd]) => cmd === "acp_prompt"));
       await waitFor(() =>
         // As Qwen settled it: the model picked, and the effort it kept.
-        expect((fakeStore().state as { agentOptions?: Record<string, { preferredConfig?: unknown }> }).agentOptions?.qwen?.preferredConfig).toEqual({
+        expect((fakeStore().state as { agentOptions?: Record<string, { preferredConfig?: unknown }> }).agentOptions?.["qwen-code"]?.preferredConfig).toEqual({
           model: "qwen3-max(openai)",
           reasoning_effort: "low",
         })

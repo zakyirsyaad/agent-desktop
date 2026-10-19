@@ -155,7 +155,7 @@ describe("New session spawning", () => {
     await sendFirst();
 
     const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { profileId: string };
-    expect(args.profileId).toBe("claude-code");
+    expect(args.profileId).toBe("claude-acp");
   });
 
   it("runs a new session in its own worktree when Worktree is on", async () => {
@@ -335,7 +335,7 @@ describe("New session spawning", () => {
       command?: string;
       options: { permissionMode: string; agentSessionId?: string };
     };
-    expect(args.profileId).toBe("claude-code");
+    expect(args.profileId).toBe("claude-acp");
     expect(args.command).toBeUndefined();
     expect(args.options.permissionMode).toBe("ask");
     // Claude Code takes --session-id, so the app assigns one up front for native forks later.

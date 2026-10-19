@@ -6,7 +6,7 @@ import {
   type AgentSummary,
 } from "../lib/agent-readiness";
 
-const claude: AgentSummary = { id: "claude-code", name: "Claude Code", detected: true };
+const claude: AgentSummary = { id: "claude-acp", name: "Claude Code", detected: true };
 const omp: AgentSummary = { id: "omp", name: "Oh-My-Pi", detected: false };
 const aider: AgentSummary = { id: "aider", name: "Aider", detected: true };
 
@@ -14,7 +14,7 @@ describe("readyAgents", () => {
   it("keeps only detected agents in their original order", () => {
     expect(readyAgents([omp, aider, claude]).map((agent) => agent.id)).toEqual([
       "aider",
-      "claude-code",
+      "claude-acp",
     ]);
   });
 });

@@ -33,7 +33,8 @@ export function makeProfile(overrides: Partial<AgentProfile> & Pick<AgentProfile
 
 /** Shaped like the real Claude Code profile the backend reports. */
 export const claudeProfile = makeProfile({
-  id: "claude-code",
+  id: "claude-acp",
+  source: "registry",
   name: "Claude Code",
   command: "claude",
   detected: true,
@@ -77,7 +78,8 @@ export const aiderProfile = makeProfile({
 
 /** Shaped like the real Qwen Code profile: everything comes from the ACP session. */
 export const qwenProfile = makeProfile({
-  id: "qwen",
+  id: "qwen-code",
+  source: "registry",
   name: "Qwen Code",
   command: "qwen",
   detected: true,

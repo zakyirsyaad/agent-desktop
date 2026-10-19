@@ -130,6 +130,12 @@ export interface Settings {
   appearance: Appearance;
   defaultAgentId: string | null;
   onboardingCompleted: boolean;
+  /** Agents the user switched on; undefined until they choose, when the defaults apply. */
+  enabledAgents?: string[];
+  /** Agents the user removed from the catalog. */
+  removedAgents?: string[];
+  /** The version last seen for each agent, by agent id. */
+  agentVersions?: Record<string, string>;
 }
 
 export interface RecentFolder {

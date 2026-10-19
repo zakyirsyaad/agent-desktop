@@ -6,7 +6,7 @@ import type { AgentProfile } from "../types";
 import { makeProfile } from "./fixtures/agents";
 
 const claudeCode: AgentProfile = makeProfile({
-  id: "claude-code",
+  id: "claude-acp",
   name: "Claude Code",
   command: "claude",
   detected: true,
