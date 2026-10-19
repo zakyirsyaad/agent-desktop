@@ -134,18 +134,38 @@ fn run_npm_install_reports_the_stderr_tail() {
 #[test]
 fn run_npm_install_stops_at_the_timeout() {
     let d = temp_dir();
-    let npm = fake_npm(&d, "echo slow-registry >&2\n/bin/sleep 30");
+    // The script marks that it echoed, so a failure says whether it ran at all.
+    let echoed = d.join("echoed");
+    let npm = fake_npm(
+        &d,
+        &format!(
+            "[ \"$1\" = --version ] && exit 0\necho slow-registry >&2\n: > '{}'\n/bin/sleep 30",
+            echoed.display()
+        ),
+    );
+    // The first run of a new executable can take seconds on a loaded Mac
+    // (the script had not echoed after 5 s); run it once untimed first.
+    assert!(std::process::Command::new(&npm)
+        .arg("--version")
+        .status()
+        .unwrap()
+        .success());
     let started = Instant::now();
     let err = run_npm_install(
         &npm,
         &args(),
         &HashMap::new(),
-        Duration::from_millis(1500),
+        // Long enough for the script to start on a loaded machine.
+        Duration::from_secs(5),
         &AtomicBool::new(false),
     )
     .unwrap_err();
-    assert!(started.elapsed() < Duration::from_secs(10));
+    assert!(started.elapsed() < Duration::from_secs(15));
     assert!(err.contains("timed out"), "{err}");
+    assert!(
+        echoed.exists(),
+        "the script had not echoed before the timeout: {err}"
+    );
     assert!(err.contains("slow-registry"), "{err}");
 }
 

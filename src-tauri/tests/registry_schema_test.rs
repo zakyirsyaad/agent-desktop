@@ -105,19 +105,32 @@ fn skips_an_entry_whose_id_breaks_the_pattern() {
 }
 
 #[test]
-fn skips_an_entry_whose_version_is_not_exact() {
+fn skips_a_binary_entry_whose_version_is_not_exact() {
+    // A binary's version becomes a dir under `tools/agents/<id>/`.
     let with_version = |id: &str, version: &str| {
-        format!(
-            r#"{{"id":"{id}","name":"N","version":"{version}","distribution":{{"npx":{{"package":"a@1.0.0"}}}}}}"#
-        )
+        binary(id, "https://x/a.tar.gz", "./a", SHA)
+            .replace(r#""version":"1.0.0""#, &format!(r#""version":"{version}""#))
     };
     let json = doc(&[
         with_version("climbs", "../x"),
         with_version("short", "1.0"),
         with_version("pre", "1.0.0-beta.1"),
-        npx("good", "b@1.0.0"),
+        binary("good", "https://x/a.tar.gz", "./a", SHA),
     ]);
     assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["pre", "good"]);
+}
+
+#[test]
+fn keeps_a_package_entry_whose_version_is_not_exact() {
+    // An npx or uvx version never becomes a path, and the package is pinned.
+    let json = doc(&[
+        npx("two-part", "a@1.0.0").replace(r#""version":"1.0.0""#, r#""version":"1.0""#),
+        npx("good", "b@1.0.0"),
+    ]);
+    assert_eq!(
+        ids(&parse_registry(&json).unwrap()),
+        vec!["two-part", "good"]
+    );
 }
 
 #[test]

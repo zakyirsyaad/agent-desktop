@@ -400,7 +400,8 @@ fn a_second_run_with_the_same_job_id_is_rejected() {
         server.wait_for_hits("/node.tar.gz", 1);
 
         let second = install.run("job", &steps, &env(), None, &no_progress);
-        assert_eq!(second, Err("job is already installing".to_string()));
+        // The user sees the plan's name, not the job id.
+        assert_eq!(second, Err("Node.js is already installing".to_string()));
 
         assert!(install.cancel("job"));
         assert_eq!(first.join().unwrap(), Err(INSTALL_CANCELLED.to_string()));

@@ -115,7 +115,12 @@ impl Installer {
         user_node_major: Option<u32>,
         on_progress: &(dyn Fn(InstallProgress) + Sync),
     ) -> Result<(), String> {
-        let job = self.start_job(job_id)?;
+        // The last step is what the plan is for: the agent, or the runtime.
+        let name = steps.last().map_or_else(
+            || "This agent".to_string(),
+            |step| step.display(Some(&self.manifest), &self.platform).name,
+        );
+        let job = self.start_job(job_id, &name)?;
         let cancel = job.cancel.as_ref();
         for (index, step) in steps.iter().enumerate() {
             let shown = step.display(Some(&self.manifest), &self.platform);
@@ -221,11 +226,11 @@ impl Installer {
 
     /// Registers the job, then waits for a clean-up that is deleting. A
     /// cancel that came first, or comes while it waits, ends it.
-    fn start_job(&self, job_id: &str) -> Result<Job<'_>, String> {
+    fn start_job(&self, job_id: &str, name: &str) -> Result<Job<'_>, String> {
         let job = {
             let mut jobs = lock(&self.jobs);
             if jobs.running.contains_key(job_id) {
-                return Err(format!("{job_id} is already installing"));
+                return Err(format!("{name} is already installing"));
             }
             let cancelled_early = jobs
                 .early_cancels
