@@ -12,10 +12,10 @@ use super::manager::{AcpEvent, AcpLaunch, AcpManager, StartedSession};
 use super::probe::ProbedAgent;
 use crate::env_resolver::cached_user_env;
 use crate::files::ensure_known_workspace;
-use crate::profiles::{agent_profile, TRANSPORT_ACP};
+use crate::profiles::{agent_profile_from, with_system_tools, AgentProfile, TRANSPORT_ACP};
 use crate::registry::{
     self,
-    resolve::{canonical_agent_id, missing_reason},
+    resolve::{canonical_agent_id, missing_reason, SystemTools},
 };
 use crate::store::AppStore;
 
@@ -57,9 +57,48 @@ pub fn event_payload(event: &AcpEvent) -> Value {
 /// Resolves how to launch an installed ACP agent for `profile_id` (a legacy
 /// id is mapped first), at the version in `versions` when the catalog has it.
 fn launch_for(profile_id: &str, versions: &BTreeMap<String, String>) -> Result<AcpLaunch, String> {
-    let id = canonical_agent_id(profile_id);
-    let profile = agent_profile(id, versions)
-        .ok_or_else(|| format!("Unknown agent profile '{}'", profile_id))?;
+    let profile = with_system_tools(|catalog, tools| {
+        profile_to_launch(catalog, tools, profile_id, versions, registry::unix_now())
+    })?;
+    // A GUI app does not inherit the login shell's PATH, so hand the agent the
+    // user's real environment (nvm, Homebrew, ...).
+    let user_env = || {
+        cached_user_env()
+            .map(|m| m.into_iter().collect())
+            .unwrap_or_default()
+    };
+    launch_from(profile, user_env, |id, version| {
+        registry::catalog().launch_env(id, version)
+    })
+}
+
+/// The profile that launches `profile_id` (a legacy id is mapped first) from
+/// `catalog` and `tools` at time `now`.
+fn profile_to_launch(
+    catalog: &registry::Catalog,
+    tools: &SystemTools,
+    profile_id: &str,
+    versions: &BTreeMap<String, String>,
+    now: u64,
+) -> Result<AgentProfile, String> {
+    agent_profile_from(
+        catalog,
+        tools,
+        canonical_agent_id(profile_id),
+        versions,
+        now,
+    )
+    .ok_or_else(|| format!("Unknown agent profile '{profile_id}'"))
+}
+
+/// How to launch `profile` over ACP, or why it cannot run. The agent gets
+/// `user_env` and then the variables `registry_env` gives for its id and
+/// version; both are read only once the profile can run.
+fn launch_from(
+    profile: AgentProfile,
+    user_env: impl FnOnce() -> BTreeMap<String, String>,
+    registry_env: impl FnOnce(&str, &str) -> BTreeMap<String, String>,
+) -> Result<AcpLaunch, String> {
     if profile.transport != TRANSPORT_ACP {
         return Err(format!(
             "{} does not support the Agent Client Protocol",
@@ -75,14 +114,9 @@ fn launch_for(profile_id: &str, versions: &BTreeMap<String, String>) -> Result<A
     let program = profile
         .acp_program_path
         .ok_or_else(|| format!("Could not locate the program that runs {}", profile.name))?;
-    // A GUI app does not inherit the login shell's PATH, so hand the agent the
-    // user's real environment (nvm, Homebrew, ...), then the variables the
-    // registry sets for this version.
-    let mut env: BTreeMap<String, String> = cached_user_env()
-        .map(|m| m.into_iter().collect())
-        .unwrap_or_default();
+    let mut env = user_env();
     if let Some(version) = &profile.version {
-        env.extend(registry::catalog().launch_env(&profile.id, version));
+        env.extend(registry_env(&profile.id, version));
     }
     Ok(AcpLaunch {
         program,
@@ -253,7 +287,11 @@ pub fn acp_stop_session(manager: State<'_, AcpManager>, session_id: String) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+    use std::os::unix::fs::PermissionsExt;
+
     use super::*;
+    use crate::registry::{resolve::SystemTools, Catalog, BUNDLED_HISTORY};
 
     #[test]
     fn update_events_carry_the_raw_update() {
@@ -314,8 +352,12 @@ mod tests {
 
     impl Scratch {
         fn new(tag: &str) -> Self {
-            let root = std::env::temp_dir()
-                .join(format!("zorvo-acp-commands-{tag}-{}", std::process::id()));
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let root = std::env::temp_dir().join(format!(
+                "zorvo-acp-commands-{tag}-{}-{unique}",
+                std::process::id()
+            ));
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(root.join("data")).expect("data dir");
             std::fs::create_dir_all(root.join("folder")).expect("folder");
@@ -362,6 +404,14 @@ mod tests {
         let err = launch_in_workspace(&store, &scratch.folder(), "omp").unwrap_err();
 
         assert!(err.contains("does not support"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn scratch_roots_are_unique_within_a_process() {
+        let first = Scratch::new("same");
+        let second = Scratch::new("same");
+
+        assert_ne!(first.root, second.root);
     }
 
     fn quiet_manager() -> AcpManager {
@@ -414,19 +464,67 @@ mod tests {
         );
     }
 
+    /// Later than every version in the bundle, so each one is old enough.
+    const FIXED_NOW: u64 = 4_000_000_000;
+
     #[test]
     fn a_legacy_id_launches_its_registry_agent() {
-        match launch_for("claude-code", &BTreeMap::new()) {
-            Ok(launch) => assert!(
-                launch
-                    .args
-                    .iter()
-                    .any(|a| a.starts_with("@agentclientprotocol/claude-agent-acp@")),
-                "{:?}",
-                launch.args
-            ),
-            // Without Node.js the registry agent is found but cannot run.
-            Err(error) => assert!(error.contains("Node.js"), "unexpected: {error}"),
-        }
+        let scratch = Scratch::new("legacy");
+        let bin = scratch.root.join("bin");
+        std::fs::create_dir_all(&bin).expect("bin dir");
+        let npx = bin.join("npx");
+        std::fs::write(&npx, "#!/bin/sh\n").expect("write fake npx");
+        std::fs::set_permissions(&npx, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let catalog = Catalog::bundled(BUNDLED_HISTORY);
+        let npm = BTreeSet::new();
+        let path = bin.to_string_lossy().to_string();
+        let tools = SystemTools {
+            path_var: Some(&path),
+            npm_globals: &npm,
+        };
+
+        let profile =
+            profile_to_launch(&catalog, &tools, "claude-code", &BTreeMap::new(), FIXED_NOW)
+                .expect("claude-code is known");
+        assert_eq!(profile.id, "claude-acp");
+        let launch = launch_from(profile, BTreeMap::new, |id, version| {
+            catalog.launch_env(id, version)
+        })
+        .expect("it launches");
+
+        assert_eq!(launch.program, npx.to_string_lossy());
+        assert_eq!(launch.args.first().map(String::as_str), Some("-y"));
+        assert!(
+            launch
+                .args
+                .get(1)
+                .is_some_and(|a| a.starts_with("@agentclientprotocol/claude-agent-acp@")),
+            "{:?}",
+            launch.args
+        );
+    }
+
+    #[test]
+    fn an_unknown_profile_id_is_named_in_the_error() {
+        let catalog = Catalog::bundled(BUNDLED_HISTORY);
+        let npm = BTreeSet::new();
+        let tools = SystemTools {
+            path_var: Some(""),
+            npm_globals: &npm,
+        };
+
+        let err = profile_to_launch(
+            &catalog,
+            &tools,
+            "no-such-agent",
+            &BTreeMap::new(),
+            FIXED_NOW,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.contains("Unknown agent profile 'no-such-agent'"),
+            "unexpected: {err}"
+        );
     }
 }

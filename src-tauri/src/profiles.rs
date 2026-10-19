@@ -300,20 +300,29 @@ pub fn agent_profiles(versions: &BTreeMap<String, String>) -> Vec<AgentProfile> 
 /// agent rather than every one; `None` for an unknown id.
 pub fn agent_profile(id: &str, versions: &BTreeMap<String, String>) -> Option<AgentProfile> {
     with_system_tools(|catalog, tools| {
-        catalog
-            .profile(id, tools, versions, registry::unix_now())
-            .or_else(|| {
-                get_default_profiles()
-                    .into_iter()
-                    .find(|builtin| builtin.id == id)
-                    .map(|profile| detect(profile, tools.path_var))
-            })
+        agent_profile_from(catalog, tools, id, versions, registry::unix_now())
+    })
+}
+
+/// [`agent_profile`] from a given catalog and system at time `now`.
+pub fn agent_profile_from(
+    catalog: &registry::Catalog,
+    tools: &SystemTools,
+    id: &str,
+    versions: &BTreeMap<String, String>,
+    now: u64,
+) -> Option<AgentProfile> {
+    catalog.profile(id, tools, versions, now).or_else(|| {
+        get_default_profiles()
+            .into_iter()
+            .find(|builtin| builtin.id == id)
+            .map(|profile| detect(profile, tools.path_var))
     })
 }
 
 /// Runs `f` with the catalog and what this machine has: the user's login-shell
 /// `PATH` (this process's as a fallback) and the global npm packages.
-fn with_system_tools<R>(f: impl FnOnce(&registry::Catalog, &SystemTools) -> R) -> R {
+pub(crate) fn with_system_tools<R>(f: impl FnOnce(&registry::Catalog, &SystemTools) -> R) -> R {
     let path_var = match env_resolver::cached_user_env() {
         Ok(env_map) => env_map.get("PATH").cloned(),
         Err(_) => None,
