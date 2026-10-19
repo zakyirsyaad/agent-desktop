@@ -59,6 +59,12 @@ impl CatalogState {
             .is_none_or(|cache| cache.listed.contains(id))
     }
 
+    /// The newest old-enough version, never newer than the one the registry lists now.
+    fn offered(&self, id: &str, now: u64) -> Option<&RegistryEntry> {
+        let ceiling = self.cache.as_ref().and_then(|c| c.listed_version(id));
+        self.history.offered_up_to(id, now, ceiling)
+    }
+
     /// The version to run: the one in use when the history has it, else the offered one.
     fn entry_for(
         &self,
@@ -69,7 +75,7 @@ impl CatalogState {
         versions
             .get(id)
             .and_then(|version| self.history.version(id, version))
-            .or_else(|| self.history.offered(id, now))
+            .or_else(|| self.offered(id, now))
     }
 }
 
@@ -136,24 +142,29 @@ impl Catalog {
         let mut local = state.local.clone();
         local.observe(&unseen, now);
 
-        let listed: BTreeSet<String> = entries.into_iter().map(|e| e.id).collect();
-        let listing_changed = history
-            .ids()
-            .any(|id| state.is_listed(id) != listed.contains(id));
+        let listed_versions: BTreeMap<String, String> =
+            entries.into_iter().map(|e| (e.id, e.version)).collect();
         let cache = RegistryCache {
             last_fetch: now,
-            listed,
+            listed: listed_versions.keys().cloned().collect(),
+            listed_versions,
         };
         if let Some(dir) = &self.data_dir {
             cache::save(dir, &local, &cache)?;
         }
 
-        *state = CatalogState {
+        let next = CatalogState {
             history,
             local,
             cache: Some(cache),
         };
-        Ok(!unseen.is_empty() || listing_changed)
+        let profiles_changed = next.history.ids().any(|id| {
+            state.is_listed(id) != next.is_listed(id)
+                || state.offered(id, now).map(|e| &e.version)
+                    != next.offered(id, now).map(|e| &e.version)
+        });
+        *state = next;
+        Ok(!unseen.is_empty() || profiles_changed)
     }
 
     /// [`Self::refresh`] from the one registry URL the app ever fetches.

@@ -101,10 +101,24 @@ impl VersionHistory {
 
     /// Newest version (semver order) first seen at least `MIN_AGE_SECS` before `now`.
     pub fn offered(&self, id: &str, now: u64) -> Option<&RegistryEntry> {
+        self.offered_up_to(id, now, None)
+    }
+
+    /// [`Self::offered`], ignoring versions newer than `ceiling` (the version the
+    /// registry lists now), so a version the registry withdrew is not offered.
+    pub fn offered_up_to(
+        &self,
+        id: &str,
+        now: u64,
+        ceiling: Option<&str>,
+    ) -> Option<&RegistryEntry> {
         self.agents
             .get(id)?
             .iter()
             .filter(|(_, record)| now.saturating_sub(record.first_seen) >= MIN_AGE_SECS)
+            .filter(|(version, _)| {
+                ceiling.is_none_or(|top| compare_versions(version, top) != Ordering::Greater)
+            })
             .max_by(|(a, _), (b, _)| compare_versions(a, b))
             .map(|(_, record)| &record.entry)
     }

@@ -398,3 +398,64 @@ fn npm_globals_gives_up_on_a_slow_npm() {
         started.elapsed()
     );
 }
+
+#[test]
+fn offers_no_version_newer_than_the_one_the_registry_lists() {
+    let dir = TempDir::new("withdrawn");
+    let bundle = bundle_of(&[
+        (npx_entry("gemini", "1.0.0"), T0),
+        (npx_entry("gemini", "2.0.0"), T0 + DAY),
+    ]);
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+    let now = T0 + 30 * DAY;
+
+    let rolled_back = catalog
+        .refresh(|| Ok(registry_of(&[npx_entry("gemini", "1.0.0")])), now)
+        .expect("refresh succeeds");
+
+    assert!(rolled_back, "a withdrawn version changes the offered one");
+    let profiles = no_tools_profiles(&catalog, &BTreeMap::new(), now);
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("1.0.0"));
+    let reopened = Catalog::open(dir.path().to_path_buf(), &bundle);
+    let profiles = no_tools_profiles(&reopened, &BTreeMap::new(), now);
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("1.0.0"));
+
+    let recorded = BTreeMap::from([("gemini".to_string(), "2.0.0".to_string())]);
+    let pinned = no_tools_profiles(&catalog, &recorded, now);
+    assert_eq!(
+        find(&pinned, "gemini").version.as_deref(),
+        Some("2.0.0"),
+        "the version an agent started with still wins"
+    );
+
+    catalog
+        .refresh(
+            || Ok(registry_of(&[npx_entry("gemini", "2.0.0")])),
+            now + DAY,
+        )
+        .expect("refresh succeeds");
+    let profiles = no_tools_profiles(&catalog, &BTreeMap::new(), now + DAY);
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("2.0.0"));
+}
+
+#[test]
+fn loads_a_cache_written_before_listed_versions_were_recorded() {
+    let dir = TempDir::new("old-cache");
+    let bundle = bundle_of(&[
+        (npx_entry("gemini", "1.0.0"), T0),
+        (npx_entry("gemini", "2.0.0"), T0 + DAY),
+    ]);
+    std::fs::write(
+        dir.path().join("registry-cache.json"),
+        r#"{"last_fetch":1790000000,"listed":["gemini"]}"#,
+    )
+    .expect("write old cache");
+
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+
+    assert_eq!(catalog.last_fetch(), Some(T0));
+    let profiles = no_tools_profiles(&catalog, &BTreeMap::new(), T0 + 30 * DAY);
+    let gemini = find(&profiles, "gemini");
+    assert!(gemini.listed);
+    assert_eq!(gemini.version.as_deref(), Some("2.0.0"));
+}

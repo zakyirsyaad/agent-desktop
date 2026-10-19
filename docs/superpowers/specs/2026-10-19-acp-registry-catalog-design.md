@@ -152,6 +152,13 @@ full to binary agents.
 An enabled agent whose id disappears from the registry keeps running with
 the last version Zorvo knew, and is marked as no longer listed.
 
+### Versions the registry withdraws
+
+The cache records the version the registry lists now for each listed
+agent. A version newer than that one is not offered, so a registry
+rollback (v2 back to v1) offers v1 again. A version an agent already
+started with is still used while the history has it.
+
 ## Interfaces
 
 ### `get_agent_profiles(refresh)`

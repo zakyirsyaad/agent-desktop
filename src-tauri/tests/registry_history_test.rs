@@ -40,6 +40,22 @@ fn offers_nothing_before_seven_days() {
 }
 
 #[test]
+fn offers_nothing_newer_than_the_ceiling() {
+    let h = history(&[("a", "1.0.0", 0), ("a", "1.10.0", 0), ("a", "2.0.0", 0)]);
+    let now = MIN_AGE_SECS;
+    assert_eq!(
+        h.offered_up_to("a", now, Some("1.10.0")).unwrap().version,
+        "1.10.0"
+    );
+    assert_eq!(
+        h.offered_up_to("a", now, Some("1.9.0")).unwrap().version,
+        "1.0.0"
+    );
+    assert_eq!(h.offered_up_to("a", now, None).unwrap().version, "2.0.0");
+    assert!(h.offered_up_to("a", now, Some("0.9.0")).is_none());
+}
+
+#[test]
 fn observe_never_moves_an_existing_date() {
     let mut h = VersionHistory::default();
     assert!(h.observe(&[entry("a", "1.0.0")], 10));

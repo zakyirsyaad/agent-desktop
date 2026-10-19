@@ -1,7 +1,7 @@
 //! The catalog's files in the app data directory: this install's own version
 //! observations and the result of the last successful registry fetch.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -23,6 +23,18 @@ pub(super) struct RegistryCache {
     pub last_fetch: u64,
     /// The agent ids the registry listed.
     pub listed: BTreeSet<String>,
+    /// The version the registry listed for each listed id. Missing from caches
+    /// written before it was recorded; those ids then have no ceiling until
+    /// the next fetch.
+    #[serde(default)]
+    pub listed_versions: BTreeMap<String, String>,
+}
+
+impl RegistryCache {
+    /// The version the registry lists now for `id`, when known.
+    pub fn listed_version(&self, id: &str) -> Option<&str> {
+        self.listed_versions.get(id).map(String::as_str)
+    }
 }
 
 /// Reads a file, `None` when it does not exist yet. Other read errors are
