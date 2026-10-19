@@ -12,6 +12,7 @@ use super::manager::{AcpEvent, AcpLaunch, AcpManager, StartedSession};
 use super::probe::ProbedAgent;
 use crate::env_resolver::cached_user_env;
 use crate::files::ensure_known_workspace;
+use crate::installer::commands::versions_in_use;
 use crate::profiles::{agent_profile_from, with_system_tools, AgentProfile, TRANSPORT_ACP};
 use crate::registry::{
     self,
@@ -169,14 +170,7 @@ fn agent_path(
 
 /// [`launch_for`] at the versions the user has in use.
 fn launch_with_store(store: &AppStore, profile_id: &str) -> Result<AcpLaunch, String> {
-    let versions = store
-        .load_state()
-        .map(|state| state.settings.agent_versions)
-        .unwrap_or_else(|error| {
-            eprintln!("Could not read the agent versions in use: {error}");
-            BTreeMap::new()
-        });
-    launch_for(profile_id, &versions)
+    launch_for(profile_id, &versions_in_use(store))
 }
 
 /// [`launch_with_store`] for an agent that runs in `cwd`, which must be one of
