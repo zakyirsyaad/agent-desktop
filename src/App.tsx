@@ -667,7 +667,7 @@ export default function App() {
               onDismiss={dismissSignIn}
             />
           )}
-          {!isActiveRunning && draftAgent?.install_plan && IS_MAIN_WINDOW && <AgentInstallPanel agent={draftAgent} />}
+          {!isActiveRunning && IS_MAIN_WINDOW && draftAgent?.install_plan?.length ? <AgentInstallPanel agent={draftAgent} /> : null}
           {showsTerminal ? (
             <TerminalView
               sessionId={activeSessionId}

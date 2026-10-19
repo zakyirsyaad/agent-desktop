@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
 import { fakeProfiles, makeProfile } from "./fixtures/agents";
+import type { AgentProfile } from "../types";
 
 type Listener = (event: { payload: unknown }) => void;
 const listeners = new Map<string, Listener[]>();
@@ -18,6 +19,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 import App from "../App";
 import { AgentInstallPanel } from "../components/AgentInstallPanel";
+import { resetAgentInstalls } from "../lib/agent-installs";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 type InvokeCall = [string, Record<string, unknown> | undefined, ...unknown[]];
@@ -57,19 +59,44 @@ const codex = makeProfile({
   ],
 });
 
-/** Answers `install_agent` with a promise the test settles, and everything else as the fake backend does. */
+type Settle = { resolve: () => void; reject: (error: string) => void };
+
+/** Answers each agent's `install_agent` with a promise the test settles, and the rest as the fake backend does. */
 function mockInstall() {
-  let settle: { resolve: () => void; reject: (error: string) => void } = { resolve: () => {}, reject: () => {} };
+  const pending = new Map<string, Settle>();
   const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
     if (cmd === "install_agent") {
       return new Promise<void>((resolve, reject) => {
-        settle = { resolve, reject };
+        pending.set(String(args?.agentId), { resolve, reject });
       });
     }
     return fakeTauriInvoke(cmd, args);
   });
-  return { spy, settle: () => settle };
+  const settle = (agentId = "codex-acp"): Settle => {
+    const found = pending.get(agentId);
+    if (!found) throw new Error(`No install of ${agentId} is pending`);
+    return found;
+  };
+  return { spy, settle };
 }
+
+const opencode = makeProfile({
+  ...codex,
+  id: "opencode",
+  name: "OpenCode",
+  install_plan: [{ kind: "agent", name: "OpenCode", version: "1.19.3", download_bytes: null }],
+});
+
+const nodeDownload = {
+  agentId: "codex-acp",
+  stepIndex: 0,
+  stepCount: 2,
+  kind: "node",
+  name: "Node.js",
+  phase: "download",
+  receivedBytes: 256,
+  totalBytes: 1024,
+};
 
 function renderPanel(agent = codex) {
   return act(async () => render(<AgentInstallPanel agent={agent} />));
@@ -84,6 +111,7 @@ async function click(name: string) {
 describe("Installing an agent from the new-session draft", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    resetAgentInstalls();
     listeners.clear();
   });
 
@@ -175,29 +203,66 @@ describe("Installing an agent from the new-session draft", () => {
     expect(screen.queryByText(/Not enough disk space/)).toBeNull();
   });
 
-  it("ignores the result of an install started for a different agent", async () => {
-    const { settle } = mockInstall();
+  it("keeps an install's result for its own agent when the user switches away and back", async () => {
+    const { spy, settle } = mockInstall();
     const { rerender } = await renderPanel();
     await click("Install");
 
-    const opencode = makeProfile({
-      ...codex,
-      id: "opencode",
-      name: "OpenCode",
-      install_plan: [{ kind: "agent", name: "OpenCode", version: "1.19.3", download_bytes: null }],
-    });
     await act(async () => rerender(<AgentInstallPanel agent={opencode} />));
+    // OpenCode has its own state: not installing, and Codex's answer is not its own.
+    expect(screen.getByRole("button", { name: "Install" })).toBeDefined();
     await act(async () => settle().reject("Codex failed"));
-
     expect(screen.queryByText(/Codex failed/)).toBeNull();
+
+    await act(async () => rerender(<AgentInstallPanel agent={codex} />));
+    expect(screen.getByText("Install failed: Codex failed")).toBeDefined();
+    await click("Retry");
+    expect(callsTo(spy, "install_agent").map(([, args]) => args)).toEqual([
+      { agentId: "codex-acp" },
+      { agentId: "codex-acp" },
+    ]);
+  });
+
+  it("shows a running install's progress and result after the panel unmounts and comes back", async () => {
+    const { spy, settle } = mockInstall();
+    const { unmount } = await renderPanel();
+    await click("Install");
+    // Picking a ready agent removes the panel; the install goes on.
+    unmount();
+    await deliver("agent-install-progress", nodeDownload);
+
+    await renderPanel();
+    const bar = screen.getByRole("progressbar", { name: "Node.js download" }) as HTMLProgressElement;
+    expect(bar.value / bar.max).toBe(0.25);
+    expect(screen.getByText("Downloading Node.js…")).toBeDefined();
+
+    await act(async () => settle().reject("Checksum mismatch for Node.js"));
+    expect(screen.getByText("Install failed: Checksum mismatch for Node.js")).toBeDefined();
+    expect(callsTo(spy, "install_agent")).toHaveLength(1);
+  });
+
+  it("offers no second Install while an agent is installing, even after coming back to it", async () => {
+    const { spy, settle } = mockInstall();
+    const { unmount } = await renderPanel();
+    await click("Install");
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+
+    unmount();
+    await renderPanel();
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDefined();
+    expect(callsTo(spy, "install_agent")).toHaveLength(1);
+
+    await act(async () => settle().resolve());
     expect(screen.getByRole("button", { name: "Install" })).toBeDefined();
   });
 
   it("a_not_ready_agent_in_use_is_offered_in_the_picker_and_shows_the_panel", async () => {
     fakeStore().state.settings.defaultAgentId = "qwen-code";
-    const profiles = [...structuredClone(fakeProfiles), codex];
+    const profiles: AgentProfile[] = [...structuredClone(fakeProfiles), codex];
     const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-      cmd === "get_agent_profiles" ? Promise.resolve(profiles) : fakeTauriInvoke(cmd, args)
+      cmd === "get_agent_profiles" ? Promise.resolve(structuredClone(profiles)) : fakeTauriInvoke(cmd, args)
     );
     const probedAgents = () => callsTo(spy, "acp_probe_agent").map(([, args]) => args?.profileId);
     await act(async () => {
@@ -220,5 +285,14 @@ describe("Installing an agent from the new-session draft", () => {
     expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(true);
     // Codex is not installed, so there is nothing to ask yet.
     expect(probedAgents()).toEqual(["qwen-code"]);
+
+    // Installed: the backend reports Codex ready and says the profiles changed.
+    profiles[profiles.length - 1] = { ...codex, availability: "ready", detected: true, install_plan: null };
+    await deliver("agent-profiles-changed", null);
+
+    await waitFor(() => expect(probedAgents()).toEqual(["qwen-code", "codex-acp"]));
+    expect(screen.queryByRole("region", { name: "Install Codex" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Agent: Codex$/ })).toBeDefined();
+    expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
