@@ -59,8 +59,8 @@ interface LaunchOptions {
 export interface AcpEngineDeps extends EngineDeps {
   /** The agent needs the user's answer, or ended its turn: worth a notification when the user is away. */
   onAttention?: (sessionId: string, reason: AttentionReason) => void;
-  /** The agent refused to start until the user signs in, with the ways it offers and the unsent message. */
-  onAuthRequired: (profileId: string, cwd: string, methods: AuthMethod[], unsent?: FirstMessage) => void;
+  /** The agent refused to start, or to answer, until the user signs in: the ways it offers and the unsent message. */
+  onAuthRequired: (session: Pick<Session, 'id' | 'profileId' | 'cwd'>, methods: AuthMethod[], unsent?: FirstMessage) => void;
   /** Called with what an agent offers when one of its sessions opens or its commands change. */
   rememberOptions: (profileId: string, options: Partial<AgentOptions>) => void;
 }
@@ -85,6 +85,10 @@ export function useAcpEngine({
   // events must not write a transcript back, and a start still in flight must
   // end the agent as soon as it is up.
   const stoppedRef = useRef(new Set<string>());
+  // Each session's latest prompt: an agent that refuses it for a sign-in hands it back to the composer.
+  const lastPromptRef = useRef(new Map<string, { message: ChatMessage; context?: string }>());
+  // Hidden context a refused prompt carried (a rewound session's conversation): it goes out with the next message.
+  const unsentContextRef = useRef(new Map<string, string>());
   const ctx = (sessionId: string) => ({ sessionId, now: Date.now(), createId });
   const isStopped = (sessionId: string) => stoppedRef.current.has(sessionId);
   const unlessStopped =
@@ -117,6 +121,12 @@ export function useAcpEngine({
     }),
     onTurnEnd: unlessStopped((sessionId, { stopReason, error }: TurnResult) => {
       updateMessages(sessionId, closeTurn);
+      const authMethods = parseAuthRequired(error);
+      if (authMethods) {
+        handBackForSignIn(sessionId, authMethods);
+        return;
+      }
+      lastPromptRef.current.delete(sessionId);
       const notice = turnEndNotice(stopReason, error);
       if (notice) reportError(notice);
       // A turn the user cancelled needs no notification: they were there.
@@ -138,14 +148,37 @@ export function useAcpEngine({
     });
   }, []);
 
+  /** The agent opened the session but refused the prompt until the user signs in. */
+  const handBackForSignIn = (sessionId: string, methods: AuthMethod[]) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    const refused = lastPromptRef.current.get(sessionId);
+    lastPromptRef.current.delete(sessionId);
+    const message = refused?.message;
+    if (message) updateMessages(sessionId, (prev) => withoutMessage(prev, message.id));
+    if (refused?.context) unsentContextRef.current.set(sessionId, refused.context);
+    if (!session) return;
+    const unsent = message ? { text: message.content, attachments: message.attachments } : undefined;
+    onAuthRequired(session, methods, unsent);
+  };
+
+  /** The context a refused prompt left for this session, once: the next message the agent takes carries it. */
+  const takeUnsentContext = (sessionId: string): string | undefined => {
+    const context = unsentContextRef.current.get(sessionId);
+    unsentContextRef.current.delete(sessionId);
+    return context;
+  };
+
   const reportFailure = (what: string) => (error: unknown) => reportError(`${what}: ${String(error)}`);
 
   /** Prompts the agent with a message already shown in the chat; removes it if the prompt is refused. */
   const prompt = async (sessionId: string, message: ChatMessage, context?: string): Promise<boolean> => {
+    lastPromptRef.current.set(sessionId, { message, context });
     try {
       await acp.prompt(sessionId, context ? `${context}\n\n${message.content}` : message.content, message.attachments);
       return true;
     } catch (error) {
+      lastPromptRef.current.delete(sessionId);
+      if (context) unsentContextRef.current.set(sessionId, context);
       updateMessages(sessionId, (prev) => withoutMessage(prev, message.id));
       reportError(`Failed to send the message: ${String(error)}`);
       return false;
@@ -157,7 +190,7 @@ export function useAcpEngine({
     // Shown before the prompt goes out, so the agent's reply always lands after it.
     const message = userMessage(text, attachments);
     updateMessages(sessionId, (prev) => [...prev, message]);
-    return prompt(sessionId, message);
+    return prompt(sessionId, message, takeUnsentContext(sessionId));
   };
 
   /**
@@ -210,7 +243,7 @@ export function useAcpEngine({
         patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
         const authMethods = parseAuthRequired(error);
         if (authMethods) {
-          onAuthRequired(session.profileId, session.cwd, authMethods, options.first);
+          onAuthRequired(session, authMethods, options.first);
           return;
         }
         const name = agents.find((a) => a.id === session.profileId)?.name ?? session.profileId;
@@ -230,7 +263,11 @@ export function useAcpEngine({
       if (settled.configOptions !== info.configOptions) {
         rememberOptions(session.profileId, { configOptions: settled.configOptions });
       }
-      if (message && !isStopped(session.id)) await prompt(session.id, message, options.first?.context);
+      if (message && !isStopped(session.id)) {
+        // A launch's own context (a rewind's) is newer than one a refused prompt left behind.
+        const leftOver = takeUnsentContext(session.id);
+        await prompt(session.id, message, options.first?.context ?? leftOver);
+      }
     } finally {
       markStarting(session.id, false);
     }
@@ -282,6 +319,8 @@ export function useAcpEngine({
    */
   const stop = (sessionId: string): Promise<boolean> => {
     stoppedRef.current.add(sessionId);
+    lastPromptRef.current.delete(sessionId);
+    unsentContextRef.current.delete(sessionId);
     return acp.stop(sessionId).then(
       () => true,
       (error) => {

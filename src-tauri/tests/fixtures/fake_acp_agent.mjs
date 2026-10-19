@@ -3,7 +3,9 @@
 //   "permission" -> asks the client for permission, then reports the choice
 //   "slow"       -> waits until the client sends session/cancel
 //   "crash"      -> exits with code 3 mid-turn
+//   "needs-login" -> refuses the prompt until the user signs in
 //   anything else -> echoes the text back as an agent message chunk
+import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 let nextSession = 1;
@@ -39,20 +41,35 @@ function handlePrompt(id, params) {
     return;
   }
   if (text === "crash") process.exit(3);
+  if (text === "needs-login") {
+    send({ id, error: { code: -32000, message: "Authentication required" } });
+    return;
+  }
   say(params.sessionId, `echo: ${text}`);
   reply(id, { stopReason: "end_turn" });
 }
 
 const handlers = {
-  initialize: (id) =>
+  initialize: (id) => {
+    // FAKE_ACP_AUTH_STATUS: pushes who is signed in, like Claude Code's adapter.
+    const authStatus = process.env.FAKE_ACP_AUTH_STATUS;
     reply(id, {
       protocolVersion: 1,
-      agentCapabilities: { loadSession: !process.env.FAKE_ACP_NO_LOAD, sessionCapabilities: { fork: {} } },
+      agentCapabilities: {
+        loadSession: !process.env.FAKE_ACP_NO_LOAD,
+        sessionCapabilities: { fork: {}, delete: {} },
+        ...(authStatus ? { _meta: { authStatus: {} } } : {}),
+      },
       authMethods: [
         { id: "browser", name: "Sign in with a browser" },
         { id: "api-key", name: "API key", description: "Set FAKE_API_KEY" },
       ],
-    }),
+    });
+    // "silent" advertises the extension but never says who is signed in, as an agent that cannot tell.
+    if (authStatus && authStatus !== "silent") {
+      send({ method: "_auth/status_update", params: { authStatus: { kind: authStatus } } });
+    }
+  },
   authenticate: (id, params) =>
     params.methodId === "browser"
       ? reply(id, {})
@@ -80,8 +97,9 @@ const handlers = {
       send({ id, error: { code: -32000, message: process.env.FAKE_ACP_AUTH_MESSAGE ?? "Authentication required" } });
       return;
     }
+    const sessionId = `fake-${nextSession++}`;
     reply(id, {
-      sessionId: `fake-${nextSession++}`,
+      sessionId,
       modes: {
         currentModeId: "default",
         availableModes: [
@@ -89,8 +107,28 @@ const handlers = {
           { id: "yolo", name: "YOLO" },
         ],
       },
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "fast",
+          options: [
+            { value: "fast", name: "Fast" },
+            { value: "smart", name: "Smart" },
+          ],
+        },
+      ],
+    });
+    // Like real agents, lists its slash commands just after the session opens.
+    if (!process.env.FAKE_ACP_NO_COMMANDS) update(sessionId, {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [{ name: "review", description: "Review the changes" }],
     });
   },
+  // FAKE_ACP_SLOW_DELETE: takes three seconds to delete a session.
+  "session/delete": (id) => setTimeout(() => reply(id, {}), process.env.FAKE_ACP_SLOW_DELETE ? 3000 : 0),
   "session/fork": (id) => reply(id, { sessionId: `fake-${nextSession++}` }),
   "session/prompt": handlePrompt,
   "session/set_mode": (id, params) => {
@@ -101,6 +139,8 @@ const handlers = {
 
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
+  // FAKE_ACP_METHOD_LOG: records each method the client called, one per line.
+  if (process.env.FAKE_ACP_METHOD_LOG && message.method) appendFileSync(process.env.FAKE_ACP_METHOD_LOG, `${message.method}\n`);
   if (message.method === "session/cancel" && pendingSlow) {
     reply(pendingSlow.promptId, { stopReason: "cancelled" });
     pendingSlow = null;

@@ -129,3 +129,27 @@ export function withRewound(
   if (!agentId || !rewound) return options;
   return { ...options, [agentId]: { modes: null, ...options?.[agentId], ...rewound } };
 }
+
+/** Whether an agent ever reported what it offers, so a probe need not open a session to learn it. */
+export function hasReportedOptions(options: AgentOptions | undefined): boolean {
+  return Boolean(options && (options.modes || options.configOptions.length > 0 || options.commands?.length));
+}
+
+/** What a probe learned about an agent: its modes, config options and slash commands. */
+export type ProbedOptions = Required<Pick<AgentOptions, 'modes' | 'configOptions' | 'commands'>>;
+
+/**
+ * The remembered options with what a probe learned filled in where nothing
+ * is known yet. A session's report wins: it can land while the probe still
+ * runs and carries the settled model and effort, which a probe's defaults
+ * must not undo.
+ */
+export function withProbed(known: AgentOptions | undefined, probed: ProbedOptions): AgentOptions {
+  if (!known) return probed;
+  return {
+    ...known,
+    modes: known.modes ?? probed.modes,
+    configOptions: known.configOptions.length > 0 ? known.configOptions : probed.configOptions,
+    commands: known.commands?.length ? known.commands : probed.commands,
+  };
+}

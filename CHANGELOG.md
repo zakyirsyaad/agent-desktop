@@ -8,6 +8,12 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 - **Landing page.** A marketing site for Zorvo in `site/` (Next.js, exported as static HTML): the hero with a picture of the app, the supported agents, features, approvals and diffs, privacy, and the download. It follows the design system, dark by default and light when your system is, with self-hosted fonts and no requests to other sites.
 
+### Fixed
+
+- **Claude Code and Codex show their options before the first message.** Picking an agent for a new session now asks it what it offers, so its permission mode, model, effort and slash commands show right away, even for an agent that never ran before.
+- **Sign in before you write.** An agent that needs a sign-in now says so as soon as you pick it. When Claude Code refuses a message because you are signed out, Zorvo asks you to sign in and puts the message back in the composer, instead of reporting a failed turn.
+- **The composer no longer overflows.** With many options showing, the controls wrap onto a second line and the send button stays inside the composer.
+
 ## [0.2.0] - 2026-10-19
 
 ### Changed

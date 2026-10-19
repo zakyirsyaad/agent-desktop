@@ -427,6 +427,119 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_set_mode")).toHaveLength(0);
   });
 
+  it("asks an agent that never ran what it offers, so its model, effort and commands show before the first message", async () => {
+    realInvoke = tauriInternals().invoke;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "acp_probe_agent"
+        ? Promise.resolve({
+            modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
+            configOptions: [
+              { id: "model", name: "Model", category: "model", type: "select", currentValue: "fast", options: [{ value: "fast", name: "Fast" }, { value: "smart", name: "Smart" }] },
+              { id: "effort", name: "Effort", category: "thought_level", type: "select", currentValue: "high", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
+            ],
+            commands: [{ name: "review", description: "Review the changes" }],
+          })
+        : realInvoke(cmd, args)
+    );
+    fakeStore().state.settings.defaultAgentId = "qwen";
+
+    await act(async () => {
+      render(<App />);
+    });
+
+    expect(await screen.findByRole("button", { name: "Model: Fast" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Effort: High" })).toBeDefined();
+    await act(async () => {
+      fireEvent.change(prompt(), { target: { value: "/" } });
+    });
+    expect(screen.getByText("/review")).toBeDefined();
+  });
+
+  it("asks the user to sign in as soon as a signed-out agent is picked, before any message", async () => {
+    realInvoke = tauriInternals().invoke;
+    const methods = [{ id: "chat-gpt", name: "ChatGPT" }];
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "acp_probe_agent" ? Promise.reject(`ACP_AUTH_REQUIRED:${JSON.stringify(methods)}`) : realInvoke(cmd, args)
+    );
+    fakeStore().state.settings.defaultAgentId = "qwen";
+
+    await act(async () => {
+      render(<App />);
+    });
+
+    const panel = within(await screen.findByRole("region", { name: "Sign in to Qwen Code" }));
+    expect(panel.getByRole("button", { name: "Sign in with ChatGPT" })).toBeDefined();
+  });
+
+  it("asks a signed-out agent again when the user comes back to the window, and clears the panel once someone is signed in", async () => {
+    realInvoke = tauriInternals().invoke;
+    let signedIn = false;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "acp_probe_agent"
+        ? signedIn
+          ? Promise.resolve({ modes: null, configOptions: [], commands: [], signInChecked: true })
+          : Promise.reject(`ACP_AUTH_REQUIRED:${JSON.stringify([])}`)
+        : realInvoke(cmd, args)
+    );
+    fakeStore().state.settings.defaultAgentId = "qwen";
+    await act(async () => {
+      render(<App />);
+    });
+    expect(await screen.findByRole("region", { name: "Sign in to Qwen Code" })).toBeDefined();
+
+    // Signed in with the agent's own tool, in a terminal.
+    signedIn = true;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Sign in to Qwen Code" })).toBeNull());
+  });
+
+  it("keeps the sign-in panel when the agent's answer could not tell whether anyone signed in", async () => {
+    realInvoke = tauriInternals().invoke;
+    let asked = 0;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "acp_probe_agent"
+        ? ++asked === 1
+          ? Promise.reject(`ACP_AUTH_REQUIRED:${JSON.stringify([])}`)
+          : Promise.resolve({ modes: null, configOptions: [], commands: [], signInChecked: false })
+        : realInvoke(cmd, args)
+    );
+    fakeStore().state.settings.defaultAgentId = "qwen";
+    await act(async () => {
+      render(<App />);
+    });
+    expect(await screen.findByRole("region", { name: "Sign in to Qwen Code" })).toBeDefined();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(asked).toBe(2));
+
+    expect(screen.getByRole("region", { name: "Sign in to Qwen Code" })).toBeDefined();
+  });
+
+  it("does not say the agent's options are loading once its session runs", async () => {
+    realInvoke = tauriInternals().invoke;
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "acp_probe_agent" ? new Promise(() => {}) : realInvoke(cmd, args)
+    );
+    fakeStore().state.settings.defaultAgentId = "qwen";
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    expect(await screen.findByText(/Loading Qwen Code's models and commands/)).toBeDefined();
+
+    await send("hello");
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
+
+    expect(screen.queryByText(/Loading Qwen Code's models and commands/)).toBeNull();
+  });
+
   it("continues an ended ACP session with the agent's own session/load", async () => {
     fakeStore().state.sessions = [
       {
@@ -631,6 +744,39 @@ describe("ACP sessions in the app", () => {
     });
     expect(await screen.findByText(/Signed in to Qwen Code/)).toBeDefined();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("asks the user to sign in when the agent refuses a prompt for it, and keeps the message to send again", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    const methods = [{ id: "chat-gpt", name: "ChatGPT", description: "Use ChatGPT to authenticate" }];
+
+    await send("still there?");
+    await acpEvent({ sessionId, kind: "turn-end", error: `ACP_AUTH_REQUIRED:${JSON.stringify(methods)}` });
+
+    const panel = within(await screen.findByRole("region", { name: "Sign in to Qwen Code" }));
+    expect(panel.getByRole("button", { name: "Sign in with ChatGPT" })).toBeDefined();
+    // Not a failed turn: the message goes back to the composer instead of staying unanswered in the chat.
+    expect(screen.queryByText(/The agent's turn failed/)).toBeNull();
+    expect(prompt().value).toBe("still there?");
+    expect(screen.queryByText("still there?", { selector: ":not(textarea)" })).toBeNull();
+  });
+
+  it("does not put a refused message into another session's composer", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("still there?");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    await act(async () => {
+      fireEvent.change(prompt(), { target: { value: "a new idea" } });
+    });
+
+    await acpEvent({ sessionId, kind: "turn-end", error: `ACP_AUTH_REQUIRED:${JSON.stringify([])}` });
+
+    expect(await screen.findByRole("region", { name: "Sign in to Qwen Code" })).toBeDefined();
+    expect(prompt().value).toBe("a new idea");
   });
 
   it("sends attached files with the message and shows them in the chat", async () => {

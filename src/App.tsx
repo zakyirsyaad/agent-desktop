@@ -18,6 +18,8 @@ import { useTurnsEnded } from "./hooks/useTurnsEnded";
 import { usePullRequest } from "./hooks/usePullRequest";
 import { useRepoPullRequests } from "./hooks/useRepoPullRequests";
 import { useAgentAuth } from "./hooks/useAgentAuth";
+import { useDraftAgentCheck } from "./hooks/useDraftAgentCheck";
+import { useLatest } from "./hooks/useLatest";
 import { createSessionWorktree } from "./lib/session-worktree";
 import {
   EMPTY_DRAFT,
@@ -67,7 +69,15 @@ import { useFileDrop } from "./hooks/useFileDrop";
 import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
-import { NO_CHOICES, rememberedChoice, withPreferred, withRewound, type AcpChoices, type AgentOptions } from "./lib/acp-draft";
+import {
+  NO_CHOICES,
+  rememberedChoice,
+  withPreferred,
+  withProbed,
+  withRewound,
+  type AcpChoices,
+  type AgentOptions,
+} from "./lib/acp-draft";
 import type { Session, SessionWorktree, Settings } from "./types";
 import { TRANSPORT_ACP } from "./types";
 
@@ -93,7 +103,8 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const composerRef = useRef<ComposerHandle>(null);
   const [ptyOutput] = useState(createPtyOutputStore);
-  const { authRequest, requestSignIn, signIn, dismiss: dismissSignIn } = useAgentAuth();
+  const agentAuth = useAgentAuth();
+  const { authRequest, requestSignIn, signIn, dismiss: dismissSignIn } = agentAuth;
 
   const reportError = useCallback((message: string) => setNotice(message), []);
   const { state, isLoaded, updateState } = usePersistedState(reportError);
@@ -187,15 +198,31 @@ export default function App() {
     rememberAgentOptions(profileId, { preferredConfig, ...(reported?.length ? { configOptions: reported } : {}) });
   };
 
+  // A draft asks its ACP agent what it offers, and whether it needs a sign-in, before the first message.
+  const agentCheck = useDraftAgentCheck({
+    agent: isActiveRunning ? undefined : draftAgent,
+    cwd: shownFolderPath ?? undefined,
+    agentOptions: state.agentOptions,
+    rememberProbed: (profileId, probed) =>
+      updateState((prev) => ({
+        ...prev,
+        agentOptions: { ...prev.agentOptions, [profileId]: withProbed(prev.agentOptions?.[profileId], probed) },
+      })),
+    auth: agentAuth,
+  });
+
+  // Read when an agent answers, seconds after the closure that waits for it was made.
+  const activeSessionIdRef = useLatest(activeSessionId);
   const engineDeps = { sessions, agents, updateMessages, patchSession, reportError };
   const pty = usePtyEngine({ ...engineDeps, output: ptyOutput });
   const acp = useAcpEngine({
     ...engineDeps,
     rememberOptions: rememberAgentOptions,
     onAttention: (sessionId, reason) => notifyAttention(sessionId, reason),
-    onAuthRequired: (profileId, cwd, methods, unsent) => {
-      requestSignIn(profileId, cwd, methods);
-      if (unsent) composerRef.current?.restore(unsent.text, unsent.attachments);
+    onAuthRequired: (session, methods, unsent) => {
+      requestSignIn(session.profileId, session.cwd, methods);
+      // The composer on screen may be another session's by now: the message goes back only into its own.
+      if (unsent && session.id === activeSessionIdRef.current) composerRef.current?.restore(unsent.text, unsent.attachments);
     },
   });
 
@@ -678,6 +705,11 @@ export default function App() {
               onAttach={pickFiles}
               handleRef={composerRef}
               commands={composerCommands}
+              note={
+                !isActiveRunning && draftAgent && agentCheck.isProbing(draftAgent.id)
+                  ? `Loading ${draftAgent.name}'s models and commands…`
+                  : undefined
+              }
               contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
               mentions={filesFolder ? { root: filesFolder.path, loadFiles: () => loadWorkspaceFiles(filesFolder.path) } : undefined}
               folder={

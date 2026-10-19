@@ -59,6 +59,8 @@ export interface ComposerDockProps {
   attachAsFiles?: boolean;
   /** How much of the agent's context window is used; the meter shows once the agent reports it. */
   contextUsage?: ContextUsage;
+  /** A short status under the prompt, e.g. while the agent's options load; a slash command's hint wins. */
+  note?: string;
   /** Before a new session starts: the folder it starts in. */
   folder?: FolderControl;
   /** Before a new session starts: the agent it runs. */
@@ -80,6 +82,7 @@ export function ComposerDock({
   commands = [],
   attachAsFiles = false,
   contextUsage,
+  note,
   folder,
   agent,
   mentions,
@@ -262,10 +265,11 @@ export function ComposerDock({
           className="w-full bg-transparent text-sm text-fg-secondary placeholder-fg-subtle outline-none resize-none leading-relaxed min-h-[26px] max-h-[180px]"
         />
 
-        {hint && <p className="mt-1 text-[11px] text-fg-subtle">{hint}</p>}
+        {(hint ?? note) && <p className="mt-1 text-[11px] text-fg-subtle">{hint ?? note}</p>}
 
-        <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-xs">
-          <div className="flex items-center gap-1">
+        {/* Wraps instead of overflowing: a draft can show folder, agent, mode, model and effort at once. */}
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-border pt-2 text-xs">
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
             {onAttach && (
               <IconButton
                 label="Add attachment"
@@ -306,7 +310,7 @@ export function ComposerDock({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             {contextUsage && <ContextMeter {...contextUsage} />}
 
             {model && (

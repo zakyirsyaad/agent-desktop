@@ -38,7 +38,7 @@ export function FolderPicker({ folders, selectedPath, onSelect, onOpenFolder, wo
         aria-expanded={isOpen}
         onClick={onToggle}
         title={selected?.path}
-        className="flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
+        className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border px-2 py-1 text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
       >
         <Folder size={12} className="text-fg-muted" />
         <span className="max-w-[140px] truncate">{selected?.name ?? "Choose folder"}</span>
