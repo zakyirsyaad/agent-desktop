@@ -58,9 +58,15 @@ you have.
 
 ## Supported agents
 
+Zorvo reads the [ACP agent registry](https://agentclientprotocol.com), so any
+agent listed there can run as a chat. Claude Code, Codex and Qwen Code are in
+use by default. An agent that is already installed on your Mac shows up on its
+own. A new version of an agent is offered once the registry has listed it for a
+week. Oh-My-Pi and Aider are terminal agents that Zorvo defines itself.
+
 | | Qwen Code | Claude Code | Codex | Oh-My-Pi | Aider |
 |---|---|---|---|---|---|
-| Runs as | `qwen --acp` | [ACP adapter](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp) via `npx` | [ACP adapter](https://www.npmjs.com/package/@agentclientprotocol/codex-acp) via `npx` | its TUI (`omp`) | its TUI (`aider`) |
+| Runs as | ACP registry agent | ACP registry agent | ACP registry agent | its TUI (`omp`) | its TUI (`aider`) |
 | View | chat | chat | chat | terminal | terminal |
 | Models, effort, modes | from the agent | from the agent | from the agent | flags at start | model flag at start |
 | Approvals | in the chat | in the chat | in the chat | detected `[y/n]` prompts | in its terminal |
@@ -147,9 +153,13 @@ or runs commands.
 - **Sign-in stays with the agents.** The app never asks for or stores API
   keys or tokens. Agents sign in with their own tools, and pull request data
   comes from your own `gh` login.
-- **No traffic of its own.** The app sends no telemetry and makes no network
-  requests itself: its Content Security Policy only allows the local IPC
-  bridge. Your agents talk to their own services as they always do.
+- **One host of its own.** Zorvo itself contacts only the ACP registry
+  (`cdn.agentclientprotocol.com`), to list agents and their versions. It does
+  this from the backend, never from the window, and sends no telemetry. The
+  window makes no network requests: its Content Security Policy only allows
+  the local IPC bridge. Your agents talk to their own services as they always
+  do, and `npx` fetches an agent's pinned package from npm when that agent
+  starts.
 - **Where your data lives.** Sessions and transcripts are stored in
   `~/Library/Application Support/xyz.zorvo.desktop/`, as `state.json` and
   `transcripts/`. Session worktrees live in `worktrees/` there. On first
@@ -186,7 +196,10 @@ flowchart LR
 - **The backend** (`src-tauri/src/`, Tauri 2):
   - `acp/`: the ACP client;
   - `pty_session.rs`: terminal agents;
-  - `profiles.rs`: which agents exist and how they are found;
+  - `registry/`: the ACP agent registry, its dated version history and the
+    agents you use;
+  - `profiles.rs`: the terminal agents (Oh-My-Pi and Aider) and how they are
+    found;
   - `store.rs`: state and transcripts;
   - `changes.rs` and `worktrees.rs`: git;
   - `pull_requests.rs`: `gh`.
@@ -205,6 +218,7 @@ pnpm tauri dev
 | Rust tests | `cd src-tauri && cargo test` |
 | Rust lint | `cd src-tauri && cargo clippy --all-targets -- -D warnings` |
 | Production build | `pnpm tauri build` |
+| Refresh the bundled registry history | `pnpm registry:update` |
 
 To run the fast checks before each commit (types, ESLint, `cargo fmt`), opt in
 with `pnpm lefthook install`.
