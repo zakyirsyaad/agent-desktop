@@ -4,6 +4,7 @@
 //! half-written tool at its final path.
 
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -75,7 +76,7 @@ impl ToolsDir {
     /// Where unfinished installs are built. Kept inside `tools` so the final
     /// rename stays on one filesystem.
     pub fn staging_root(&self) -> PathBuf {
-        self.root.join(".staging")
+        self.root.join("staging")
     }
 
     /// Creates a fresh staging dir with an empty `content` folder inside.
@@ -136,7 +137,14 @@ impl Staging {
         match fs::rename(&content, dest) {
             Ok(()) => Ok(CommitOutcome::Installed),
             // Lost a race between the check above and the rename.
-            Err(_) if dest.exists() => Ok(CommitOutcome::AlreadyPresent),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    ErrorKind::AlreadyExists | ErrorKind::DirectoryNotEmpty
+                ) =>
+            {
+                Ok(CommitOutcome::AlreadyPresent)
+            }
             Err(e) => Err(format!("Could not move the install into place: {e}")),
         }
     }

@@ -1,13 +1,29 @@
 use std::fs;
-use std::path::PathBuf;
+use std::ops::Deref;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use zorvo_lib::installer::layout::{read_record, CommitOutcome, InstallRecord, ToolsDir};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// A fresh, empty data dir unique to one test.
-fn data_dir() -> PathBuf {
+/// A fresh, empty data dir unique to one test, removed when dropped.
+struct TempDir(PathBuf);
+
+impl Deref for TempDir {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn data_dir() -> TempDir {
     let dir = std::env::temp_dir().join(format!(
         "zorvo-layout-test-{}-{}",
         std::process::id(),
@@ -15,7 +31,7 @@ fn data_dir() -> PathBuf {
     ));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
-    dir
+    TempDir(dir)
 }
 
 fn record(source: &str) -> InstallRecord {
@@ -32,6 +48,7 @@ fn paths_follow_the_spec_layout() {
     let d = data_dir();
     let tools = ToolsDir::new(&d);
     assert_eq!(tools.root(), d.join("tools"));
+    assert_eq!(tools.staging_root(), d.join("tools/staging"));
     assert_eq!(
         tools.agent_dir("opencode", "1.19.3"),
         d.join("tools/agents/opencode/1.19.3")
@@ -73,7 +90,8 @@ fn commit_moves_content_and_writes_the_record() {
 
 #[test]
 fn dropping_an_uncommitted_staging_deletes_it() {
-    let tools = ToolsDir::new(&data_dir());
+    let d = data_dir();
+    let tools = ToolsDir::new(&d);
     let staging = tools.new_staging().unwrap();
     let path = staging.path().to_path_buf();
     fs::write(staging.download_path(), "partial").unwrap();
@@ -103,7 +121,8 @@ fn commit_onto_an_existing_dir_keeps_it_and_reports_already_present() {
 
 #[test]
 fn two_stagings_get_different_dirs() {
-    let tools = ToolsDir::new(&data_dir());
+    let d = data_dir();
+    let tools = ToolsDir::new(&d);
     let a = tools.new_staging().unwrap();
     let b = tools.new_staging().unwrap();
     assert_ne!(a.path(), b.path());
