@@ -444,6 +444,7 @@ fn unsafe_entry_message_names_the_agent_and_path() {
         UnpackError::TooLarge,
         UnpackError::TooManyEntries,
         UnpackError::Cancelled,
+        UnpackError::DiskFull,
         UnpackError::Io("disk".to_string()),
     ] {
         assert!(other.user_message("Cursor").contains("Cursor"), "{other:?}");

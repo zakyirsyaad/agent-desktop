@@ -73,6 +73,7 @@ pub enum UnpackError {
     TooLarge,
     TooManyEntries,
     Cancelled,
+    DiskFull,
     Io(String),
 }
 
@@ -86,13 +87,27 @@ impl UnpackError {
             Self::TooLarge => format!("{name}'s archive is too large to unpack"),
             Self::TooManyEntries => format!("{name}'s archive has too many files to unpack"),
             Self::Cancelled => format!("Unpacking {name} was cancelled"),
+            Self::DiskFull => format!("Not enough disk space to install {name}"),
             Self::Io(reason) => format!("Could not unpack {name} ({reason})"),
         }
     }
 }
 
-fn io_error(err: impl std::fmt::Display) -> UnpackError {
-    UnpackError::Io(err.to_string())
+/// Keeps a full disk distinct, so the user is told to free space rather than shown an OS error.
+fn io_error(err: io::Error) -> UnpackError {
+    if err.kind() == io::ErrorKind::StorageFull {
+        UnpackError::DiskFull
+    } else {
+        UnpackError::Io(err.to_string())
+    }
+}
+
+/// Unwraps the zip crate's I/O errors, whose own message is only "i/o error".
+fn zip_error(err: zip::result::ZipError) -> UnpackError {
+    match err {
+        zip::result::ZipError::Io(err) => io_error(err),
+        other => UnpackError::Io(other.to_string()),
+    }
 }
 
 fn unsafe_entry(path: &Path) -> UnpackError {
@@ -168,14 +183,14 @@ fn unpack_tar(reader: impl Read, unpacker: &mut Unpacker) -> Result<(), UnpackEr
 }
 
 fn unpack_zip(reader: BufReader<File>, unpacker: &mut Unpacker) -> Result<(), UnpackError> {
-    let mut archive = zip::ZipArchive::new(reader).map_err(io_error)?;
+    let mut archive = zip::ZipArchive::new(reader).map_err(zip_error)?;
     // The central directory states the count up front, so fail before writing anything.
     if archive.len() as u64 > unpacker.limits.max_entries {
         return Err(UnpackError::TooManyEntries);
     }
     for index in 0..archive.len() {
         unpacker.begin_entry()?;
-        let mut entry = archive.by_index(index).map_err(io_error)?;
+        let mut entry = archive.by_index(index).map_err(zip_error)?;
         let raw = PathBuf::from(entry.name());
         let rel = safe_relative_path(&raw)?;
         let unix_mode = entry.unix_mode();
@@ -408,4 +423,34 @@ pub fn ensure_agent_command(dest: &Path, cmd: &str) -> Result<PathBuf, String> {
             .map_err(|err| format!("Could not make {cmd} executable ({err})"))?;
     }
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn storage_full() -> io::Error {
+        io::Error::new(io::ErrorKind::StorageFull, "No space left on device")
+    }
+
+    #[test]
+    fn a_full_disk_maps_to_disk_full() {
+        assert_eq!(io_error(storage_full()), UnpackError::DiskFull);
+        assert_eq!(
+            zip_error(zip::result::ZipError::Io(storage_full())),
+            UnpackError::DiskFull
+        );
+        assert_eq!(
+            UnpackError::DiskFull.user_message("Cursor"),
+            "Not enough disk space to install Cursor"
+        );
+    }
+
+    #[test]
+    fn other_io_errors_keep_their_reason() {
+        let denied = io::Error::new(io::ErrorKind::PermissionDenied, "denied");
+        assert_eq!(io_error(denied), UnpackError::Io("denied".to_string()));
+        let wrapped = zip::result::ZipError::Io(io::Error::other("bad read"));
+        assert_eq!(zip_error(wrapped), UnpackError::Io("bad read".to_string()));
+    }
 }
