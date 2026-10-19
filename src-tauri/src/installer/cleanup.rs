@@ -1,5 +1,6 @@
 //! Deletes, at start, what no enabled agent uses any more: unfinished
-//! installs, agent versions not in use, superseded runtimes and prerequisites.
+//! installs, agent versions not in use, and superseded runtimes and
+//! prerequisites (versions included).
 //! Every failure is logged and skipped, so a clean-up never blocks start.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -8,7 +9,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use super::layout::{read_record, ToolsDir};
-use super::prerequisites::prerequisites_for;
+use super::prerequisites::{all_prerequisites, prerequisites_for};
 use super::runtimes::{RuntimeKind, RuntimeManifest};
 use crate::profiles::AgentProfile;
 use crate::store::Settings;
@@ -138,10 +139,27 @@ fn unused_runtime(
         .collect()
 }
 
+/// Prerequisites no enabled agent needs, and the versions of needed ones
+/// other than the pinned one once that is installed.
 fn unused_prereqs(tools: &ToolsDir, needed: &BTreeSet<String>) -> Vec<PathBuf> {
     entries(&tools.root().join("prereqs"))
         .into_iter()
-        .filter(|dir| !needed.contains(&name_of(dir)))
+        .flat_map(|prereq| {
+            let command = name_of(&prereq);
+            if !needed.contains(&command) {
+                return vec![prereq];
+            }
+            let pinned = all_prerequisites()
+                .find(|p| p.command == command)
+                .map(|p| tools.prereq_dir(p.command, p.version));
+            match pinned {
+                Some(pinned) if read_record(&pinned).is_some() => entries(&prereq)
+                    .into_iter()
+                    .filter(|dir| *dir != pinned)
+                    .collect(),
+                _ => Vec::new(),
+            }
+        })
         .collect()
 }
 

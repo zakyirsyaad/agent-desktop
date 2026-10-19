@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use zorvo_lib::installer::cleanup::{clean_up, cleanup_inputs, CleanupInputs};
 use zorvo_lib::installer::layout::ToolsDir;
+use zorvo_lib::installer::prerequisites::prerequisites_for;
 use zorvo_lib::installer::runtimes::{parse_manifest, RuntimeManifest, BUNDLED_RUNTIMES};
 use zorvo_lib::profiles::AgentProfile;
 use zorvo_lib::store::Settings;
@@ -235,6 +236,30 @@ fn removes_unneeded_prereqs() {
     assert!(errors.is_empty(), "{errors:?}");
     assert!(!tools.root().join("prereqs").join("pi").exists());
     assert!(tools.prereq_dir("other", "2.0.0").exists());
+}
+
+#[test]
+fn removes_old_versions_of_a_needed_prereq_once_the_pinned_one_is_installed() {
+    let d = data_dir();
+    let tools = ToolsDir::new(&d);
+    let pinned = prerequisites_for("pi-acp")[0].version;
+    mark_installed(&tools.prereq_dir("pi", "0.9.0"));
+    let inputs = CleanupInputs {
+        prereqs_needed: BTreeSet::from(["pi".to_string()]),
+        ..inputs()
+    };
+
+    // Until the pinned version is installed, the old one is what runs.
+    let errors = run(&tools, &inputs);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(tools.prereq_dir("pi", "0.9.0").exists());
+
+    mark_installed(&tools.prereq_dir("pi", pinned));
+    let errors = run(&tools, &inputs);
+
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(!tools.prereq_dir("pi", "0.9.0").exists());
+    assert!(tools.prereq_dir("pi", pinned).exists());
 }
 
 /// Gives a dir its permissions back when dropped, so the temp dir can go.
