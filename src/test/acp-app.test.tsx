@@ -718,10 +718,11 @@ describe("ACP sessions in the app", () => {
       { id: "api-key", name: "API Key", description: "Use an API key to authenticate", _meta: { "api-key": {} } },
       { id: "chat-gpt", name: "ChatGPT", description: "Use ChatGPT to authenticate" },
     ];
+    let starts = 0;
     spy.mockImplementation((cmd, args) =>
-      cmd === "acp_start_session"
+      cmd === "acp_start_session" && starts++ === 0
         ? Promise.reject(`ACP_AUTH_REQUIRED:${JSON.stringify(methods)}`)
-        : cmd === "acp_authenticate"
+        : cmd === "acp_authenticate" || cmd === "acp_probe_agent"
           ? Promise.resolve(undefined)
           : realInvoke(cmd, args)
     );
@@ -742,7 +743,8 @@ describe("ACP sessions in the app", () => {
       cwd: "/Users/test/developer/ai-perpetual-trading",
       methodId: "chat-gpt",
     });
-    expect(await screen.findByText(/Signed in to Qwen Code/)).toBeDefined();
+    // Signed in, the refused message goes out by itself.
+    await waitFor(() => expect(callsTo(spy, "acp_start_session")).toHaveLength(2));
     expect(screen.queryByRole("alert")).toBeNull();
   });
 

@@ -6,7 +6,7 @@ import { ChatCanvas } from "./components/ChatCanvas";
 import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { FilesPanel } from "./components/FilesPanel";
 import { EmptySessionState, FileDropOverlay, NoticeBanner } from "./components/AppPlaceholders";
-import { AuthPanel } from "./components/AuthPanel";
+import { SignInLayer } from "./components/SignInLayer";
 import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
 import { WorkspaceSummary } from "./components/workspace/WorkspaceSummary";
@@ -17,7 +17,7 @@ import { useSidePanel } from "./hooks/useSidePanel";
 import { useTurnsEnded } from "./hooks/useTurnsEnded";
 import { usePullRequest } from "./hooks/usePullRequest";
 import { useRepoPullRequests } from "./hooks/useRepoPullRequests";
-import { useAgentAuth } from "./hooks/useAgentAuth";
+import { useAgentSignIn } from "./hooks/useAgentSignIn";
 import { useDraftAgentCheck } from "./hooks/useDraftAgentCheck";
 import { useLatest } from "./hooks/useLatest";
 import { createSessionWorktree } from "./lib/session-worktree";
@@ -102,8 +102,6 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const composerRef = useRef<ComposerHandle>(null);
   const [ptyOutput] = useState(createPtyOutputStore);
-  const agentAuth = useAgentAuth();
-  const { authRequest, requestSignIn, signIn, dismiss: dismissSignIn } = agentAuth;
 
   const reportError = useCallback((message: string) => setNotice(message), []);
   const { state, isLoaded, updateState } = usePersistedState(reportError);
@@ -207,6 +205,15 @@ export default function App() {
     rememberAgentOptions(profileId, { preferredConfig, ...(reported?.length ? { configOptions: reported } : {}) });
   };
 
+  // Read when an agent answers, seconds after the closure that waits for it was made.
+  const activeSessionIdRef = useLatest(activeSessionId);
+  const signIn = useAgentSignIn({
+    agents,
+    composerRef,
+    activeSessionIdRef,
+    retryAfterSignIn: (sessionId, message) => void acp.retryAfterSignIn(sessionId, message),
+  });
+
   // A draft asks its ACP agent what it offers, and whether it needs a sign-in, before the first message.
   const agentCheck = useDraftAgentCheck({
     agent: isActiveRunning ? undefined : draftAgent,
@@ -217,22 +224,16 @@ export default function App() {
         ...prev,
         agentOptions: { ...prev.agentOptions, [profileId]: withProbed(prev.agentOptions?.[profileId], probed) },
       })),
-    auth: agentAuth,
+    auth: signIn.auth,
   });
 
-  // Read when an agent answers, seconds after the closure that waits for it was made.
-  const activeSessionIdRef = useLatest(activeSessionId);
   const engineDeps = { sessions, agents, updateMessages, patchSession, reportError };
   const pty = usePtyEngine({ ...engineDeps, output: ptyOutput });
   const acp = useAcpEngine({
     ...engineDeps,
     rememberOptions: rememberAgentOptions,
     onAttention: (sessionId, reason) => notifyAttention(sessionId, reason),
-    onAuthRequired: (session, methods, unsent) => {
-      requestSignIn(session.profileId, session.cwd, methods);
-      // The composer on screen may be another session's by now: the message goes back only into its own.
-      if (unsent && session.id === activeSessionIdRef.current) composerRef.current?.restore(unsent.text, unsent.attachments);
-    },
+    onAuthRequired: signIn.handBack,
   });
 
   /** Tells a user who is away that a session needs them or is done. */
@@ -647,16 +648,7 @@ export default function App() {
         <article className={`${isDiffOpen && isDiffExpanded ? "hidden" : "flex"} flex-1 flex-col bg-bg relative overflow-hidden`}>
           {isDraggingFiles && <FileDropOverlay />}
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
-          {authRequest && (
-            <AuthPanel
-              agentName={agents.find((a) => a.id === authRequest.profileId)?.name ?? authRequest.profileId}
-              methods={authRequest.methods}
-              status={authRequest.status}
-              error={authRequest.error}
-              onSignIn={signIn}
-              onDismiss={dismissSignIn}
-            />
-          )}
+          <SignInLayer signIn={signIn} agents={agents} />
           {showsTerminal ? (
             <TerminalView
               sessionId={activeSessionId}
