@@ -39,6 +39,8 @@ const subscribers = new Set<() => void>();
 let progressListener: Promise<UnlistenFn> | null = null;
 /** Never reset, so an install from before a reset can never match an entry made after it. */
 let lastAttempt = 0;
+/** Attempts the user cancelled; one not yet sent to the backend is then never sent. */
+const cancelledAttempts = new Set<number>();
 
 export function installEntryOf(agentId: string): InstallEntry {
   return entries.get(agentId) ?? IDLE_INSTALL;
@@ -91,23 +93,34 @@ export function startInstall(agentId: string): void {
 }
 
 function runInstall(agentId: string, attempt: number): void {
-  invoke('install_agent', { agentId }).then(
-    // The backend emits `agent-profiles-changed`, which reloads the profiles.
-    () => settle(agentId, attempt, () => ({ ...IDLE_INSTALL, attempt })),
-    (error: unknown) => {
-      const message = String(error);
-      settle(agentId, attempt, () =>
-        message === INSTALL_CANCELLED
-          ? { ...IDLE_INSTALL, attempt }
-          : { status: 'failed', progress: null, error: message, attempt },
-      );
-    },
-  );
+  if (cancelledAttempts.delete(attempt)) {
+    // Cancelled while the listener attached: the backend never heard of it.
+    settle(agentId, attempt, () => ({ ...IDLE_INSTALL, attempt }));
+    return;
+  }
+  invoke('install_agent', { agentId })
+    .then(
+      // The backend emits `agent-profiles-changed`, which reloads the profiles.
+      () => settle(agentId, attempt, () => ({ ...IDLE_INSTALL, attempt })),
+      (error: unknown) => {
+        const message = String(error);
+        settle(agentId, attempt, () =>
+          message === INSTALL_CANCELLED
+            ? { ...IDLE_INSTALL, attempt }
+            : { status: 'failed', progress: null, error: message, attempt },
+        );
+      },
+    )
+    .finally(() => cancelledAttempts.delete(attempt));
 }
 
-/** Asks the backend to stop an agent's install; the install's own answer then says how it ended. */
+/**
+ * Asks the backend to stop an agent's install; the install's own answer then says how it
+ * ended. An install not yet sent to the backend is not sent at all.
+ */
 export function cancelInstall(agentId: string): void {
-  const { attempt } = installEntryOf(agentId);
+  const { attempt, status } = installEntryOf(agentId);
+  if (status === 'installing') cancelledAttempts.add(attempt);
   invoke<boolean>('cancel_agent_install', { agentId }).catch((error: unknown) => {
     settle(agentId, attempt, (entry) => ({ ...entry, error: `Could not cancel the install: ${String(error)}` }));
   });
@@ -119,5 +132,6 @@ export function resetAgentInstalls(): void {
   progressListener = null;
   void listener?.then((stop) => stop());
   entries = new Map();
+  cancelledAttempts.clear();
   subscribers.forEach((notify) => notify());
 }

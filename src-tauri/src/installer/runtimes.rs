@@ -229,9 +229,6 @@ pub struct InstalledRuntime {
     pub bin_dir: PathBuf,
 }
 
-/// The pinned version when installed, else the newest other installed version
-/// for `platform`. A dir counts only with an `install.json`, since a crash can
-/// leave an empty one.
 /// True when the manifest's pinned version of `kind` is installed for `platform`.
 pub fn pinned_installed(
     tools: &ToolsDir,
@@ -243,6 +240,9 @@ pub fn pinned_installed(
     read_record(&kind.dir(tools, version, platform)).is_some()
 }
 
+/// The pinned version when installed, else the newest other installed version
+/// for `platform`. A dir counts only with an `install.json`, since a crash can
+/// leave an empty one.
 pub fn installed_runtime(
     tools: &ToolsDir,
     kind: RuntimeKind,

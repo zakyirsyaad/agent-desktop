@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { createElement } from "react";
 import { fakeTauriInvoke } from "./setup";
+import { makeProfile } from "./fixtures/agents";
 
 type Listener = (event: { payload: unknown }) => void;
 
@@ -22,6 +25,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 import { installEntryOf, resetAgentInstalls, startInstall } from "../lib/agent-installs";
+import { AgentInstallPanel } from "../components/AgentInstallPanel";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 
@@ -73,5 +77,40 @@ describe("agent installs", () => {
     waiting.splice(0).forEach((resolve) => resolve());
     await vi.waitFor(() => expect(installs).toEqual(["codex-acp"]));
     expect(installEntryOf("codex-acp").progress).toEqual(firstProgress);
+  });
+
+  it("a Cancel clicked while the listener attaches stops the install before it starts", async () => {
+    const codex = makeProfile({
+      id: "codex-acp",
+      name: "Codex",
+      source: "registry",
+      transport: "acp",
+      detected: false,
+      install_plan: [{ kind: "agent", name: "Codex", version: "0.4.2", download_bytes: null }],
+    });
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "install_agent" || cmd === "cancel_agent_install"
+        ? Promise.resolve(cmd === "cancel_agent_install" ? false : undefined)
+        : fakeTauriInvoke(cmd, args)
+    );
+    const calls = (cmd: string) => spy.mock.calls.filter(([name]) => name === cmd);
+    await act(async () => {
+      render(createElement(AgentInstallPanel, { agent: codex }));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    });
+    await act(async () => {
+      waiting.splice(0).forEach((resolve) => resolve());
+    });
+
+    expect(calls("install_agent")).toEqual([]);
+    expect(screen.getByRole("button", { name: "Install" })).toBeDefined();
+    expect(screen.queryByText(/failed|Could not/)).toBeNull();
+    expect(installEntryOf("codex-acp").status).toBe("idle");
   });
 });
