@@ -174,6 +174,15 @@ impl PtySessionManager {
                 .sessions
                 .lock()
                 .map_err(|e| format!("Lock poisoned: {}", e))?;
+            // Checked under the same lock as the insert: replacing a running
+            // session would orphan its process.
+            if sessions.contains_key(session_id) {
+                drop(sessions);
+                if let Ok(mut child) = shared_child.lock() {
+                    let _ = child.kill();
+                }
+                return Err(format!("Session '{}' is already running", session_id));
+            }
             sessions.insert(session_id.to_string(), handle);
         }
 

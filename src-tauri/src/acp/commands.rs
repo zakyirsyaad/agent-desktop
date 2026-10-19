@@ -10,7 +10,7 @@ use tauri::State;
 
 use super::manager::{AcpEvent, AcpLaunch, AcpManager, StartedSession};
 use super::probe::ProbedAgent;
-use super::terminal_auth::is_sign_in_terminal_id;
+use super::terminal_auth::{is_sign_in_terminal_id, CANCELLED_MESSAGE};
 use crate::env_resolver::cached_user_env;
 use crate::files::ensure_known_workspace;
 use crate::profiles::{agent_profile_from, with_system_tools, AgentProfile, TRANSPORT_ACP};
@@ -255,9 +255,27 @@ fn start_terminal_sign_in(
     if pty.has_session(terminal_id) {
         return Err("That sign-in is already running".to_string());
     }
-    let launch = launch_in_workspace(store, cwd, profile_id)?;
-    let login = manager.terminal_login(cwd, &launch, method_id)?;
-    pty.start_session(terminal_id, cwd, &login.program, &login.args, &login.env)
+    let attempts = manager.sign_ins();
+    attempts.begin(terminal_id)?;
+    let result = launch_in_workspace(store, cwd, profile_id)
+        .and_then(|launch| {
+            manager.terminal_login_with(cwd, &launch, method_id, |connection| {
+                attempts.track(terminal_id, connection)
+            })
+        })
+        .and_then(|login| {
+            if attempts.is_cancelled(terminal_id) {
+                return Err(CANCELLED_MESSAGE.to_string());
+            }
+            pty.start_session(terminal_id, cwd, &login.program, &login.args, &login.env)
+        });
+    // Whatever went wrong, a sign-in the user cancelled reads as cancelled.
+    let result = match result {
+        Err(_) if attempts.is_cancelled(terminal_id) => Err(CANCELLED_MESSAGE.to_string()),
+        other => other,
+    };
+    attempts.end(terminal_id);
+    result
 }
 
 #[tauri::command(async)]
@@ -279,6 +297,14 @@ pub fn acp_start_terminal_sign_in(
         &method_id,
         &terminal_id,
     )
+}
+
+/// Cancels a terminal sign-in that is still starting: the agent it reads the
+/// method from is ended and no terminal starts. A running login is ended with
+/// `terminate_session` instead.
+#[tauri::command(async)]
+pub fn acp_cancel_terminal_sign_in(manager: State<'_, AcpManager>, terminal_id: String) {
+    manager.sign_ins().cancel(&terminal_id);
 }
 
 #[tauri::command(async)]

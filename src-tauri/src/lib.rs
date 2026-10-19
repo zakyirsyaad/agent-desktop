@@ -383,6 +383,7 @@ pub fn run() {
             acp::commands::acp_probe_agent,
             acp::commands::acp_fork_session,
             acp::commands::acp_start_terminal_sign_in,
+            acp::commands::acp_cancel_terminal_sign_in,
             acp::commands::acp_prompt,
             acp::commands::acp_cancel,
             acp::commands::acp_respond_permission,

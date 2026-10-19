@@ -52,6 +52,11 @@ function handlePrompt(id, params) {
 
 const handlers = {
   initialize: (id, params) => {
+    // FAKE_ACP_SLOW_INIT: answers initialize only after ten seconds.
+    if (process.env.FAKE_ACP_SLOW_INIT && !params?.slowInitDone) {
+      setTimeout(() => handlers.initialize(id, { ...params, slowInitDone: true }), 10000);
+      return;
+    }
     // FAKE_ACP_AUTH_STATUS: pushes who is signed in, like Claude Code's adapter.
     const authStatus = process.env.FAKE_ACP_AUTH_STATUS;
     reply(id, {

@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 
 use super::connection::{error_message, AcpConnection, ConnectionEvent, EventSink};
 use super::prompt_blocks::prompt_blocks;
+use super::terminal_auth::{terminal_method, SignInAttempts, TerminalMethodError};
 use crate::pty_session::validate_cwd;
 
 /// ACP protocol version this client speaks.
@@ -105,6 +106,8 @@ pub struct AcpManager {
     routes: Arc<Mutex<Routes>>,
     sink: Arc<AcpEventSink>,
     next_connection_key: AtomicU64,
+    /// Terminal sign-ins still starting, so a cancel can end them.
+    sign_ins: SignInAttempts,
 }
 
 impl AcpManager {
@@ -113,7 +116,13 @@ impl AcpManager {
             routes: Arc::new(Mutex::new(Routes::default())),
             sink: Arc::new(sink),
             next_connection_key: AtomicU64::new(1),
+            sign_ins: SignInAttempts::default(),
         }
+    }
+
+    /// The terminal sign-ins being started.
+    pub fn sign_ins(&self) -> &SignInAttempts {
+        &self.sign_ins
     }
 
     /// Starts an agent process, initializes ACP and opens a session in `cwd`.
@@ -570,11 +579,11 @@ pub(super) fn open_request(
 
 /// Whether `method_id` is a `type: "terminal"` method, which only a terminal can run.
 fn is_terminal_method(init: &Value, method_id: &str) -> bool {
-    init["authMethods"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .any(|m| m["id"] == method_id && m["type"] == "terminal")
+    // Refused or not, a method found here is one only a terminal can run.
+    !matches!(
+        terminal_method(init, method_id),
+        Err(TerminalMethodError::NotOffered)
+    )
 }
 
 /// The sign-in methods `initialize` reported, always as a JSON array.

@@ -460,3 +460,26 @@ fn has_session_is_true_while_it_runs() {
     manager.kill_session("has-session-1").expect("kill");
     assert!(!manager.has_session("has-session-1"));
 }
+
+#[test]
+fn a_second_session_with_a_running_id_is_refused() {
+    let manager = PtySessionManager::default_manager();
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    let sleep = ["-c".to_string(), "sleep 2".to_string()];
+    manager
+        .start_session("same-id-1", &cwd, "/bin/sh", &sleep, &[])
+        .expect("first start");
+
+    let err = manager
+        .start_session("same-id-1", &cwd, "/bin/sh", &sleep, &[])
+        .unwrap_err();
+
+    assert!(err.contains("already running"), "unexpected: {err}");
+    assert!(manager.has_session("same-id-1"));
+    manager
+        .kill_session("same-id-1")
+        .expect("the first session still runs");
+}

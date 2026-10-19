@@ -6,10 +6,12 @@
 //! before Zorvo runs anything. The webview only names a method; it never
 //! sends a program, arguments or environment.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
+use super::connection::AcpConnection;
 use super::manager::{
     auth_methods_of, auth_required_error, failure_message, initialize, spawn_unrouted, AcpLaunch,
     AcpManager, OpenError,
@@ -25,6 +27,8 @@ const MAX_ARG_BYTES: usize = 1024;
 const MAX_ID_SUFFIX: usize = 64;
 const ID_PREFIX: &str = "signin-";
 const REFUSED_PREFIX: &str = "Zorvo does not run this sign-in: ";
+/// The error of a sign-in the user cancelled before its terminal started.
+pub const CANCELLED_MESSAGE: &str = "Sign-in cancelled";
 
 /// The extra arguments and environment of a terminal auth method.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,8 +60,10 @@ pub fn terminal_method(
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .find(|m| m.get("id").and_then(Value::as_str) == Some(method_id))
-        .filter(|m| m.get("type").and_then(Value::as_str) == Some("terminal"))
+        .find(|m| {
+            m.get("id").and_then(Value::as_str) == Some(method_id)
+                && m.get("type").and_then(Value::as_str) == Some("terminal")
+        })
         .ok_or(TerminalMethodError::NotOffered)?;
     let args = read_args(method.get("args"))?;
     let env = read_env(method.get("env"))?;
@@ -107,6 +113,9 @@ fn read_env(value: Option<&Value>) -> Result<BTreeMap<String, String>, TerminalM
             let text = item
                 .as_str()
                 .ok_or_else(|| refused("its environment is not a map of text"))?;
+            if text.contains('\0') {
+                return Err(refused("a variable contains a NUL character"));
+            }
             Ok((key.clone(), text.to_string()))
         })
         .collect()
@@ -155,6 +164,71 @@ pub fn sign_in_event_payload(event: &PtyEvent) -> Value {
     }
 }
 
+/// The terminal sign-ins being started, by terminal id: one attempt per id,
+/// and a cancel ends the short-lived agent an attempt is reading its method from.
+#[derive(Default)]
+pub struct SignInAttempts {
+    attempts: Mutex<HashMap<String, Attempt>>,
+}
+
+#[derive(Default)]
+struct Attempt {
+    connection: Option<Arc<AcpConnection>>,
+    is_cancelled: bool,
+}
+
+impl SignInAttempts {
+    /// Claims `terminal_id` for a new attempt.
+    pub fn begin(&self, terminal_id: &str) -> Result<(), String> {
+        let mut attempts = self.lock();
+        if attempts.contains_key(terminal_id) {
+            return Err("That sign-in is already running".to_string());
+        }
+        attempts.insert(terminal_id.to_string(), Attempt::default());
+        Ok(())
+    }
+
+    /// Remembers the agent an attempt waits on; false when the attempt was
+    /// cancelled already, and the caller stops.
+    pub fn track(&self, terminal_id: &str, connection: Arc<AcpConnection>) -> bool {
+        match self.lock().get_mut(terminal_id) {
+            Some(attempt) if !attempt.is_cancelled => {
+                attempt.connection = Some(connection);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn is_cancelled(&self, terminal_id: &str) -> bool {
+        self.lock()
+            .get(terminal_id)
+            .is_some_and(|attempt| attempt.is_cancelled)
+    }
+
+    /// Cancels an attempt still starting, ending the agent it waits on. An
+    /// attempt that is not under way is left alone.
+    pub fn cancel(&self, terminal_id: &str) {
+        let connection = self.lock().get_mut(terminal_id).and_then(|attempt| {
+            attempt.is_cancelled = true;
+            attempt.connection.take()
+        });
+        if let Some(connection) = connection {
+            connection.kill();
+        }
+    }
+
+    pub fn end(&self, terminal_id: &str) {
+        self.lock().remove(terminal_id);
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Attempt>> {
+        self.attempts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
 impl AcpManager {
     /// Builds the command that signs in to the agent through its terminal
     /// method `method_id`. The method is read from the agent's own `initialize`
@@ -165,8 +239,24 @@ impl AcpManager {
         launch: &AcpLaunch,
         method_id: &str,
     ) -> Result<AcpLaunch, String> {
+        self.terminal_login_with(cwd, launch, method_id, |_| true)
+    }
+
+    /// [`Self::terminal_login`], handing the short-lived agent to `on_spawned`
+    /// first, which says whether to go on (false: the sign-in was cancelled).
+    pub fn terminal_login_with(
+        &self,
+        cwd: &str,
+        launch: &AcpLaunch,
+        method_id: &str,
+        on_spawned: impl FnOnce(Arc<AcpConnection>) -> bool,
+    ) -> Result<AcpLaunch, String> {
         validate_cwd(cwd)?;
         let connection = spawn_unrouted(cwd, launch, |_, _| {})?;
+        if !on_spawned(Arc::clone(&connection)) {
+            connection.kill();
+            return Err(CANCELLED_MESSAGE.to_string());
+        }
         let init = initialize(&connection)
             .map_err(|message| failure_message(&connection, OpenError::Transport(message)))?;
         connection.kill();
@@ -258,6 +348,10 @@ mod tests {
                 json!({"env": ["A"]}),
                 "its environment is not a map of text",
             ),
+            (
+                json!({"env": {"A": "x\0y"}}),
+                "a variable contains a NUL character",
+            ),
         ];
         for (extra, reason) in cases {
             let mut method = json!({"id": "t", "type": "terminal"});
@@ -326,5 +420,52 @@ mod tests {
             sign_in_event_payload(&exit),
             json!({"terminalId": "signin-1", "kind": "exit", "exitCode": 3})
         );
+    }
+
+    #[test]
+    fn a_terminal_method_is_found_after_another_method_with_its_id() {
+        let init = json!({"authMethods": [
+            {"id": "login", "name": "In the agent"},
+            {"id": "login", "name": "In a terminal", "type": "terminal", "args": ["--x"]},
+        ]});
+
+        let method = terminal_method(&init, "login").expect("the terminal method is offered");
+
+        assert_eq!(method.args, vec!["--x".to_string()]);
+    }
+
+    #[test]
+    fn a_sign_in_id_is_used_by_one_attempt_at_a_time() {
+        let attempts = SignInAttempts::default();
+        attempts.begin("signin-1").expect("first");
+
+        assert_eq!(
+            attempts.begin("signin-1").unwrap_err(),
+            "That sign-in is already running"
+        );
+        attempts.end("signin-1");
+        assert!(attempts.begin("signin-1").is_ok());
+    }
+
+    #[test]
+    fn a_cancelled_attempt_says_so_until_it_ends() {
+        let attempts = SignInAttempts::default();
+        attempts.begin("signin-1").expect("begin");
+
+        attempts.cancel("signin-1");
+
+        assert!(attempts.is_cancelled("signin-1"));
+        attempts.end("signin-1");
+        assert!(!attempts.is_cancelled("signin-1"));
+    }
+
+    #[test]
+    fn cancelling_an_unknown_attempt_does_nothing() {
+        let attempts = SignInAttempts::default();
+
+        attempts.cancel("signin-1");
+
+        assert!(!attempts.is_cancelled("signin-1"));
+        assert!(attempts.begin("signin-1").is_ok());
     }
 }

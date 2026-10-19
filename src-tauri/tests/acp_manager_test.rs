@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use zorvo_lib::acp::manager::{AcpEvent, AcpLaunch, AcpManager};
+use zorvo_lib::acp::terminal_auth::SignInAttempts;
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -731,4 +732,32 @@ fn runs_the_terminal_login_in_a_pty_and_reports_its_exit() {
     let failing = with_env(fake_agent(), "FAKE_LOGIN_EXIT", "1");
     let (_, code) = run_login_in_pty("signin-test-2", failing);
     assert_eq!(code, 1);
+}
+
+#[test]
+fn cancelling_a_sign_in_ends_the_agent_it_is_reading_the_method_from() {
+    let (manager, _rx) = manager();
+    let attempts = Arc::new(SignInAttempts::default());
+    attempts.begin("signin-cancel-1").expect("begin");
+    let launch = with_env(fake_agent(), "FAKE_ACP_SLOW_INIT", "1");
+    let started = std::time::Instant::now();
+
+    let login = {
+        let attempts = Arc::clone(&attempts);
+        let manager = Arc::clone(&manager);
+        std::thread::spawn(move || {
+            manager.terminal_login_with(&cwd(), &launch, "terminal-login", |connection| {
+                attempts.track("signin-cancel-1", connection)
+            })
+        })
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    attempts.cancel("signin-cancel-1");
+
+    assert!(login.join().expect("join").is_err());
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the agent was not ended"
+    );
+    assert!(attempts.is_cancelled("signin-cancel-1"));
 }
