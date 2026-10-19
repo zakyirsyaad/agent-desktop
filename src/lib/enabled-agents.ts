@@ -39,9 +39,10 @@ export function withAutoEnabled(settings: Settings, agents: readonly AgentProfil
   const hasNewVersions = Object.keys(newVersions).length > 0;
 
   if (installed.length === 0 && !hasNewVersions) return settings;
+  // The list is written only when an agent was added, so the defaults are not frozen into it.
   return {
     ...settings,
-    enabledAgents: [...nextEnabled],
+    ...(installed.length > 0 ? { enabledAgents: [...nextEnabled] } : {}),
     ...(hasNewVersions ? { agentVersions: { ...known, ...newVersions } } : {}),
   };
 }

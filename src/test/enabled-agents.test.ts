@@ -61,6 +61,21 @@ describe("enabled agents", () => {
     expect(withAutoEnabled(BASE, [aiderProfile])).toBe(BASE);
   });
 
+  it("leaves the enabled list unset when it only records versions", () => {
+    const next = withAutoEnabled(BASE, [{ ...claudeProfile, version: "0.93.0" }]);
+
+    expect(next.agentVersions).toEqual({ "claude-acp": "0.93.0" });
+    expect(next.enabledAgents).toBeUndefined();
+    expect("enabledAgents" in next).toBe(false);
+  });
+
+  it("keeps the enabled list as it was when it only records versions", () => {
+    const next = withAutoEnabled({ ...BASE, enabledAgents: ["gemini"] }, [{ ...gemini, installed_on_system: false }]);
+
+    expect(next.enabledAgents).toEqual(["gemini"]);
+    expect(next.agentVersions).toEqual({ gemini: "1.2.3" });
+  });
+
   it("a builtin terminal agent is in use when detected", () => {
     expect(isInUse({ ...aiderProfile, detected: true }, BASE)).toBe(true);
     expect(isInUse({ ...aiderProfile, detected: false }, BASE)).toBe(false);
