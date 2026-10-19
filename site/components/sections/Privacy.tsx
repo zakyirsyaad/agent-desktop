@@ -10,7 +10,7 @@ const PROMISES: { icon: IconName; title: string; body: string }[] = [
   {
     icon: "wifi-off",
     title: "Few hosts, all named",
-    body: "Zorvo contacts the ACP registry, and only when you install an agent, that agent's hash-checked download plus Node.js or uv if it needs them, with no telemetry and no requests from the window.",
+    body: "Zorvo reads the ACP registry, and only when you install an agent does it fetch that agent's hash-checked download, plus Node.js or uv if it needs them. No telemetry, and no requests from the window.",
   },
   {
     icon: "hard-drive",

@@ -193,7 +193,7 @@ or runs commands.
 
 | Problem | What to try |
 |---|---|
-| An agent shows as not installed | Choose it in a new session's agent picker (it is labelled "(not installed)") and click **Install**. Zorvo brings Node.js or `uv` too, if the agent needs one. A registry agent also counts as installed when its binary is on your `PATH` or its npm package is installed globally. Agents that run with `npx` also work without that, as long as Node.js is on your `PATH`. For Oh-My-Pi and Aider, check that `which omp` (or `aider`) works in a new terminal. Then click **Check again** in Settings. |
+| An agent shows as not installed | Choose it in a new session's agent picker (it is labelled "(not installed)") and click **Install**. Zorvo brings Node.js when yours is missing or older than 22, and `uv` for agents that need it. A registry agent also counts as installed when its binary is on your `PATH` or its npm package is installed globally. For Oh-My-Pi and Aider, check that `which omp` (or `aider`) works in a new terminal. Then click **Check again** in Settings. |
 | "Sign in to *agent*": the agent needs you to sign in before it can start | Use a sign-in method the panel offers, or sign in once in a terminal (see [Requirements](#requirements)), then send your message again. |
 | Claude Code, Codex or Qwen Code does not start | When you click **Install** and your Node.js is missing or older than 22, Zorvo installs Node.js for them. The first start downloads the agent's pinned package, so it can take a moment. |
 | No pull request status | Install `gh` and run `gh auth login`. A repository without a GitHub remote has none to show. |
