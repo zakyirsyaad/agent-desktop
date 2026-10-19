@@ -19,7 +19,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 import App from "../App";
 import { AgentInstallPanel } from "../components/AgentInstallPanel";
-import { resetAgentInstalls } from "../lib/agent-installs";
+import { forgetFailedInstalls, installEntryOf, resetAgentInstalls, startInstall } from "../lib/agent-installs";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 type InvokeCall = [string, Record<string, unknown> | undefined, ...unknown[]];
@@ -358,6 +358,25 @@ describe("Installing an agent from the new-session draft", () => {
     expect(screen.queryByRole("region", { name: "Install Codex" })).toBeNull();
     expect(screen.getByRole("button", { name: /^Agent: Codex$/ })).toBeDefined();
     expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("forgets only failed installs, and only of the agents named ready", async () => {
+    const { settle } = mockInstall();
+    await act(async () => {
+      startInstall("codex-acp");
+      startInstall("opencode");
+    });
+    await act(async () => settle("opencode").reject("Checksum mismatch for OpenCode"));
+
+    // A profiles reload mid-install names Codex ready: its live install stays.
+    forgetFailedInstalls(["codex-acp"]);
+    expect(installEntryOf("codex-acp").status).toBe("installing");
+    // OpenCode is not named, so its failure stays until it is ready.
+    expect(installEntryOf("opencode").status).toBe("failed");
+
+    forgetFailedInstalls(["opencode"]);
+    expect(installEntryOf("opencode").status).toBe("idle");
+    expect(installEntryOf("opencode").error).toBeNull();
   });
 
   it("forgets a failed install once the agent is ready, so a later missing agent offers Install again", async () => {
