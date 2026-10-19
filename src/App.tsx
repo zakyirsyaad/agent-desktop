@@ -8,8 +8,8 @@ import { FilesPanel } from "./components/FilesPanel";
 import { EmptySessionState, FileDropOverlay, NoticeBanner } from "./components/AppPlaceholders";
 import { AuthPanel } from "./components/AuthPanel";
 import { AgentInstallPanel } from "./components/AgentInstallPanel";
-import { readWindowMode } from "./lib/window-mode";
 import { pickerLabelOf } from "./lib/install-plan";
+import { installPanelAgentOf } from "./lib/install-panel";
 import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
 import { WorkspaceSummary } from "./components/workspace/WorkspaceSummary";
@@ -86,9 +86,6 @@ import type { Session, SessionWorktree, Settings } from "./types";
 import { TRANSPORT_ACP } from "./types";
 
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
-
-// Only the main window installs agents; a popout only mirrors it.
-const IS_MAIN_WINDOW = readWindowMode(window.location.search).kind === "main";
 
 // eslint-disable-next-line no-control-regex -- matching control characters is the point.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
@@ -167,6 +164,7 @@ export default function App() {
     isAcp(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
   const draftAgent = isResumable ? activeAgent : newSessionAgent;
   const isDraftAgentReady = draftAgent?.availability === "ready";
+  const installPanelAgent = installPanelAgentOf(activeSession, activeAgent, newSessionAgent);
 
   // A model or effort chosen for one agent means nothing to another one.
   useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
@@ -665,7 +663,7 @@ export default function App() {
               onDismiss={dismissSignIn}
             />
           )}
-          {(isNewSessionDraft || isResumable) && IS_MAIN_WINDOW && draftAgent?.install_plan?.length ? <AgentInstallPanel agent={draftAgent} /> : null}
+          {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
           {showsTerminal ? (
             <TerminalView
               sessionId={activeSessionId}
