@@ -74,11 +74,11 @@ pub fn install_agent(
 ) -> Result<(), String> {
     let installer = installer.get()?;
     let id = canonical_agent_id(&agent_id);
-    let (_, steps) = install_steps_for(id, &versions_in_use(&store))
+    let (name, steps) = install_steps_for(id, &versions_in_use(&store))
         .ok_or_else(|| format!("Unknown agent '{agent_id}'"))?;
     run_plan(
         &steps,
-        |steps| run_job(&app, installer, id, steps),
+        |steps| run_job(&app, installer, id, &name, steps),
         || profiles_changed(&app),
     )
 }
@@ -123,7 +123,7 @@ pub fn install_runtime(
     let job_id = format!("runtime:{kind}");
     run_plan(
         &[PlannedStep::Runtime(runtime)],
-        |steps| run_job(&app, installer, &job_id, steps),
+        |steps| run_job(&app, installer, &job_id, runtime.display_name(), steps),
         || profiles_changed(&app),
     )
 }
@@ -166,12 +166,13 @@ pub fn remove_agent_install(
     Ok(())
 }
 
-/// Runs `steps` as the job `job_id` with the user's environment, reporting
-/// progress to the UI.
+/// Runs `steps` as the job `job_id`, named `name` to the user, with the
+/// user's environment, reporting progress to the UI.
 fn run_job(
     app: &AppHandle,
     installer: &Installer,
     job_id: &str,
+    name: &str,
     steps: &[PlannedStep],
 ) -> Result<(), String> {
     let env = cached_user_env().unwrap_or_else(|_| std::env::vars().collect());
@@ -179,7 +180,7 @@ fn run_job(
     let report = |progress: InstallProgress| {
         let _ = app.emit(AGENT_INSTALL_PROGRESS, progress);
     };
-    installer.run(job_id, steps, &env, user_node_major, &report)
+    installer.run(job_id, name, steps, &env, user_node_major, &report)
 }
 
 /// Deletes what no enabled agent uses any more. Runs once at start, on the

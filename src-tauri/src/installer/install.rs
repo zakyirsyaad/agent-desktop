@@ -104,23 +104,20 @@ impl Installer {
         }
     }
 
-    /// Runs `steps` in order as the job `job_id`. `user_node_major` decides
-    /// whose npm installs prerequisites. Returns [`INSTALL_CANCELLED`] when
-    /// the job is cancelled, else the first step's readable error.
+    /// Runs `steps` in order as the job `job_id`, which the user knows as
+    /// `name` (the agent, or the runtime). `user_node_major` decides whose
+    /// npm installs prerequisites. Returns [`INSTALL_CANCELLED`] when the job
+    /// is cancelled, else the first step's readable error.
     pub fn run(
         &self,
         job_id: &str,
+        name: &str,
         steps: &[PlannedStep],
         env: &HashMap<String, String>,
         user_node_major: Option<u32>,
         on_progress: &(dyn Fn(InstallProgress) + Sync),
     ) -> Result<(), String> {
-        // The last step is what the plan is for: the agent, or the runtime.
-        let name = steps.last().map_or_else(
-            || "This agent".to_string(),
-            |step| step.display(Some(&self.manifest), &self.platform).name,
-        );
-        let job = self.start_job(job_id, &name)?;
+        let job = self.start_job(job_id, name)?;
         let cancel = job.cancel.as_ref();
         for (index, step) in steps.iter().enumerate() {
             let shown = step.display(Some(&self.manifest), &self.platform);
