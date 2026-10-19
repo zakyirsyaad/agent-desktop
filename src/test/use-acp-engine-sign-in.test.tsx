@@ -235,7 +235,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
     let starts = 0;
     const spy = spyWith({
       acp_start_session: () => Promise.resolve({ acpSessionId: `acp-${++starts}`, agentCapabilities: { loadSession: true } }),
-      acp_load_session: () => Promise.reject("Resource not found"),
+      acp_load_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
     });
     const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" });
     await act(async () => {
@@ -258,6 +258,32 @@ describe("useAcpEngine retryAfterSignIn", () => {
     expect(isHandled).toBe(true);
   });
 
+  it.each([
+    ["the agent fails the load", "session/load failed: Internal error: disk full"],
+    ["the agent never answers", "Timed out waiting for session/load"],
+  ])("keeps a session refused at a prompt, and gives the message back, when %s", async (_case, loadError) => {
+    let starts = 0;
+    const spy = spyWith({
+      acp_start_session: () => Promise.resolve({ acpSessionId: `acp-${++starts}`, agentCapabilities: { loadSession: true } }),
+      acp_load_session: () => Promise.reject(loadError),
+    });
+    const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" });
+    await act(async () => {
+      await result.current.start(SESSION);
+    });
+    spy.mockClear();
+
+    let isHandled: boolean | undefined;
+    await act(async () => {
+      isHandled = await result.current.retryAfterSignIn("s-1", { text: "try again" });
+    });
+
+    // A fresh ACP session would lose the conversation the agent still has.
+    expect(callsOf(spy, "acp_load_session", "acp_start_session")).toEqual(["acp_load_session"]);
+    expect(promptsSent(spy)).toEqual([]);
+    expect(isHandled).toBe(false);
+  });
+
   it("gives the message back when neither a load nor a new session opens", async () => {
     let starts = 0;
     const spy = spyWith({
@@ -265,7 +291,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
         starts++ === 0
           ? Promise.resolve({ acpSessionId: "acp-1", agentCapabilities: { loadSession: true } })
           : Promise.reject("spawn failed"),
-      acp_load_session: () => Promise.reject("Resource not found"),
+      acp_load_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
     });
     const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" });
     await act(async () => {

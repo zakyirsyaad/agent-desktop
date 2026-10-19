@@ -15,6 +15,7 @@ import { toCommands, useAcpSessions, type AcpSessionInfo, type TurnResult } from
 import type { ChatMessage, Session } from '../../types';
 import type { EngineDeps } from './usePtyEngine';
 import { parseAuthRequired, type AuthMethod } from '../../lib/acp-auth';
+import { isUnknownSessionError } from '../../lib/acp-load-error';
 
 const NOT_ENDED_NORMALLY = new Set(['refusal', 'max_tokens', 'max_turn_requests']);
 
@@ -331,10 +332,11 @@ export function useAcpEngine({
     if (!acpSessionId || !(wasTerminated || canLoad)) return start(session, first, choices);
     const openNew = () => acp.start(session.id, session.cwd, session.profileId);
     const load = () => acp.load(session.id, session.cwd, session.profileId, acpSessionId);
-    // A session refused at a prompt may have had no turn the agent kept: it cannot load one, so it starts anew.
+    // A session refused at a prompt may have had no turn the agent kept: when the agent does not know it,
+    // it starts anew. Any other failure keeps the session, whose conversation the agent may still have.
     const reopen = wasTerminated
       ? load
-      : () => load().catch((error: unknown) => (parseAuthRequired(error) ? Promise.reject(error) : openNew()));
+      : () => load().catch((error: unknown) => (isUnknownSessionError(error) ? openNew() : Promise.reject(error)));
     return launch(session, reopen, { first, choices, applySafeMode: true, action: 'resume' });
   };
 
