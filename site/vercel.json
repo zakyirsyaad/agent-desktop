@@ -1,9 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "installCommand": "npx --yes pnpm@12.10.1 install --frozen-lockfile",
+  "installCommand": "npx --yes pnpm@12.10.1 install --frozen-lockfile --filter zorvo-site...",
   "buildCommand": "npx --yes pnpm@12.10.1 run build",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml ../src/assets/agents",
+  "ignoreCommand": "git diff --quiet \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}\" HEAD -- . ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml ../src/assets/agents",
   "headers": [
     {
       "source": "/(.*)",
