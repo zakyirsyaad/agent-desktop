@@ -86,6 +86,8 @@ pub struct AgentProfile {
     pub name: String,
     pub command: String,
     pub detected: bool,
+    /// Where `command` was found, even when it cannot run the agent (an `npx`
+    /// whose Node is too old).
     pub detected_path: Option<String>,
     /// Model aliases this profile is willing to pass. Empty means "no verified
     /// list", which makes `build_spawn_plan` reject every model instead of

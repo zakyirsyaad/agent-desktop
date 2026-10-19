@@ -84,9 +84,13 @@ fn launch_for(profile_id: &str, versions: &BTreeMap<String, String>) -> Result<A
     let mut env: BTreeMap<String, String> = cached_user_env()
         .map(|m| m.into_iter().collect())
         .unwrap_or_default();
+    // Without the login shell's env, fall back to the process PATH (as
+    // `agent_profiles` does) rather than leave the agent only Zorvo's dirs.
+    let process_path = std::env::var("PATH").ok();
     if let Some(path) = agent_path(
         &profile.acp_path_prepend,
         env.get("PATH").map(String::as_str),
+        process_path.as_deref(),
         &profile.acp_path_append,
     ) {
         env.insert("PATH".to_string(), path);
@@ -103,11 +107,19 @@ fn launch_for(profile_id: &str, versions: &BTreeMap<String, String>) -> Result<A
 
 /// `prepend`, the user's `PATH` entries, then `append`, joined with `:`;
 /// `None` when there is nothing to add, so the user's `PATH` is left alone.
-fn agent_path(prepend: &[String], user_path: Option<&str>, append: &[String]) -> Option<String> {
+/// Without the login shell's `PATH` the process `PATH` stands in (as in
+/// `agent_profiles`), so the agent still finds `git` and `sh`.
+fn agent_path(
+    prepend: &[String],
+    login_path: Option<&str>,
+    process_path: Option<&str>,
+    append: &[String],
+) -> Option<String> {
     if prepend.is_empty() && append.is_empty() {
         return None;
     }
-    let user_entries = user_path
+    let user_entries = login_path
+        .or(process_path)
         .unwrap_or_default()
         .split(':')
         .filter(|entry| !entry.is_empty());
@@ -303,14 +315,24 @@ mod tests {
         let node = vec!["/zorvo/node/bin".to_string()];
         let extras = vec!["/zorvo/uv".to_string(), "/zorvo/pi/bin".to_string()];
 
-        assert_eq!(agent_path(&[], Some("/usr/bin:/bin"), &[]), None);
+        assert_eq!(agent_path(&[], Some("/usr/bin:/bin"), None, &[]), None);
         assert_eq!(
-            agent_path(&node, Some("/usr/bin:/bin"), &extras).as_deref(),
+            agent_path(&node, Some("/usr/bin:/bin"), Some("/ignored"), &extras).as_deref(),
             Some("/zorvo/node/bin:/usr/bin:/bin:/zorvo/uv:/zorvo/pi/bin")
         );
         assert_eq!(
-            agent_path(&[], None, &extras).as_deref(),
+            agent_path(&[], None, None, &extras).as_deref(),
             Some("/zorvo/uv:/zorvo/pi/bin")
+        );
+    }
+
+    #[test]
+    fn without_the_login_shell_env_the_agent_keeps_the_process_path() {
+        let node = vec!["/zorvo/node/bin".to_string()];
+
+        assert_eq!(
+            agent_path(&node, None, Some("/usr/bin:/bin"), &[]).as_deref(),
+            Some("/zorvo/node/bin:/usr/bin:/bin")
         );
     }
 

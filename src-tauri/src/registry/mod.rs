@@ -19,7 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::installer::{
     self,
-    runtimes::{user_node_major, NODE_VERSION_TIMEOUT},
+    runtimes::{probe_user_node, NODE_VERSION_TIMEOUT},
 };
 use crate::profiles::AgentProfile;
 use cache::RegistryCache;
@@ -256,20 +256,21 @@ impl Catalog {
 ///
 /// It runs `node` and `npm` and may fetch, so call it off the main thread.
 pub fn refresh_catalog(catalog: &Catalog, env: &HashMap<String, String>, force: bool) -> bool {
-    let node_changed = installer::set_user_node_major(user_node_major(env, NODE_VERSION_TIMEOUT));
+    // A probe that cannot answer (empty env, timeout) keeps the known major.
+    let node_changed = installer::record_node_probe(probe_user_node(env, NODE_VERSION_TIMEOUT));
     // A working `npm ls -g` always lists npm itself, so an empty set means
     // detection failed (no npm, an error, the timeout): keep what was found.
     let found = npm_globals(env, NPM_TIMEOUT);
-    let npm_changed = (!found.is_empty() && catalog.set_npm_globals(found)) || node_changed;
+    let local_changed = (!found.is_empty() && catalog.set_npm_globals(found)) || node_changed;
     let now = unix_now();
     if !force && !catalog.needs_refresh(now) {
-        return npm_changed;
+        return local_changed;
     }
     match catalog.refresh_from_registry(now) {
-        Ok(changed) => npm_changed || changed,
+        Ok(changed) => local_changed || changed,
         Err(error) => {
             eprintln!("Could not refresh the ACP registry: {error}");
-            npm_changed
+            local_changed
         }
     }
 }

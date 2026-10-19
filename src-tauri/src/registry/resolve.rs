@@ -97,8 +97,9 @@ impl Located {
 /// How the agent's own program resolves, before its prerequisites.
 enum Program {
     Found(Located),
-    /// Neither the user's runtime nor Zorvo's can run it.
-    NeedsRuntime,
+    /// Neither the user's runtime nor Zorvo's can run it. Holds the user's
+    /// own tool when it was found but cannot be used (`npx` with too old a Node).
+    NeedsRuntime(Option<String>),
     /// A binary agent with no copy on `PATH` or from Zorvo.
     NotInstalled,
 }
@@ -122,7 +123,7 @@ struct Resolution<'e> {
 impl Resolution<'_> {
     fn availability(&self) -> &'static str {
         match self.program {
-            Program::NeedsRuntime => AVAILABILITY_NEEDS_RUNTIME,
+            Program::NeedsRuntime(_) => AVAILABILITY_NEEDS_RUNTIME,
             Program::NotInstalled => AVAILABILITY_NOT_INSTALLED,
             Program::Found(_) if !self.missing_prerequisites.is_empty() => {
                 AVAILABILITY_NOT_INSTALLED
@@ -140,17 +141,16 @@ fn npx_program(tools: &SystemTools) -> (Program, Option<RuntimeKind>) {
             return (Program::Found(Located::as_is(path)), None);
         }
     }
-    let program = tools
-        .installed
-        .node
-        .as_ref()
-        .map_or(Program::NeedsRuntime, |node| {
+    let program = tools.installed.node.as_ref().map_or_else(
+        || Program::NeedsRuntime(tools.locate("npx")),
+        |node| {
             Program::Found(Located {
                 path: path_string(&node.bin_dir.join("npx")),
                 prepend: vec![path_string(&node.bin_dir)],
                 append: Vec::new(),
             })
-        });
+        },
+    );
     (program, Some(RuntimeKind::Node))
 }
 
@@ -163,7 +163,7 @@ fn uvx_program(tools: &SystemTools) -> (Program, Option<RuntimeKind>) {
         .installed
         .uv
         .as_ref()
-        .map_or(Program::NeedsRuntime, |uv| {
+        .map_or(Program::NeedsRuntime(None), |uv| {
             Program::Found(Located {
                 path: path_string(&uv.bin_dir.join("uvx")),
                 prepend: Vec::new(),
@@ -299,13 +299,15 @@ pub fn resolve_profile(entry: &RegistryEntry, tools: &SystemTools, listed: bool)
             .map(|step| step.display(tools.installed.manifest.as_ref(), current_platform()))
             .collect()
     });
-    let (program_path, prepend, append) = match resolution.program {
+    let (program_path, unusable, prepend, append) = match resolution.program {
         Program::Found(located) => (
             Some(located.path),
+            None,
             located.prepend,
             [located.append, resolution.prerequisite_bins].concat(),
         ),
-        Program::NeedsRuntime | Program::NotInstalled => (None, Vec::new(), Vec::new()),
+        Program::NeedsRuntime(unusable) => (None, unusable, Vec::new(), Vec::new()),
+        Program::NotInstalled => (None, None, Vec::new(), Vec::new()),
     };
 
     let mut profile = AgentProfile::new(
@@ -317,7 +319,7 @@ pub fn resolve_profile(entry: &RegistryEntry, tools: &SystemTools, listed: bool)
     profile.acp_program = Some(resolution.command);
     profile.acp_args = resolution.args;
     profile.detected = availability == AVAILABILITY_READY;
-    profile.detected_path = program_path.clone();
+    profile.detected_path = program_path.clone().or(unusable);
     profile.acp_program_path = program_path;
     profile.acp_path_prepend = prepend;
     profile.acp_path_append = append;
@@ -352,6 +354,13 @@ pub fn missing_reason(profile: &AgentProfile) -> Option<String> {
                 Some("uvx") => ("uv", "uvx"),
                 _ => ("Node.js", "npx"),
             };
+            // `npx` was found, so it is the user's Node that is too old.
+            if tool == "npx" && profile.detected_path.is_some() {
+                return Some(format!(
+                    "{} needs Node.js {MIN_USER_NODE_MAJOR} or newer",
+                    profile.name
+                ));
+            }
             Some(format!(
                 "{} needs {runtime} ({tool}), which was not found",
                 profile.name

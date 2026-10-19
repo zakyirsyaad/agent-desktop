@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use zorvo_lib::installer::layout::ToolsDir;
 use zorvo_lib::installer::runtimes::{
-    installed_runtime, parse_manifest, parse_node_major, user_node_major, RuntimeKind,
-    BUNDLED_RUNTIMES,
+    installed_runtime, parse_manifest, parse_node_major, probe_user_node, user_node_major,
+    NodeProbe, RuntimeKind, BUNDLED_RUNTIMES,
 };
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -136,6 +136,31 @@ fn user_node_major_needs_npx_beside_node() {
     assert_eq!(user_node_major(&env, Duration::from_secs(5)), None);
     script(&dir, "npx", "exit 0");
     assert_eq!(user_node_major(&env, Duration::from_secs(5)), Some(24));
+}
+
+#[test]
+fn probing_node_tells_absence_from_a_failed_probe() {
+    let dir = temp_dir();
+    let env = env_with_path(&dir);
+    let timeout = Duration::from_secs(5);
+
+    assert_eq!(
+        probe_user_node(&HashMap::new(), timeout),
+        NodeProbe::Inconclusive
+    );
+    assert_eq!(
+        probe_user_node(
+            &HashMap::from([("PATH".to_string(), String::new())]),
+            timeout
+        ),
+        NodeProbe::Inconclusive
+    );
+    assert_eq!(probe_user_node(&env, timeout), NodeProbe::Absent);
+    script(&dir, "node", "exit 1");
+    script(&dir, "npx", "exit 0");
+    assert_eq!(probe_user_node(&env, timeout), NodeProbe::Inconclusive);
+    script(&dir, "node", "echo v24.1.0");
+    assert_eq!(probe_user_node(&env, timeout), NodeProbe::Found(24));
 }
 
 #[test]

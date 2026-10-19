@@ -728,3 +728,19 @@ fn missing_reason_names_a_missing_prerequisite() {
         Some("Pi needs pi, which was not found")
     );
 }
+
+#[test]
+fn missing_reason_asks_for_a_newer_node_when_npx_is_found() {
+    let dir = bin_dir_with(&["npx"]);
+    let path = path_of(dir.path());
+    let globals = BTreeSet::new();
+    let installed = user_node(20);
+
+    let profile = resolve_profile(&gemini(), &system(&path, &globals, &installed), true);
+
+    assert_eq!(profile.availability, "needs_runtime");
+    assert_eq!(
+        missing_reason(&profile).as_deref(),
+        Some("Gemini CLI needs Node.js 22 or newer")
+    );
+}

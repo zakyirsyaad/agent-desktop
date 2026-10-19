@@ -198,6 +198,30 @@ pub fn user_node_major(env: &HashMap<String, String>, timeout: Duration) -> Opti
     }
 }
 
+/// What a look for the user's own Node found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeProbe {
+    /// `node --version` answered with this major.
+    Found(u32),
+    /// `node` or `npx` is not on a non-empty `PATH`.
+    Absent,
+    /// No `PATH` to search, or `node --version` failed or timed out.
+    Inconclusive,
+}
+
+/// [`user_node_major`], telling a confirmed absence from a probe that could
+/// not answer, so a passing failure never hides a Node that works.
+pub fn probe_user_node(env: &HashMap<String, String>, timeout: Duration) -> NodeProbe {
+    let Some(path_var) = env.get("PATH").filter(|path| !path.is_empty()) else {
+        return NodeProbe::Inconclusive;
+    };
+    let on_path = |binary| find_binary_in_path_str(binary, path_var).is_some();
+    if !on_path("node") || !on_path("npx") {
+        return NodeProbe::Absent;
+    }
+    user_node_major(env, timeout).map_or(NodeProbe::Inconclusive, NodeProbe::Found)
+}
+
 /// A runtime Zorvo installed, with the folder to put on `PATH`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledRuntime {
