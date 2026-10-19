@@ -59,14 +59,16 @@ you have.
 ## Supported agents
 
 Zorvo reads the [ACP agent registry](https://agentclientprotocol.com), so any
-agent listed there can run as a chat. Claude Code, Codex and Qwen Code are in
+agent listed there can run as a chat. Zorvo checks the registry in the
+background at startup when the last check is over a day old, and when you click
+**Check again** in Settings. Claude Code, Codex and Qwen Code are in
 use by default. An agent that is already installed on your Mac shows up on its
 own. A new version of an agent is offered once the registry has listed it for a
 week. Oh-My-Pi and Aider are terminal agents that Zorvo defines itself.
 
 | | Qwen Code | Claude Code | Codex | Oh-My-Pi | Aider |
 |---|---|---|---|---|---|
-| Runs as | ACP registry agent | ACP registry agent | ACP registry agent | its TUI (`omp`) | its TUI (`aider`) |
+| Runs as | ACP agent via `npx` | ACP agent via `npx` | ACP agent via `npx` | its TUI (`omp`) | its TUI (`aider`) |
 | View | chat | chat | chat | terminal | terminal |
 | Models, effort, modes | from the agent | from the agent | from the agent | flags at start | model flag at start |
 | Approvals | in the chat | in the chat | in the chat | detected `[y/n]` prompts | in its terminal |
@@ -87,15 +89,18 @@ the new agent is asked to read it.
 
 - macOS (Apple Silicon or Intel).
 - **Node.js 22+ with `npx`** on your login shell's `PATH` (nvm, Homebrew…).
-  Claude Code and Codex run through their ACP adapters with `npx`.
-- **At least one agent CLI**, installed and signed in:
+  Claude Code, Codex, Qwen Code and any other registry agent that runs with
+  `npx` need it. The first start downloads the agent's pinned package.
+- **At least one agent, signed in.** Agents sign in with their own tools. A
+  global install is optional: it only makes an agent show up as installed
+  before you first use it.
 
-  | Agent | Install | Sign in |
+  | Agent | Optional global install | Sign in |
   |---|---|---|
   | Qwen Code | `npm i -g @qwen-code/qwen-code` | run `qwen` once |
   | Claude Code | `npm i -g @anthropic-ai/claude-code` | `claude`, then `/login` |
   | Codex | `npm i -g @openai/codex` | `codex login` (or the app's sign-in panel) |
-  | Oh-My-Pi / Aider | see their docs | — |
+  | Oh-My-Pi / Aider | required; see their docs | — |
 
 - **Optional: the [GitHub CLI](https://cli.github.com)**, signed in with
   `gh auth login`, for pull request status. Without it, that part is hidden.
@@ -172,9 +177,9 @@ or runs commands.
 
 | Problem | What to try |
 |---|---|
-| An agent shows as not installed | Check that `which qwen` (or `claude`, `codex`) works in a new terminal, then click **Check again** in Settings. The app reads your login shell's `PATH`. |
+| An agent shows as not installed | A registry agent counts as installed when its binary is on your `PATH` or its npm package is installed globally. Agents that run with `npx` also work without that, as long as Node.js is on your `PATH`. For Oh-My-Pi and Aider, check that `which omp` (or `aider`) works in a new terminal. Then click **Check again** in Settings. |
 | "Sign in to *agent*": the agent needs you to sign in before it can start | Use a sign-in method the panel offers, or sign in once in a terminal (see [Requirements](#requirements)), then send your message again. |
-| Claude Code or Codex does not start | They need `npx` (Node.js 22+). The first start downloads the ACP adapter, so it can take a moment. |
+| Claude Code, Codex or Qwen Code does not start | They need `npx` (Node.js 22+). The first start downloads the agent's pinned package, so it can take a moment. |
 | No pull request status | Install `gh` and run `gh auth login`. A repository without a GitHub remote has none to show. |
 | "is not in the last commit, so a worktree would not have it" | A worktree checks out the last commit. Commit the folder first, or start the session without Worktree. |
 | The app is blocked on first open | See [Install](#install). |
