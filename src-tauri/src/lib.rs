@@ -11,6 +11,7 @@ pub mod git_info;
 pub mod profiles;
 pub mod pty_session;
 pub mod pull_requests;
+pub mod registry;
 pub mod spawn_plan;
 pub mod store;
 pub mod user_profile;
