@@ -140,15 +140,20 @@ fn is_valid_entry(entry: &RegistryEntry) -> bool {
                 is_pinned_package(package)
             }
             Distribution::Binary { platforms } => {
-                !platforms.is_empty() && platforms.values().all(is_valid_binary_target)
+                // Only this machine's target matters; others are kept but never run.
+                platforms
+                    .get(current_platform())
+                    .is_some_and(is_valid_binary_target)
             }
         }
 }
 
-/// `^[a-z][a-z0-9-]*$`
+/// `^[a-z0-9][a-z0-9-]*$`
 fn is_valid_id(id: &str) -> bool {
     let mut chars = id.chars();
-    chars.next().is_some_and(|c| c.is_ascii_lowercase())
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 

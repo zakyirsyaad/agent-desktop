@@ -8,10 +8,23 @@ fn npx(id: &str, package: &str) -> String {
     )
 }
 
-fn binary(id: &str, archive: &str, cmd: &str, sha: &str) -> String {
+fn target(archive: &str, cmd: &str, sha: &str) -> String {
+    format!(r#"{{"archive":"{archive}","cmd":"{cmd}","args":["acp"],"sha256":"{sha}"}}"#)
+}
+
+fn binary_on(id: &str, targets: &[(&str, String)]) -> String {
+    let body: Vec<String> = targets
+        .iter()
+        .map(|(platform, t)| format!(r#""{platform}":{t}"#))
+        .collect();
     format!(
-        r#"{{"id":"{id}","name":"B","version":"1.0.0","distribution":{{"binary":{{"darwin-aarch64":{{"archive":"{archive}","cmd":"{cmd}","args":["acp"],"sha256":"{sha}"}}}}}}}}"#
+        r#"{{"id":"{id}","name":"B","version":"1.0.0","distribution":{{"binary":{{{}}}}}}}"#,
+        body.join(",")
     )
+}
+
+fn binary(id: &str, archive: &str, cmd: &str, sha: &str) -> String {
+    binary_on(id, &[(current_platform(), target(archive, cmd, sha))])
 }
 
 fn doc(entries: &[String]) -> String {
@@ -57,7 +70,7 @@ fn parses_valid_npx_uvx_and_binary_entries() {
     }
     match &entries[2].distribution {
         Distribution::Binary { platforms } => {
-            let t = &platforms["darwin-aarch64"];
+            let t = &platforms[current_platform()];
             assert_eq!(t.cmd, "./opencode");
             assert_eq!(t.sha256, SHA);
             assert!(t.archive.starts_with("https://"));
@@ -140,4 +153,31 @@ fn rejects_a_document_without_agents() {
 fn current_platform_names_os_and_arch() {
     let p = current_platform();
     assert!(p.contains('-'), "got {p}");
+}
+
+#[test]
+fn keeps_an_id_that_starts_with_a_digit() {
+    let json = doc(&[npx("7zip-agent", "a@1.0.0")]);
+    assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["7zip-agent"]);
+}
+
+#[test]
+fn ignores_an_invalid_target_for_another_platform() {
+    let good = target("https://h/o.zip", "./o", SHA);
+    let bad = target("https://h/o.zip", ".\\\\agent.exe", SHA);
+    let json = doc(&[binary_on(
+        "mixed",
+        &[(current_platform(), good), ("windows-x86_64-other", bad)],
+    )]);
+    assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["mixed"]);
+}
+
+#[test]
+fn skips_a_binary_with_no_target_for_this_platform() {
+    let good = target("https://h/o.zip", "./o", SHA);
+    let json = doc(&[
+        binary_on("elsewhere", &[("other-platform", good)]),
+        npx("ok", "a@1.0.0"),
+    ]);
+    assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["ok"]);
 }
