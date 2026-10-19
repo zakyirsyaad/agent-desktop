@@ -10,6 +10,7 @@
     "lint": "tsc --noEmit && eslint --max-warnings=0 .",
     "preview": "vite preview",
     "test": "vitest run",
+    "registry:update": "node scripts/registry-update.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
