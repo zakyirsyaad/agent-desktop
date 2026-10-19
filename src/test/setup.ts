@@ -101,7 +101,10 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
     case "spawn_session":
     case "send_input":
     case "resize_session":
+    case "install_agent":
       return Promise.resolve(undefined);
+    case "cancel_agent_install":
+      return Promise.resolve(false);
     default:
       return null;
   }

@@ -7,6 +7,9 @@ import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { FilesPanel } from "./components/FilesPanel";
 import { EmptySessionState, FileDropOverlay, NoticeBanner } from "./components/AppPlaceholders";
 import { AuthPanel } from "./components/AuthPanel";
+import { AgentInstallPanel } from "./components/AgentInstallPanel";
+import { readWindowMode } from "./lib/window-mode";
+import { pickerLabelOf } from "./lib/install-plan";
 import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
 import { WorkspaceSummary } from "./components/workspace/WorkspaceSummary";
@@ -86,6 +89,9 @@ const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder butto
 const NO_AGENT_NOTICE =
   "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
+// Only the main window installs agents; a popout only mirrors it.
+const IS_MAIN_WINDOW = readWindowMode(window.location.search).kind === "main";
+
 // eslint-disable-next-line no-control-regex -- matching control characters is the point.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 
@@ -139,9 +145,10 @@ export default function App() {
   const isActiveRunning = activeSession?.status === "running";
   // Only the agents in use are offered: the defaults, installed ones and the terminal agents found.
   const agentsInUse = agents.filter((agent) => isInUse(agent, state.settings));
-  const readyAgentsInUse = agentsInUse.filter((agent) => agent.detected);
+  // A registry agent not installed yet is offered too: picking it shows its Install panel.
+  const pickableAgents = agentsInUse.filter((agent) => agent.source === "registry" || agent.detected);
   const defaultAgentId = resolveDefaultAgentId(agentsInUse, state.settings.defaultAgentId);
-  const newSessionAgentId = readyAgentsInUse.find((a) => a.id === pickedAgentId)?.id ?? defaultAgentId;
+  const newSessionAgentId = pickableAgents.find((a) => a.id === pickedAgentId)?.id ?? defaultAgentId;
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
   // No session is selected: the window shows a new one, not started until its first message.
   const isNewSessionDraft = !activeSession;
@@ -161,6 +168,7 @@ export default function App() {
   const isResumable =
     isAcp(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
   const draftAgent = isResumable ? activeAgent : newSessionAgent;
+  const isDraftAgentReady = draftAgent?.availability === "ready";
 
   // A model or effort chosen for one agent means nothing to another one.
   useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
@@ -211,7 +219,7 @@ export default function App() {
 
   // A draft asks its ACP agent what it offers, and whether it needs a sign-in, before the first message.
   const agentCheck = useDraftAgentCheck({
-    agent: isActiveRunning ? undefined : draftAgent,
+    agent: isActiveRunning || !isDraftAgentReady ? undefined : draftAgent,
     cwd: shownFolderPath ?? undefined,
     agentOptions: state.agentOptions,
     rememberProbed: (profileId, probed) =>
@@ -659,6 +667,7 @@ export default function App() {
               onDismiss={dismissSignIn}
             />
           )}
+          {!isActiveRunning && draftAgent?.install_plan && IS_MAIN_WINDOW && <AgentInstallPanel agent={draftAgent} />}
           {showsTerminal ? (
             <TerminalView
               sessionId={activeSessionId}
@@ -706,7 +715,7 @@ export default function App() {
               optionsLocked={composer.locked}
               isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
               onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
-              disabled={isCreatingWorktree || (!isActiveRunning && !isResumable && !canStartSession)}
+              disabled={isCreatingWorktree || (!isActiveRunning && (!isDraftAgentReady || (!isResumable && !canStartSession)))}
               placeholder={composerPlaceholder({
                 isRunning: isActiveRunning,
                 isCreatingWorktree,
@@ -739,7 +748,7 @@ export default function App() {
               agent={
                 isNewSessionDraft && newSessionAgent
                   ? {
-                      options: readyAgentsInUse.map((a) => ({ value: a.id, label: a.name })),
+                      options: pickableAgents.map((a) => ({ value: a.id, label: pickerLabelOf(a) })),
                       selected: newSessionAgent.id,
                       onChange: (agentId) => setPickedAgentId(agentId ?? null),
                     }
