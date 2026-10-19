@@ -15,10 +15,11 @@ export interface AuthPanelProps {
 
 /**
  * Shown when an agent needs a sign-in before it can start. Methods that run
- * in the agent (a browser sign-in) get a button; methods that need a secret
- * are only explained, since the app never asks for API keys.
+ * in the agent (a browser sign-in) or in a terminal get a button; methods that
+ * need a secret are only explained, since the app never asks for API keys.
  */
 export function AuthPanel({ agentName, methods, status, error, onSignIn, onDismiss }: AuthPanelProps) {
+  const hasButton = methods.some((method) => method.kind !== "explain");
   const title = `Sign in to ${agentName}`;
   return (
     <section
@@ -45,7 +46,7 @@ export function AuthPanel({ agentName, methods, status, error, onSignIn, onDismi
       ) : (
         <>
           <p className="mt-1.5 text-fg-muted">{agentName} needs you to sign in before it can start.</p>
-          {methods.length === 0 && (
+          {!hasButton && (
             <p className="mt-2 text-fg-secondary">Sign in with {agentName}&apos;s own command line tool, then try again.</p>
           )}
           <ul className="mt-2 space-y-1.5">
@@ -55,7 +56,7 @@ export function AuthPanel({ agentName, methods, status, error, onSignIn, onDismi
                   <span className="font-medium text-fg-secondary">{method.name}</span>
                   {method.description && <p className="text-fg-subtle">{method.description}</p>}
                 </div>
-                {!method.needsSecret && (
+                {method.kind !== "explain" && (
                   <Button
                     variant="primary"
                     disabled={status === "signing-in"}

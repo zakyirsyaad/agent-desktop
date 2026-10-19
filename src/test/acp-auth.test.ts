@@ -11,15 +11,25 @@ describe("parseAuthRequired", () => {
     const methods = parseAuthRequired(`ACP_AUTH_REQUIRED:${JSON.stringify(codexMethods)}`);
 
     expect(methods).toEqual([
-      { id: "api-key", name: "API Key", description: "Use an API key to authenticate", needsSecret: true },
-      { id: "chat-gpt", name: "ChatGPT", description: "Use ChatGPT to authenticate", needsSecret: false },
+      { id: "api-key", name: "API Key", description: "Use an API key to authenticate", kind: "explain" },
+      { id: "chat-gpt", name: "ChatGPT", description: "Use ChatGPT to authenticate", kind: "agent" },
     ]);
   });
 
-  it("marks methods the user must set up in a terminal as needing a secret", () => {
+  it("explains methods the user must set up in a terminal through _meta", () => {
     const qwen = [{ id: "openai", name: "Use OpenAI API key", _meta: { type: "terminal", args: ["--auth-type=openai"] } }];
 
-    expect(parseAuthRequired(`ACP_AUTH_REQUIRED:${JSON.stringify(qwen)}`)?.[0].needsSecret).toBe(true);
+    expect(parseAuthRequired(`ACP_AUTH_REQUIRED:${JSON.stringify(qwen)}`)?.[0].kind).toBe("explain");
+  });
+
+  it("marks a type terminal method as a terminal sign-in", () => {
+    const claude = [
+      { id: "claude-ai-login", name: "Claude Subscription", type: "terminal", args: ["--cli", "auth", "login", "--claudeai"] },
+    ];
+
+    expect(parseAuthRequired(`ACP_AUTH_REQUIRED:${JSON.stringify(claude)}`)).toEqual([
+      { id: "claude-ai-login", name: "Claude Subscription", kind: "terminal" },
+    ]);
   });
 
   it("returns null for any other error, and no methods for a malformed list", () => {
