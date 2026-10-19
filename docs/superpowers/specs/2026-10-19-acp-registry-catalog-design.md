@@ -155,11 +155,17 @@ the last version Zorvo knew, and is marked as no longer listed.
 ### Versions the registry withdraws
 
 The cache records the version the registry lists now for each listed
-agent. A version newer than that one is not offered, so a registry
-rollback (v2 back to v1) offers v1 again. A version an agent already
-started with is still used while the history has it, unless the registry
-withdrew it: when the agent is listed and that version is newer than the
-listed one, the offered version runs instead.
+agent. Every version in the history newer than that one is withdrawn, so a
+registry rollback (v2 back to v1) offers v1 again. Withdrawal is permanent:
+the cache keeps a set of withdrawn versions per agent, merged across
+fetches and never shrunk, so a withdrawn version is never offered again,
+even after the registry lists a newer one. A refresh that withdraws a
+version counts as a change.
+
+A version an agent already started with is still used while the history
+has it, unless it is withdrawn; then the offered version runs instead. When
+nothing is offered (every other version is too new or withdrawn), the
+withdrawn version keeps running, so the agent never disappears.
 
 ## Interfaces
 

@@ -28,12 +28,25 @@ pub(super) struct RegistryCache {
     /// the next fetch.
     #[serde(default)]
     pub listed_versions: BTreeMap<String, String>,
+    /// Versions the registry withdrew: each one was newer than the version it
+    /// listed for that id in some fetch. Merged across fetches and never
+    /// shrunk, so a withdrawn version is never offered again. Missing from
+    /// caches written before it was recorded.
+    #[serde(default)]
+    pub withdrawn: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl RegistryCache {
     /// The version the registry lists now for `id`, when known.
     pub fn listed_version(&self, id: &str) -> Option<&str> {
         self.listed_versions.get(id).map(String::as_str)
+    }
+
+    /// True when a fetch found `version` of `id` withdrawn.
+    pub fn is_withdrawn(&self, id: &str, version: &str) -> bool {
+        self.withdrawn
+            .get(id)
+            .is_some_and(|versions| versions.contains(version))
     }
 }
 

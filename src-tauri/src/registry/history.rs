@@ -112,13 +112,33 @@ impl VersionHistory {
         now: u64,
         ceiling: Option<&str>,
     ) -> Option<&RegistryEntry> {
+        self.offered_where(id, now, |version| is_within(version, ceiling))
+    }
+
+    /// [`Self::offered`], considering only the versions `allowed` accepts.
+    pub fn offered_where(
+        &self,
+        id: &str,
+        now: u64,
+        allowed: impl Fn(&str) -> bool,
+    ) -> Option<&RegistryEntry> {
         self.agents
             .get(id)?
             .iter()
             .filter(|(_, record)| now.saturating_sub(record.first_seen) >= MIN_AGE_SECS)
-            .filter(|(version, _)| is_within(version, ceiling))
+            .filter(|(version, _)| allowed(version))
             .max_by(|(a, _), (b, _)| compare_versions(a, b))
             .map(|(_, record)| &record.entry)
+    }
+
+    /// Every version of `id` newer (semver order) than `top`.
+    pub fn versions_above<'a>(&'a self, id: &str, top: &'a str) -> impl Iterator<Item = &'a str> {
+        self.agents
+            .get(id)
+            .into_iter()
+            .flat_map(|versions| versions.keys())
+            .map(String::as_str)
+            .filter(move |version| !is_within(version, Some(top)))
     }
 
     pub fn version(&self, id: &str, version: &str) -> Option<&RegistryEntry> {

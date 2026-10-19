@@ -64,25 +64,42 @@ impl CatalogState {
         self.cache.as_ref().and_then(|c| c.listed_version(id))
     }
 
-    /// The newest old-enough version, never newer than the one the registry lists now.
+    /// True when the registry withdrew `version` of `id`: some fetch listed an
+    /// older version as its latest, or the version is newer than the one it lists now.
+    fn is_withdrawn(&self, id: &str, version: &str) -> bool {
+        !is_within(version, self.ceiling(id))
+            || self
+                .cache
+                .as_ref()
+                .is_some_and(|cache| cache.is_withdrawn(id, version))
+    }
+
+    /// The newest old-enough version the registry has not withdrawn.
     fn offered(&self, id: &str, now: u64) -> Option<&RegistryEntry> {
-        self.history.offered_up_to(id, now, self.ceiling(id))
+        self.history
+            .offered_where(id, now, |version| !self.is_withdrawn(id, version))
     }
 
     /// The version to run: the one in use when the history has it and the
-    /// registry has not withdrawn it (it is not newer than the listed one),
-    /// else the offered one.
+    /// registry has not withdrawn it, else the offered one. A withdrawn
+    /// version in use keeps running when nothing else is offered, so the
+    /// agent never disappears.
     fn entry_for(
         &self,
         id: &str,
         versions: &BTreeMap<String, String>,
         now: u64,
     ) -> Option<&RegistryEntry> {
-        versions
+        let recorded = versions
             .get(id)
-            .filter(|version| is_within(version, self.ceiling(id)))
-            .and_then(|version| self.history.version(id, version))
-            .or_else(|| self.offered(id, now))
+            .and_then(|version| Some((version, self.history.version(id, version)?)));
+        match recorded {
+            Some((version, entry)) if self.is_withdrawn(id, version) => {
+                self.offered(id, now).or(Some(entry))
+            }
+            Some((_, entry)) => Some(entry),
+            None => self.offered(id, now),
+        }
     }
 
     fn profile(
@@ -162,10 +179,16 @@ impl Catalog {
 
         let listed_versions: BTreeMap<String, String> =
             entries.into_iter().map(|e| (e.id, e.version)).collect();
+        let withdrawn = withdrawn_after(state.cache.as_ref(), &history, &listed_versions);
+        let withdrawn_changed = state
+            .cache
+            .as_ref()
+            .map_or(!withdrawn.is_empty(), |cache| cache.withdrawn != withdrawn);
         let cache = RegistryCache {
             last_fetch: now,
             listed: listed_versions.keys().cloned().collect(),
             listed_versions,
+            withdrawn,
         };
         if let Some(dir) = &self.data_dir {
             cache::save(dir, &local, &cache)?;
@@ -182,7 +205,7 @@ impl Catalog {
                     != next.offered(id, now).map(|e| &e.version)
         });
         *state = next;
-        Ok(!unseen.is_empty() || profiles_changed)
+        Ok(!unseen.is_empty() || withdrawn_changed || profiles_changed)
     }
 
     /// [`Self::refresh`] from the one registry URL the app ever fetches.
@@ -194,7 +217,8 @@ impl Catalog {
     }
 
     /// One profile per agent in the history, at the version in `versions`
-    /// when the history has it, else at the offered version. Agents with
+    /// when the history has it and it is not withdrawn, else at the offered
+    /// version (or the withdrawn one when nothing is offered). Agents with
     /// neither are left out.
     pub fn profiles(
         &self,
@@ -270,6 +294,29 @@ impl Catalog {
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+/// The withdrawn versions after a fetch listing `listed`: the previous ones
+/// plus, for each listed id, every version in `history` newer than the listed
+/// one. Never smaller than before.
+fn withdrawn_after(
+    previous: Option<&RegistryCache>,
+    history: &VersionHistory,
+    listed: &BTreeMap<String, String>,
+) -> BTreeMap<String, BTreeSet<String>> {
+    let mut withdrawn = previous
+        .map(|cache| cache.withdrawn.clone())
+        .unwrap_or_default();
+    for (id, version) in listed {
+        let newer: BTreeSet<String> = history
+            .versions_above(id, version)
+            .map(str::to_string)
+            .collect();
+        if !newer.is_empty() {
+            withdrawn.entry(id.clone()).or_default().extend(newer);
+        }
+    }
+    withdrawn
 }
 
 /// Re-reads the global npm packages with the user's environment `env` and,
