@@ -32,6 +32,12 @@ describe("parseAuthRequired", () => {
     ]);
   });
 
+  it("explains a method of a type the app does not run, such as env_var", () => {
+    const envVar = [{ id: "gemini-key", name: "Gemini API key", type: "env_var", varName: "GEMINI_API_KEY" }];
+
+    expect(parseAuthRequired(`ACP_AUTH_REQUIRED:${JSON.stringify(envVar)}`)?.[0].kind).toBe("explain");
+  });
+
   it("returns null for any other error, and no methods for a malformed list", () => {
     expect(parseAuthRequired("session/new failed: boom")).toBeNull();
     expect(parseAuthRequired(new Error("x"))).toBeNull();

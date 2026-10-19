@@ -21,6 +21,8 @@ const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null 
 
 function methodKind(method: Json): AuthMethodKind {
   if (method.type === 'terminal') return 'terminal';
+  // Any other type the app does not run (env_var needs a secret it never asks for).
+  if (method.type !== undefined && method.type !== 'agent') return 'explain';
   const meta = isObject(method._meta) ? method._meta : {};
   if (meta.type === 'terminal' || 'api-key' in meta || /api.?key/i.test(String(method.id))) return 'explain';
   return 'agent';
