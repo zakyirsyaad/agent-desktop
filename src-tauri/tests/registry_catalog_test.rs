@@ -420,14 +420,6 @@ fn offers_no_version_newer_than_the_one_the_registry_lists() {
     let profiles = no_tools_profiles(&reopened, &BTreeMap::new(), now);
     assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("1.0.0"));
 
-    let recorded = BTreeMap::from([("gemini".to_string(), "2.0.0".to_string())]);
-    let pinned = no_tools_profiles(&catalog, &recorded, now);
-    assert_eq!(
-        find(&pinned, "gemini").version.as_deref(),
-        Some("2.0.0"),
-        "the version an agent started with still wins"
-    );
-
     catalog
         .refresh(
             || Ok(registry_of(&[npx_entry("gemini", "2.0.0")])),
@@ -458,4 +450,59 @@ fn loads_a_cache_written_before_listed_versions_were_recorded() {
     let gemini = find(&profiles, "gemini");
     assert!(gemini.listed);
     assert_eq!(gemini.version.as_deref(), Some("2.0.0"));
+}
+
+/// A catalog of gemini 1.0.0 and 2.0.0 (both old enough) after a fetch listing `listed`.
+fn catalog_listing(dir: &TempDir, listed: &str, now: u64) -> Catalog {
+    let bundle = bundle_of(&[
+        (npx_entry("gemini", "1.0.0"), T0),
+        (npx_entry("gemini", "2.0.0"), T0 + DAY),
+    ]);
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+    catalog
+        .refresh(|| Ok(registry_of(&[npx_entry("gemini", listed)])), now)
+        .expect("refresh succeeds");
+    catalog
+}
+
+#[test]
+fn a_recorded_version_the_registry_withdrew_is_not_launched() {
+    let dir = TempDir::new("recorded-withdrawn");
+    let now = T0 + 30 * DAY;
+    let catalog = catalog_listing(&dir, "1.0.0", now);
+    let recorded = BTreeMap::from([("gemini".to_string(), "2.0.0".to_string())]);
+
+    let profiles = no_tools_profiles(&catalog, &recorded, now);
+
+    let gemini = find(&profiles, "gemini");
+    assert_eq!(gemini.version.as_deref(), Some("1.0.0"));
+    assert!(
+        gemini.acp_args.contains(&"gemini-pkg@1.0.0".to_string()),
+        "{:?}",
+        gemini.acp_args
+    );
+}
+
+#[test]
+fn a_recorded_version_the_registry_still_lists_is_launched() {
+    let dir = TempDir::new("recorded-listed");
+    let now = T0 + 30 * DAY;
+    let catalog = catalog_listing(&dir, "2.0.0", now);
+    let recorded = BTreeMap::from([("gemini".to_string(), "2.0.0".to_string())]);
+
+    let profiles = no_tools_profiles(&catalog, &recorded, now);
+
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("2.0.0"));
+}
+
+#[test]
+fn a_recorded_version_older_than_the_listed_one_still_wins() {
+    let dir = TempDir::new("recorded-older");
+    let now = T0 + 30 * DAY;
+    let catalog = catalog_listing(&dir, "2.0.0", now);
+    let recorded = BTreeMap::from([("gemini".to_string(), "1.0.0".to_string())]);
+
+    let profiles = no_tools_profiles(&catalog, &recorded, now);
+
+    assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("1.0.0"));
 }

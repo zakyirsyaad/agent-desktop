@@ -157,7 +157,9 @@ the last version Zorvo knew, and is marked as no longer listed.
 The cache records the version the registry lists now for each listed
 agent. A version newer than that one is not offered, so a registry
 rollback (v2 back to v1) offers v1 again. A version an agent already
-started with is still used while the history has it.
+started with is still used while the history has it, unless the registry
+withdrew it: when the agent is listed and that version is newer than the
+listed one, the offered version runs instead.
 
 ## Interfaces
 

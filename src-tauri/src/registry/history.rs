@@ -116,9 +116,7 @@ impl VersionHistory {
             .get(id)?
             .iter()
             .filter(|(_, record)| now.saturating_sub(record.first_seen) >= MIN_AGE_SECS)
-            .filter(|(version, _)| {
-                ceiling.is_none_or(|top| compare_versions(version, top) != Ordering::Greater)
-            })
+            .filter(|(version, _)| is_within(version, ceiling))
             .max_by(|(a, _), (b, _)| compare_versions(a, b))
             .map(|(_, record)| &record.entry)
     }
@@ -132,9 +130,14 @@ impl VersionHistory {
     }
 }
 
+/// True when there is no `ceiling` or `version` is not newer than it.
+pub fn is_within(version: &str, ceiling: Option<&str>) -> bool {
+    ceiling.is_none_or(|top| compare_versions(version, top) != Ordering::Greater)
+}
+
 /// Orders `x.y.z[-pre]` versions numerically; a pre-release sorts below its
 /// release. Build metadata is ignored; unparseable parts count as zero.
-fn compare_versions(a: &str, b: &str) -> Ordering {
+pub fn compare_versions(a: &str, b: &str) -> Ordering {
     let (core_a, pre_a) = split_version(a);
     let (core_b, pre_b) = split_version(b);
     core_a

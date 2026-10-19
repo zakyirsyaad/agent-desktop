@@ -20,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::profiles::AgentProfile;
 use cache::RegistryCache;
 use fetch::{fetch_registry, FETCH_TIMEOUT, MAX_REGISTRY_BYTES, REGISTRY_URL};
-use history::VersionHistory;
+use history::{is_within, VersionHistory};
 use npm_globals::{npm_globals, NPM_TIMEOUT};
 use resolve::{registry_env, resolve_profile, SystemTools};
 use schema::{parse_registry, RegistryEntry};
@@ -59,13 +59,19 @@ impl CatalogState {
             .is_none_or(|cache| cache.listed.contains(id))
     }
 
-    /// The newest old-enough version, never newer than the one the registry lists now.
-    fn offered(&self, id: &str, now: u64) -> Option<&RegistryEntry> {
-        let ceiling = self.cache.as_ref().and_then(|c| c.listed_version(id));
-        self.history.offered_up_to(id, now, ceiling)
+    /// The version the registry lists now for `id`; `None` before a fetch or when unlisted.
+    fn ceiling(&self, id: &str) -> Option<&str> {
+        self.cache.as_ref().and_then(|c| c.listed_version(id))
     }
 
-    /// The version to run: the one in use when the history has it, else the offered one.
+    /// The newest old-enough version, never newer than the one the registry lists now.
+    fn offered(&self, id: &str, now: u64) -> Option<&RegistryEntry> {
+        self.history.offered_up_to(id, now, self.ceiling(id))
+    }
+
+    /// The version to run: the one in use when the history has it and the
+    /// registry has not withdrawn it (it is not newer than the listed one),
+    /// else the offered one.
     fn entry_for(
         &self,
         id: &str,
@@ -74,6 +80,7 @@ impl CatalogState {
     ) -> Option<&RegistryEntry> {
         versions
             .get(id)
+            .filter(|version| is_within(version, self.ceiling(id)))
             .and_then(|version| self.history.version(id, version))
             .or_else(|| self.offered(id, now))
     }
