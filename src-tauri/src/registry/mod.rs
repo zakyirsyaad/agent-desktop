@@ -273,26 +273,36 @@ impl Catalog {
 }
 
 /// Re-reads the global npm packages with the user's environment `env` and,
-/// when `force` or the last fetch is stale, the registry. A failed fetch is
-/// logged and otherwise ignored. Returns whether the profiles changed.
+/// when `force` or the last fetch is stale, the registry; the two run at the
+/// same time. A failed fetch is logged and otherwise ignored. Returns whether
+/// the profiles changed.
 ///
 /// It runs `npm` and may fetch, so call it off the main thread.
 pub fn refresh_catalog(catalog: &Catalog, env: &HashMap<String, String>, force: bool) -> bool {
+    let now = unix_now();
+    let should_fetch = force || catalog.needs_refresh(now);
+    let (found, fetched) = std::thread::scope(|scope| {
+        let npm = scope.spawn(|| npm_globals(env, NPM_TIMEOUT));
+        let fetched = should_fetch.then(|| catalog.refresh_from_registry(now));
+        let found = npm.join().unwrap_or_else(|_| {
+            eprintln!("Reading the global npm packages panicked");
+            BTreeSet::new()
+        });
+        (found, fetched)
+    });
+
     // A working `npm ls -g` always lists npm itself, so an empty set means
     // detection failed (no npm, an error, the timeout): keep what was found.
-    let found = npm_globals(env, NPM_TIMEOUT);
     let npm_changed = !found.is_empty() && catalog.set_npm_globals(found);
-    let now = unix_now();
-    if !force && !catalog.needs_refresh(now) {
-        return npm_changed;
-    }
-    match catalog.refresh_from_registry(now) {
-        Ok(changed) => npm_changed || changed,
-        Err(error) => {
+    let fetch_changed = match fetched {
+        Some(Ok(changed)) => changed,
+        Some(Err(error)) => {
             eprintln!("Could not refresh the ACP registry: {error}");
-            npm_changed
+            false
         }
-    }
+        None => false,
+    };
+    npm_changed || fetch_changed
 }
 
 static INSTALLED: OnceLock<Catalog> = OnceLock::new();
