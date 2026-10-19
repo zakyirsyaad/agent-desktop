@@ -436,3 +436,27 @@ fn root_pids_does_not_wait_for_a_child_that_closed_its_terminal() {
     manager.kill_all();
     assert!(answered.is_ok(), "root_pids blocked behind the wait thread");
 }
+
+#[test]
+fn has_session_is_true_while_it_runs() {
+    let manager = PtySessionManager::default_manager();
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+
+    assert!(!manager.has_session("has-session-1"));
+    manager
+        .start_session(
+            "has-session-1",
+            &cwd,
+            "/bin/sh",
+            &["-c".to_string(), "sleep 1".to_string()],
+            &[],
+        )
+        .expect("start");
+
+    assert!(manager.has_session("has-session-1"));
+    manager.kill_session("has-session-1").expect("kill");
+    assert!(!manager.has_session("has-session-1"));
+}

@@ -26,6 +26,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use acp::commands::{event_payload, ACP_EVENT};
 use acp::manager::AcpManager;
+use acp::terminal_auth::{is_sign_in_terminal_id, sign_in_event_payload, SIGN_IN_TERMINAL_EVENT};
 use profiles::{agent_profiles, get_available_agent_profiles, AgentProfile, TRANSPORT_PTY};
 use pty_session::{PtyEvent, PtySessionManager};
 use registry::resolve::canonical_agent_id;
@@ -260,6 +261,15 @@ pub fn run() {
     let manager = PtySessionManager::new(Box::new(move |event| {
         if let Ok(guard) = holder_clone.lock() {
             if let Some(app) = guard.as_ref() {
+                let session_id = match &event {
+                    PtyEvent::Output { session_id, .. } | PtyEvent::Exit { session_id, .. } => {
+                        session_id
+                    }
+                };
+                if is_sign_in_terminal_id(session_id) {
+                    let _ = app.emit(SIGN_IN_TERMINAL_EVENT, sign_in_event_payload(&event));
+                    return;
+                }
                 match event {
                     PtyEvent::Output { session_id, data } => {
                         // Emit to session-specific event channel and global channel
@@ -372,6 +382,7 @@ pub fn run() {
             acp::commands::acp_authenticate,
             acp::commands::acp_probe_agent,
             acp::commands::acp_fork_session,
+            acp::commands::acp_start_terminal_sign_in,
             acp::commands::acp_prompt,
             acp::commands::acp_cancel,
             acp::commands::acp_respond_permission,

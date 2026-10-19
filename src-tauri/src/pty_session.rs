@@ -375,6 +375,14 @@ impl PtySessionManager {
         roots
     }
 
+    /// Whether a session with this id is running.
+    pub fn has_session(&self, session_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .map(|sessions| sessions.contains_key(session_id))
+            .unwrap_or(false)
+    }
+
     /// Kills the running child process and cleans up the session.
     pub fn kill_session(&self, session_id: &str) -> Result<(), String> {
         let handle = {

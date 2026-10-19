@@ -697,3 +697,38 @@ fn never_sends_authenticate_for_a_terminal_method() {
         "{methods:?}"
     );
 }
+
+/// Runs the fake agent's terminal login in a PTY; returns its output and exit code.
+fn run_login_in_pty(terminal_id: &str, launch: AcpLaunch) -> (String, u32) {
+    use zorvo_lib::pty_session::{PtyEvent, PtySessionManager};
+
+    let (tx, rx) = mpsc::channel();
+    let pty = PtySessionManager::new(Box::new(move |event| {
+        let _ = tx.send(event);
+    }));
+    let (acp, _rx) = manager();
+    let login = acp
+        .terminal_login(&cwd(), &launch, "terminal-login")
+        .expect("terminal login");
+    pty.start_session(terminal_id, &cwd(), &login.program, &login.args, &login.env)
+        .expect("start login");
+
+    let mut output = String::new();
+    loop {
+        match rx.recv_timeout(WAIT).expect("timed out waiting for login") {
+            PtyEvent::Output { data, .. } => output.push_str(&data),
+            PtyEvent::Exit { exit_code, .. } => return (output, exit_code),
+        }
+    }
+}
+
+#[test]
+fn runs_the_terminal_login_in_a_pty_and_reports_its_exit() {
+    let (output, code) = run_login_in_pty("signin-test-1", fake_agent());
+    assert!(output.contains("signed in: hello"), "{output:?}");
+    assert_eq!(code, 0);
+
+    let failing = with_env(fake_agent(), "FAKE_LOGIN_EXIT", "1");
+    let (_, code) = run_login_in_pty("signin-test-2", failing);
+    assert_eq!(code, 1);
+}
