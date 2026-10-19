@@ -73,6 +73,7 @@ import { isAgentReady, noAgentNotice, resolveDraftAgentId } from "./lib/agent-re
 import { isInUse, withAutoEnabled } from "./lib/enabled-agents";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
+import { forgetFailedInstalls } from "./lib/agent-installs";
 import {
   NO_CHOICES,
   rememberedChoice,
@@ -124,6 +125,9 @@ export default function App() {
       return settings === prev.settings ? prev : { ...prev, settings };
     });
   }, [agents, isLoaded, updateState]);
+  useEffect(() => {
+    forgetFailedInstalls(agents.filter((agent) => agent.availability === "ready").map((agent) => agent.id));
+  }, [agents]);
   const suggestedFolders = useSuggestedFolders();
   const userProfile = useUserProfile();
   const navigation = useNavigationHistory();

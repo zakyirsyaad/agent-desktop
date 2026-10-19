@@ -22,7 +22,8 @@ export interface AgentInstall {
 /**
  * One agent's install: its live progress and how it ended. The state lives in
  * `lib/agent-installs`, so it survives picking another agent or the panel unmounting.
- * On success the backend emits `agent-profiles-changed`, which reloads the profiles.
+ * Whenever an install job ends, however it ended, the backend emits `agent-profiles-changed`,
+ * which reloads the profiles.
  */
 export function useAgentInstall(agentId: string | undefined): AgentInstall {
   const entry = useSyncExternalStore(subscribeToInstalls, () =>

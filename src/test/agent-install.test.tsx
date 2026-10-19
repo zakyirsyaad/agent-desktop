@@ -61,10 +61,14 @@ const codex = makeProfile({
 
 type Settle = { resolve: () => void; reject: (error: string) => void };
 
-/** Answers each agent's `install_agent` with a promise the test settles, and the rest as the fake backend does. */
-function mockInstall() {
+/**
+ * Answers each agent's `install_agent` with a promise the test settles, `get_agent_profiles`
+ * with `profiles` when given (read on every call), and the rest as the fake backend does.
+ */
+function mockInstall(profiles?: AgentProfile[]) {
   const pending = new Map<string, Settle>();
   const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+    if (cmd === "get_agent_profiles" && profiles) return Promise.resolve(structuredClone(profiles));
     if (cmd === "install_agent") {
       return new Promise<void>((resolve, reject) => {
         pending.set(String(args?.agentId), { resolve, reject });
@@ -354,5 +358,35 @@ describe("Installing an agent from the new-session draft", () => {
     expect(screen.queryByRole("region", { name: "Install Codex" })).toBeNull();
     expect(screen.getByRole("button", { name: /^Agent: Codex$/ })).toBeDefined();
     expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("forgets a failed install once the agent is ready, so a later missing agent offers Install again", async () => {
+    const profiles: AgentProfile[] = [...structuredClone(fakeProfiles), codex];
+    const { settle } = mockInstall(profiles);
+    await act(async () => {
+      render(<App />);
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Agent:/ })).toBeDefined());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Agent:/ }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "Codex (not installed)" }));
+    });
+    await click("Install");
+    await act(async () => settle().reject("Checksum mismatch for Node.js"));
+    expect(screen.getByText("Install failed: Checksum mismatch for Node.js")).toBeDefined();
+
+    // Installed some other way: Codex is ready.
+    profiles[profiles.length - 1] = { ...codex, availability: "ready", detected: true, install_plan: null };
+    await deliver("agent-profiles-changed", null);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Install Codex" })).toBeNull());
+
+    // Later removed again: the panel starts over instead of showing the old failure.
+    profiles[profiles.length - 1] = codex;
+    await deliver("agent-profiles-changed", null);
+    await waitFor(() => expect(screen.getByRole("region", { name: "Install Codex" })).toBeDefined());
+    expect(screen.getByRole("button", { name: "Install" })).toBeDefined();
+    expect(screen.queryByText(/Checksum mismatch/)).toBeNull();
   });
 });
