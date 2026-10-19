@@ -12,28 +12,19 @@ const codex = makeProfile({
   availability: "needs_runtime",
   install_plan: [{ kind: "agent", name: "Codex", version: "0.4.2", download_bytes: null }],
 });
-const readyCodex = makeProfile({ ...codex, detected: true, availability: "ready", install_plan: null });
+const qwen = makeProfile({ id: "qwen-code", name: "Qwen Code", transport: "acp", detected: true, availability: "ready" });
 
 describe("useDraftInstall", () => {
   afterEach(() => resetAgentInstalls());
 
-  it("offers the install in a draft whose agent is not installed, and holds only Send", () => {
-    const { result } = renderHook(() => useDraftInstall([codex], codex, true));
-    expect(result.current).toEqual({ showsPanel: true, needsInstall: true });
+  it("holds only Send while the draft's own agent is offered for install", () => {
+    expect(renderHook(() => useDraftInstall([codex], codex, codex)).result.current).toBe(true);
   });
 
-  it("offers nothing outside a draft or for a ready agent", () => {
-    expect(renderHook(() => useDraftInstall([codex], codex, false)).result.current).toEqual({
-      showsPanel: false,
-      needsInstall: false,
-    });
-    expect(renderHook(() => useDraftInstall([readyCodex], readyCodex, true)).result.current).toEqual({
-      showsPanel: false,
-      needsInstall: false,
-    });
-    expect(renderHook(() => useDraftInstall([], undefined, true)).result.current).toEqual({
-      showsPanel: false,
-      needsInstall: false,
-    });
+  it("holds nothing without an install panel, or when the message goes to another agent", () => {
+    expect(renderHook(() => useDraftInstall([qwen], undefined, qwen)).result.current).toBe(false);
+    // An ended chat offers its own agent's install while a new message would go to the draft's agent.
+    expect(renderHook(() => useDraftInstall([codex, qwen], codex, qwen)).result.current).toBe(false);
+    expect(renderHook(() => useDraftInstall([], undefined, undefined)).result.current).toBe(false);
   });
 });

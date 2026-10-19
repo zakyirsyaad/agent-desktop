@@ -318,6 +318,63 @@ describe("Installing an agent from the new-session draft", () => {
     expect(screen.queryByRole("region", { name: "Install Codex" })).toBeNull();
   });
 
+  it("offers Install over an ended chat whose agent is not installed", async () => {
+    const endedChat = (id: string, name: string, profileId: string) => ({
+      id,
+      name,
+      profileId,
+      cwd: "/Users/test/developer/ai-perpetual-trading",
+      status: "terminated",
+      createdAt: 1,
+      transport: "acp",
+    });
+    fakeStore().state.sessions = [endedChat("s-codex", "Codex chat", "codex-acp")];
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "get_agent_profiles"
+        ? Promise.resolve([...structuredClone(fakeProfiles), structuredClone(codex)])
+        : fakeTauriInvoke(cmd, args)
+    );
+    await act(async () => {
+      render(<App />);
+    });
+    await waitFor(() => expect(screen.getAllByText("Codex chat").length).toBeGreaterThan(0));
+    await act(async () => {
+      fireEvent.click(screen.getAllByText("Codex chat")[0]);
+    });
+
+    expect(screen.getByRole("region", { name: "Install Codex" })).toBeDefined();
+  });
+
+  it("shows no Install panel over an ended chat whose agent is ready", async () => {
+    fakeStore().state.sessions = [
+      {
+        id: "s-qwen",
+        name: "Qwen chat",
+        profileId: "qwen-code",
+        cwd: "/Users/test/developer/ai-perpetual-trading",
+        status: "terminated",
+        createdAt: 1,
+        transport: "acp",
+      },
+    ];
+    // Codex, not installed, is the new-session draft's agent; the ended chat is not a draft.
+    fakeStore().state.settings.defaultAgentId = "codex-acp";
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "get_agent_profiles"
+        ? Promise.resolve([...structuredClone(fakeProfiles), structuredClone(codex)])
+        : fakeTauriInvoke(cmd, args)
+    );
+    await act(async () => {
+      render(<App />);
+    });
+    await waitFor(() => expect(screen.getAllByText("Qwen chat").length).toBeGreaterThan(0));
+    await act(async () => {
+      fireEvent.click(screen.getAllByText("Qwen chat")[0]);
+    });
+
+    expect(screen.queryByRole("region", { name: /^Install / })).toBeNull();
+  });
+
   it("a_not_ready_agent_in_use_is_offered_in_the_picker_and_shows_the_panel", async () => {
     fakeStore().state.settings.defaultAgentId = "qwen-code";
     const profiles: AgentProfile[] = [...structuredClone(fakeProfiles), codex];

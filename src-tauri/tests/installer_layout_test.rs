@@ -3,7 +3,9 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use zorvo_lib::installer::layout::{read_record, CommitOutcome, InstallRecord, ToolsDir};
+use zorvo_lib::installer::layout::{
+    read_record, remove_path, CommitOutcome, InstallRecord, ToolsDir,
+};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -126,4 +128,35 @@ fn two_stagings_get_different_dirs() {
     let a = tools.new_staging().unwrap();
     let b = tools.new_staging().unwrap();
     assert_ne!(a.path(), b.path());
+}
+
+#[test]
+fn remove_path_deletes_a_dir_or_a_file_and_never_follows_a_symlink() {
+    let d = data_dir();
+    let dir = d.join("dir");
+    fs::create_dir_all(dir.join("inner")).unwrap();
+    fs::write(dir.join("inner").join("file"), "x").unwrap();
+    let file = d.join("file");
+    fs::write(&file, "x").unwrap();
+    let target = d.join("target");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("kept"), "x").unwrap();
+    let link = d.join("link");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    assert_eq!(remove_path(&dir), Ok(()));
+    assert_eq!(remove_path(&file), Ok(()));
+    assert_eq!(remove_path(&link), Ok(()));
+    assert_eq!(
+        remove_path(&d.join("missing")),
+        Ok(()),
+        "nothing there is fine"
+    );
+
+    assert!(!dir.exists() && !file.exists());
+    assert!(fs::symlink_metadata(&link).is_err());
+    assert!(
+        target.join("kept").exists(),
+        "the link's target is left alone"
+    );
 }

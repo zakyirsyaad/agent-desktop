@@ -8,8 +8,8 @@ import { FilesPanel } from "./components/FilesPanel";
 import { EmptySessionState, FileDropOverlay, NoticeBanner } from "./components/AppPlaceholders";
 import { AuthPanel } from "./components/AuthPanel";
 import { AgentInstallPanel } from "./components/AgentInstallPanel";
-import { readWindowMode } from "./lib/window-mode";
 import { pickerLabelOf } from "./lib/install-plan";
+import { installPanelAgentOf } from "./lib/install-panel";
 import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
 import { WorkspaceSummary } from "./components/workspace/WorkspaceSummary";
@@ -88,9 +88,6 @@ import { TRANSPORT_ACP } from "./types";
 
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
 
-// Only the main window installs agents; a popout only mirrors it.
-const IS_MAIN_WINDOW = readWindowMode(window.location.search).kind === "main";
-
 // eslint-disable-next-line no-control-regex -- matching control characters is the point.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 
@@ -168,7 +165,8 @@ export default function App() {
     isAcp(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
   const draftAgent = isResumable ? activeAgent : newSessionAgent;
   const isDraftAgentReady = draftAgent ? isAgentRunnable(draftAgent) : false;
-  const draftInstall = useDraftInstall(agents, draftAgent, (isNewSessionDraft || isResumable) && IS_MAIN_WINDOW);
+  const installPanelAgent = installPanelAgentOf(activeSession, activeAgent, newSessionAgent);
+  const draftNeedsInstall = useDraftInstall(agents, installPanelAgent, draftAgent);
 
   // A model or effort chosen for one agent means nothing to another one.
   useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
@@ -667,7 +665,7 @@ export default function App() {
               onDismiss={dismissSignIn}
             />
           )}
-          {draftInstall.showsPanel && draftAgent ? <AgentInstallPanel agent={draftAgent} /> : null}
+          {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
           {showsTerminal ? (
             <TerminalView
               sessionId={activeSessionId}
@@ -718,15 +716,15 @@ export default function App() {
               onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
               disabled={
                 isCreatingWorktree ||
-                (!isActiveRunning && ((!isDraftAgentReady && !draftInstall.needsInstall) || (!isResumable && !canStartSession)))
+                (!isActiveRunning && ((!isDraftAgentReady && !draftNeedsInstall) || (!isResumable && !canStartSession)))
               }
-              sendDisabled={draftInstall.needsInstall}
+              sendDisabled={draftNeedsInstall}
               placeholder={composerPlaceholder({
                 isRunning: isActiveRunning,
                 isCreatingWorktree,
                 isResumable,
                 canStartSession,
-                agentToInstall: draftInstall.needsInstall ? draftAgent?.name : undefined,
+                agentToInstall: draftNeedsInstall ? draftAgent?.name : undefined,
               })}
               onSendMessage={handleSendMessage}
               attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}

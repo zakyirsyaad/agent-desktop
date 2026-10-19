@@ -229,6 +229,17 @@ pub struct InstalledRuntime {
     pub bin_dir: PathBuf,
 }
 
+/// True when the manifest's pinned version of `kind` is installed for `platform`.
+pub fn pinned_installed(
+    tools: &ToolsDir,
+    manifest: &RuntimeManifest,
+    platform: &str,
+    kind: RuntimeKind,
+) -> bool {
+    let version = &manifest.release(kind).version;
+    read_record(&kind.dir(tools, version, platform)).is_some()
+}
+
 /// The pinned version when installed, else the newest other installed version
 /// for `platform`. A dir counts only with an `install.json`, since a crash can
 /// leave an empty one.

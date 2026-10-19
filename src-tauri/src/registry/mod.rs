@@ -266,6 +266,20 @@ impl Catalog {
         Some((entry.name.clone(), planned_steps(entry, tools)))
     }
 
+    /// The agent's name at the entry [`Self::planned_steps_for`] would plan,
+    /// without looking at what the machine has; `None` for the same ids.
+    pub fn agent_name(
+        &self,
+        id: &str,
+        versions: &BTreeMap<String, String>,
+        now: u64,
+    ) -> Option<String> {
+        let state = self.read_state();
+        state
+            .entry_for(id, versions, now)
+            .map(|entry| entry.name.clone())
+    }
+
     /// The registry's environment variables for `id` at `version`; empty when unknown.
     pub fn launch_env(&self, id: &str, version: &str) -> BTreeMap<String, String> {
         self.read_state()

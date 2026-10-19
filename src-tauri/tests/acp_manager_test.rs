@@ -682,3 +682,29 @@ fn is_running_under_sees_a_session_started_from_that_dir() {
     );
     manager.stop("s-2");
 }
+
+#[test]
+fn is_running_under_sees_a_session_whose_path_reaches_into_that_dir() {
+    let (manager, _rx) = manager();
+    // A dir the agent only reaches through PATH, as a prerequisite or Zorvo's uv is.
+    let dir =
+        AgentDir(std::env::temp_dir().join(format!("zorvo-acp-path-under-{}", std::process::id())));
+    let bin = dir.0.join("pi").join("1.0.0").join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let sibling = std::path::PathBuf::from(format!("{}-2", dir.0.display()));
+    let user_path = std::env::var("PATH").unwrap_or_default();
+    let launch = AcpLaunch {
+        env: vec![("PATH".to_string(), format!("{}:{user_path}", bin.display()))],
+        ..fake_agent()
+    };
+
+    manager.start("s-1", &cwd(), &launch).expect("start");
+
+    assert!(manager.is_running_under(&dir.0));
+    assert!(
+        !manager.is_running_under(&sibling),
+        "a dir whose name only starts the same is another dir"
+    );
+    manager.stop("s-1");
+    assert!(!manager.is_running_under(&dir.0));
+}

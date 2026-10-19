@@ -5,10 +5,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use super::layout::{read_record, ToolsDir};
+use super::layout::{read_record, remove_path, ToolsDir};
 use super::prerequisites::{all_prerequisites, prerequisites_for};
 use super::runtimes::{RuntimeKind, RuntimeManifest};
 use crate::profiles::AgentProfile;
@@ -95,7 +94,7 @@ pub fn clean_up(
     doomed
         .iter()
         .filter(|path| !is_running_under(path))
-        .filter_map(|path| remove(path).err())
+        .filter_map(|path| remove_path(path).err())
         .inspect(|error| eprintln!("Clean-up of old installs: {error}"))
         .collect()
 }
@@ -177,19 +176,4 @@ fn name_of(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_default()
-}
-
-/// Deletes `path` without following a symlink there.
-fn remove(path: &Path) -> Result<(), String> {
-    let removed = match fs::symlink_metadata(path) {
-        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
-        Ok(_) => fs::remove_file(path),
-        Err(e) => Err(e),
-    };
-    match removed {
-        Err(e) if e.kind() != ErrorKind::NotFound => {
-            Err(format!("Could not remove {}: {e}", path.display()))
-        }
-        _ => Ok(()),
-    }
 }

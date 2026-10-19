@@ -280,7 +280,7 @@ fn installs_a_binary_agent_and_reports_each_phase() {
     let steps = [agent_step(&server, "my-agent", "/agent.tar.gz", &archive)];
 
     installer(&d, &server)
-        .run("my-agent", "Test agent", &steps, &env(), None, &|p| {
+        .run("my-agent", &steps, &env(), None, &|p| {
             events.lock().unwrap().push(p)
         })
         .unwrap();
@@ -316,26 +316,15 @@ fn installs_a_runtime_then_skips_it_when_present() {
     let d = data_dir();
     let install = installer(&d, &server);
     let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
+    assert!(!install.pinned_runtime_installed(RuntimeKind::Node));
 
     install
-        .run(
-            "runtime:node",
-            "Test agent",
-            &steps,
-            &env(),
-            None,
-            &no_progress,
-        )
+        .run("runtime:node", &steps, &env(), None, &no_progress)
         .unwrap();
+    assert!(install.pinned_runtime_installed(RuntimeKind::Node));
+    assert!(!install.pinned_runtime_installed(RuntimeKind::Uv));
     install
-        .run(
-            "runtime:node",
-            "Test agent",
-            &steps,
-            &env(),
-            None,
-            &no_progress,
-        )
+        .run("runtime:node", &steps, &env(), None, &no_progress)
         .unwrap();
 
     assert_eq!(server.hits("/node.tar.gz"), 1);
@@ -357,7 +346,7 @@ fn a_hash_mismatch_installs_nothing_and_empties_staging() {
     )];
 
     let err = installer(&d, &server)
-        .run("my-agent", "Test agent", &steps, &env(), None, &no_progress)
+        .run("my-agent", &steps, &env(), None, &no_progress)
         .unwrap_err();
 
     assert_eq!(
@@ -376,7 +365,7 @@ fn an_unknown_archive_format_fails_before_downloading() {
     let steps = [agent_step(&server, "my-agent", "/agent.exe", &archive)];
 
     let err = installer(&d, &server)
-        .run("my-agent", "Test agent", &steps, &env(), None, &no_progress)
+        .run("my-agent", &steps, &env(), None, &no_progress)
         .unwrap_err();
 
     assert_eq!(err, "Zorvo cannot unpack this archive format");
@@ -391,7 +380,7 @@ fn an_archive_without_the_cmd_installs_nothing() {
     let steps = [agent_step(&server, "my-agent", "/agent.tar.gz", &archive)];
 
     let err = installer(&d, &server)
-        .run("my-agent", "Test agent", &steps, &env(), None, &no_progress)
+        .run("my-agent", &steps, &env(), None, &no_progress)
         .unwrap_err();
 
     assert_eq!(
@@ -410,12 +399,12 @@ fn a_second_run_with_the_same_job_id_is_rejected() {
     let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
 
     thread::scope(|s| {
-        let first = s.spawn(|| install.run("job", "Codex", &steps, &env(), None, &no_progress));
+        let first = s.spawn(|| install.run("job", &steps, &env(), None, &no_progress));
         server.wait_for_hits("/node.tar.gz", 1);
 
-        let second = install.run("job", "Codex", &steps, &env(), None, &no_progress);
-        // The user sees the agent's name: not the job id, nor its plan's last step (Node.js).
-        assert_eq!(second, Err("Codex is already installing".to_string()));
+        let second = install.run("job", &steps, &env(), None, &no_progress);
+        // The user sees the plan's name, not the job id.
+        assert_eq!(second, Err("Node.js is already installing".to_string()));
 
         assert!(install.cancel("job"));
         assert_eq!(first.join().unwrap(), Err(INSTALL_CANCELLED.to_string()));
@@ -448,8 +437,8 @@ fn two_agents_needing_node_download_it_once() {
     ];
 
     let (ra, rb) = thread::scope(|s| {
-        let ta = s.spawn(|| install.run("a", "Test agent", &steps_a, &env(), None, &no_progress));
-        let tb = s.spawn(|| install.run("b", "Test agent", &steps_b, &env(), None, &no_progress));
+        let ta = s.spawn(|| install.run("a", &steps_a, &env(), None, &no_progress));
+        let tb = s.spawn(|| install.run("b", &steps_b, &env(), None, &no_progress));
         (ta.join().unwrap(), tb.join().unwrap())
     });
 
@@ -476,9 +465,9 @@ fn cancelling_one_job_leaves_the_other_to_finish() {
     ];
 
     thread::scope(|s| {
-        let ta = s.spawn(|| install.run("a", "Test agent", &steps_a, &env(), None, &no_progress));
+        let ta = s.spawn(|| install.run("a", &steps_a, &env(), None, &no_progress));
         server.wait_for_hits("/node.tar.gz", 1);
-        let tb = s.spawn(|| install.run("b", "Test agent", &steps_b, &env(), None, &no_progress));
+        let tb = s.spawn(|| install.run("b", &steps_b, &env(), None, &no_progress));
         // Let B reach Node's lock, which A holds while its download stalls.
         thread::sleep(Duration::from_millis(300));
 
@@ -501,9 +490,9 @@ fn a_job_waiting_on_a_lock_is_cancelled_promptly() {
     let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
 
     thread::scope(|s| {
-        let ta = s.spawn(|| install.run("a", "Test agent", &steps, &env(), None, &no_progress));
+        let ta = s.spawn(|| install.run("a", &steps, &env(), None, &no_progress));
         server.wait_for_hits("/node.tar.gz", 1);
-        let tb = s.spawn(|| install.run("b", "Test agent", &steps, &env(), None, &no_progress));
+        let tb = s.spawn(|| install.run("b", &steps, &env(), None, &no_progress));
         thread::sleep(Duration::from_millis(200));
 
         let started = Instant::now();
@@ -529,7 +518,7 @@ fn a_prerequisite_uses_zorvos_node_when_the_users_is_too_old() {
     let events = Mutex::new(Vec::new());
 
     installer(&d, &server)
-        .run("pi-acp", "Test agent", &steps, &env(), Some(20), &|p| {
+        .run("pi-acp", &steps, &env(), Some(20), &|p| {
             events.lock().unwrap().push(p)
         })
         .unwrap();
@@ -564,7 +553,6 @@ fn a_prerequisite_uses_the_users_npm_when_node_is_new_enough() {
     installer(&d, &server)
         .run(
             "pi-acp",
-            "Test agent",
             &[PlannedStep::Prerequisite(pi)],
             &env,
             Some(22),
@@ -589,7 +577,6 @@ fn a_prerequisite_without_any_node_fails() {
     let err = installer(&d, &server)
         .run(
             "pi-acp",
-            "Test agent",
             &[PlannedStep::Prerequisite(pi)],
             &env(),
             None,
@@ -671,7 +658,7 @@ fn an_agent_version_that_is_not_a_plain_name_installs_nothing() {
         };
 
         let err = installer(&d, &server)
-            .run("job", "Test agent", &[step], &env(), None, &no_progress)
+            .run("job", &[step], &env(), None, &no_progress)
             .unwrap_err();
 
         assert_eq!(
@@ -694,7 +681,7 @@ fn an_install_replaces_a_dir_left_without_a_record() {
     let steps = [agent_step(&server, "my-agent", "/agent.tar.gz", &archive)];
 
     installer(&d, &server)
-        .run("my-agent", "Test agent", &steps, &env(), None, &no_progress)
+        .run("my-agent", &steps, &env(), None, &no_progress)
         .unwrap();
 
     assert!(read_record(&dest).is_some());
@@ -711,7 +698,6 @@ fn a_prerequisite_with_a_new_enough_node_but_no_npm_says_so() {
     let err = installer(&d, &server)
         .run(
             "pi-acp",
-            "Test agent",
             &[PlannedStep::Prerequisite(pi)],
             &env(),
             Some(22),
@@ -741,7 +727,7 @@ fn clean_up_waits_for_no_job_and_skips_while_one_runs() {
     let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
 
     thread::scope(|s| {
-        let job = s.spawn(|| install.run("job", "Test agent", &steps, &env(), None, &no_progress));
+        let job = s.spawn(|| install.run("job", &steps, &env(), None, &no_progress));
         server.wait_for_hits("/node.tar.gz", 1);
 
         assert_eq!(
@@ -778,7 +764,7 @@ fn a_cancel_during_a_slow_clean_up_returns_promptly_and_ends_the_waiting_install
             })
         });
         started_rx.recv().unwrap();
-        let job = s.spawn(|| install.run("job", "Test agent", &steps, &env(), None, &no_progress));
+        let job = s.spawn(|| install.run("job", &steps, &env(), None, &no_progress));
         thread::sleep(Duration::from_millis(200));
 
         let asked = Instant::now();
@@ -797,23 +783,68 @@ fn a_cancel_during_a_slow_clean_up_returns_promptly_and_ends_the_waiting_install
 }
 
 #[test]
-fn a_cancel_before_the_job_starts_is_not_lost() {
+fn a_cancel_for_a_job_not_begun_records_nothing() {
     let server = Server::start(vec![("/node.tar.gz", Reply::Ok(node_archive()))]);
     let d = data_dir();
     let install = installer(&d, &server);
     let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
 
-    install.cancel("job");
+    // A Cancel that lands just after a job ended must not stop the next install.
+    assert!(!install.cancel("job"));
     assert_eq!(
-        install.run("job", "Test agent", &steps, &env(), None, &no_progress),
+        install.run("job", &steps, &env(), None, &no_progress),
+        Ok(())
+    );
+    assert_eq!(server.hits("/node.tar.gz"), 1);
+}
+
+#[test]
+fn a_cancel_while_the_command_prepares_ends_the_job_before_any_step() {
+    let server = Server::start(vec![("/node.tar.gz", Reply::Ok(node_archive()))]);
+    let d = data_dir();
+    let install = installer(&d, &server);
+    let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
+
+    let job = install.begin("job", "Node.js").unwrap();
+    // A second install of the same job is refused while the first prepares.
+    assert_eq!(
+        install.begin("job", "Node.js").err(),
+        Some("Node.js is already installing".to_string())
+    );
+    assert!(install.cancel("job"));
+
+    assert_eq!(
+        install.run_job(&job, &steps, &env(), None, &no_progress),
         Err(INSTALL_CANCELLED.to_string())
     );
     assert_eq!(server.hits("/node.tar.gz"), 0);
+    drop(job);
+    assert!(!install.cancel("job"), "an ended job is forgotten");
+}
 
-    // The cancel is used up: the next install runs.
+#[test]
+fn a_real_failure_that_races_a_cancel_keeps_its_message() {
+    let server = Server::start(vec![("/agent.tar.gz", Reply::Ok(agent_archive()))]);
+    let d = data_dir();
+    let install = installer(&d, &server);
+    // A pin that is not a SHA-256 fails before the download checks its cancel flag.
+    let steps = [PlannedStep::Agent {
+        id: "my-agent".to_string(),
+        name: "Agent my-agent".to_string(),
+        version: "1.0.0".to_string(),
+        url: server.url("/agent.tar.gz"),
+        sha256: "not-a-hash".to_string(),
+        cmd: "./dist/my-agent".to_string(),
+    }];
+
+    let result = install.run("my-agent", &steps, &env(), None, &|_| {
+        // The user clicks Cancel as the download starts.
+        install.cancel("my-agent");
+    });
+
     assert_eq!(
-        install.run("job", "Test agent", &steps, &env(), None, &no_progress),
-        Ok(())
+        result,
+        Err("The download of Agent my-agent did not match its checksum".to_string())
     );
 }
 
@@ -826,7 +857,7 @@ fn stopping_a_job_that_is_not_running_records_nothing() {
 
     assert!(!install.stop_if_running("job"));
     assert_eq!(
-        install.run("job", "Test agent", &steps, &env(), None, &no_progress),
+        install.run("job", &steps, &env(), None, &no_progress),
         Ok(())
     );
 }

@@ -42,6 +42,8 @@ type ResponseHandler = Box<dyn FnOnce(Result<Value, Value>) + Send>;
 pub struct AcpConnection {
     /// The program the agent was started with, as given.
     program: String,
+    /// The `PATH` entries of its launch env; empty when it inherited ours.
+    path_entries: Vec<String>,
     stdin: Mutex<ChildStdin>,
     /// Shared with the reader thread, which reaps the process once it exits.
     child: Arc<Mutex<Child>>,
@@ -85,6 +87,7 @@ impl AcpConnection {
 
         let connection = Arc::new(Self {
             program: program.to_string(),
+            path_entries: path_entries_of(env),
             stdin: Mutex::new(stdin),
             child: Arc::new(Mutex::new(child)),
             next_id: AtomicU64::new(1),
@@ -264,6 +267,12 @@ impl AcpConnection {
         &self.program
     }
 
+    /// The dirs on the `PATH` it was started with, through which it can run
+    /// other installed tools (a prerequisite, Zorvo's uv or Node).
+    pub fn path_entries(&self) -> &[String] {
+        &self.path_entries
+    }
+
     /// The agent's pid while it runs; none once it has exited, when the pid
     /// may already belong to another process.
     pub fn pid(&self) -> Option<u32> {
@@ -298,4 +307,14 @@ pub fn error_message(error: &Value) -> String {
         Some(details) => format!("{} ({})", message, details),
         None => message.to_string(),
     }
+}
+
+/// The non-empty entries of the `PATH` in `env`.
+fn path_entries_of(env: &[(String, String)]) -> Vec<String> {
+    env.iter()
+        .filter(|(key, _)| key == "PATH")
+        .flat_map(|(_, value)| value.split(':'))
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_string)
+        .collect()
 }
