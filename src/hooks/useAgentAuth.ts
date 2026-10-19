@@ -40,5 +40,23 @@ export function useAgentAuth() {
 
   const dismiss = useCallback(() => setAuthRequest(null), []);
 
-  return { authRequest, setAuthRequest, requestSignIn, dismiss };
+  /** Moves the panel on; the error goes with `failed` only, and new methods replace the old. */
+  const setStatus = useCallback((status: AuthStatus, error?: string, methods?: AuthMethod[]) => {
+    setAuthRequest(
+      (prev) =>
+        prev && {
+          ...prev,
+          status,
+          error: status === 'failed' ? error : undefined,
+          ...(methods ? { methods } : {}),
+        },
+    );
+  }, []);
+
+  /** Back to idle, but only from a sign-in under way: a failure stays on show. */
+  const stopSigningIn = useCallback(() => {
+    setAuthRequest((prev) => (prev?.status === 'signing-in' ? { ...prev, status: 'idle', error: undefined } : prev));
+  }, []);
+
+  return { authRequest, requestSignIn, dismiss, setStatus, stopSigningIn };
 }

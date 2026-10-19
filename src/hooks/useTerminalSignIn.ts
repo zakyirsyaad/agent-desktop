@@ -139,10 +139,13 @@ export function useTerminalSignIn() {
     setDialog(null);
     if (!current) return;
     current.isCancelled = true;
-    // While starting there is no login to end yet: the start handler does it.
     if (current.isStarted) {
       void invoke('terminate_session', { sessionId: current.terminalId }).catch(() => {});
       current.settle(CANCELLED);
+    } else {
+      // Still starting: the backend ends the agent it reads the method from and starts no terminal.
+      // A terminal that started anyway is ended by the start handler.
+      void invoke('acp_cancel_terminal_sign_in', { terminalId: current.terminalId }).catch(() => {});
     }
     output.forget(current.terminalId);
   }, [output]);

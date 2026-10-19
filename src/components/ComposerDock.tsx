@@ -35,6 +35,8 @@ export interface ComposerHandle {
   holdsRestored: () => boolean;
   /** Empties the prompt and its attachments. */
   clear: () => void;
+  /** Puts the cursor in the prompt. */
+  focus: () => void;
 }
 
 export interface ComposerDockProps {
@@ -242,6 +244,7 @@ export function ComposerDock({
       setAttachments([]);
       mentionMenu.close();
     },
+    focus: () => textareaRef.current?.focus(),
   }));
 
   const handleAttach = async () => {

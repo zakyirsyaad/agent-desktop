@@ -156,6 +156,8 @@ describe("signing in to an ACP agent from the app", () => {
     expect(prompt().value).toBe("");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("region", { name: "Sign in to Qwen Code" })).toBeNull();
+    // The panel's button that opened the dialog is gone: the composer takes focus.
+    expect(document.activeElement).toBe(prompt());
   });
 
   it("shows the session running again once the refused message is sent", async () => {

@@ -137,6 +137,9 @@ describe("useTerminalSignIn", () => {
 
     await act(async () => result.current.close());
     expect(callsTo(spy, "terminate_session")).toHaveLength(0);
+    // The backend ends the agent the method is read from, so no terminal starts.
+    const terminalId = callsTo(spy, "acp_start_terminal_sign_in")[0][1]?.terminalId;
+    expect(callsTo(spy, "acp_cancel_terminal_sign_in")[0][1]).toEqual({ terminalId });
 
     await act(async () => finishStart());
     expect(callsTo(spy, "terminate_session")).toHaveLength(1);

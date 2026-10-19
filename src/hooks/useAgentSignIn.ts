@@ -26,7 +26,7 @@ export interface AgentSignInDeps {
  * session's composer.
  */
 export function useAgentSignIn(deps: AgentSignInDeps) {
-  const { authRequest, setAuthRequest, requestSignIn: openPanel, dismiss: closePanel } = useAgentAuth();
+  const { authRequest, requestSignIn: openPanel, dismiss: closePanel, setStatus, stopSigningIn } = useAgentAuth();
   const terminal = useTerminalSignIn();
   const closeTerminal = terminal.close;
   // Read when a sign-in ends, renders after it began.
@@ -53,8 +53,8 @@ export function useAgentSignIn(deps: AgentSignInDeps) {
   const cancel = useCallback(() => {
     attemptRef.current = null;
     closeTerminal();
-    setAuthRequest((prev) => (prev?.status === 'signing-in' ? { ...prev, status: 'idle' } : prev));
-  }, [closeTerminal, setAuthRequest]);
+    stopSigningIn();
+  }, [closeTerminal, stopSigningIn]);
 
   /** The agent refused: puts the message back in its session's composer (when active) and opens the panel. */
   const handBack = useCallback(
@@ -72,8 +72,6 @@ export function useAgentSignIn(deps: AgentSignInDeps) {
     [depsRef, requestSignIn],
   );
 
-  const fail = (error: string, methods?: AuthMethod[]) =>
-    setAuthRequest((prev) => prev && { ...prev, status: 'failed', error, ...(methods ? { methods } : {}) });
 
   /** Runs the method in the agent, or its login in a terminal. */
   const runMethod = async ({ profileId, cwd }: AuthRequest, method: AuthMethod, agentName: string) => {
@@ -112,14 +110,14 @@ export function useAgentSignIn(deps: AgentSignInDeps) {
     const attempt = {};
     attemptRef.current = attempt;
     const isCurrent = () => attemptRef.current === attempt;
-    setAuthRequest({ ...request, status: 'signing-in', error: undefined });
+    setStatus('signing-in');
     const agentName = depsRef.current.agents.find((a) => a.id === request.profileId)?.name ?? request.profileId;
 
     const outcome = await runMethod(request, method, agentName);
     if (!isCurrent()) return;
     if (!outcome.ok) {
-      if (outcome.cancelled) setAuthRequest((prev) => prev && { ...prev, status: 'idle' });
-      else fail(outcome.reason, outcome.methods);
+      if (outcome.cancelled) setStatus('idle');
+      else setStatus('failed', outcome.reason, outcome.methods);
       return;
     }
 
@@ -130,11 +128,13 @@ export function useAgentSignIn(deps: AgentSignInDeps) {
     if (!signedIn) {
       const reason = `${agentName} still says you are signed out`;
       if (method.kind === 'terminal') terminal.fail(reason);
-      fail(reason);
+      setStatus('failed', reason);
       return;
     }
     terminal.close();
-    if (!sendRefused(request.pending)) setAuthRequest((prev) => prev && { ...prev, status: 'signed-in' });
+    // The composer takes focus: the dialog's opener, the panel's button, is gone by now.
+    depsRef.current.composerRef.current?.focus();
+    if (!sendRefused(request.pending)) setStatus('signed-in');
   };
 
   const auth: AgentAuth = {

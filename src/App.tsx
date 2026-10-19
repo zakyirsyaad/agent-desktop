@@ -238,6 +238,7 @@ export default function App() {
   const pty = usePtyEngine({ ...engineDeps, output: ptyOutput });
   const acp = useAcpEngine({
     ...engineDeps,
+    transcripts,
     rememberOptions: rememberAgentOptions,
     onAttention: (sessionId, reason) => notifyAttention(sessionId, reason),
     onAuthRequired: signIn.handBack,

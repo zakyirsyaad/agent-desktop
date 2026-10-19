@@ -13,7 +13,8 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 import { useAcpEngine } from "../hooks/session-engine/useAcpEngine";
 import { fakeProfiles } from "./fixtures/agents";
-import type { Session } from "../types";
+import { userMessage } from "../lib/session-helpers";
+import type { ChatMessage, Session } from "../types";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 
@@ -130,12 +131,17 @@ describe("useAcpEngine retryAfterSignIn", () => {
   }
 
   /** Renders the engine over one session; rerender it with the session as the app has it by then. */
-  function renderEngine(session: Session, patchSession: (sessionId: string, patch: Partial<Session>) => void = () => {}) {
+  function renderEngine(
+    session: Session,
+    patchSession: (sessionId: string, patch: Partial<Session>) => void = () => {},
+    transcripts: Readonly<Record<string, ChatMessage[]>> = {},
+  ) {
     return renderHook(
       ({ current }: { current: Session }) =>
         useAcpEngine({
           sessions: [current],
           agents: fakeProfiles,
+          transcripts,
           updateMessages: () => {},
           patchSession,
           reportError: () => {},
@@ -282,6 +288,83 @@ describe("useAcpEngine retryAfterSignIn", () => {
     expect(callsOf(spy, "acp_load_session", "acp_start_session")).toEqual(["acp_load_session"]);
     expect(promptsSent(spy)).toEqual([]);
     expect(isHandled).toBe(false);
+  });
+
+  /** The hidden context a fresh ACP session is handed: the conversation so far, in a file. */
+  const HANDOFF = /^Read the file "\/fake\/app-data\/handoffs\/[^"]+\.md" for this conversation so far/;
+  const EARLIER = { "s-1": [userMessage("what does main.rs do?")] };
+
+  it("hands the conversation to a new ACP session when the agent cannot load one", async () => {
+    let starts = 0;
+    const spy = spyWith({
+      acp_start_session: () => Promise.resolve({ acpSessionId: `acp-${++starts}`, agentCapabilities: {} }),
+    });
+    const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" }, () => {}, EARLIER);
+    await act(async () => {
+      await result.current.start(SESSION);
+    });
+    spy.mockClear();
+
+    await act(async () => {
+      await result.current.retryAfterSignIn("s-1", { text: "try again" });
+    });
+
+    expect(callsOf(spy, "write_fork_handoff", "acp_start_session", "acp_prompt")).toEqual([
+      "write_fork_handoff",
+      "acp_start_session",
+      "acp_prompt",
+    ]);
+    expect(promptsSent(spy)[0]).toMatch(HANDOFF);
+    expect(promptsSent(spy)[0]).toMatch(/\n\ntry again$/);
+  });
+
+  it("hands the conversation to a new ACP session when the agent no longer knows the old one", async () => {
+    let starts = 0;
+    const spy = spyWith({
+      acp_start_session: () => Promise.resolve({ acpSessionId: `acp-${++starts}`, agentCapabilities: { loadSession: true } }),
+      acp_load_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
+    });
+    const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" }, () => {}, EARLIER);
+    await act(async () => {
+      await result.current.start(SESSION);
+    });
+    spy.mockClear();
+
+    await act(async () => {
+      await result.current.retryAfterSignIn("s-1", { text: "try again" });
+    });
+
+    expect(callsOf(spy, "acp_load_session", "write_fork_handoff", "acp_start_session")).toEqual([
+      "acp_load_session",
+      "write_fork_handoff",
+      "acp_start_session",
+    ]);
+    expect(promptsSent(spy)[0]).toMatch(HANDOFF);
+  });
+
+  it("leaves no handoff behind when the new ACP session does not open", async () => {
+    let starts = 0;
+    const spy = spyWith({
+      acp_start_session: () =>
+        starts++ === 0
+          ? Promise.resolve({ acpSessionId: "acp-1", agentCapabilities: { loadSession: true } })
+          : Promise.reject("spawn failed"),
+      acp_load_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
+    });
+    const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" }, () => {}, EARLIER);
+    await act(async () => {
+      await result.current.start(SESSION);
+    });
+    await act(async () => {
+      await result.current.retryAfterSignIn("s-1", { text: "try again" });
+    });
+    spy.mockClear();
+
+    await act(async () => {
+      await result.current.send("s-1", "hello again");
+    });
+
+    expect(promptsSent(spy)).toEqual(["hello again"]);
   });
 
   it("gives the message back when neither a load nor a new session opens", async () => {
