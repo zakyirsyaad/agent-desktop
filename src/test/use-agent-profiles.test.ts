@@ -112,4 +112,25 @@ describe("useAgentProfiles", () => {
     expect(calls[0]).toMatchObject({ refresh: false });
     expect(calls[calls.length - 1]).toMatchObject({ refresh: true });
   });
+
+  it("is loaded only once a detection has finished", async () => {
+    let answer: (profiles: unknown) => void = () => {};
+    const originalInvoke = internals().invoke;
+    vi.spyOn(internals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "get_agent_profiles"
+        ? new Promise((resolve) => {
+            answer = resolve;
+          })
+        : originalInvoke(cmd, args),
+    );
+    const { result } = renderHook(() => useAgentProfiles(() => {}));
+    await act(async () => {});
+
+    expect(result.current.isLoaded).toBe(false);
+
+    await act(async () => answer([]));
+
+    expect(result.current.isLoaded).toBe(true);
+    expect(result.current.agents).toEqual([]);
+  });
 });

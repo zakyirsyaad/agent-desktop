@@ -7,12 +7,15 @@ import { useLatest } from './useLatest';
 export interface AgentProfilesHandle {
   /** Agent profiles detected on this machine; empty until detection finishes. */
   agents: AgentProfile[];
+  /** True once a detection has finished: until then an empty list says nothing about this machine. */
+  isLoaded: boolean;
   /** Detects again, e.g. after the user installed an agent during setup. */
   refresh: () => Promise<void>;
 }
 
 export function useAgentProfiles(onError: (message: string) => void): AgentProfilesHandle {
   const [agents, setAgents] = useState<AgentProfile[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
   const onErrorRef = useLatest(onError);
 
   /** With `refresh`, the backend re-reads the login shell's PATH first (an agent may just have been installed). */
@@ -21,6 +24,7 @@ export function useAgentProfiles(onError: (message: string) => void): AgentProfi
       try {
         const profiles = await invoke<AgentProfile[]>('get_agent_profiles', { refresh });
         setAgents(Array.isArray(profiles) ? profiles : []);
+        setIsLoaded(true);
       } catch (error) {
         onErrorRef.current(`Failed to detect agents: ${String(error)}`);
         throw error;
@@ -57,7 +61,7 @@ export function useAgentProfiles(onError: (message: string) => void): AgentProfi
   /** "Check again": detects with a fresh PATH. */
   const refresh = useCallback(() => detect(true), [detect]);
 
-  return { agents, refresh };
+  return { agents, isLoaded, refresh };
 }
 
 /**

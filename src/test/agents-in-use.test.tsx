@@ -33,6 +33,36 @@ async function renderWithRegistryAgents() {
   });
 }
 
+const NO_AGENT_NOTICE =
+  "No agent is ready. Claude Code, Codex and Qwen Code need Node.js 22 or later: install it from https://nodejs.org, then check again in Settings.";
+
+/** The default registry agents without Node.js, and no terminal agent found. */
+function notReadyProfiles() {
+  const needsNode = (id: string, name: string) =>
+    makeProfile({
+      id,
+      name,
+      source: "registry",
+      transport: "acp",
+      distribution: "npx",
+      availability: "needs_runtime",
+      detected: false,
+    });
+  return [
+    needsNode("claude-acp", "Claude Code"),
+    needsNode("codex-acp", "Codex"),
+    needsNode("qwen-code", "Qwen Code"),
+    makeProfile({ id: "omp", name: "Oh-My-Pi", detected: false }),
+    makeProfile({ id: "aider", name: "Aider", detected: false }),
+  ];
+}
+
+function newSessionView(): HTMLElement {
+  const view = screen.getByRole("heading", { name: "New session" }).parentElement;
+  if (!view) throw new Error("the new-session view has no container");
+  return view;
+}
+
 async function click(element: HTMLElement) {
   await act(async () => {
     fireEvent.click(element);
@@ -67,23 +97,7 @@ describe("Agents in use", () => {
   });
 
   it("says Node.js is what the default agents need when no agent is ready", async () => {
-    const needsNode = (id: string, name: string) =>
-      makeProfile({
-        id,
-        name,
-        source: "registry",
-        transport: "acp",
-        distribution: "npx",
-        availability: "needs_runtime",
-        detected: false,
-      });
-    const notReady = [
-      needsNode("claude-acp", "Claude Code"),
-      needsNode("codex-acp", "Codex"),
-      needsNode("qwen-code", "Qwen Code"),
-      makeProfile({ id: "omp", name: "Oh-My-Pi", detected: false }),
-      makeProfile({ id: "aider", name: "Aider", detected: false }),
-    ];
+    const notReady = notReadyProfiles();
     const originalInvoke = tauriInternals().invoke;
     const invokeSpy = vi
       .spyOn(tauriInternals(), "invoke")
@@ -95,9 +109,7 @@ describe("Agents in use", () => {
     });
     await click(screen.getByRole("button", { name: "+ New session" }));
 
-    expect(screen.getByRole("heading", { name: "New session" }).parentElement).toHaveTextContent(
-      "No agent is ready. Claude Code, Codex and Qwen Code need Node.js 22 or later: install it from https://nodejs.org, then check again in Settings.",
-    );
+    expect(newSessionView()).toHaveTextContent(NO_AGENT_NOTICE);
     const prompt = screen.getByRole("textbox", { name: "Prompt" });
     expect(prompt).toBeDisabled();
     await act(async () => {
@@ -105,5 +117,27 @@ describe("Agents in use", () => {
       fireEvent.keyDown(prompt, { key: "Enter" });
     });
     expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")).toBeUndefined();
+  });
+
+  it("waits for the agent list before saying no agent is ready", async () => {
+    let answer: (profiles: unknown) => void = () => {};
+    const originalInvoke = tauriInternals().invoke;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "get_agent_profiles"
+        ? new Promise((resolve) => {
+            answer = resolve;
+          })
+        : originalInvoke(cmd, args),
+    );
+    await act(async () => {
+      render(<App />);
+    });
+    await click(screen.getByRole("button", { name: "+ New session" }));
+
+    expect(newSessionView()).not.toHaveTextContent("No agent is ready");
+
+    await act(async () => answer(notReadyProfiles()));
+
+    expect(newSessionView()).toHaveTextContent(NO_AGENT_NOTICE);
   });
 });

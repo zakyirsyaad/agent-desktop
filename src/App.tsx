@@ -111,7 +111,7 @@ export default function App() {
   const { state, isLoaded, updateState } = usePersistedState(reportError);
   useAppearance(state.settings.appearance, isLoaded, reportError);
   const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
-  const { agents, refresh: refreshAgents } = useAgentProfiles(reportError);
+  const { agents, isLoaded: areAgentsLoaded, refresh: refreshAgents } = useAgentProfiles(reportError);
   // Installed registry agents join the ones in use, and each one's version is recorded.
   useEffect(() => {
     if (!isLoaded || agents.length === 0) return;
@@ -694,7 +694,7 @@ export default function App() {
               workspace={activeWorkspace}
               details={workspaceDetails}
               agentName={newSessionAgent?.name}
-              unavailableReason={newSessionAgent ? undefined : NO_AGENT_NOTICE}
+              unavailableReason={areAgentsLoaded && !newSessionAgent ? NO_AGENT_NOTICE : undefined}
             />
           ) : (
             <EmptySessionState />
