@@ -65,7 +65,10 @@ const handlers = {
         { id: "api-key", name: "API key", description: "Set FAKE_API_KEY" },
       ],
     });
-    if (authStatus) send({ method: "_auth/status_update", params: { authStatus: { kind: authStatus } } });
+    // "silent" advertises the extension but never says who is signed in, as an agent that cannot tell.
+    if (authStatus && authStatus !== "silent") {
+      send({ method: "_auth/status_update", params: { authStatus: { kind: authStatus } } });
+    }
   },
   authenticate: (id, params) =>
     params.methodId === "browser"

@@ -578,3 +578,44 @@ fn probing_does_not_wait_long_for_commands_an_agent_never_sends() {
     assert_eq!(probed.commands, Value::Array(vec![]));
     assert_eq!(probed.config_options[0]["id"], "model");
 }
+
+#[test]
+fn an_opened_session_does_not_show_a_sign_in_for_an_agent_that_says_nothing_about_it() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_STATUS", "silent");
+
+    let probed = manager.probe(&cwd(), &launch, true).expect("probe");
+
+    assert_eq!(probed.config_options[0]["id"], "model");
+    assert!(!probed.sign_in_checked);
+}
+
+#[test]
+fn a_signed_out_probe_returns_without_waiting_for_the_agent_to_delete_its_session() {
+    let (manager, _rx) = manager();
+    let log = method_log("signed-out-slow-delete");
+    let launch = with_env(
+        with_env(
+            with_env(fake_agent(), "FAKE_ACP_METHOD_LOG", log.to_str().unwrap()),
+            "FAKE_ACP_SLOW_DELETE",
+            "1",
+        ),
+        "FAKE_ACP_AUTH_STATUS",
+        "none",
+    );
+    let started = std::time::Instant::now();
+
+    let error = manager.probe(&cwd(), &launch, true).unwrap_err();
+
+    assert!(
+        started.elapsed() < Duration::from_millis(2500),
+        "took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(auth_methods_in(&error)[0]["id"], "browser");
+    assert!(
+        eventually_called(&log, "session/delete"),
+        "{:?}",
+        methods_in(&log)
+    );
+}

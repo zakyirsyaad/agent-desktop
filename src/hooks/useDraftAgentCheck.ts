@@ -1,8 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAgentProbe } from './useAgentProbe';
 import type { AgentAuth } from './useAgentAuth';
 import { hasReportedOptions, type AgentOptions, type ProbedOptions } from '../lib/acp-draft';
 import type { AgentProfile } from '../types';
+
+/**
+ * The least time between two focus re-checks of one agent: asking can open a
+ * real session (running the agent's hooks), so switching windows back and
+ * forth must not spawn the agent each time.
+ */
+const FOCUS_RECHECK_INTERVAL_MS = 15_000;
 
 export interface DraftAgentCheckDeps {
   /** The agent the next message starts, or undefined while a session runs. */
@@ -50,9 +57,16 @@ export function useDraftAgentCheck({ agent, cwd, agentOptions, rememberProbed, a
     authRequest && authRequest.status !== 'signing-in' && authRequest.status !== 'signed-in'
       ? authRequest.profileId
       : undefined;
+  const lastFocusCheckRef = useRef(new Map<string, number>());
   useEffect(() => {
     if (!awaitingAgentId) return;
-    const askAgain = () => reprobe(awaitingAgentId);
+    const askAgain = () => {
+      const now = Date.now();
+      const last = lastFocusCheckRef.current.get(awaitingAgentId);
+      if (last !== undefined && now - last < FOCUS_RECHECK_INTERVAL_MS) return;
+      lastFocusCheckRef.current.set(awaitingAgentId, now);
+      reprobe(awaitingAgentId);
+    };
     window.addEventListener('focus', askAgain);
     return () => window.removeEventListener('focus', askAgain);
   }, [awaitingAgentId, reprobe]);

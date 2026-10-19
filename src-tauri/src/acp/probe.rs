@@ -116,7 +116,8 @@ impl AcpManager {
                         commands: Value::Array(Vec::new()),
                         sign_in_checked: auth_kind.is_some(),
                     };
-                    return signed_in(&init, auth_kind.as_deref()).map(|()| (probed, None));
+                    let outcome = signed_in(&init, auth_kind.as_deref()).map(|()| probed);
+                    return Ok((outcome, None));
                 }
                 // Opening a session is also how an agent that cannot report its sign-in refuses it.
                 let session = open_request(
@@ -134,25 +135,32 @@ impl AcpManager {
                     modes: session["modes"].clone(),
                     config_options: session["configOptions"].clone(),
                     commands: commands.unwrap_or_else(|| Value::Array(Vec::new())),
-                    sign_in_checked: true,
+                    // An agent that reports its sign-in may open sessions signed out
+                    // (Claude Code): then only a reported account shows one.
+                    sign_in_checked: !reports_auth || auth_kind.is_some(),
                 };
                 let discard =
                     discard_method(&init).map(|method| (method, session["sessionId"].clone()));
-                if let Err(error) = signed_in(&init, auth_kind.as_deref()) {
-                    if let Some((method, session_id)) = &discard {
-                        discard_session(&connection, method, session_id);
-                    }
-                    return Err(error);
-                }
-                Ok((probed, discard))
+                Ok((
+                    signed_in(&init, auth_kind.as_deref()).map(|()| probed),
+                    discard,
+                ))
             });
         match result {
-            Ok((probed, discard)) => {
+            // Signed in or not, the agent answered: its session goes in the background.
+            Ok((outcome, discard)) => {
                 finish_in_background(connection, discard);
-                Ok(probed)
+                outcome.map_err(failure_message_without_stderr)
             }
             Err(error) => Err(failure_message(&connection, error)),
         }
+    }
+}
+
+/// The message of an answer the agent gave itself (the sign-in error the UI parses).
+fn failure_message_without_stderr(error: OpenError) -> String {
+    match error {
+        OpenError::Agent(message) | OpenError::Transport(message) => message,
     }
 }
 
