@@ -84,7 +84,7 @@ import { TRANSPORT_ACP } from "./types";
 
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
 const NO_AGENT_NOTICE =
-  "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
+  "No agent is ready. Claude Code, Codex and Qwen Code need Node.js 22 or later: install it from https://nodejs.org, then check again in Settings.";
 
 // eslint-disable-next-line no-control-regex -- matching control characters is the point.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
@@ -694,6 +694,7 @@ export default function App() {
               workspace={activeWorkspace}
               details={workspaceDetails}
               agentName={newSessionAgent?.name}
+              unavailableReason={newSessionAgent ? undefined : NO_AGENT_NOTICE}
             />
           ) : (
             <EmptySessionState />
