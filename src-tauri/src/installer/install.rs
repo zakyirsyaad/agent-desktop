@@ -19,7 +19,7 @@ use serde::Serialize;
 
 use super::archive::{ensure_agent_command, format_for_url, unpack, UnpackLimits};
 use super::download::{download, DownloadLimits};
-use super::layout::{read_record, InstallRecord, Staging, ToolsDir};
+use super::layout::{read_record, CommitOutcome, InstallRecord, Staging, ToolsDir};
 use super::plan::PlannedStep;
 use super::prerequisites::{
     npm_install_args, prerequisites_for, run_npm_install, Prerequisite, NPM_INSTALL_TIMEOUT,
@@ -187,6 +187,12 @@ impl Installer {
         env: &HashMap<String, String>,
         user_node_major: Option<u32>,
     ) -> Result<(), String> {
+        if !has_plain_path_parts(step) {
+            return Err(format!(
+                "Zorvo cannot install {}: its id or version is not a plain name",
+                run.name
+            ));
+        }
         let target = self.target_lock(&lock_key(step));
         let _held = wait_for(&target, run.cancel)?;
         run.check_cancel()?;
@@ -206,7 +212,7 @@ impl Installer {
                 }
                 let staging = self.fetch(run, url, sha256, None)?;
                 ensure_agent_command(&staging.content_path(), cmd)
-                    .map_err(|_| format!("{}'s archive does not contain {cmd}", run.name))?;
+                    .map_err(|e| e.user_message(&run.name, cmd))?;
                 commit(run, staging, &dest, record(url, Some(sha256), None))
             }
             PlannedStep::Prerequisite(p) => self.install_prerequisite(p, run, env, user_node_major),
@@ -300,7 +306,8 @@ impl Installer {
         user_node_major: Option<u32>,
     ) -> Result<(PathBuf, HashMap<String, String>), String> {
         let path = env.get("PATH").map_or("", String::as_str);
-        if user_node_major.is_some_and(|major| major >= MIN_USER_NODE_MAJOR) {
+        let users_node = user_node_major.is_some_and(|major| major >= MIN_USER_NODE_MAJOR);
+        if users_node {
             if let Some(npm) = find_binary_in_path_str("npm", path) {
                 return Ok((npm, env.clone()));
             }
@@ -311,7 +318,13 @@ impl Installer {
             &self.manifest,
             &self.platform,
         )
-        .ok_or_else(|| format!("{} needs Node.js, which is not installed", p.command))?;
+        .ok_or_else(|| {
+            if users_node {
+                format!("{} needs npm, which is not on your PATH", p.command)
+            } else {
+                format!("{} needs Node.js, which is not installed", p.command)
+            }
+        })?;
         let bin = node.bin_dir.display().to_string();
         let joined = if path.is_empty() {
             bin
@@ -378,6 +391,17 @@ fn check_cancel(cancel: &AtomicBool) -> Result<(), String> {
     }
 }
 
+/// True when the parts of the step joined into its install path are each one
+/// plain name, so the path stays under `tools/`. Runtime versions come from
+/// the manifest compiled into the app.
+fn has_plain_path_parts(step: &PlannedStep) -> bool {
+    match step {
+        PlannedStep::Runtime(_) => true,
+        PlannedStep::Agent { id, version, .. } => is_single_name(id) && is_single_name(version),
+        PlannedStep::Prerequisite(p) => is_single_name(p.command) && is_single_name(p.version),
+    }
+}
+
 fn lock_key(step: &PlannedStep) -> String {
     match step {
         PlannedStep::Runtime(RuntimeKind::Node) => "node".to_string(),
@@ -404,8 +428,11 @@ fn wait_for<'a>(target: &'a Mutex<()>, cancel: &AtomicBool) -> Result<MutexGuard
     }
 }
 
-/// Moves the staging content to `dest`. A `dest` that appeared meanwhile is
-/// an install that already finished, which is success too.
+/// Moves the staging content to `dest`, under the target's lock.
+///
+/// The caller found no record at `dest`, so anything there is left over from
+/// a failed removal or a deleted `install.json`. It is removed first, since it
+/// would otherwise block the rename and the step would never install.
 fn commit(
     run: &StepRun,
     staging: Staging,
@@ -413,7 +440,35 @@ fn commit(
     record: InstallRecord,
 ) -> Result<(), String> {
     run.check_cancel()?;
-    staging.commit(dest, &record).map(|_| ())
+    if read_record(dest).is_none() {
+        remove_leftover(dest)?;
+    }
+    match staging.commit(dest, &record)? {
+        CommitOutcome::Installed => Ok(()),
+        // Only another process could have put it there; count it if it is complete.
+        CommitOutcome::AlreadyPresent if read_record(dest).is_some() => Ok(()),
+        CommitOutcome::AlreadyPresent => Err(format!(
+            "Could not install {}: something else is at {}",
+            run.name,
+            dest.display()
+        )),
+    }
+}
+
+/// Deletes whatever is at `dest` without following a symlink there.
+fn remove_leftover(dest: &Path) -> Result<(), String> {
+    let removed = match fs::symlink_metadata(dest) {
+        Ok(meta) if meta.is_dir() => fs::remove_dir_all(dest),
+        Ok(_) => fs::remove_file(dest),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) => Err(e),
+    };
+    removed.map_err(|e| {
+        format!(
+            "Could not remove the incomplete install at {}: {e}",
+            dest.display()
+        )
+    })
 }
 
 fn record(source: &str, sha256: Option<&str>, bin: Option<&str>) -> InstallRecord {

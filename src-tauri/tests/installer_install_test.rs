@@ -637,3 +637,69 @@ fn remove_agent_refuses_an_id_that_leaves_the_agents_dir() {
     }
     assert!(read_record(&tools.node_dir(NODE_VERSION, PLATFORM)).is_some());
 }
+
+#[test]
+fn an_agent_version_that_is_not_a_plain_name_installs_nothing() {
+    let archive = agent_archive();
+    let server = Server::start(vec![("/agent.tar.gz", Reply::Ok(archive.clone()))]);
+    let d = data_dir();
+    for (id, version) in [("my-agent", "../x"), ("my-agent", "a/b"), ("..", "1.0.0")] {
+        let step = PlannedStep::Agent {
+            id: id.to_string(),
+            name: "Agent".to_string(),
+            version: version.to_string(),
+            url: server.url("/agent.tar.gz"),
+            sha256: sha256_hex(&archive),
+            cmd: "./dist/my-agent".to_string(),
+        };
+
+        let err = installer(&d, &server)
+            .run("job", &[step], &env(), None, &no_progress)
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            "Zorvo cannot install Agent: its id or version is not a plain name"
+        );
+    }
+    assert_eq!(server.hits("/agent.tar.gz"), 0);
+    assert!(!ToolsDir::new(&d).root().exists(), "nothing is created");
+}
+
+#[test]
+fn an_install_replaces_a_dir_left_without_a_record() {
+    let archive = agent_archive();
+    let server = Server::start(vec![("/agent.tar.gz", Reply::Ok(archive.clone()))]);
+    let d = data_dir();
+    let dest = ToolsDir::new(&d).agent_dir("my-agent", "1.0.0");
+    fs::create_dir_all(dest.join("dist")).unwrap();
+    fs::write(dest.join("dist/stale"), "left by a failed removal").unwrap();
+    let steps = [agent_step(&server, "my-agent", "/agent.tar.gz", &archive)];
+
+    installer(&d, &server)
+        .run("my-agent", &steps, &env(), None, &no_progress)
+        .unwrap();
+
+    assert!(read_record(&dest).is_some());
+    assert!(dest.join("dist/my-agent").is_file());
+    assert!(!dest.join("dist/stale").exists());
+}
+
+#[test]
+fn a_prerequisite_with_a_new_enough_node_but_no_npm_says_so() {
+    let server = Server::start(vec![]);
+    let d = data_dir();
+    let pi = &prerequisites_for("pi-acp")[0];
+
+    let err = installer(&d, &server)
+        .run(
+            "pi-acp",
+            &[PlannedStep::Prerequisite(pi)],
+            &env(),
+            Some(22),
+            &no_progress,
+        )
+        .unwrap_err();
+
+    assert_eq!(err, "pi needs npm, which is not on your PATH");
+}

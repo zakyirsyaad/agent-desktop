@@ -399,28 +399,49 @@ fn remove_non_dir(path: &Path) -> Result<(), UnpackError> {
     }
 }
 
+/// Why an agent's `cmd` cannot be launched after unpacking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentCommandError {
+    /// `cmd` is not a regular file inside the destination.
+    Missing,
+    /// `cmd` is there but its exec bit could not be set.
+    NotExecutable(String),
+}
+
+impl AgentCommandError {
+    /// The message shown to the user; `name` is the agent being installed.
+    pub fn user_message(&self, name: &str, cmd: &str) -> String {
+        match self {
+            Self::Missing => format!("{name}'s archive does not contain {cmd}"),
+            Self::NotExecutable(reason) => format!("Could not make {cmd} executable ({reason})"),
+        }
+    }
+}
+
 /// Finds the agent's `cmd` (relative to `dest`, a leading `./` allowed) and
 /// makes it executable when no exec bit is set; only `cmd` is touched.
 /// Returns the absolute path to launch.
-pub fn ensure_agent_command(dest: &Path, cmd: &str) -> Result<PathBuf, String> {
-    let missing = || format!("{cmd} is not in the archive");
-    let rel = safe_relative_path(Path::new(cmd)).map_err(|_| missing())?;
-    if rel.as_os_str().is_empty() {
-        return Err(missing());
+pub fn ensure_agent_command(dest: &Path, cmd: &str) -> Result<PathBuf, AgentCommandError> {
+    fn missing<E>(_: E) -> AgentCommandError {
+        AgentCommandError::Missing
     }
-    let path = std::path::absolute(dest.join(&rel)).map_err(|_| missing())?;
+    let rel = safe_relative_path(Path::new(cmd)).map_err(missing)?;
+    if rel.as_os_str().is_empty() {
+        return Err(AgentCommandError::Missing);
+    }
+    let path = std::path::absolute(dest.join(&rel)).map_err(missing)?;
     // `cmd` may be a symlink inside the tree (like Node's `bin/npx`), but what it
     // resolves to must be a regular file inside `dest`.
-    let real = path.canonicalize().map_err(|_| missing())?;
-    let real_dest = dest.canonicalize().map_err(|_| missing())?;
-    let meta = fs::metadata(&real).map_err(|_| missing())?;
+    let real = path.canonicalize().map_err(missing)?;
+    let real_dest = dest.canonicalize().map_err(missing)?;
+    let meta = fs::metadata(&real).map_err(missing)?;
     if !real.starts_with(&real_dest) || !meta.is_file() {
-        return Err(missing());
+        return Err(AgentCommandError::Missing);
     }
     let mode = meta.permissions().mode();
     if mode & EXEC_BITS == 0 {
         fs::set_permissions(&real, fs::Permissions::from_mode(mode | EXEC_BITS))
-            .map_err(|err| format!("Could not make {cmd} executable ({err})"))?;
+            .map_err(|err| AgentCommandError::NotExecutable(err.to_string()))?;
     }
     Ok(path)
 }
@@ -443,6 +464,18 @@ mod tests {
         assert_eq!(
             UnpackError::DiskFull.user_message("Cursor"),
             "Not enough disk space to install Cursor"
+        );
+    }
+
+    #[test]
+    fn agent_command_errors_name_the_agent_and_cmd() {
+        assert_eq!(
+            AgentCommandError::Missing.user_message("Cursor", "./cursor-agent"),
+            "Cursor's archive does not contain ./cursor-agent"
+        );
+        assert_eq!(
+            AgentCommandError::NotExecutable("denied".to_string()).user_message("Cursor", "x"),
+            "Could not make x executable (denied)"
         );
     }
 

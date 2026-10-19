@@ -155,8 +155,10 @@ fn is_reserved_id(id: &str) -> bool {
     LEGACY_IDS.iter().any(|(legacy, _)| *legacy == id) || TERMINAL_AGENT_IDS.contains(&id)
 }
 
+/// The version is checked too: the installer joins it into a path under `tools/`.
 fn is_valid_entry(entry: &RegistryEntry) -> bool {
     is_valid_id(&entry.id)
+        && is_exact_version(&entry.version)
         && !is_reserved_id(&entry.id)
         && match &entry.distribution {
             Distribution::Npx { package, env, .. } => {

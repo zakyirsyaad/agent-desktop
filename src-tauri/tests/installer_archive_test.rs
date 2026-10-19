@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use zorvo_lib::installer::archive::{
-    ensure_agent_command, format_for_url, unpack, ArchiveFormat, UnpackError, UnpackLimits,
+    ensure_agent_command, format_for_url, unpack, AgentCommandError, ArchiveFormat, UnpackError,
+    UnpackLimits,
 };
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -534,15 +535,15 @@ fn ensure_agent_command_rejects_a_missing_cmd() {
     fs::create_dir_all(tmp.join("bin")).unwrap();
     assert_eq!(
         ensure_agent_command(&tmp, "bin/agent"),
-        Err("bin/agent is not in the archive".to_string())
+        Err(AgentCommandError::Missing)
     );
     assert_eq!(
         ensure_agent_command(&tmp, "bin"),
-        Err("bin is not in the archive".to_string())
+        Err(AgentCommandError::Missing)
     );
     assert_eq!(
         ensure_agent_command(&tmp, "../agent"),
-        Err("../agent is not in the archive".to_string())
+        Err(AgentCommandError::Missing)
     );
 }
 
@@ -556,7 +557,7 @@ fn ensure_agent_command_rejects_a_symlink_out() {
 
     assert_eq!(
         ensure_agent_command(&tmp, "agent"),
-        Err("agent is not in the archive".to_string())
+        Err(AgentCommandError::Missing)
     );
     assert_eq!(mode(&outside.join("real")), 0o644);
 }

@@ -105,6 +105,22 @@ fn skips_an_entry_whose_id_breaks_the_pattern() {
 }
 
 #[test]
+fn skips_an_entry_whose_version_is_not_exact() {
+    let with_version = |id: &str, version: &str| {
+        format!(
+            r#"{{"id":"{id}","name":"N","version":"{version}","distribution":{{"npx":{{"package":"a@1.0.0"}}}}}}"#
+        )
+    };
+    let json = doc(&[
+        with_version("climbs", "../x"),
+        with_version("short", "1.0"),
+        with_version("pre", "1.0.0-beta.1"),
+        npx("good", "b@1.0.0"),
+    ]);
+    assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["pre", "good"]);
+}
+
+#[test]
 fn skips_an_unpinned_package() {
     let json = doc(&[
         npx("a", "@x/y"),
