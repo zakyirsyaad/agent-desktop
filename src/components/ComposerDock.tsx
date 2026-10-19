@@ -31,6 +31,10 @@ export interface ComposerHandle {
   insertPaths: (paths: readonly string[]) => void;
   /** Puts back a message that could not be sent, so it need not be typed again. */
   restore: (text: string, attachments?: readonly string[]) => void;
+  /** True while the prompt and attachments are exactly what the last `restore` left: nothing typed, sent or cleared since. */
+  holdsRestored: () => boolean;
+  /** Empties the prompt and its attachments. */
+  clear: () => void;
 }
 
 export interface ComposerDockProps {
@@ -104,6 +108,8 @@ export function ComposerDock({
   }
   const containerRef = useRef<HTMLElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // What the last restore left in the composer, until the user sends or clears it.
+  const restoredRef = useRef<{ text: string; attachments: readonly string[] } | null>(null);
 
   useDismiss(containerRef, openDropdown !== null, () => setOpenDropdown(null));
 
@@ -130,6 +136,7 @@ export function ComposerDock({
     if ((!trimmed && attachments.length === 0) || !canSend) return;
     if (attachAsFiles) onSendMessage(trimmed, attachments);
     else onSendMessage(trimmed);
+    restoredRef.current = null;
     setText("");
     setAttachments([]);
     mentionMenu.close();
@@ -217,7 +224,23 @@ export function ComposerDock({
       setText(restoredText);
       mentionMenu.close();
       if (attachAsFiles) setAttachments([...restoredAttachments]);
+      restoredRef.current = { text: restoredText, attachments: attachAsFiles ? [...restoredAttachments] : attachments };
       textareaRef.current?.focus();
+    },
+    holdsRestored: () => {
+      const restored = restoredRef.current;
+      return (
+        restored !== null &&
+        restored.text === text &&
+        restored.attachments.length === attachments.length &&
+        restored.attachments.every((path, index) => path === attachments[index])
+      );
+    },
+    clear: () => {
+      restoredRef.current = null;
+      setText("");
+      setAttachments([]);
+      mentionMenu.close();
     },
   }));
 

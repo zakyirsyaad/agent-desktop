@@ -290,6 +290,24 @@ export function useAcpEngine({
       action: 'resume',
     });
 
+  /**
+   * After a sign-in: sends a refused message in a fresh agent, which picks up
+   * the new credentials. The session is reopened through the agent's own
+   * session/load when it has one to reopen, else started anew.
+   */
+  const retryAfterSignIn = async (sessionId: string, message: FirstMessage) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const canLoad = acp.info[sessionId]?.canLoad === true;
+    // Taken before stop, which forgets it.
+    const context = takeUnsentContext(sessionId);
+    const wasTerminated = session.status === 'terminated';
+    if (!wasTerminated && !(await stop(sessionId))) return;
+    const first = { ...message, context: message.context ?? context };
+    if (session.acpSessionId && (wasTerminated || canLoad)) await resume(session, session.acpSessionId, first);
+    else await start(session, first);
+  };
+
   const fork = (sourceSessionId: string, session: Session) =>
     launch(session, () => acp.fork(sourceSessionId, session.id, session.cwd), {
       choices: NO_CHOICES,
@@ -366,6 +384,7 @@ export function useAcpEngine({
     info: acp.info,
     start,
     resume,
+    retryAfterSignIn,
     fork,
     send,
     chooseOption,
