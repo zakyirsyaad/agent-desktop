@@ -167,8 +167,8 @@ Söhne.
 
 ## Open items
 
-Item 3 and the app icon in item 4 are done; the rest are not, and each is
-its own piece of work:
+Items 3 and 4 are done; the rest are not, and each is its own piece of
+work:
 
 1. **Buy `zorvo.xyz`** (and `zorvo.dev` if it is free). Unregistered names
    can be taken at any time.
@@ -179,10 +179,12 @@ its own piece of work:
    (merged as `21ea46e`): `productName` is `Zorvo`, the bundle identifier is
    `xyz.zorvo.desktop`, and a one-time migration moves existing sessions and
    transcripts out of the old `com.agentdesktop.app` data directory.
-4. **App icon and favicon.** The app icon is done in
+4. ~~**App icon and favicon.**~~ The app icon is done in
    zakyirsyaad/agent-desktop#32: every size Tauri bundles is generated from
-   the SVGs; see [App icon](#app-icon). A web favicon (from
-   `assets/zorvo-symbol-small.svg`) is still to do, with the landing page.
+   the SVGs; see [App icon](#app-icon). The landing page's favicon,
+   `site/app/icon.svg`, is `assets/zorvo-symbol-small.svg` with a fixed
+   color per theme (a favicon has no text color to inherit), and its Apple
+   touch icon is the app icon's 256px PNG.
 5. **Homebrew cask** if the landing page is to offer
    `brew install --cask zorvo`; until it exists, the page offers the `.dmg`.
 6. **Pro plan scope:** which features are paid.
