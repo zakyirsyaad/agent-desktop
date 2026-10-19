@@ -130,13 +130,7 @@ fn unused_runtime(
     if !used {
         return vec![root.to_path_buf()];
     }
-    if read_record(&pinned).is_none() {
-        return Vec::new();
-    }
-    entries(root)
-        .into_iter()
-        .filter(|dir| *dir != pinned)
-        .collect()
+    superseded_versions(root, &pinned)
 }
 
 /// Prerequisites no enabled agent needs, and the versions of needed ones
@@ -149,17 +143,23 @@ fn unused_prereqs(tools: &ToolsDir, needed: &BTreeSet<String>) -> Vec<PathBuf> {
             if !needed.contains(&command) {
                 return vec![prereq];
             }
-            let pinned = all_prerequisites()
+            all_prerequisites()
                 .find(|p| p.command == command)
-                .map(|p| tools.prereq_dir(p.command, p.version));
-            match pinned {
-                Some(pinned) if read_record(&pinned).is_some() => entries(&prereq)
-                    .into_iter()
-                    .filter(|dir| *dir != pinned)
-                    .collect(),
-                _ => Vec::new(),
-            }
+                .map(|p| superseded_versions(&prereq, &tools.prereq_dir(p.command, p.version)))
+                .unwrap_or_default()
         })
+        .collect()
+}
+
+/// The version dirs in `root` other than `pinned`, once `pinned` is
+/// installed; none before, since until then an older one is what runs.
+fn superseded_versions(root: &Path, pinned: &Path) -> Vec<PathBuf> {
+    if read_record(pinned).is_none() {
+        return Vec::new();
+    }
+    entries(root)
+        .into_iter()
+        .filter(|dir| dir != pinned)
         .collect()
 }
 
