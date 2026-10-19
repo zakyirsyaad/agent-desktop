@@ -57,12 +57,13 @@ fn parses_valid_npx_uvx_and_binary_entries() {
         entries[0].distribution,
         Distribution::Npx {
             package: "@google/gemini-cli@0.64.0".into(),
-            args: vec!["--acp".into()]
+            args: vec!["--acp".into()],
+            env: Default::default(),
         }
     );
     assert_eq!(entries[1].icon.as_deref(), Some("https://x/i.svg"));
     match &entries[1].distribution {
-        Distribution::Uvx { package, args } => {
+        Distribution::Uvx { package, args, .. } => {
             assert_eq!(package, "py-agent@2.0.0");
             assert_eq!(args, &vec!["acp".to_string()]);
         }
@@ -178,6 +179,86 @@ fn skips_a_binary_with_no_target_for_this_platform() {
     let json = doc(&[
         binary_on("elsewhere", &[("other-platform", good)]),
         npx("ok", "a@1.0.0"),
+    ]);
+    assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["ok"]);
+}
+
+fn uvx(id: &str, package: &str) -> String {
+    format!(
+        r#"{{"id":"{id}","name":"U","version":"1.0.0","distribution":{{"uvx":{{"package":"{package}"}}}}}}"#
+    )
+}
+
+fn npx_env(id: &str, env: &str) -> String {
+    format!(
+        r#"{{"id":"{id}","name":"N","version":"1.0.0","distribution":{{"npx":{{"package":"p@1.0.0","env":{env}}}}}}}"#
+    )
+}
+
+#[test]
+fn uvx_accepts_pypi_pins_but_npx_does_not() {
+    let json = doc(&[
+        uvx("pypi", "fast-agent-acp==0.10.1"),
+        uvx("at", "agent@1.0.0"),
+        uvx("loose", "agent"),
+        uvx("range", "agent==1.0"),
+        npx("npm-eq", "agent==1.0.0"),
+    ]);
+    assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["pypi", "at"]);
+}
+
+#[test]
+fn env_is_parsed_and_round_trips() {
+    let json = doc(&[
+        npx_env("withenv", r#"{"AUGMENT_DISABLE_AUTO_UPDATE":"1"}"#),
+        binary_on(
+            "bin",
+            &[(
+                current_platform(),
+                format!(
+                    r#"{{"archive":"https://h/o.zip","cmd":"./o","sha256":"{SHA}","env":{{"VT_ACP_ENABLED":"1"}}}}"#
+                ),
+            )],
+        ),
+    ]);
+    let entries = parse_registry(&json).unwrap();
+    assert_eq!(ids(&entries), vec!["withenv", "bin"]);
+    match &entries[0].distribution {
+        Distribution::Npx { env, .. } => assert_eq!(env["AUGMENT_DISABLE_AUTO_UPDATE"], "1"),
+        other => panic!("expected npx, got {other:?}"),
+    }
+    let value = serde_json::to_value(&entries).unwrap();
+    assert_eq!(
+        value[0]["distribution"]["npx"]["env"]["AUGMENT_DISABLE_AUTO_UPDATE"],
+        "1"
+    );
+    let back: Vec<RegistryEntry> = serde_json::from_value(value).unwrap();
+    assert_eq!(back, entries);
+    // No env key is written when there is none.
+    let plain = parse_registry(&doc(&[npx("plain", "p@1.0.0")])).unwrap();
+    let plain = serde_json::to_value(&plain[0]).unwrap();
+    assert!(plain["distribution"]["npx"]["env"].is_null());
+}
+
+#[test]
+fn unsafe_env_names_skip_the_entry() {
+    let json = doc(&[
+        npx_env("ok", r#"{"GOOD_NAME":"1"}"#),
+        npx_env("lower", r#"{"lower":"1"}"#),
+        npx_env("dyld", r#"{"DYLD_INSERT_LIBRARIES":"x"}"#),
+        npx_env("ld", r#"{"LD_PRELOAD":"x"}"#),
+        npx_env("path", r#"{"PATH":"x"}"#),
+        npx_env("home", r#"{"HOME":"x"}"#),
+        npx_env("node", r#"{"NODE_OPTIONS":"x"}"#),
+        binary_on(
+            "binbad",
+            &[(
+                current_platform(),
+                format!(
+                    r#"{{"archive":"https://h/o.zip","cmd":"./o","sha256":"{SHA}","env":{{"PATH":"x"}}}}"#
+                ),
+            )],
+        ),
     ]);
     assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["ok"]);
 }

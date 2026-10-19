@@ -11,6 +11,7 @@ fn entry(id: &str, version: &str) -> RegistryEntry {
         distribution: Distribution::Npx {
             package: format!("{id}@{version}"),
             args: vec![],
+            env: Default::default(),
         },
     }
 }

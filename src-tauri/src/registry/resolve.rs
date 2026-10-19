@@ -55,13 +55,13 @@ fn basename(cmd: &str) -> &str {
 
 pub fn resolve_profile(entry: &RegistryEntry, tools: &SystemTools, listed: bool) -> AgentProfile {
     let (kind, program, args, installed_on_system) = match &entry.distribution {
-        Distribution::Npx { package, args } => (
+        Distribution::Npx { package, args, .. } => (
             "npx",
             "npx".to_string(),
             [vec!["-y".to_string(), package.clone()], args.clone()].concat(),
             tools.npm_globals.contains(package_name(package)),
         ),
-        Distribution::Uvx { package, args } => (
+        Distribution::Uvx { package, args, .. } => (
             "uvx",
             "uvx".to_string(),
             [vec![package.clone()], args.clone()].concat(),

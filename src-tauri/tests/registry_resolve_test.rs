@@ -25,6 +25,7 @@ fn gemini() -> RegistryEntry {
         Distribution::Npx {
             package: "@google/gemini-cli@0.64.0".to_string(),
             args: vec!["--acp".to_string()],
+            env: BTreeMap::new(),
         },
     )
 }
@@ -38,6 +39,7 @@ fn opencode() -> RegistryEntry {
             cmd: "./opencode".to_string(),
             args: vec!["acp".to_string()],
             sha256: "0".repeat(64),
+            env: BTreeMap::new(),
         },
     );
     entry("opencode", "OpenCode", Distribution::Binary { platforms })
@@ -122,6 +124,7 @@ fn uvx_entry_runs_the_package_through_uvx() {
         Distribution::Uvx {
             package: "pyagent==1.0".to_string(),
             args: vec!["acp".to_string()],
+            env: BTreeMap::new(),
         },
     );
 

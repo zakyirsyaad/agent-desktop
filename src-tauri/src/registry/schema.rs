@@ -24,10 +24,12 @@ pub enum Distribution {
     Npx {
         package: String,
         args: Vec<String>,
+        env: BTreeMap<String, String>,
     },
     Uvx {
         package: String,
         args: Vec<String>,
+        env: BTreeMap<String, String>,
     },
     Binary {
         platforms: BTreeMap<String, BinaryTarget>,
@@ -41,6 +43,8 @@ pub struct BinaryTarget {
     #[serde(default)]
     pub args: Vec<String>,
     pub sha256: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -48,6 +52,8 @@ struct PackageWire {
     package: String,
     #[serde(default)]
     args: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    env: BTreeMap<String, String>,
 }
 
 /// The registry's own `distribution` shape: exactly one of the three keys.
@@ -69,10 +75,12 @@ impl TryFrom<DistributionWire> for Distribution {
             (Some(p), None, None) => Ok(Self::Npx {
                 package: p.package,
                 args: p.args,
+                env: p.env,
             }),
             (None, Some(p), None) => Ok(Self::Uvx {
                 package: p.package,
                 args: p.args,
+                env: p.env,
             }),
             (None, None, Some(platforms)) => Ok(Self::Binary { platforms }),
             _ => Err("distribution must have exactly one of npx, uvx or binary".into()),
@@ -88,12 +96,12 @@ impl From<Distribution> for DistributionWire {
             binary: None,
         };
         match distribution {
-            Distribution::Npx { package, args } => DistributionWire {
-                npx: Some(PackageWire { package, args }),
+            Distribution::Npx { package, args, env } => DistributionWire {
+                npx: Some(PackageWire { package, args, env }),
                 ..empty()
             },
-            Distribution::Uvx { package, args } => DistributionWire {
-                uvx: Some(PackageWire { package, args }),
+            Distribution::Uvx { package, args, env } => DistributionWire {
+                uvx: Some(PackageWire { package, args, env }),
                 ..empty()
             },
             Distribution::Binary { platforms } => DistributionWire {
@@ -140,14 +148,17 @@ pub fn current_platform() -> &'static str {
 fn is_valid_entry(entry: &RegistryEntry) -> bool {
     is_valid_id(&entry.id)
         && match &entry.distribution {
-            Distribution::Npx { package, .. } | Distribution::Uvx { package, .. } => {
-                is_pinned_package(package)
+            Distribution::Npx { package, env, .. } => {
+                is_pinned_package(package) && is_safe_env(env)
+            }
+            Distribution::Uvx { package, env, .. } => {
+                (is_pinned_package(package) || is_pinned_pypi_package(package)) && is_safe_env(env)
             }
             Distribution::Binary { platforms } => {
                 // Only this machine's target matters; others are kept but never run.
                 platforms
                     .get(current_platform())
-                    .is_some_and(is_valid_binary_target)
+                    .is_some_and(|t| is_valid_binary_target(t) && is_safe_env(&t.env))
             }
         }
 }
@@ -167,6 +178,28 @@ fn is_pinned_package(package: &str) -> bool {
         return false;
     };
     is_exact_version(&package[at + 1..])
+}
+
+/// PyPI style `name==X.Y.Z`.
+fn is_pinned_pypi_package(package: &str) -> bool {
+    package
+        .split_once("==")
+        .is_some_and(|(name, version)| !name.is_empty() && is_exact_version(version))
+}
+
+/// Variable names must look like `^[A-Z_][A-Z0-9_]*$` and must not steer the
+/// process loader or search path.
+fn is_safe_env(env: &BTreeMap<String, String>) -> bool {
+    env.keys().all(|key| {
+        let mut chars = key.chars();
+        chars
+            .next()
+            .is_some_and(|c| c.is_ascii_uppercase() || c == '_')
+            && chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            && !matches!(key.as_str(), "PATH" | "HOME" | "NODE_OPTIONS")
+            && !key.starts_with("DYLD_")
+            && !key.starts_with("LD_")
+    })
 }
 
 /// `^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$`
