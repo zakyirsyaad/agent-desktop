@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, act, fireEvent, within, waitFor } from "@testing-library/react";
+import { render, renderHook, screen, act, fireEvent, within, waitFor } from "@testing-library/react";
 import type { FakeTauriStore } from "./setup";
 
 type Listener = (event: { payload: unknown }) => void;
@@ -33,6 +33,7 @@ vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 
 import App from "../App";
+import { useAgentSignIn } from "../hooks/useAgentSignIn";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 type InvokeCall = [string, Record<string, unknown> | undefined, ...unknown[]];
@@ -124,6 +125,15 @@ async function signInInTerminal(spy: { mock: { calls: unknown[][] } }, panel: Re
   const { dialog, terminalId } = await startTerminalSignIn(spy, panel);
   await terminalEvent({ terminalId, kind: "exit", exitCode });
   return dialog;
+}
+
+/** A promise the test settles itself, for an answer that comes while the user acts. */
+function deferred() {
+  let resolve!: (value: unknown) => void;
+  const promise = new Promise<unknown>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }
 
 function promptedTexts(spy: { mock: { calls: unknown[][] } }) {
@@ -240,5 +250,80 @@ describe("signing in to an ACP agent from the app", () => {
     await waitFor(() => expect(prompt().value).toBe("hello"));
     expect(callsTo(spy, "acp_start_session")).toHaveLength(2);
     expect(callsTo(spy, "acp_prompt")).toHaveLength(0);
+  });
+
+  it("cancelling while the sign-in is checked sends nothing and leaves the message", async () => {
+    const recheck = deferred();
+    const { spy, panel } = await sendRefused({
+      overrides: {
+        acp_probe_agent: (args) => (isRecheck(args) ? recheck.promise : realInvoke("acp_probe_agent", args)),
+      },
+    });
+    const dialog = await signInInTerminal(spy, panel);
+    expect(await dialog.findByText("Checking your sign-in…")).toBeDefined();
+
+    await act(async () => {
+      fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    });
+    await act(async () => {
+      recheck.resolve(undefined);
+    });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(callsTo(spy, "acp_start_session")).toHaveLength(1);
+    expect(prompt().value).toBe("hello");
+    expect(
+      (panel.getByRole("button", { name: "Sign in with Claude Subscription" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("a sign-in dismissed while it runs sends nothing", async () => {
+    const authenticate = deferred();
+    const { spy, panel } = await sendRefused({
+      methods: [{ id: "chat-gpt", name: "ChatGPT" }],
+      overrides: { acp_authenticate: () => authenticate.promise },
+    });
+    await act(async () => {
+      fireEvent.click(panel.getByRole("button", { name: "Sign in with ChatGPT" }));
+    });
+
+    await act(async () => {
+      fireEvent.click(panel.getByRole("button", { name: "Dismiss sign-in" }));
+    });
+    await act(async () => {
+      authenticate.resolve(undefined);
+    });
+
+    expect(callsTo(spy, "acp_start_session")).toHaveLength(1);
+    expect(prompt().value).toBe("hello");
+  });
+
+  it("a sign-in that ends after its panel gave way to another agent's leaves that one alone", async () => {
+    const authenticate = deferred();
+    const real = tauriInternals().invoke;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "acp_authenticate" ? authenticate.promise : real(cmd, args),
+    );
+    const retryAfterSignIn = vi.fn();
+    const { result } = renderHook(() =>
+      useAgentSignIn({
+        agents: [],
+        composerRef: { current: null },
+        activeSessionIdRef: { current: "session-a" },
+        retryAfterSignIn,
+      }),
+    );
+    const methods = [{ id: "chat-gpt", name: "ChatGPT", kind: "agent" as const }];
+    act(() => result.current.auth.requestSignIn("agent-a", "/work", methods));
+    act(() => result.current.auth.signIn("chat-gpt"));
+
+    act(() => result.current.auth.dismiss());
+    act(() => result.current.auth.requestSignIn("agent-b", "/work", methods));
+    await act(async () => {
+      authenticate.resolve(undefined);
+    });
+
+    expect(result.current.auth.authRequest).toEqual({ profileId: "agent-b", cwd: "/work", methods, status: "idle" });
+    expect(retryAfterSignIn).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,8 @@
-import { useCallback, type RefObject } from 'react';
+import { useCallback, useRef, type RefObject } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAgentAuth, type AgentAuth, type AuthRequest } from './useAgentAuth';
 import { useLatest } from './useLatest';
-import { useTerminalSignIn } from './useTerminalSignIn';
+import { useTerminalSignIn, type LoginOutcome } from './useTerminalSignIn';
 import type { FirstMessage } from './session-engine/useAcpEngine';
 import type { ComposerHandle } from '../components/ComposerDock';
 import type { AuthMethod } from '../lib/acp-auth';
@@ -23,10 +23,33 @@ export interface AgentSignInDeps {
  * session's composer.
  */
 export function useAgentSignIn(deps: AgentSignInDeps) {
-  const { authRequest, setAuthRequest, requestSignIn, dismiss } = useAgentAuth();
+  const { authRequest, setAuthRequest, requestSignIn: openPanel, dismiss: closePanel } = useAgentAuth();
   const terminal = useTerminalSignIn();
+  const closeTerminal = terminal.close;
   // Read when a sign-in ends, renders after it began.
   const depsRef = useLatest(deps);
+  // The sign-in under way: one that was cancelled, dismissed or replaced by another request no longer acts.
+  const attemptRef = useRef<object | null>(null);
+
+  const requestSignIn = useCallback<AgentAuth['requestSignIn']>(
+    (profileId, cwd, methods, pending) => {
+      attemptRef.current = null;
+      openPanel(profileId, cwd, methods, pending);
+    },
+    [openPanel],
+  );
+
+  const dismiss = useCallback(() => {
+    attemptRef.current = null;
+    closePanel();
+  }, [closePanel]);
+
+  /** The dialog's Cancel or Close: stops the login, or stops waiting for it, and sends nothing. */
+  const cancel = useCallback(() => {
+    attemptRef.current = null;
+    closeTerminal();
+    setAuthRequest((prev) => (prev?.status === 'signing-in' ? { ...prev, status: 'idle' } : prev));
+  }, [closeTerminal, setAuthRequest]);
 
   /** The agent refused: puts the message back in its session's composer (when active) and opens the panel. */
   const handBack = useCallback(
@@ -47,27 +70,17 @@ export function useAgentSignIn(deps: AgentSignInDeps) {
   const fail = (error: string, methods?: AuthMethod[]) =>
     setAuthRequest((prev) => prev && { ...prev, status: 'failed', error, ...(methods ? { methods } : {}) });
 
-  /** Runs the method; true once it ended well and the agent can be asked. */
+  /** Runs the method in the agent, or its login in a terminal. */
   const runMethod = async ({ profileId, cwd }: AuthRequest, method: AuthMethod, agentName: string) => {
     if (method.kind === 'agent') {
-      try {
-        await invoke('acp_authenticate', { profileId, cwd, methodId: method.id });
-        return true;
-      } catch (error) {
-        fail(String(error));
-        return false;
-      }
+      return invoke('acp_authenticate', { profileId, cwd, methodId: method.id }).then(
+        (): LoginOutcome => ({ ok: true }),
+        (error: unknown): LoginOutcome => ({ ok: false, reason: String(error) }),
+      );
     }
     // A failed login's dialog gives way to the new one.
     terminal.close();
-    const outcome = await terminal.run({ profileId, cwd, agentName, method });
-    if (outcome.ok) {
-      terminal.showChecking();
-      return true;
-    }
-    if (outcome.cancelled) setAuthRequest((prev) => prev && { ...prev, status: 'idle' });
-    else fail(outcome.reason, outcome.methods);
-    return false;
+    return terminal.run({ profileId, cwd, agentName, method });
   };
 
   /** Sends the refused message again, but only into its own session and only as the user left it. */
@@ -85,11 +98,25 @@ export function useAgentSignIn(deps: AgentSignInDeps) {
     const request = authRequest;
     const method = request?.methods.find((m) => m.id === methodId);
     if (!request || !method || method.kind === 'explain') return;
+    const attempt = {};
+    attemptRef.current = attempt;
+    const isCurrent = () => attemptRef.current === attempt;
     setAuthRequest({ ...request, status: 'signing-in', error: undefined });
     const agentName = depsRef.current.agents.find((a) => a.id === request.profileId)?.name ?? request.profileId;
-    if (!(await runMethod(request, method, agentName))) return;
 
-    if ((await checkSignIn(request.profileId, request.cwd)) === 'signed-out') {
+    const outcome = await runMethod(request, method, agentName);
+    if (!isCurrent()) return;
+    if (!outcome.ok) {
+      if (outcome.cancelled) setAuthRequest((prev) => prev && { ...prev, status: 'idle' });
+      else fail(outcome.reason, outcome.methods);
+      return;
+    }
+
+    if (method.kind === 'terminal') terminal.showChecking();
+    const signedIn = (await checkSignIn(request.profileId, request.cwd)) === 'signed-in';
+    if (!isCurrent()) return;
+    attemptRef.current = null;
+    if (!signedIn) {
       const reason = `${agentName} still says you are signed out`;
       if (method.kind === 'terminal') terminal.fail(reason);
       fail(reason);
@@ -106,5 +133,5 @@ export function useAgentSignIn(deps: AgentSignInDeps) {
     dismiss,
   };
 
-  return { auth, handBack, terminal };
+  return { auth, handBack, cancel, terminal };
 }
