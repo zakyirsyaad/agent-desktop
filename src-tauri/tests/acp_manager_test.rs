@@ -637,3 +637,63 @@ fn a_signed_out_probe_returns_without_waiting_for_the_agent_to_delete_its_sessio
         methods_in(&log)
     );
 }
+
+#[test]
+fn builds_the_login_from_the_agent_launch_and_its_terminal_method() {
+    let (manager, _rx) = manager();
+
+    let login = manager
+        .terminal_login(&cwd(), &fake_agent(), "terminal-login")
+        .expect("terminal login");
+
+    assert_eq!(login.program, "node");
+    assert_eq!(login.args.len(), 2);
+    assert!(login.args[0].ends_with("fake_acp_agent.mjs"));
+    assert_eq!(login.args[1], "--login");
+    assert!(login
+        .env
+        .contains(&("FAKE_LOGIN_GREETING".to_string(), "hello".to_string())));
+}
+
+#[test]
+fn asks_for_a_sign_in_again_when_the_method_is_gone() {
+    let (manager, _rx) = manager();
+
+    let error = manager
+        .terminal_login(&cwd(), &fake_agent(), "browser")
+        .unwrap_err();
+
+    assert!(error.starts_with("ACP_AUTH_REQUIRED:"), "{error}");
+    assert!(error.contains("terminal-login"), "{error}");
+}
+
+#[test]
+fn refuses_a_terminal_method_that_sets_path() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_BAD_TERMINAL_ENV", "1");
+
+    let error = manager
+        .terminal_login(&cwd(), &launch, "terminal-login")
+        .unwrap_err();
+
+    assert_eq!(error, "Zorvo does not run this sign-in: it sets PATH");
+}
+
+#[test]
+fn never_sends_authenticate_for_a_terminal_method() {
+    let (manager, _rx) = manager();
+    let log = method_log("terminal-authenticate");
+    let launch = with_env(fake_agent(), "FAKE_ACP_METHOD_LOG", log.to_str().unwrap());
+
+    let error = manager
+        .authenticate(&cwd(), &launch, "terminal-login")
+        .unwrap_err();
+
+    assert!(error.contains("runs in a terminal"), "{error}");
+    let methods = methods_in(&log);
+    assert!(methods.contains(&"initialize".to_string()), "{methods:?}");
+    assert!(
+        !methods.contains(&"authenticate".to_string()),
+        "{methods:?}"
+    );
+}

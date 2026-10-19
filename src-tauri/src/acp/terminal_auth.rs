@@ -10,8 +10,11 @@ use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
 
-use super::manager::AcpLaunch;
-use crate::pty_session::PtyEvent;
+use super::manager::{
+    auth_methods_of, auth_required_error, failure_message, initialize, spawn_unrouted, AcpLaunch,
+    AcpManager, OpenError,
+};
+use crate::pty_session::{validate_cwd, PtyEvent};
 use crate::registry::schema::is_safe_env_key;
 
 /// The event that carries a sign-in terminal's output and exit to the webview.
@@ -149,6 +152,31 @@ pub fn sign_in_event_payload(event: &PtyEvent) -> Value {
             session_id,
             exit_code,
         } => json!({ "terminalId": session_id, "kind": "exit", "exitCode": exit_code }),
+    }
+}
+
+impl AcpManager {
+    /// Builds the command that signs in to the agent through its terminal
+    /// method `method_id`. The method is read from the agent's own `initialize`
+    /// in a short-lived process, so the webview never names a program.
+    pub fn terminal_login(
+        &self,
+        cwd: &str,
+        launch: &AcpLaunch,
+        method_id: &str,
+    ) -> Result<AcpLaunch, String> {
+        validate_cwd(cwd)?;
+        let connection = spawn_unrouted(cwd, launch, |_, _| {})?;
+        let init = initialize(&connection)
+            .map_err(|message| failure_message(&connection, OpenError::Transport(message)))?;
+        connection.kill();
+        match terminal_method(&init, method_id) {
+            Ok(method) => Ok(login_command(launch, &method)),
+            Err(TerminalMethodError::NotOffered) => {
+                Err(auth_required_error(&auth_methods_of(&init)))
+            }
+            Err(TerminalMethodError::Refused(message)) => Err(message),
+        }
     }
 }
 

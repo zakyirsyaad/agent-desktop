@@ -37,6 +37,9 @@ pub struct AcpLaunch {
     pub env: Vec<(String, String)>,
 }
 
+/// What `authenticate` says for a method that signs in through a terminal.
+const TERMINAL_METHOD_MESSAGE: &str = "This sign-in runs in a terminal";
+
 /// Why opening a session failed: the agent answered with an error (its
 /// message says it all), or the process or transport failed (the agent's
 /// stderr helps explain that).
@@ -213,7 +216,10 @@ impl AcpManager {
     ) -> Result<(), String> {
         validate_cwd(cwd)?;
         let connection = spawn_unrouted(cwd, launch, |_, _| {})?;
-        let result = initialize(&connection).and_then(|_| {
+        let result = initialize(&connection).and_then(|init| {
+            if is_terminal_method(&init, method_id) {
+                return Err(TERMINAL_METHOD_MESSAGE.to_string());
+            }
             connection.request(
                 "authenticate",
                 json!({ "methodId": method_id }),
@@ -560,6 +566,15 @@ pub(super) fn open_request(
             error_message(&error)
         ))),
     }
+}
+
+/// Whether `method_id` is a `type: "terminal"` method, which only a terminal can run.
+fn is_terminal_method(init: &Value, method_id: &str) -> bool {
+    init["authMethods"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|m| m["id"] == method_id && m["type"] == "terminal")
 }
 
 /// The sign-in methods `initialize` reported, always as a JSON array.
