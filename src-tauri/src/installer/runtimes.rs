@@ -57,7 +57,7 @@ impl RuntimeKind {
         }
     }
 
-    fn dir(self, tools: &ToolsDir, version: &str, platform: &str) -> PathBuf {
+    pub(super) fn dir(self, tools: &ToolsDir, version: &str, platform: &str) -> PathBuf {
         match self {
             Self::Node => tools.node_dir(version, platform),
             Self::Uv => tools.uv_dir(version, platform),

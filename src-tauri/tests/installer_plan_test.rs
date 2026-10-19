@@ -103,13 +103,40 @@ fn scan_ignores_staging() {
     let d = data_dir();
     let tools = ToolsDir::new(&d);
     let manifest = parse_manifest(BUNDLED_RUNTIMES).unwrap();
+    let real = tools.agent_dir("opencode", "1.19.3");
+    mark_installed(&real, None);
     mark_installed(&tools.staging_root().join("1-2-3/content"), None);
+    // Shaped like real installs, but under staging.
     mark_installed(&tools.staging_root().join("agents/opencode/9.9.9"), None);
+    mark_installed(&tools.staging_root().join("opencode/9.9.9"), None);
 
     let found = InstalledTools::scan(&tools, &manifest, PLATFORM, None);
 
-    assert!(found.agents.is_empty());
+    assert_eq!(found.agents.len(), 1);
+    assert_eq!(
+        found.agents[&("opencode".to_string(), "1.19.3".to_string())],
+        real
+    );
     assert!(found.node.is_none() && found.uv.is_none());
+}
+
+#[test]
+fn dirs_without_install_json_do_not_count() {
+    let d = data_dir();
+    let tools = ToolsDir::new(&d);
+    let manifest = parse_manifest(BUNDLED_RUNTIMES).unwrap();
+    let pi = &prerequisites_for("pi-acp")[0];
+    fs::create_dir_all(tools.node_dir(&manifest.node.version, PLATFORM)).unwrap();
+    fs::create_dir_all(tools.uv_dir(&manifest.uv.version, PLATFORM)).unwrap();
+    fs::create_dir_all(tools.prereq_dir(pi.command, pi.version)).unwrap();
+
+    let found = InstalledTools::scan(&tools, &manifest, PLATFORM, None);
+
+    assert!(!found.pinned_node_installed);
+    assert!(!found.pinned_uv_installed);
+    assert!(found.node.is_none());
+    assert!(found.uv.is_none());
+    assert!(found.prereq_bins.is_empty());
 }
 
 #[test]

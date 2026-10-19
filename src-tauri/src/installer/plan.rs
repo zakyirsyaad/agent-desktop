@@ -41,11 +41,7 @@ impl InstalledTools {
     ) -> Self {
         let pinned = |kind: RuntimeKind| {
             let version = &manifest.release(kind).version;
-            let dir = match kind {
-                RuntimeKind::Node => tools.node_dir(version, platform),
-                RuntimeKind::Uv => tools.uv_dir(version, platform),
-            };
-            read_record(&dir).is_some()
+            read_record(&kind.dir(tools, version, platform)).is_some()
         };
         let prereq_bins = all_prerequisites()
             .filter_map(|p| {
