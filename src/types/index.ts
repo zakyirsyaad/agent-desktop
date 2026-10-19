@@ -44,7 +44,16 @@ export interface AgentProfile {
   acp_program?: string | null;
   acp_args: string[];
   acp_program_path?: string | null;
+  source: 'registry' | 'builtin';
+  version: string | null;
+  distribution: 'npx' | 'uvx' | 'binary' | null;
+  availability: AgentAvailability;
+  description: string | null;
+  installed_on_system: boolean;
+  listed: boolean;
 }
+
+export type AgentAvailability = 'ready' | 'needs_runtime' | 'not_installed';
 
 export type AgentTransport = 'acp' | 'pty';
 
@@ -121,6 +130,12 @@ export interface Settings {
   appearance: Appearance;
   defaultAgentId: string | null;
   onboardingCompleted: boolean;
+  /** Agents the user switched on; undefined until they choose, when the defaults apply. */
+  enabledAgents?: string[];
+  /** Agents the user removed from the catalog. */
+  removedAgents?: string[];
+  /** The version last seen for each agent, by agent id. */
+  agentVersions?: Record<string, string>;
 }
 
 export interface RecentFolder {

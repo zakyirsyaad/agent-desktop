@@ -58,9 +58,18 @@ you have.
 
 ## Supported agents
 
+Zorvo reads the [ACP agent registry](https://agentclientprotocol.com) and runs
+its agents as chats. Zorvo checks the registry in the background at startup
+when the last check is over a day old, and when you click **Check again** in
+Settings. Only the agents in use show up: Claude Code, Codex and Qwen Code by
+default, plus any registry agent that is already installed on your Mac. Adding
+other registry agents comes in a later release. A new version of an agent is
+offered a week after it was published, and never one the registry has
+withdrawn. Oh-My-Pi and Aider are terminal agents that Zorvo defines itself.
+
 | | Qwen Code | Claude Code | Codex | Oh-My-Pi | Aider |
 |---|---|---|---|---|---|
-| Runs as | `qwen --acp` | [ACP adapter](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp) via `npx` | [ACP adapter](https://www.npmjs.com/package/@agentclientprotocol/codex-acp) via `npx` | its TUI (`omp`) | its TUI (`aider`) |
+| Runs as | ACP agent via `npx` | ACP agent via `npx` | ACP agent via `npx` | its TUI (`omp`) | its TUI (`aider`) |
 | View | chat | chat | chat | terminal | terminal |
 | Models, effort, modes | from the agent | from the agent | from the agent | flags at start | model flag at start |
 | Approvals | in the chat | in the chat | in the chat | detected `[y/n]` prompts | in its terminal |
@@ -81,15 +90,18 @@ the new agent is asked to read it.
 
 - macOS (Apple Silicon or Intel).
 - **Node.js 22+ with `npx`** on your login shell's `PATH` (nvm, Homebrew…).
-  Claude Code and Codex run through their ACP adapters with `npx`.
-- **At least one agent CLI**, installed and signed in:
+  Claude Code, Codex, Qwen Code and any other registry agent that runs with
+  `npx` need it. The first start downloads the agent's pinned package.
+- **At least one agent, signed in.** Agents sign in with their own tools. A
+  global install is optional: it only makes an agent show up as installed
+  before you first use it.
 
-  | Agent | Install | Sign in |
+  | Agent | Optional global install | Sign in |
   |---|---|---|
   | Qwen Code | `npm i -g @qwen-code/qwen-code` | run `qwen` once |
   | Claude Code | `npm i -g @anthropic-ai/claude-code` | `claude`, then `/login` |
   | Codex | `npm i -g @openai/codex` | `codex login` (or the app's sign-in panel) |
-  | Oh-My-Pi / Aider | see their docs | — |
+  | Oh-My-Pi / Aider | required; see their docs | — |
 
 - **Optional: the [GitHub CLI](https://cli.github.com)**, signed in with
   `gh auth login`, for pull request status. Without it, that part is hidden.
@@ -147,9 +159,13 @@ or runs commands.
 - **Sign-in stays with the agents.** The app never asks for or stores API
   keys or tokens. Agents sign in with their own tools, and pull request data
   comes from your own `gh` login.
-- **No traffic of its own.** The app sends no telemetry and makes no network
-  requests itself: its Content Security Policy only allows the local IPC
-  bridge. Your agents talk to their own services as they always do.
+- **One host of its own.** Zorvo itself contacts only the ACP registry
+  (`cdn.agentclientprotocol.com`), to list agents and their versions. It does
+  this from the backend, never from the window, and sends no telemetry. The
+  window makes no network requests: its Content Security Policy only allows
+  the local IPC bridge. Your agents talk to their own services as they always
+  do, and `npx` fetches an agent's pinned package from npm when that agent
+  starts.
 - **Where your data lives.** Sessions and transcripts are stored in
   `~/Library/Application Support/xyz.zorvo.desktop/`, as `state.json` and
   `transcripts/`. Session worktrees live in `worktrees/` there. On first
@@ -162,9 +178,9 @@ or runs commands.
 
 | Problem | What to try |
 |---|---|
-| An agent shows as not installed | Check that `which qwen` (or `claude`, `codex`) works in a new terminal, then click **Check again** in Settings. The app reads your login shell's `PATH`. |
+| An agent shows as not installed | A registry agent counts as installed when its binary is on your `PATH` or its npm package is installed globally. Agents that run with `npx` also work without that, as long as Node.js is on your `PATH`. For Oh-My-Pi and Aider, check that `which omp` (or `aider`) works in a new terminal. Then click **Check again** in Settings. |
 | "Sign in to *agent*": the agent needs you to sign in before it can start | Use a sign-in method the panel offers, or sign in once in a terminal (see [Requirements](#requirements)), then send your message again. |
-| Claude Code or Codex does not start | They need `npx` (Node.js 22+). The first start downloads the ACP adapter, so it can take a moment. |
+| Claude Code, Codex or Qwen Code does not start | They need `npx` (Node.js 22+). The first start downloads the agent's pinned package, so it can take a moment. |
 | No pull request status | Install `gh` and run `gh auth login`. A repository without a GitHub remote has none to show. |
 | "is not in the last commit, so a worktree would not have it" | A worktree checks out the last commit. Commit the folder first, or start the session without Worktree. |
 | The app is blocked on first open | See [Install](#install). |
@@ -186,7 +202,10 @@ flowchart LR
 - **The backend** (`src-tauri/src/`, Tauri 2):
   - `acp/`: the ACP client;
   - `pty_session.rs`: terminal agents;
-  - `profiles.rs`: which agents exist and how they are found;
+  - `registry/`: the ACP agent registry, its dated version history and the
+    agents you use;
+  - `profiles.rs`: the terminal agents (Oh-My-Pi and Aider) and how they are
+    found;
   - `store.rs`: state and transcripts;
   - `changes.rs` and `worktrees.rs`: git;
   - `pull_requests.rs`: `gh`.
@@ -205,6 +224,7 @@ pnpm tauri dev
 | Rust tests | `cd src-tauri && cargo test` |
 | Rust lint | `cd src-tauri && cargo clippy --all-targets -- -D warnings` |
 | Production build | `pnpm tauri build` |
+| Refresh the bundled registry history | `pnpm registry:update` |
 
 To run the fast checks before each commit (types, ESLint, `cargo fmt`), opt in
 with `pnpm lefthook install`.

@@ -11,12 +11,12 @@ function tauriInternals(): TauriInternals {
   return (window as unknown as { __TAURI_INTERNALS__: TauriInternals }).__TAURI_INTERNALS__;
 }
 
-const QWEN = fakeProfiles.find((a) => a.id === "qwen") as AgentProfile;
+const QWEN = fakeProfiles.find((a) => a.id === "qwen-code") as AgentProfile;
 const CWD = "/Users/test/developer/zorvo";
 
 /** A sign-in panel already up for Qwen Code, waiting for the user. */
 const pendingSignIn: AgentAuth = {
-  authRequest: { profileId: "qwen", cwd: CWD, methods: [], status: "idle" },
+  authRequest: { profileId: "qwen-code", cwd: CWD, methods: [], status: "idle" },
   requestSignIn: () => {},
   signIn: () => {},
   dismiss: () => {},

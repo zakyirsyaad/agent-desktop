@@ -5,7 +5,7 @@
 //! through a temporary file and a rename so an interrupted write cannot leave a
 //! half-written `state.json` behind to break the next launch.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -78,6 +78,12 @@ pub struct Settings {
     pub onboarding_completed: bool,
     /// `system`, `light` or `dark`; anything else follows the system.
     pub appearance: String,
+    /// The agent ids the user uses, or `None` when the list was never set.
+    pub enabled_agents: Option<Vec<String>>,
+    /// Agent ids the user removed, which are never enabled again automatically.
+    pub removed_agents: Vec<String>,
+    /// The registry version in use for each agent id.
+    pub agent_versions: BTreeMap<String, String>,
 }
 
 /// A folder the user opened an agent in.

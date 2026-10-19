@@ -16,6 +16,7 @@ pnpm test                   # all Vitest tests
 pnpm vitest run src/test/stream-parser.test.ts          # one file
 pnpm vitest run src/test/stream-parser.test.ts -t "name" # one test
 pnpm design-system          # local design-system reference on :5180
+pnpm registry:update        # refresh the bundled ACP registry history (src-tauri/resources/registry-history.json)
 pnpm tauri build            # production bundle (the only build that applies the CSP)
 ```
 
@@ -39,7 +40,7 @@ The Rust ACP tests spawn `src-tauri/tests/fixtures/fake_acp_agent.mjs` with Node
 - `src/hooks/session-engine/useAcpEngine.ts` — chat sessions. ACP updates are folded into chat messages by `src/lib/acp-events.ts`; modes/models/config options come from the agent at session start (`useAcpSessions.ts`, `lib/acp-draft.ts`).
 - `src/hooks/session-engine/usePtyEngine.ts` — terminal sessions via xterm; `lib/stream-parser.ts` detects `[y/n]` prompts in PTY output.
 
-**Agent profiles are the trust boundary.** `src-tauri/src/profiles.rs` statically declares each agent CLI: its command, the flags the app may pass (efforts, permission modes, fork support), and its transport. The webview only ever sends a `profile_id` plus `SpawnOptions`; `spawn_plan.rs` validates them into a command line and `acp/commands.rs::launch_for` does the same for ACP. Never let the UI pass a raw command or args. The Claude/Codex ACP adapters are pinned `npx` packages in `profiles.rs` (pinned to releases at least two weeks old, on purpose).
+**Agent profiles are the trust boundary.** ACP agents come from `src-tauri/src/registry/`: the official ACP registry, fetched by the Rust backend (never the webview) at startup when the last fetch is over 24 hours old and on **Check again**. It keeps a dated version history, and a version is offered only after it has been listed for 7 days. A history is bundled with each release (`pnpm registry:update` regenerates `src-tauri/resources/registry-history.json`). Agents in use are `settings.enabledAgents`, the version in use is `settings.agentVersions`, and installed agents are enabled once automatically. Terminal agents (Oh-My-Pi, Aider) are still declared statically in `src-tauri/src/profiles.rs`. The webview only ever sends an agent id plus `SpawnOptions`; `spawn_plan.rs` validates them into a command line and `acp/commands.rs::launch_for` does the same for ACP. Never let the UI pass a raw command or args.
 
 **ACP backend** (`src-tauri/src/acp/`): `jsonrpc.rs` framing, `connection.rs` one agent process, `manager.rs` maps app session ids onto ACP sessions. One agent process can host several ACP sessions (a native fork lives in its source's process), so connections are shared and killed only when their last session stops. Auth-required errors are surfaced to the UI as `ACP_AUTH_REQUIRED:` + JSON (parsed in `src/lib/acp-auth.ts`), both when a session opens and when a prompt is refused (Claude Code's adapter opens sessions signed out and refuses only the prompt).
 

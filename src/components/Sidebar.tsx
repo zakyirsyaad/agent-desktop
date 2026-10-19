@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Search, Plus, FolderPlus, ChevronRight } from "lucide-react";
 import { AgentLogo } from "./AgentLogo";
+import { isInUse, type EnabledSettings } from "../lib/enabled-agents";
 import type { AgentProfile, Session, Workspace } from "../types";
 import { NewSessionMenu } from "./sidebar/NewSessionMenu";
 import { SessionTree, type SessionListContext } from "./sidebar/SessionList";
@@ -20,6 +21,8 @@ export interface SidebarProps {
   sessions: Session[];
   activeSessionId?: string;
   agents: AgentProfile[];
+  /** Decides which registry agents are in use; the defaults apply when absent. */
+  settings?: EnabledSettings;
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
   /** Opens a new session in that folder with that agent; each workspace's + button is hidden when absent. */
@@ -95,8 +98,8 @@ function WorkspaceGroup({ group, isActive, isExpanded, onToggle, newSessionMenu,
 }
 
 /** Installed agents, pinned above the footer; renders nothing when none are detected. */
-function DetectedAgents({ agents }: { agents: AgentProfile[] }) {
-  const detected = agents.filter((agent) => agent.detected);
+function DetectedAgents({ agents, settings }: { agents: AgentProfile[]; settings: EnabledSettings }) {
+  const detected = agents.filter((agent) => agent.detected && isInUse(agent, settings));
   if (detected.length === 0) return null;
   return (
     <section aria-label="Detected agents" className="border-t border-border px-3 pt-2.5 pb-2">
@@ -154,6 +157,7 @@ export function Sidebar({
   sessions,
   activeSessionId,
   agents,
+  settings = {},
   onNewSession,
   onSelectSession,
   onNewSessionIn,
@@ -185,7 +189,7 @@ export function Sidebar({
   const archived = sessions
     .filter((s) => isArchived(s) && isFound(s))
     .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
-  const detectedAgents = agents.filter((agent) => agent.detected);
+  const detectedAgents = agents.filter((agent) => agent.detected && isInUse(agent, settings));
   const toggle = (path: string) =>
     setCollapsedPaths((prev) => {
       const next = new Set(prev);
@@ -312,7 +316,7 @@ export function Sidebar({
         )}
       </div>
 
-      <DetectedAgents agents={agents} />
+      <DetectedAgents agents={agents} settings={settings} />
       {footer && <div className="border-t border-border bg-bg">{footer}</div>}
     </aside>
   );

@@ -58,7 +58,7 @@ describe("First run and project folders", () => {
     await waitFor(() => {
       const { settings, recentFolders } = fakeStore().state;
       expect(settings.onboardingCompleted).toBe(true);
-      expect(settings.defaultAgentId).toBe("claude-code");
+      expect(settings.defaultAgentId).toBe("claude-acp");
       expect((recentFolders as { path: string }[])[0].path).toBe("/Users/test/developer/zorvo");
     });
   });

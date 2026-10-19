@@ -20,13 +20,22 @@ export function makeProfile(overrides: Partial<AgentProfile> & Pick<AgentProfile
     acp_program: null,
     acp_args: [],
     acp_program_path: null,
+    source: "builtin",
+    version: null,
+    distribution: null,
+    availability: "ready",
+    description: null,
+    installed_on_system: false,
+    listed: true,
     ...overrides,
   };
 }
 
 /** Shaped like the real Claude Code profile the backend reports. */
 export const claudeProfile = makeProfile({
-  id: "claude-code",
+  id: "claude-acp",
+  source: "registry",
+  distribution: "npx",
   name: "Claude Code",
   command: "claude",
   detected: true,
@@ -70,7 +79,9 @@ export const aiderProfile = makeProfile({
 
 /** Shaped like the real Qwen Code profile: everything comes from the ACP session. */
 export const qwenProfile = makeProfile({
-  id: "qwen",
+  id: "qwen-code",
+  source: "registry",
+  distribution: "npx",
   name: "Qwen Code",
   command: "qwen",
   detected: true,

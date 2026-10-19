@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Bot, Check } from "lucide-react";
-import { readyAgents, resolveDefaultAgentId, type AgentSummary } from "../lib/agent-readiness";
+import { readyAgents, resolveDefaultAgentId } from "../lib/agent-readiness";
+import { isInUse, type EnabledSettings } from "../lib/enabled-agents";
+import type { AgentProfile } from "../types";
 import { Button } from "./ui/Button";
 import { AgentsStep } from "./onboarding/AgentsStep";
 import { DefaultAgentStep } from "./onboarding/DefaultAgentStep";
@@ -10,7 +12,9 @@ import { toFolderOption, type FolderOption, type OnboardingResult } from "./onbo
 export type { FolderOption, OnboardingResult } from "./onboarding/types";
 
 export interface OnboardingProps {
-  agents: readonly AgentSummary[];
+  agents: readonly AgentProfile[];
+  /** Decides which registry agents are in use; the defaults apply when absent. */
+  settings?: EnabledSettings;
   recentFolders: readonly FolderOption[];
   suggestedFolders: readonly FolderOption[];
   onRecheckAgents: () => void | Promise<void>;
@@ -98,7 +102,8 @@ function NavButton({ onClick, disabled, primary, describedBy, children }: NavBut
 }
 
 export function Onboarding({
-  agents,
+  agents: allAgents,
+  settings = {},
   recentFolders,
   suggestedFolders,
   onRecheckAgents,
@@ -109,6 +114,7 @@ export function Onboarding({
   const [folder, setFolder] = useState<FolderOption | null>(null);
   const [preferredAgentId, setPreferredAgentId] = useState<string | null>(null);
 
+  const agents = allAgents.filter((agent) => isInUse(agent, settings));
   const defaultAgentId = resolveDefaultAgentId(agents, preferredAgentId);
   const canAdvance = [readyAgents(agents).length > 0, folder !== null, defaultAgentId !== null][step];
   const current = STEPS[step];

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -81,6 +82,7 @@ fn populated_state() -> PersistedState {
             default_agent_id: Some("claude".to_string()),
             onboarding_completed: true,
             appearance: String::new(),
+            ..Settings::default()
         },
         recent_folders: vec![RecentFolder {
             name: "zorvo".to_string(),
@@ -662,4 +664,46 @@ fn state_without_appearance_loads_empty() {
     assert_eq!(state.settings.default_agent_id.as_deref(), Some("claude"));
     assert!(state.settings.onboarding_completed);
     fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn settings_keep_enabled_removed_and_versioned_agents() {
+    let root = unique_temp_root("agents-in-use");
+    let store = AppStore::new(root.clone());
+    let mut state = populated_state();
+    state.settings.enabled_agents = Some(vec!["claude-acp".to_string(), "gemini".to_string()]);
+    state.settings.removed_agents = vec!["codex-acp".to_string()];
+    state.settings.agent_versions =
+        BTreeMap::from([("claude-acp".to_string(), "0.89.1".to_string())]);
+
+    store.save_state(&state).expect("save state");
+    let loaded = store.load_state().expect("load state");
+
+    assert_eq!(loaded, state);
+    let raw = fs::read_to_string(root.join("state.json")).expect("read state file");
+    for key in [
+        "\"enabledAgents\"",
+        "\"removedAgents\"",
+        "\"agentVersions\"",
+    ] {
+        assert!(raw.contains(key), "{key} is saved in camelCase: {raw}");
+    }
+    fs::remove_dir_all(&root).ok();
+
+    let old_root = unique_temp_root("agents-in-use-old-file");
+    fs::create_dir_all(&old_root).expect("create root");
+    fs::write(
+        old_root.join("state.json"),
+        r#"{"version":1,"settings":{"defaultAgentId":"claude-code"},"recentFolders":[],"sessions":[]}"#,
+    )
+    .expect("write state file");
+
+    let old = AppStore::new(old_root.clone())
+        .load_state()
+        .expect("load old state");
+
+    assert_eq!(old.settings.enabled_agents, None);
+    assert!(old.settings.removed_agents.is_empty());
+    assert!(old.settings.agent_versions.is_empty());
+    fs::remove_dir_all(&old_root).ok();
 }

@@ -13,7 +13,7 @@ describe("Navigation and Layout Components", () => {
     {
       id: "s-1",
       name: "New session (fork)",
-      profileId: "claude-code",
+      profileId: "claude-acp",
       cwd: "/Users/mac/ai-perpetual-trading",
       status: "running",
       createdAt: Date.now() - 3600000,
@@ -141,7 +141,7 @@ describe("Navigation and Layout Components", () => {
           workspaces={[...workspaces, { name: "empty-project", path: "/Users/mac/empty-project" }]}
           sessions={mockSessions}
           agents={[
-            makeProfile({ id: "claude-code", name: "Claude Code", detected: true }),
+            makeProfile({ id: "claude-acp", name: "Claude Code", detected: true }),
             makeProfile({ id: "aider", name: "Aider", detected: false }),
             makeProfile({ id: "omp", name: "Oh-My-Pi", detected: true }),
           ]}
@@ -161,7 +161,7 @@ describe("Navigation and Layout Components", () => {
       expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Oh-My-PiDefault", "Claude Code"]);
 
       fireEvent.click(menu.getByRole("menuitem", { name: "Claude Code" }));
-      expect(onNewSessionIn).toHaveBeenCalledWith("/Users/mac/empty-project", "claude-code");
+      expect(onNewSessionIn).toHaveBeenCalledWith("/Users/mac/empty-project", "claude-acp");
       expect(screen.queryByRole("menu")).toBeNull();
     });
 
@@ -366,9 +366,10 @@ describe("Navigation and Layout Components", () => {
       expect(screen.getAllByText("Refactor plan (fork)")).toHaveLength(1);
     });
 
-    function renderWithAgents(agents: AgentProfile[]) {
+    function renderWithAgents(agents: AgentProfile[], settings?: { enabledAgents?: string[] }) {
       return render(
         <Sidebar
+          settings={settings}
           workspaces={workspaces}
           sessions={mockSessions}
           agents={agents}
@@ -381,7 +382,7 @@ describe("Navigation and Layout Components", () => {
 
     it("lists only detected agents, without a Not found status", () => {
       renderWithAgents([
-        makeProfile({ id: "claude-code", name: "Claude Code", detected: true }),
+        makeProfile({ id: "claude-acp", name: "Claude Code", detected: true }),
         makeProfile({ id: "aider", name: "Aider", detected: false }),
         makeProfile({ id: "omp", name: "Oh-My-Pi", detected: true }),
       ]);
@@ -395,8 +396,23 @@ describe("Navigation and Layout Components", () => {
       expect(screen.queryByText("Not found")).toBeNull();
     });
 
+    it("lists only the agents in use", () => {
+      renderWithAgents(
+        [
+          makeProfile({ id: "claude-acp", name: "Claude Code", source: "registry", detected: true }),
+          makeProfile({ id: "gemini", name: "Gemini CLI", source: "registry", detected: true }),
+        ],
+        { enabledAgents: ["claude-acp"] },
+      );
+
+      const items = within(screen.getByRole("list", { name: "Detected agents" })).getAllByRole("listitem");
+      expect(items).toHaveLength(1);
+      expect(items[0].textContent).toContain("Claude Code");
+      expect(screen.queryByText("Gemini CLI")).toBeNull();
+    });
+
     it("pins detected agents directly above the footer, outside the scrolling area", () => {
-      renderWithAgents([makeProfile({ id: "claude-code", name: "Claude Code", detected: true })]);
+      renderWithAgents([makeProfile({ id: "claude-acp", name: "Claude Code", detected: true })]);
 
       const section = screen.getByRole("region", { name: "Detected agents" });
       const footer = screen.getByText("footer content");

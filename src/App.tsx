@@ -66,7 +66,8 @@ import { attentionBody, notifyIfAway } from "./lib/notify";
 import { pickFiles } from "./lib/file-picker";
 import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
-import { resolveDefaultAgentId } from "./lib/agent-readiness";
+import { noAgentNotice, resolveDefaultAgentId } from "./lib/agent-readiness";
+import { isInUse, withAutoEnabled } from "./lib/enabled-agents";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
 import {
@@ -82,8 +83,6 @@ import type { Session, SessionWorktree, Settings } from "./types";
 import { TRANSPORT_ACP } from "./types";
 
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
-const NO_AGENT_NOTICE =
-  "No supported agent is installed. Install Claude Code, Qwen Code, Codex, Aider or omp, then check again in Settings.";
 
 // eslint-disable-next-line no-control-regex -- matching control characters is the point.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
@@ -110,7 +109,15 @@ export default function App() {
   const { state, isLoaded, updateState } = usePersistedState(reportError);
   useAppearance(state.settings.appearance, isLoaded, reportError);
   const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
-  const { agents, refresh: refreshAgents } = useAgentProfiles(reportError);
+  const { agents, isLoaded: areAgentsLoaded, refresh: refreshAgents } = useAgentProfiles(reportError);
+  // Installed registry agents join the ones in use, and each one's version is recorded.
+  useEffect(() => {
+    if (!isLoaded || agents.length === 0) return;
+    updateState((prev) => {
+      const settings = withAutoEnabled(prev.settings, agents);
+      return settings === prev.settings ? prev : { ...prev, settings };
+    });
+  }, [agents, isLoaded, updateState]);
   const suggestedFolders = useSuggestedFolders();
   const userProfile = useUserProfile();
   const navigation = useNavigationHistory();
@@ -128,9 +135,11 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
-  const defaultAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId);
-  const newSessionAgentId =
-    agents.find((a) => a.id === pickedAgentId && a.detected)?.id ?? defaultAgentId;
+  // Only the agents in use are offered: the defaults, installed ones and the terminal agents found.
+  const agentsInUse = agents.filter((agent) => isInUse(agent, state.settings));
+  const readyAgentsInUse = agentsInUse.filter((agent) => agent.detected);
+  const defaultAgentId = resolveDefaultAgentId(agentsInUse, state.settings.defaultAgentId);
+  const newSessionAgentId = readyAgentsInUse.find((a) => a.id === pickedAgentId)?.id ?? defaultAgentId;
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
   // No session is selected: the window shows a new one, not started until its first message.
   const isNewSessionDraft = !activeSession;
@@ -340,7 +349,7 @@ export default function App() {
       return;
     }
     if (!newSessionAgent) {
-      setNotice(NO_AGENT_NOTICE);
+      setNotice(noAgentNotice(agentsInUse));
       return;
     }
     rememberFolder(activeWorkspace);
@@ -565,6 +574,7 @@ export default function App() {
     return (
       <Onboarding
         agents={agents}
+        settings={state.settings}
         recentFolders={workspaces}
         suggestedFolders={suggestedFolders}
         onRecheckAgents={refreshAgents}
@@ -611,6 +621,7 @@ export default function App() {
           sessions={sessions}
           activeSessionId={activeSessionId}
           agents={agents}
+          settings={state.settings}
           onNewSession={() => openNewSession()}
           onSelectSession={handleSelectSession}
           onNewSessionIn={openNewSession}
@@ -681,6 +692,7 @@ export default function App() {
               workspace={activeWorkspace}
               details={workspaceDetails}
               agentName={newSessionAgent?.name}
+              unavailableReason={areAgentsLoaded && !newSessionAgent ? noAgentNotice(agentsInUse) : undefined}
             />
           ) : (
             <EmptySessionState />
@@ -726,7 +738,7 @@ export default function App() {
               agent={
                 isNewSessionDraft && newSessionAgent
                   ? {
-                      options: agents.filter((a) => a.detected).map((a) => ({ value: a.id, label: a.name })),
+                      options: readyAgentsInUse.map((a) => ({ value: a.id, label: a.name })),
                       selected: newSessionAgent.id,
                       onChange: (agentId) => setPickedAgentId(agentId ?? null),
                     }
@@ -778,7 +790,7 @@ export default function App() {
         <SettingsPanel
           appearance={state.settings.appearance}
           onChangeAppearance={(appearance) => updateSettings({ appearance })}
-          agents={agents}
+          agents={agentsInUse}
           defaultAgentId={state.settings.defaultAgentId}
           recentFolders={workspaces}
           onChangeDefaultAgent={(defaultAgentId) => updateSettings({ defaultAgentId })}

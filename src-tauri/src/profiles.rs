@@ -1,6 +1,9 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::env_resolver;
+use crate::registry::{self, resolve::SystemTools};
 
 /// A thinking/effort level the agent's CLI can actually be told to use.
 ///
@@ -70,11 +73,6 @@ pub const TRANSPORT_ACP: &str = "acp";
 /// Driven through a pseudo-terminal; the UI shows the agent's own terminal.
 pub const TRANSPORT_PTY: &str = "pty";
 
-/// Official ACP adapters, pinned to stable releases at least two weeks old so a
-/// freshly published (possibly compromised) version is never pulled implicitly.
-const CLAUDE_ACP_ADAPTER: &str = "@agentclientprotocol/claude-agent-acp@0.85.1";
-const CODEX_ACP_ADAPTER: &str = "@agentclientprotocol/codex-acp@2.1.1";
-
 /// Static description of one agent CLI: what it is called, how to invoke it, and
 /// which of its real flags this app is allowed to pass.
 ///
@@ -112,6 +110,18 @@ pub struct AgentProfile {
     pub acp_args: Vec<String>,
     /// Absolute path of `acp_program` on this machine, once detected.
     pub acp_program_path: Option<String>,
+    /// `"registry"` or `"builtin"`.
+    pub source: String,
+    pub version: Option<String>,
+    /// `"npx"`, `"uvx"` or `"binary"` for registry agents.
+    pub distribution: Option<String>,
+    /// `"ready"`, `"needs_runtime"` or `"not_installed"`.
+    pub availability: String,
+    pub description: Option<String>,
+    /// The agent's own CLI is already installed on this machine.
+    pub installed_on_system: bool,
+    /// Still listed in the ACP registry (always true before the first fetch).
+    pub listed: bool,
 }
 
 impl AgentProfile {
@@ -136,15 +146,14 @@ impl AgentProfile {
             acp_program: None,
             acp_args: Vec::new(),
             acp_program_path: None,
+            source: "builtin".to_string(),
+            version: None,
+            distribution: None,
+            availability: "ready".to_string(),
+            description: None,
+            installed_on_system: false,
+            listed: true,
         }
-    }
-
-    /// Drives this agent over ACP by running `program args`.
-    pub fn with_acp(mut self, program: impl Into<String>, args: &[&str]) -> Self {
-        self.transport = TRANSPORT_ACP.to_string();
-        self.acp_program = Some(program.into());
-        self.acp_args = args.iter().map(|&s| s.to_string()).collect();
-        self
     }
 
     pub fn with_models(mut self, models: &[&str]) -> Self {
@@ -196,76 +205,6 @@ impl AgentProfile {
         self.reject_key = Some(reject_key.into());
         self
     }
-}
-
-/// Claude Code, verified against `claude --help` (Claude Code 2.1.x).
-///
-/// - model selection: `--model <model>` — "Provide an alias for the latest model
-///   (e.g. 'fable', 'opus', or 'sonnet') or a model's full name." Aliases are
-///   published instead of versioned ids because those go stale every release.
-/// - permission/approval mode: `--permission-mode <mode>` — choices
-///   `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk`, `plan`.
-///   Only `bypassPermissions`, `plan` and `acceptEdits` are surfaced: `--help`
-///   gives no semantics for `auto`, `manual` or `dontAsk`, so publishing them
-///   would be guessing at what the user is opting into.
-/// - effort/thinking: `--effort <level>` — "(low, medium, high, xhigh, max)".
-///   This is a real flag, so no env var is involved.
-/// - assigning a session id at start: `--session-id <uuid>` — "Use a specific
-///   session ID for the conversation (must be a valid UUID)".
-/// - resuming/forking: `-r, --resume [value]` — "Resume a conversation by
-///   session ID" — plus `--fork-session` — "When resuming, create a new session
-///   ID instead of reusing the original (use with --resume or --continue)".
-///   Both exist, so fork support is `native`.
-///
-/// Note: `opus`, `sonnet` and `fable` are the aliases `--help` names; `haiku`
-/// is the third family alias (this repo previously listed `claude-haiku-4-5`)
-/// and was not itself in the `--help` example list. Passing `--session-id`
-/// together with `--resume ... --fork-session` is not verified against the CLI.
-fn claude_code_profile() -> AgentProfile {
-    AgentProfile::new("claude-code", "Claude Code", "claude")
-        .with_models(&["opus", "sonnet", "haiku", "fable"])
-        .with_model_arg("--model")
-        .with_effort_levels(vec![
-            EffortLevel::from_args("Low", &["--effort", "low"]),
-            EffortLevel::from_args("Medium", &["--effort", "medium"]),
-            EffortLevel::from_args("High", &["--effort", "high"]),
-            EffortLevel::from_args("XHigh", &["--effort", "xhigh"]),
-            EffortLevel::from_args("Max", &["--effort", "max"]),
-        ])
-        .with_permission_modes(vec![
-            PermissionModeOption::ask("Ask"),
-            PermissionModeOption::new(
-                "bypass",
-                "Bypass permissions",
-                &["--permission-mode", "bypassPermissions"],
-            ),
-            PermissionModeOption::new(
-                "acceptEdits",
-                "Accept edits",
-                &["--permission-mode", "acceptEdits"],
-            ),
-            PermissionModeOption::new("plan", "Plan mode", &["--permission-mode", "plan"]),
-        ])
-        .with_session_id_arg("--session-id")
-        .with_native_fork(&["--resume", "{session_id}", "--fork-session"])
-        .with_approval(r"(Allow this action\?|\[y/n\]|Run command\?)", "y\n", "n\n")
-        // The TUI cannot be rendered as a chat, so Claude Code runs through the
-        // official ACP adapter (Claude Agent SDK) and the user's existing login.
-        .with_acp("npx", &["-y", CLAUDE_ACP_ADAPTER])
-}
-
-/// Qwen Code, verified against `qwen --help` (qwen-code 0.25.x): `--acp` "Starts
-/// the agent in ACP mode". Over ACP the agent itself reports its models and
-/// approval modes (plan, default, auto-edit, auto, yolo) per session, so the
-/// profile declares none.
-fn qwen_profile() -> AgentProfile {
-    AgentProfile::new("qwen", "Qwen Code", "qwen").with_acp("qwen", &["--acp"])
-}
-
-/// Codex CLI (codex-cli 0.160.x) through the official ACP adapter. Models and
-/// approval modes are reported by the agent per session.
-fn codex_profile() -> AgentProfile {
-    AgentProfile::new("codex", "Codex", "codex").with_acp("npx", &["-y", CODEX_ACP_ADAPTER])
 }
 
 /// omp (Oh-My-Pi), verified against `omp --help` (omp v18.10.3).
@@ -330,31 +269,73 @@ fn aider_profile() -> AgentProfile {
         ])
 }
 
-/// Returns the predefined list of default agent profile templates.
+/// The built-in terminal agents. ACP agents come from the registry catalog.
 pub fn get_default_profiles() -> Vec<AgentProfile> {
-    vec![
-        claude_code_profile(),
-        qwen_profile(),
-        codex_profile(),
-        omp_profile(),
-        aider_profile(),
-    ]
+    vec![omp_profile(), aider_profile()]
 }
 
-/// Resolves default profiles and updates their detection status against the user's path.
+/// [`agent_profiles`] at each registry agent's offered version.
+pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
+    agent_profiles(&BTreeMap::new())
+}
+
+/// Every agent the app can run, detected against the user's `PATH`: the
+/// registry agents first (at the version in `versions` when the catalog has
+/// it, else the offered one), then the built-in terminal agents.
 ///
 /// Uses the cached user environment to avoid launching the login shell multiple times.
-pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
+pub fn agent_profiles(versions: &BTreeMap<String, String>) -> Vec<AgentProfile> {
+    with_system_tools(|catalog, tools| {
+        let from_registry = catalog.profiles(tools, versions, registry::unix_now());
+        let terminal: Vec<AgentProfile> = get_default_profiles()
+            .into_iter()
+            .filter(|builtin| from_registry.iter().all(|p| p.id != builtin.id))
+            .map(|profile| detect(profile, tools.path_var))
+            .collect();
+        from_registry.into_iter().chain(terminal).collect()
+    })
+}
+
+/// The one profile [`agent_profiles`] would give for `id`, resolving only that
+/// agent rather than every one; `None` for an unknown id.
+pub fn agent_profile(id: &str, versions: &BTreeMap<String, String>) -> Option<AgentProfile> {
+    with_system_tools(|catalog, tools| {
+        agent_profile_from(catalog, tools, id, versions, registry::unix_now())
+    })
+}
+
+/// [`agent_profile`] from a given catalog and system at time `now`.
+pub fn agent_profile_from(
+    catalog: &registry::Catalog,
+    tools: &SystemTools,
+    id: &str,
+    versions: &BTreeMap<String, String>,
+    now: u64,
+) -> Option<AgentProfile> {
+    catalog.profile(id, tools, versions, now).or_else(|| {
+        get_default_profiles()
+            .into_iter()
+            .find(|builtin| builtin.id == id)
+            .map(|profile| detect(profile, tools.path_var))
+    })
+}
+
+/// Runs `f` with the catalog and what this machine has: the user's login-shell
+/// `PATH` (this process's as a fallback) and the global npm packages.
+pub(crate) fn with_system_tools<R>(f: impl FnOnce(&registry::Catalog, &SystemTools) -> R) -> R {
     let path_var = match env_resolver::cached_user_env() {
         Ok(env_map) => env_map.get("PATH").cloned(),
         Err(_) => None,
     }
     .or_else(|| std::env::var("PATH").ok());
 
-    get_default_profiles()
-        .into_iter()
-        .map(|profile| detect(profile, path_var.as_deref()))
-        .collect()
+    let catalog = registry::catalog();
+    let npm_globals = catalog.npm_globals();
+    let tools = SystemTools {
+        path_var: path_var.as_deref(),
+        npm_globals: &npm_globals,
+    };
+    f(catalog, &tools)
 }
 
 /// Marks a profile detected when its CLI is on PATH and, for ACP agents, the
