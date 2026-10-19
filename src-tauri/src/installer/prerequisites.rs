@@ -3,9 +3,11 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::env_resolver::{drain_in_background, recv_by_deadline};
@@ -35,8 +37,8 @@ pub struct Prerequisite {
 const PI_ACP: &[Prerequisite] = &[Prerequisite {
     command: "pi",
     package: "@earendil-works/pi-coding-agent",
-    // Published 2026-10-12.
-    version: "1.2.0",
+    // Published 2026-10-07T22:16Z, over 7 x 24 h before it was pinned.
+    version: "1.1.0",
 }];
 
 /// The prerequisites of a registry agent; empty for most agents.
@@ -81,6 +83,9 @@ pub fn run_npm_install(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
+        // Its own process group, so a stop can take npm's node and script
+        // children down with it.
+        .process_group(0)
         .spawn()
         .map_err(|e| format!("npm could not start to install {package}: {e}"))?;
     let stderr = child.stderr.take().map(drain_in_background);
@@ -101,7 +106,10 @@ pub fn run_npm_install(
         }
         if Instant::now() >= deadline {
             stop(&mut child);
-            return Err(format!("npm timed out installing {package}."));
+            return Err(format!(
+                "npm timed out installing {package}\n{}",
+                stderr_tail(stderr)
+            ));
         }
         std::thread::sleep(POLL_INTERVAL);
     };
@@ -109,15 +117,29 @@ pub fn run_npm_install(
         return Ok(());
     }
 
-    let tail = stderr
+    Err(format!(
+        "npm could not install {package}\n{}",
+        stderr_tail(stderr)
+    ))
+}
+
+/// The last lines npm wrote to stderr, waiting briefly for the drain thread.
+fn stderr_tail(stderr: Option<mpsc::Receiver<std::io::Result<Vec<u8>>>>) -> String {
+    stderr
         .and_then(|rx| recv_by_deadline(&rx, Instant::now() + STDERR_GRACE))
         .and_then(Result::ok)
         .map(|bytes| last_lines(&String::from_utf8_lossy(&bytes), STDERR_TAIL_LINES))
-        .unwrap_or_default();
-    Err(format!("npm could not install {package}\n{tail}"))
+        .unwrap_or_default()
 }
 
+/// Kills npm's whole process group, then npm itself, and reaps it.
 fn stop(child: &mut Child) {
+    let group = format!("-{}", child.id());
+    let _ = Command::new("/bin/kill")
+        .args(["-s", "KILL", "--", &group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
     let _ = child.kill();
     let _ = child.wait();
 }

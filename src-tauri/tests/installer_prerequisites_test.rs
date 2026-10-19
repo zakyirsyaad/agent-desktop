@@ -134,18 +134,19 @@ fn run_npm_install_reports_the_stderr_tail() {
 #[test]
 fn run_npm_install_stops_at_the_timeout() {
     let d = temp_dir();
-    let npm = fake_npm(&d, "/bin/sleep 30");
+    let npm = fake_npm(&d, "echo slow-registry >&2\n/bin/sleep 30");
     let started = Instant::now();
     let err = run_npm_install(
         &npm,
         &args(),
         &HashMap::new(),
-        Duration::from_millis(300),
+        Duration::from_millis(1500),
         &AtomicBool::new(false),
     )
     .unwrap_err();
     assert!(started.elapsed() < Duration::from_secs(10));
     assert!(err.contains("timed out"), "{err}");
+    assert!(err.contains("slow-registry"), "{err}");
 }
 
 #[test]
@@ -170,4 +171,48 @@ fn run_npm_install_stops_when_cancelled() {
     .unwrap_err();
     assert!(started.elapsed() < Duration::from_secs(10));
     assert!(err.contains("cancelled"), "{err}");
+}
+
+#[test]
+fn run_npm_install_cancel_kills_npms_children() {
+    let d = temp_dir();
+    let pid_file = d.join("child.pid");
+    let npm = fake_npm(
+        &d,
+        &format!("/bin/sleep 30 &\necho $! > '{}'\nwait", pid_file.display()),
+    );
+    let cancel = AtomicBool::new(false);
+    let _ = std::thread::scope(|s| {
+        s.spawn(|| {
+            // Cancel only once the script has started its child.
+            let wait_until = Instant::now() + Duration::from_secs(10);
+            while !pid_file.exists() && Instant::now() < wait_until {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            cancel.store(true, Ordering::Relaxed);
+        });
+        run_npm_install(
+            &npm,
+            &args(),
+            &HashMap::new(),
+            Duration::from_secs(60),
+            &cancel,
+        )
+    });
+    let pid = fs::read_to_string(&pid_file).unwrap().trim().to_string();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let alive = loop {
+        let alive = std::process::Command::new("/bin/kill")
+            .args(["-0", &pid])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        if !alive || Instant::now() >= deadline {
+            break alive;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(!alive, "npm's child {pid} survived the cancel");
 }
