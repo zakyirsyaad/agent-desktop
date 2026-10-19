@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  NODE_HINT,
   installHintFor,
   readyAgents,
   resolveDefaultAgentId,
@@ -34,11 +35,23 @@ describe("resolveDefaultAgentId", () => {
 });
 
 describe("installHintFor", () => {
-  it("returns the verified install command for a known agent", () => {
-    expect(installHintFor(claude)).toEqual({
+  it("returns the verified install command for a terminal agent", () => {
+    expect(installHintFor(aider)).toEqual({
       kind: "command",
-      command: "npm install -g @anthropic-ai/claude-code",
+      command: "python -m pip install aider-install && aider-install",
     });
+  });
+
+  it("points a registry npx agent at Node.js, which is all it needs", () => {
+    const nodeHint = { kind: "docs", text: NODE_HINT };
+    const gemini: AgentSummary = { id: "gemini", name: "Gemini CLI", detected: false, distribution: "npx" };
+
+    expect(installHintFor(claude)).toEqual(nodeHint);
+    expect(installHintFor({ id: "codex-acp", name: "Codex", detected: false })).toEqual(nodeHint);
+    expect(installHintFor({ id: "qwen-code", name: "Qwen Code", detected: false })).toEqual(nodeHint);
+    expect(installHintFor(gemini)).toEqual(nodeHint);
+    expect(NODE_HINT).toContain("Node.js 22");
+    expect(NODE_HINT).toContain("https://nodejs.org");
   });
 
   it("points unknown agents to their own documentation", () => {

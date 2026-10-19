@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within, fireEvent, act, waitFor } from "@testing-library/react";
 import { Onboarding } from "../components/Onboarding";
+import { AgentsStep } from "../components/onboarding/AgentsStep";
 import type { AgentProfile } from "../types";
 import { makeProfile } from "./fixtures/agents";
 
@@ -34,7 +35,7 @@ const aider: AgentProfile = makeProfile({
 
 const AGENTS = [claudeCode, omp, aider];
 
-const CLAUDE_INSTALL_COMMAND = "npm install -g @anthropic-ai/claude-code";
+const AIDER_INSTALL_COMMAND = "python -m pip install aider-install && aider-install";
 
 /** Recent folders may carry persistence fields the component must not forward. */
 type FolderFixture = { name: string; path: string; lastOpenedAt?: number };
@@ -203,22 +204,32 @@ describe("Onboarding — agent step", () => {
     expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
 
-  it("offers a copyable install command for a missing agent", async () => {
+  it("offers a copyable install command for a missing terminal agent", async () => {
+    // Onboarding lists only agents in use, so render the step itself with a missing one.
+    render(<AgentsStep agents={[claudeCode, notDetected(aider)]} onRecheckAgents={vi.fn()} />);
+
+    const item = agentItem("Aider");
+    expect(item).toHaveTextContent("Not installed");
+    const command = within(item).getByText(AIDER_INSTALL_COMMAND);
+    expect(command.closest("code")).not.toBeNull();
+
+    await click(within(item).getByRole("button", {
+      name: "Copy install command for Aider",
+    }));
+
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenCalledWith(AIDER_INSTALL_COMMAND);
+    });
+    expect(clipboardWriteText).toHaveBeenCalledTimes(1);
+  });
+
+  it("points a missing registry agent at Node.js", () => {
     renderOnboarding({ agents: [notDetected(claudeCode), omp, aider] });
 
     const item = agentItem("Claude Code");
     expect(item).toHaveTextContent("Not installed");
-    const command = within(item).getByText(CLAUDE_INSTALL_COMMAND);
-    expect(command.closest("code")).not.toBeNull();
-
-    await click(within(item).getByRole("button", {
-      name: "Copy install command for Claude Code",
-    }));
-
-    await waitFor(() => {
-      expect(clipboardWriteText).toHaveBeenCalledWith(CLAUDE_INSTALL_COMMAND);
-    });
-    expect(clipboardWriteText).toHaveBeenCalledTimes(1);
+    expect(item).toHaveTextContent(/Node\.js 22/);
+    expect(within(item).queryByRole("button", { name: /Copy install command/ })).toBeNull();
   });
 
   it("re-runs agent detection when Check again is clicked", async () => {
