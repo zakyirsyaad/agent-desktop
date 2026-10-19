@@ -49,6 +49,11 @@ pub fn prerequisites_for(agent_id: &str) -> &'static [Prerequisite] {
     }
 }
 
+/// Every prerequisite of every agent, for scanning what is installed.
+pub fn all_prerequisites() -> impl Iterator<Item = &'static Prerequisite> {
+    PI_ACP.iter()
+}
+
 /// The `npm` arguments that install `p` globally under `prefix`. Each value is
 /// its own argument, so a prefix with spaces needs no quoting.
 pub fn npm_install_args(prefix: &Path, p: &Prerequisite) -> Vec<OsString> {
