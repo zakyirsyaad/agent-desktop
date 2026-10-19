@@ -186,9 +186,9 @@ closes.
 
 | Kind | When | Panel |
 |---|---|---|
-| `agent` | Any other method (no `type`, or `type: "agent"`) | Button; runs `acp_authenticate` |
+| `agent` | No `type`, or `type: "agent"`, and not an API-key method | Button; runs `acp_authenticate` |
 | `terminal` | `type === "terminal"` | Button; opens the sign-in dialog |
-| `explain` | An API-key method (`_meta["api-key"]`, an id like `api-key`), or the older `_meta.type === "terminal"` without the standard `type` | Name and description only |
+| `explain` | Any other `type` (such as `env_var`, which Zorvo does not run); an API-key method (`_meta["api-key"]`, an id like `api-key`); or the older `_meta.type === "terminal"` without the standard `type` | Name and description only |
 
 ### `AuthPanel`
 
