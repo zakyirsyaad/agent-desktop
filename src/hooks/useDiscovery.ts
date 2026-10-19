@@ -37,15 +37,22 @@ export function useAgentProfiles(onError: (message: string) => void): AgentProfi
 
   /** The backend refreshed the registry or found a changed install: read the profiles again. */
   useEffect(() => {
+    let isMounted = true;
     const unlisten = listen('agent-profiles-changed', () => {
+      // The event can arrive after unmount, while the listener is still being removed.
+      if (!isMounted) return;
       detect(false).catch(() => {
         // Already reported through onError.
       });
+    }).catch((error: unknown) => {
+      if (isMounted) onErrorRef.current(`Could not watch for agent changes: ${String(error)}`);
+      return null;
     });
     return () => {
-      void unlisten.then((stop) => stop());
+      isMounted = false;
+      void unlisten.then((stop) => stop?.());
     };
-  }, [detect]);
+  }, [detect, onErrorRef]);
 
   /** "Check again": detects with a fresh PATH. */
   const refresh = useCallback(() => detect(true), [detect]);
