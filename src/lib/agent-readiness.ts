@@ -24,6 +24,27 @@ export function resolveDefaultAgentId(agents: readonly AgentSummary[], preferred
   return (preferred ?? ready[0])?.id ?? null;
 }
 
+/** English list joining: "A", "A and B", "A, B and C". */
+function joinNames(names: readonly string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Why no session can start, built from the agents in use: names the ones that
+ * run through `npx` and are not ready (they need Node.js), else asks to install one.
+ */
+export function noAgentNotice(agentsInUse: readonly AgentSummary[]): string {
+  const needNode = agentsInUse
+    .filter((agent) => agent.distribution === "npx" && !isAgentReady(agent))
+    .map((agent) => agent.name);
+  if (needNode.length === 0) {
+    return "No agent is ready. Install one of your agents, then check again in Settings.";
+  }
+  const verb = needNode.length === 1 ? "needs" : "need";
+  return `No agent is ready. ${joinNames(needNode)} ${verb} Node.js 22 or later: install it from https://nodejs.org, then check again in Settings.`;
+}
+
 export type InstallHint =
   | { kind: "command"; command: string }
   | { kind: "docs"; text: string };

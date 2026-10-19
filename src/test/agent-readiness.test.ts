@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   NODE_HINT,
   installHintFor,
+  noAgentNotice,
   readyAgents,
   resolveDefaultAgentId,
   type AgentSummary,
@@ -75,5 +76,41 @@ describe("resolveDefaultAgentId takes the candidates as given", () => {
   it("has no filter of its own: callers pass only the agents to choose from", () => {
     // @ts-expect-error -- there is no third parameter; the list is already filtered.
     expect(resolveDefaultAgentId([claude, aider], "claude-acp", () => false)).toBe("claude-acp");
+  });
+});
+
+describe("noAgentNotice", () => {
+  const needsNode = (id: string, name: string): AgentSummary => ({ id, name, detected: false, distribution: "npx" });
+  const codex = needsNode("codex-acp", "Codex");
+  const qwen = needsNode("qwen-code", "Qwen Code");
+  const kimi = needsNode("kimi", "Kimi CLI");
+  const opencode: AgentSummary = { id: "opencode", name: "OpenCode", detected: false, distribution: "binary" };
+  const NODE_TAIL = "Node.js 22 or later: install it from https://nodejs.org, then check again in Settings.";
+  const GENERIC = "No agent is ready. Install one of your agents, then check again in Settings.";
+
+  it("names one agent that needs Node.js", () => {
+    expect(noAgentNotice([codex, opencode])).toBe(`No agent is ready. Codex needs ${NODE_TAIL}`);
+  });
+
+  it("joins two agents that need Node.js with and", () => {
+    expect(noAgentNotice([kimi, opencode, codex])).toBe(`No agent is ready. Kimi CLI and Codex need ${NODE_TAIL}`);
+  });
+
+  it("joins three or more agents with commas and a final and", () => {
+    expect(noAgentNotice([needsNode("claude-acp", "Claude Code"), codex, qwen])).toBe(
+      `No agent is ready. Claude Code, Codex and Qwen Code need ${NODE_TAIL}`,
+    );
+  });
+
+  it("leaves out npx agents that are ready", () => {
+    expect(noAgentNotice([claude, codex])).toBe(`No agent is ready. Codex needs ${NODE_TAIL}`);
+  });
+
+  it("asks to install an agent when none of them needs Node.js", () => {
+    expect(noAgentNotice([opencode, omp])).toBe(GENERIC);
+  });
+
+  it("asks to install an agent when there are no agents in use", () => {
+    expect(noAgentNotice([])).toBe(GENERIC);
   });
 });

@@ -66,7 +66,7 @@ import { attentionBody, notifyIfAway } from "./lib/notify";
 import { pickFiles } from "./lib/file-picker";
 import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
-import { resolveDefaultAgentId } from "./lib/agent-readiness";
+import { noAgentNotice, resolveDefaultAgentId } from "./lib/agent-readiness";
 import { isInUse, withAutoEnabled } from "./lib/enabled-agents";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
@@ -83,8 +83,6 @@ import type { Session, SessionWorktree, Settings } from "./types";
 import { TRANSPORT_ACP } from "./types";
 
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
-const NO_AGENT_NOTICE =
-  "No agent is ready. Claude Code, Codex and Qwen Code need Node.js 22 or later: install it from https://nodejs.org, then check again in Settings.";
 
 // eslint-disable-next-line no-control-regex -- matching control characters is the point.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
@@ -351,7 +349,7 @@ export default function App() {
       return;
     }
     if (!newSessionAgent) {
-      setNotice(NO_AGENT_NOTICE);
+      setNotice(noAgentNotice(agentsInUse));
       return;
     }
     rememberFolder(activeWorkspace);
@@ -694,7 +692,7 @@ export default function App() {
               workspace={activeWorkspace}
               details={workspaceDetails}
               agentName={newSessionAgent?.name}
-              unavailableReason={areAgentsLoaded && !newSessionAgent ? NO_AGENT_NOTICE : undefined}
+              unavailableReason={areAgentsLoaded && !newSessionAgent ? noAgentNotice(agentsInUse) : undefined}
             />
           ) : (
             <EmptySessionState />

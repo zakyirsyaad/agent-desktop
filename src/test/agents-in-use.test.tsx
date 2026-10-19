@@ -119,6 +119,62 @@ describe("Agents in use", () => {
     expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")).toBeUndefined();
   });
 
+  it("names the agents in use that need Node.js when no agent is ready", async () => {
+    const settings = fakeStore().state.settings as FakeTauriStore["state"]["settings"] & { enabledAgents?: string[] };
+    settings.enabledAgents = ["codex-acp", "kimi"];
+    const kimiWithoutNode = makeProfile({
+      id: "kimi",
+      name: "Kimi CLI",
+      source: "registry",
+      transport: "acp",
+      distribution: "npx",
+      availability: "needs_runtime",
+      detected: false,
+    });
+    const notReady = [...notReadyProfiles(), kimiWithoutNode];
+    const originalInvoke = tauriInternals().invoke;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "get_agent_profiles" ? Promise.resolve(notReady) : originalInvoke(cmd, args),
+    );
+    await act(async () => {
+      render(<App />);
+    });
+
+    await click(screen.getByRole("button", { name: "+ New session" }));
+
+    expect(newSessionView()).toHaveTextContent(
+      "No agent is ready. Codex and Kimi CLI need Node.js 22 or later: install it from https://nodejs.org, then check again in Settings.",
+    );
+  });
+
+  it("asks to install an agent when no agent in use needs Node.js", async () => {
+    const settings = fakeStore().state.settings as FakeTauriStore["state"]["settings"] & { enabledAgents?: string[] };
+    settings.enabledAgents = ["opencode"];
+    const opencode = makeProfile({
+      id: "opencode",
+      name: "OpenCode",
+      source: "registry",
+      transport: "acp",
+      distribution: "binary",
+      availability: "not_installed",
+      detected: false,
+    });
+    const notReady = [...notReadyProfiles(), opencode];
+    const originalInvoke = tauriInternals().invoke;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "get_agent_profiles" ? Promise.resolve(notReady) : originalInvoke(cmd, args),
+    );
+    await act(async () => {
+      render(<App />);
+    });
+
+    await click(screen.getByRole("button", { name: "+ New session" }));
+
+    expect(newSessionView()).toHaveTextContent(
+      "No agent is ready. Install one of your agents, then check again in Settings.",
+    );
+  });
+
   it("waits for the agent list before saying no agent is ready", async () => {
     let answer: (profiles: unknown) => void = () => {};
     const originalInvoke = tauriInternals().invoke;
