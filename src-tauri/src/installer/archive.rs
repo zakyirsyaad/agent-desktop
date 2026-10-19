@@ -191,7 +191,11 @@ fn unpack_zip(reader: BufReader<File>, unpacker: &mut Unpacker) -> Result<(), Un
     for index in 0..archive.len() {
         unpacker.begin_entry()?;
         let mut entry = archive.by_index(index).map_err(zip_error)?;
-        let raw = PathBuf::from(entry.name());
+        // A name that does not decode cannot be checked, so it is refused like a bad path.
+        let name = entry
+            .name()
+            .map_err(|_| UnpackError::UnsafeEntry(format!("entry {index}")))?;
+        let raw = PathBuf::from(name.as_ref());
         let rel = safe_relative_path(&raw)?;
         let unix_mode = entry.unix_mode();
         let file_type = unix_mode.map_or(0, |mode| mode & S_IFMT);
