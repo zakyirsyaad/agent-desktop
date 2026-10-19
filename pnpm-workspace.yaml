@@ -1,5 +1,60 @@
+# Supply-chain policy for every install, here and in CI.
+# Wait a week before installing a newly published version (in minutes); with
+# an explicit value pnpm fails on a too-new version instead of quietly allowing it.
+minimumReleaseAge: 10080
+# Refuse transitive dependencies from git, tarball URLs or other non-registry sources.
+blockExoticSubdeps: true
+# Refuse a version published with weaker provenance than earlier ones (a sign of a hijacked package).
+trustPolicy: no-downgrade
+# Old-line releases published by their usual maintainers before that line had
+# provenance, while a newer line already did: not a takeover.
+trustPolicyExclude:
+  - semver@6.3.1
+  - undici-types@6.21.0
+
+# Versions the lockfile already had when the week-long wait was set (2026-10-19).
+# Each is past it by 2026-10-21; then this list can shrink to what new code needs.
 minimumReleaseAgeExclude:
   - lucide-react@1.57.0
+  - "@rollup/rollup-android-arm-eabi@4.64.6"
+  - "@rollup/rollup-android-arm64@4.64.6"
+  - "@rollup/rollup-darwin-arm64@4.64.6"
+  - "@rollup/rollup-darwin-x64@4.64.6"
+  - "@rollup/rollup-freebsd-arm64@4.64.6"
+  - "@rollup/rollup-freebsd-x64@4.64.6"
+  - "@rollup/rollup-linux-arm-gnueabihf@4.64.6"
+  - "@rollup/rollup-linux-arm-musleabihf@4.64.6"
+  - "@rollup/rollup-linux-arm64-gnu@4.64.6"
+  - "@rollup/rollup-linux-arm64-musl@4.64.6"
+  - "@rollup/rollup-linux-loong64-gnu@4.64.6"
+  - "@rollup/rollup-linux-loong64-musl@4.64.6"
+  - "@rollup/rollup-linux-ppc64-gnu@4.64.6"
+  - "@rollup/rollup-linux-ppc64-musl@4.64.6"
+  - "@rollup/rollup-linux-riscv64-gnu@4.64.6"
+  - "@rollup/rollup-linux-riscv64-musl@4.64.6"
+  - "@rollup/rollup-linux-s390x-gnu@4.64.6"
+  - "@rollup/rollup-linux-x64-gnu@4.64.6"
+  - "@rollup/rollup-linux-x64-musl@4.64.6"
+  - "@rollup/rollup-openbsd-x64@4.64.6"
+  - "@rollup/rollup-openharmony-arm64@4.64.6"
+  - "@rollup/rollup-win32-arm64-msvc@4.64.6"
+  - "@rollup/rollup-win32-ia32-msvc@4.64.6"
+  - "@rollup/rollup-win32-x64-gnu@4.64.6"
+  - "@rollup/rollup-win32-x64-msvc@4.64.6"
+  - "@typescript-eslint/eslint-plugin@8.71.2"
+  - "@typescript-eslint/parser@8.71.2"
+  - "@typescript-eslint/project-service@8.71.2"
+  - "@typescript-eslint/scope-manager@8.71.2"
+  - "@typescript-eslint/tsconfig-utils@8.71.2"
+  - "@typescript-eslint/type-utils@8.71.2"
+  - "@typescript-eslint/types@8.71.2"
+  - "@typescript-eslint/typescript-estree@8.71.2"
+  - "@typescript-eslint/utils@8.71.2"
+  - "@typescript-eslint/visitor-keys@8.71.2"
+  - postcss@8.5.30
+  - rollup@4.64.6
+  - typescript-eslint@8.71.2
+  - zod@4.6.7
 
 allowBuilds:
   esbuild: true
