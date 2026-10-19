@@ -11,9 +11,9 @@ import type { ChatMessage } from "../types";
 const CREATED_AT = Date.UTC(2026, 9, 16, 10, 30, 0);
 
 const meta: ForkHandoffMeta = {
-  sourceSessionName: "agent-desktop / feat-real-ui-chat",
+  sourceSessionName: "zorvo / feat-real-ui-chat",
   agentName: "Aider",
-  cwd: "/Users/test/developer/agent-desktop",
+  cwd: "/Users/test/developer/zorvo",
   createdAt: CREATED_AT,
 };
 

@@ -275,8 +275,8 @@ mod tests {
 
     #[test]
     fn rejects_a_relative_path() {
-        let err = validated_reveal_path("developer/agent-desktop")
-            .expect_err("a relative path must be rejected");
+        let err =
+            validated_reveal_path("developer/zorvo").expect_err("a relative path must be rejected");
         assert!(err.contains("absolute"), "unexpected error: {err}");
     }
 

@@ -110,12 +110,12 @@ describe("New session spawning", () => {
       fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
     });
     await act(async () => {
-      fireEvent.change(screen.getByRole("textbox", { name: "Search folders" }), { target: { value: "agent" } });
+      fireEvent.change(screen.getByRole("textbox", { name: "Search folders" }), { target: { value: "zor" } });
     });
     const folders = within(screen.getByRole("listbox", { name: "Recent folders" }));
-    expect(folders.getAllByRole("option").map((o) => o.textContent)).toEqual(["agent-desktop"]);
+    expect(folders.getAllByRole("option").map((o) => o.textContent)).toEqual(["zorvo"]);
     await act(async () => {
-      fireEvent.click(folders.getByRole("option", { name: "agent-desktop" }));
+      fireEvent.click(folders.getByRole("option", { name: "zorvo" }));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Agent: Claude Code" }));
@@ -126,14 +126,14 @@ describe("New session spawning", () => {
     await sendFirst();
 
     const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { cwd: string; profileId: string };
-    expect(args).toMatchObject({ cwd: "/Users/test/developer/agent-desktop", profileId: "omp" });
+    expect(args).toMatchObject({ cwd: "/Users/test/developer/zorvo", profileId: "omp" });
     // The pickers only belong to a session that has not started.
     expect(screen.queryByRole("button", { name: /^Folder:/ })).toBeNull();
   });
 
   it("forgets an agent picked for a new session once the user opens another session", async () => {
     (window as unknown as { __FAKE_TAURI_STORE__: { state: { sessions: unknown[] } } }).__FAKE_TAURI_STORE__.state.sessions = [
-      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/agent-desktop", status: "terminated", createdAt: 1 },
+      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 1 },
     ];
     const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
     await act(async () => {
@@ -292,7 +292,7 @@ describe("New session spawning", () => {
 
   it("puts a message back into its new session when the worktree fails after the user moved on", async () => {
     (window as unknown as { __FAKE_TAURI_STORE__: { state: { sessions: unknown[] } } }).__FAKE_TAURI_STORE__.state.sessions = [
-      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/agent-desktop", status: "terminated", createdAt: 1 },
+      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 1 },
     ];
     let failCreating: () => void = () => {};
     stubInvoke({

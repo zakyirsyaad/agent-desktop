@@ -4,7 +4,7 @@
 
 Please do not open a public issue for a security problem. Report it privately
 with GitHub's
-[private vulnerability reporting](https://github.com/zakyirsyaad/agent-desktop/security/advisories/new).
+[private vulnerability reporting](https://github.com/zakyirsyaad/zorvo/security/advisories/new).
 
 Please include:
 

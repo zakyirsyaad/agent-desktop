@@ -1,8 +1,8 @@
 # Zorvo
 
-[![CI](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/ci.yml)
-[![Security](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/security.yml/badge.svg)](https://github.com/zakyirsyaad/agent-desktop/actions/workflows/security.yml)
-[![Release](https://img.shields.io/github/v/release/zakyirsyaad/agent-desktop?include_prereleases)](https://github.com/zakyirsyaad/agent-desktop/releases)
+[![CI](https://github.com/zakyirsyaad/zorvo/actions/workflows/ci.yml/badge.svg)](https://github.com/zakyirsyaad/zorvo/actions/workflows/ci.yml)
+[![Security](https://github.com/zakyirsyaad/zorvo/actions/workflows/security.yml/badge.svg)](https://github.com/zakyirsyaad/zorvo/actions/workflows/security.yml)
+[![Release](https://img.shields.io/github/v/release/zakyirsyaad/zorvo?include_prereleases)](https://github.com/zakyirsyaad/zorvo/releases)
 ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
 
 **Every coding agent. One desktop.**
@@ -101,7 +101,7 @@ in Settings.
 ## Install
 
 Download the `.dmg` from the
-[latest release](https://github.com/zakyirsyaad/agent-desktop/releases) and
+[latest release](https://github.com/zakyirsyaad/zorvo/releases) and
 drag Zorvo into Applications.
 
 The build is not yet signed, so macOS blocks it the first time you open it.

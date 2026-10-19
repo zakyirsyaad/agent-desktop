@@ -175,12 +175,12 @@ work:
 2. **Trademark search** for "Zorvo" in classes 9 and 42 (USPTO, EUIPO)
    before spending on the name. The checks above were web searches and
    domain lookups only.
-3. ~~**Rename the app in code.**~~ Done in zakyirsyaad/agent-desktop#32
+3. ~~**Rename the app in code.**~~ Done in zakyirsyaad/zorvo#32
    (merged as `21ea46e`): `productName` is `Zorvo`, the bundle identifier is
    `xyz.zorvo.desktop`, and a one-time migration moves existing sessions and
    transcripts out of the old `com.agentdesktop.app` data directory.
 4. ~~**App icon and favicon.**~~ The app icon is done in
-   zakyirsyaad/agent-desktop#32: every size Tauri bundles is generated from
+   zakyirsyaad/zorvo#32: every size Tauri bundles is generated from
    the SVGs; see [App icon](#app-icon). The landing page's favicon,
    `site/app/icon.svg`, is `assets/zorvo-symbol-small.svg` with a fixed
    color per theme (a favicon has no text color to inherit), and its Apple

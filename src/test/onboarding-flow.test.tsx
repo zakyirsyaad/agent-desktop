@@ -48,18 +48,18 @@ describe("First run and project folders", () => {
     await click(screen.getByRole("button", { name: "Continue" }));
     await click(
       within(screen.getByRole("list", { name: "Suggested folders" })).getByRole("button", {
-        name: /agent-desktop/,
+        name: /zorvo/,
       })
     );
     await click(screen.getByRole("button", { name: "Continue" }));
     await click(screen.getByRole("button", { name: "Start" }));
 
-    expect(sidebar().getByText("agent-desktop")).toBeDefined();
+    expect(sidebar().getByText("zorvo")).toBeDefined();
     await waitFor(() => {
       const { settings, recentFolders } = fakeStore().state;
       expect(settings.onboardingCompleted).toBe(true);
       expect(settings.defaultAgentId).toBe("claude-code");
-      expect((recentFolders as { path: string }[])[0].path).toBe("/Users/test/developer/agent-desktop");
+      expect((recentFolders as { path: string }[])[0].path).toBe("/Users/test/developer/zorvo");
     });
   });
 

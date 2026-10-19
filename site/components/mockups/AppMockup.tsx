@@ -17,7 +17,7 @@ interface SessionRow {
 
 const WORKSPACES: { folder: string; sessions: SessionRow[] }[] = [
   {
-    folder: "agent-desktop",
+    folder: "zorvo",
     sessions: [
       { title: "Rename the app to Zorvo", meta: "running", isCurrent: true },
       { title: "Fix the flaky transcripts test", meta: "attention" },

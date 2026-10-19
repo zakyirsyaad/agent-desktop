@@ -36,7 +36,7 @@ function seedSession(profileId: string, agentSessionId: string | null = null) {
       id: "s-src",
       name: "Parser work",
       profileId,
-      cwd: "/Users/test/developer/agent-desktop",
+      cwd: "/Users/test/developer/zorvo",
       status: "terminated",
       createdAt: 1,
       agentSessionId,
@@ -98,7 +98,7 @@ describe("Chat wiring", () => {
     expect(handoffArgs?.content).toContain("Plan: split it in two");
     expect(handoffArgs?.content).not.toContain("Done, tests pass");
     const [, spawnArgs] = callsTo(spy, "spawn_session")[0];
-    expect(spawnArgs).toMatchObject({ profileId: "omp", cwd: "/Users/test/developer/agent-desktop" });
+    expect(spawnArgs).toMatchObject({ profileId: "omp", cwd: "/Users/test/developer/zorvo" });
     expect(within(screen.getByRole("complementary")).getByText("Parser work (fork)")).toBeDefined();
     // The fork starts from the conversation up to the chosen message.
     expect(screen.queryByText("Done, tests pass")).toBeNull();
@@ -130,14 +130,14 @@ describe("Chat wiring", () => {
   });
 
   it("inserts files picked with Attach into the prompt", async () => {
-    openDialog.mockResolvedValue(["/Users/test/developer/agent-desktop/src/App.tsx"]);
+    openDialog.mockResolvedValue(["/Users/test/developer/zorvo/src/App.tsx"]);
     await renderApp();
     await click(screen.getByRole("button", { name: "+ New session" }));
 
     await click(screen.getByRole("button", { name: "Add attachment" }));
 
     const prompt = screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
-    expect(prompt.value).toContain("/Users/test/developer/agent-desktop/src/App.tsx");
+    expect(prompt.value).toContain("/Users/test/developer/zorvo/src/App.tsx");
   });
 
   it("marks a terminal session as working only while the agent is producing output", async () => {

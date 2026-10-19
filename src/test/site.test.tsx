@@ -125,7 +125,7 @@ describe("landing page", () => {
     for (const link of links) {
       const href = link.getAttribute("href") ?? "";
       expect(link.className, href).toContain("focus-ring");
-      expect(href, link.textContent ?? "").toMatch(/^(#[a-z]+|https:\/\/github\.com\/zakyirsyaad\/agent-desktop\b)/);
+      expect(href, link.textContent ?? "").toMatch(/^(#[a-z]+|https:\/\/github\.com\/zakyirsyaad\/zorvo\b)/);
     }
   });
 

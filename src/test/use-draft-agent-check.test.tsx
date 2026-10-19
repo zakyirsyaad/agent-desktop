@@ -12,7 +12,7 @@ function tauriInternals(): TauriInternals {
 }
 
 const QWEN = fakeProfiles.find((a) => a.id === "qwen") as AgentProfile;
-const CWD = "/Users/test/developer/agent-desktop";
+const CWD = "/Users/test/developer/zorvo";
 
 /** A sign-in panel already up for Qwen Code, waiting for the user. */
 const pendingSignIn: AgentAuth = {

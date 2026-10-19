@@ -43,7 +43,7 @@ const runningSession = {
   id: "s-1",
   name: "Fix login",
   profileId: "claude-code",
-  cwd: "/Users/test/developer/agent-desktop",
+  cwd: "/Users/test/developer/zorvo",
   status: "running",
   createdAt: 1,
 };

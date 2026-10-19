@@ -13,7 +13,7 @@ function pr(number: number, overrides: Partial<PullRequestSummary> = {}): PullRe
   return {
     number,
     title: `Change number ${number}`,
-    url: `https://github.com/o/agent-desktop/pull/${number}`,
+    url: `https://github.com/o/zorvo/pull/${number}`,
     state: "merged",
     isDraft: false,
     ...overrides,
@@ -77,7 +77,7 @@ describe("useRepoPullRequests", () => {
 
 describe("repoLabelOf", () => {
   it("names the repository from a pull request's link", () => {
-    expect(repoLabelOf(pr(14))).toBe("agent-desktop #14");
+    expect(repoLabelOf(pr(14))).toBe("zorvo #14");
     expect(repoLabelOf(pr(3, { url: "not a link" }))).toBe("#3");
   });
 });
@@ -90,7 +90,7 @@ describe("PullRequestList", () => {
 
     const list = () => within(screen.getByRole("list", { name: "Pull requests" }));
     expect(list().getAllByRole("listitem").map((item) => item.textContent)).toEqual(
-      [3, 4, 5, 6, 7].map((n) => `Change number ${n}agent-desktop #${n}`),
+      [3, 4, 5, 6, 7].map((n) => `Change number ${n}zorvo #${n}`),
     );
     fireEvent.click(screen.getByRole("button", { name: "Show all (7)" }));
     expect(list().getAllByRole("listitem")).toHaveLength(7);
@@ -119,13 +119,13 @@ describe("PullRequestList", () => {
     render(<PullRequestList pullRequests={[pr(9)]} onOpen={onOpen} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Change number 9/ }));
-    expect(onOpen).toHaveBeenCalledWith("https://github.com/o/agent-desktop/pull/9");
+    expect(onOpen).toHaveBeenCalledWith("https://github.com/o/zorvo/pull/9");
 
     fireEvent.click(screen.getByRole("button", { name: "More actions for #9" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
     });
-    expect(writeText).toHaveBeenCalledWith("https://github.com/o/agent-desktop/pull/9");
+    expect(writeText).toHaveBeenCalledWith("https://github.com/o/zorvo/pull/9");
     expect(screen.queryByRole("menu")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "More actions for #9" }));

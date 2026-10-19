@@ -90,7 +90,7 @@ function TerminalPanel() {
         </div>
         <div className="flex min-h-[120px] flex-1 flex-col gap-1 px-6 py-[22px] font-mono text-xs leading-[18px] text-terminal-fg">
           <div>
-            <span className="text-terminal-fg-subtle">~/agent-desktop %</span> aider
+            <span className="text-terminal-fg-subtle">~/zorvo %</span> aider
           </div>
           <div className="pt-1.5">
             <span className="inline-block h-4 w-2 bg-terminal-fg align-[-3px]" />
