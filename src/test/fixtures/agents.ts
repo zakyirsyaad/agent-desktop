@@ -20,6 +20,13 @@ export function makeProfile(overrides: Partial<AgentProfile> & Pick<AgentProfile
     acp_program: null,
     acp_args: [],
     acp_program_path: null,
+    source: "builtin",
+    version: null,
+    distribution: null,
+    availability: "ready",
+    description: null,
+    installed_on_system: false,
+    listed: true,
     ...overrides,
   };
 }

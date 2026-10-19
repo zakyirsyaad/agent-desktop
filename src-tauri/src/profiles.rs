@@ -112,6 +112,18 @@ pub struct AgentProfile {
     pub acp_args: Vec<String>,
     /// Absolute path of `acp_program` on this machine, once detected.
     pub acp_program_path: Option<String>,
+    /// `"registry"` or `"builtin"`.
+    pub source: String,
+    pub version: Option<String>,
+    /// `"npx"`, `"uvx"` or `"binary"` for registry agents.
+    pub distribution: Option<String>,
+    /// `"ready"`, `"needs_runtime"` or `"not_installed"`.
+    pub availability: String,
+    pub description: Option<String>,
+    /// The agent's own CLI is already installed on this machine.
+    pub installed_on_system: bool,
+    /// Shown in the picker without the user searching for it.
+    pub listed: bool,
 }
 
 impl AgentProfile {
@@ -136,6 +148,13 @@ impl AgentProfile {
             acp_program: None,
             acp_args: Vec::new(),
             acp_program_path: None,
+            source: "builtin".to_string(),
+            version: None,
+            distribution: None,
+            availability: "ready".to_string(),
+            description: None,
+            installed_on_system: false,
+            listed: true,
         }
     }
 

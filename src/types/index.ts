@@ -44,7 +44,16 @@ export interface AgentProfile {
   acp_program?: string | null;
   acp_args: string[];
   acp_program_path?: string | null;
+  source: 'registry' | 'builtin';
+  version: string | null;
+  distribution: 'npx' | 'uvx' | 'binary' | null;
+  availability: AgentAvailability;
+  description: string | null;
+  installed_on_system: boolean;
+  listed: boolean;
 }
+
+export type AgentAvailability = 'ready' | 'needs_runtime' | 'not_installed';
 
 export type AgentTransport = 'acp' | 'pty';
 
