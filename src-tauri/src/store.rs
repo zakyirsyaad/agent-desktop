@@ -86,6 +86,22 @@ pub struct Settings {
     pub agent_versions: BTreeMap<String, String>,
 }
 
+/// The registry agents in use until the user changes the list; matches
+/// `DEFAULT_ENABLED_AGENTS` in `src/lib/enabled-agents.ts`.
+pub const DEFAULT_ENABLED_AGENTS: [&str; 3] = ["claude-acp", "codex-acp", "qwen-code"];
+
+impl Settings {
+    /// The agent ids in use: the stored list, else [`DEFAULT_ENABLED_AGENTS`].
+    pub fn enabled_agent_ids(&self) -> Vec<String> {
+        self.enabled_agents.clone().unwrap_or_else(|| {
+            DEFAULT_ENABLED_AGENTS
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        })
+    }
+}
+
 /// A folder the user opened an agent in.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

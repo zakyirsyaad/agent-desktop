@@ -6,6 +6,8 @@
 //! as installed.
 
 pub mod archive;
+pub mod cleanup;
+pub mod commands;
 pub mod download;
 pub mod install;
 pub mod layout;
@@ -102,8 +104,9 @@ fn write(state: &RwLock<UserNode>) -> RwLockWriteGuard<'_, UserNode> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// The manifest compiled into the app, parsed once.
-fn bundled_manifest() -> Option<&'static RuntimeManifest> {
+/// The manifest compiled into the app, parsed once; `None` when it is not
+/// valid, which is logged.
+pub fn bundled_manifest() -> Option<&'static RuntimeManifest> {
     MANIFEST
         .get_or_init(|| {
             parse_manifest(BUNDLED_RUNTIMES)

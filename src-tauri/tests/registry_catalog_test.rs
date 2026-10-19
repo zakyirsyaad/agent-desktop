@@ -462,3 +462,63 @@ fn loads_a_cache_written_before_listed_versions_were_recorded() {
     assert!(gemini.listed);
     assert_eq!(gemini.version.as_deref(), Some("2.0.0"));
 }
+
+fn binary_entry(id: &str, version: &str) -> RegistryEntry {
+    let target = zorvo_lib::registry::schema::BinaryTarget {
+        archive: format!("https://example.com/{id}-{version}.tar.gz"),
+        cmd: format!("./{id}"),
+        args: Vec::new(),
+        sha256: "a".repeat(64),
+        env: BTreeMap::new(),
+    };
+    RegistryEntry {
+        distribution: Distribution::Binary {
+            platforms: BTreeMap::from([(
+                zorvo_lib::registry::schema::current_platform().to_string(),
+                target,
+            )]),
+        },
+        ..npx_entry(id, version)
+    }
+}
+
+#[test]
+fn plans_the_install_of_the_version_in_use() {
+    use zorvo_lib::installer::plan::PlannedStep;
+
+    let dir = TempDir::new("plan");
+    let bundle = bundle_of(&[
+        (binary_entry("opencode", "1.0.0"), T0),
+        (binary_entry("opencode", "2.0.0"), T0 + DAY),
+    ]);
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+    let npm = BTreeSet::new();
+    let installed = InstalledTools::none();
+    let tools = SystemTools {
+        path_var: Some(""),
+        npm_globals: &npm,
+        installed: &installed,
+    };
+    let now = T0 + 30 * DAY;
+    let in_use = BTreeMap::from([("opencode".to_string(), "1.0.0".to_string())]);
+
+    let (name, steps) = catalog
+        .planned_steps_for("opencode", &tools, &in_use, now)
+        .expect("opencode is in the catalog");
+    let (_, offered) = catalog
+        .planned_steps_for("opencode", &tools, &BTreeMap::new(), now)
+        .expect("opencode is in the catalog");
+
+    assert_eq!(name, "Agent opencode");
+    assert!(
+        matches!(&steps[..], [PlannedStep::Agent { version, .. }] if version == "1.0.0"),
+        "{steps:?}"
+    );
+    assert!(
+        matches!(&offered[..], [PlannedStep::Agent { version, .. }] if version == "2.0.0"),
+        "{offered:?}"
+    );
+    assert!(catalog
+        .planned_steps_for("unknown", &tools, &in_use, now)
+        .is_none());
+}

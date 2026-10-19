@@ -703,3 +703,35 @@ fn a_prerequisite_with_a_new_enough_node_but_no_npm_says_so() {
 
     assert_eq!(err, "pi needs npm, which is not on your PATH");
 }
+
+#[test]
+fn clean_up_waits_for_no_job_and_skips_while_one_runs() {
+    use zorvo_lib::installer::cleanup::CleanupInputs;
+
+    let server = Server::start(vec![("/node.tar.gz", Reply::StallFirst(node_archive()))]);
+    let d = data_dir();
+    let install = installer(&d, &server);
+    let tools = ToolsDir::new(&d);
+    let left_over = tools.staging_root().join("left-over");
+    fs::create_dir_all(&left_over).unwrap();
+    let inputs = CleanupInputs {
+        agents_in_use: BTreeMap::new(),
+        uses_npx: true,
+        uses_uvx: true,
+        prereqs_needed: BTreeSet::new(),
+    };
+    let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
+
+    thread::scope(|s| {
+        let job = s.spawn(|| install.run("job", &steps, &env(), None, &no_progress));
+        server.wait_for_hits("/node.tar.gz", 1);
+
+        assert_eq!(install.clean_up(&inputs), None, "a job is running");
+        assert!(left_over.exists());
+
+        assert!(install.cancel("job"));
+        assert_eq!(job.join().unwrap(), Err(INSTALL_CANCELLED.to_string()));
+    });
+    assert_eq!(install.clean_up(&inputs), Some(Vec::new()));
+    assert!(!left_over.exists());
+}

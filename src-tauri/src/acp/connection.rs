@@ -40,6 +40,8 @@ type ResponseHandler = Box<dyn FnOnce(Result<Value, Value>) + Send>;
 
 /// A spawned agent speaking newline-delimited JSON-RPC on stdin/stdout.
 pub struct AcpConnection {
+    /// The program the agent was started with, as given.
+    program: String,
     stdin: Mutex<ChildStdin>,
     /// Shared with the reader thread, which reaps the process once it exits.
     child: Arc<Mutex<Child>>,
@@ -82,6 +84,7 @@ impl AcpConnection {
             .ok_or("Failed to open the agent's stderr")?;
 
         let connection = Arc::new(Self {
+            program: program.to_string(),
             stdin: Mutex::new(stdin),
             child: Arc::new(Mutex::new(child)),
             next_id: AtomicU64::new(1),
@@ -254,6 +257,11 @@ impl AcpConnection {
             .lock()
             .map(|tail| tail.iter().cloned().collect::<Vec<_>>().join("\n"))
             .unwrap_or_default()
+    }
+
+    /// The program the agent was started with.
+    pub fn program(&self) -> &str {
+        &self.program
     }
 
     /// The agent's pid while it runs; none once it has exited, when the pid

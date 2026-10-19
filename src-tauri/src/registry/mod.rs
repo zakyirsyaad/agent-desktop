@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::installer::{
     self,
+    plan::PlannedStep,
     runtimes::{probe_user_node, NODE_VERSION_TIMEOUT},
 };
 use crate::profiles::AgentProfile;
@@ -26,7 +27,7 @@ use cache::RegistryCache;
 use fetch::{fetch_registry, FETCH_TIMEOUT, MAX_REGISTRY_BYTES, REGISTRY_URL};
 use history::VersionHistory;
 use npm_globals::{npm_globals, NPM_TIMEOUT};
-use resolve::{registry_env, resolve_profile, SystemTools};
+use resolve::{planned_steps, registry_env, resolve_profile, SystemTools};
 use schema::{parse_registry, RegistryEntry};
 
 /// Emitted when a refresh changed the agent profiles; the UI reloads them.
@@ -197,6 +198,21 @@ impl Catalog {
                 Some(resolve_profile(entry, tools, state.is_listed(id)))
             })
             .collect()
+    }
+
+    /// The agent's name and what an install of it would do, for the same
+    /// entry [`Self::profiles`] shows, so the plan that runs is the plan the
+    /// UI saw. `None` when the catalog has no version of `id` to offer.
+    pub fn planned_steps_for(
+        &self,
+        id: &str,
+        tools: &SystemTools,
+        versions: &BTreeMap<String, String>,
+        now: u64,
+    ) -> Option<(String, Vec<PlannedStep>)> {
+        let state = self.read_state();
+        let entry = state.entry_for(id, versions, now)?;
+        Some((entry.name.clone(), planned_steps(entry, tools)))
     }
 
     /// The registry's environment variables for `id` at `version`; empty when unknown.

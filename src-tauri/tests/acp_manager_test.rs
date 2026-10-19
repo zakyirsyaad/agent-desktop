@@ -619,3 +619,66 @@ fn a_signed_out_probe_returns_without_waiting_for_the_agent_to_delete_its_sessio
         methods_in(&log)
     );
 }
+
+/// A data dir unique to one test, removed when dropped.
+struct AgentDir(std::path::PathBuf);
+
+impl Drop for AgentDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The fake agent copied under a fresh dir, started by a script there, as a
+/// binary agent Zorvo installed is.
+fn agent_copied_under(tag: &str) -> (AgentDir, AcpLaunch) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = std::env::temp_dir().join(format!("zorvo-acp-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::copy(
+        format!(
+            "{}/tests/fixtures/fake_acp_agent.mjs",
+            env!("CARGO_MANIFEST_DIR")
+        ),
+        dir.join("agent.mjs"),
+    )
+    .unwrap();
+    let script = dir.join("agent");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nexec node \"$(dirname \"$0\")/agent.mjs\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let launch = AcpLaunch {
+        program: script.to_string_lossy().to_string(),
+        args: vec![],
+        env: vec![],
+    };
+    (AgentDir(dir), launch)
+}
+
+#[test]
+fn is_running_under_sees_a_session_started_from_that_dir() {
+    let (manager, _rx) = manager();
+    let (dir, launch) = agent_copied_under("running-under");
+    let sibling = std::path::PathBuf::from(format!("{}-2", dir.0.display()));
+    assert!(!manager.is_running_under(&dir.0));
+
+    manager.start("s-1", &cwd(), &launch).expect("start");
+
+    assert!(manager.is_running_under(&dir.0));
+    assert!(
+        !manager.is_running_under(&sibling),
+        "a dir whose name only starts the same is another dir"
+    );
+    manager.start("s-2", &cwd(), &fake_agent()).expect("start");
+    manager.stop("s-1");
+    assert!(
+        !manager.is_running_under(&dir.0),
+        "no session of that agent is left"
+    );
+    manager.stop("s-2");
+}

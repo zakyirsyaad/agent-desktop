@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::env_resolver;
-use crate::installer::{self, plan::InstallStep};
+use crate::installer::{
+    self,
+    plan::{InstallStep, PlannedStep},
+};
 use crate::registry::{self, resolve::SystemTools};
 
 /// A thinking/effort level the agent's CLI can actually be told to use.
@@ -300,27 +303,50 @@ pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
 ///
 /// Uses the cached user environment to avoid launching the login shell multiple times.
 pub fn agent_profiles(versions: &BTreeMap<String, String>) -> Vec<AgentProfile> {
-    let path_var = match env_resolver::cached_user_env() {
-        Ok(env_map) => env_map.get("PATH").cloned(),
-        Err(_) => None,
-    }
-    .or_else(|| std::env::var("PATH").ok());
-
-    let catalog = registry::catalog();
-    let npm_globals = catalog.npm_globals();
-    let installed = installer::installed_tools();
-    let tools = SystemTools {
-        path_var: path_var.as_deref(),
-        npm_globals: &npm_globals,
-        installed: &installed,
-    };
-    let from_registry = catalog.profiles(&tools, versions, registry::unix_now());
+    let path_var = user_path();
+    let from_registry = with_system_tools(path_var.as_deref(), |tools| {
+        registry::catalog().profiles(tools, versions, registry::unix_now())
+    });
     let terminal: Vec<AgentProfile> = get_default_profiles()
         .into_iter()
         .filter(|builtin| from_registry.iter().all(|p| p.id != builtin.id))
         .map(|profile| detect(profile, path_var.as_deref()))
         .collect();
     from_registry.into_iter().chain(terminal).collect()
+}
+
+/// The registry agent's name and what an install of it would do, at the
+/// version in `versions` when the catalog has it, else the offered one: the
+/// same entry and machine [`agent_profiles`] resolve. `None` for an id the
+/// catalog cannot offer.
+pub fn install_steps_for(
+    id: &str,
+    versions: &BTreeMap<String, String>,
+) -> Option<(String, Vec<PlannedStep>)> {
+    let path_var = user_path();
+    with_system_tools(path_var.as_deref(), |tools| {
+        registry::catalog().planned_steps_for(id, tools, versions, registry::unix_now())
+    })
+}
+
+/// The login shell's `PATH`, else the process's.
+fn user_path() -> Option<String> {
+    env_resolver::cached_user_env()
+        .ok()
+        .and_then(|env_map| env_map.get("PATH").cloned())
+        .or_else(|| std::env::var("PATH").ok())
+}
+
+/// Runs `f` with what this machine has now: `path_var`, the global npm
+/// packages and what Zorvo installed.
+fn with_system_tools<T>(path_var: Option<&str>, f: impl FnOnce(&SystemTools) -> T) -> T {
+    let npm_globals = registry::catalog().npm_globals();
+    let installed = installer::installed_tools();
+    f(&SystemTools {
+        path_var,
+        npm_globals: &npm_globals,
+        installed: &installed,
+    })
 }
 
 /// Marks a profile detected when its CLI is on PATH and, for ACP agents, the

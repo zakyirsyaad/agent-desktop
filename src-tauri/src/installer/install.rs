@@ -18,6 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 
 use super::archive::{ensure_agent_command, format_for_url, unpack, UnpackLimits};
+use super::cleanup::{clean_up, CleanupInputs};
 use super::download::{download, DownloadLimits};
 use super::layout::{read_record, CommitOutcome, InstallRecord, Staging, ToolsDir};
 use super::plan::PlannedStep;
@@ -132,6 +133,20 @@ impl Installer {
             }
             None => false,
         }
+    }
+
+    /// The tools dir this installer writes to.
+    pub fn tools(&self) -> &ToolsDir {
+        &self.tools
+    }
+
+    /// Runs the clean-up at start while no job runs, holding off new jobs
+    /// until it ends, so it never deletes a staging dir or an install a job
+    /// is writing. `None` when a job was running; else the errors it logged.
+    pub fn clean_up(&self, inputs: &CleanupInputs) -> Option<Vec<String>> {
+        let jobs = lock(&self.jobs);
+        jobs.is_empty()
+            .then(|| clean_up(&self.tools, &self.manifest, &self.platform, inputs))
     }
 
     /// Deletes every installed version of the agent, and those of its
