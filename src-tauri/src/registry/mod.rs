@@ -84,6 +84,17 @@ impl CatalogState {
             .and_then(|version| self.history.version(id, version))
             .or_else(|| self.offered(id, now))
     }
+
+    fn profile(
+        &self,
+        id: &str,
+        tools: &SystemTools,
+        versions: &BTreeMap<String, String>,
+        now: u64,
+    ) -> Option<AgentProfile> {
+        let entry = self.entry_for(id, versions, now)?;
+        Some(resolve_profile(entry, tools, self.is_listed(id)))
+    }
 }
 
 impl Catalog {
@@ -195,11 +206,20 @@ impl Catalog {
         state
             .history
             .ids()
-            .filter_map(|id| {
-                let entry = state.entry_for(id, versions, now)?;
-                Some(resolve_profile(entry, tools, state.is_listed(id)))
-            })
+            .filter_map(|id| state.profile(id, tools, versions, now))
             .collect()
+    }
+
+    /// The one profile [`Self::profiles`] would give for `id`; `None` when the
+    /// catalog has no such agent or no version of it to run.
+    pub fn profile(
+        &self,
+        id: &str,
+        tools: &SystemTools,
+        versions: &BTreeMap<String, String>,
+        now: u64,
+    ) -> Option<AgentProfile> {
+        self.read_state().profile(id, tools, versions, now)
     }
 
     /// The registry's environment variables for `id` at `version`; empty when unknown.

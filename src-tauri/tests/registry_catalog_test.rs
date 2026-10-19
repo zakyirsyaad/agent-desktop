@@ -506,3 +506,31 @@ fn a_recorded_version_older_than_the_listed_one_still_wins() {
 
     assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("1.0.0"));
 }
+
+#[test]
+fn profile_resolves_one_agent_like_profiles_does() {
+    let dir = TempDir::new("one-profile");
+    let now = T0 + 30 * DAY;
+    let catalog = catalog_listing(&dir, "1.0.0", now);
+    let npm = BTreeSet::new();
+    let tools = SystemTools {
+        path_var: Some(""),
+        npm_globals: &npm,
+    };
+
+    for versions in [
+        BTreeMap::new(),
+        BTreeMap::from([("gemini".to_string(), "2.0.0".to_string())]),
+        BTreeMap::from([("gemini".to_string(), "1.0.0".to_string())]),
+    ] {
+        let all = catalog.profiles(&tools, &versions, now);
+        assert_eq!(
+            catalog.profile("gemini", &tools, &versions, now).as_ref(),
+            Some(find(&all, "gemini"))
+        );
+    }
+    assert_eq!(
+        catalog.profile("no-such-agent", &tools, &BTreeMap::new(), now),
+        None
+    );
+}

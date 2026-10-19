@@ -285,6 +285,35 @@ pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
 ///
 /// Uses the cached user environment to avoid launching the login shell multiple times.
 pub fn agent_profiles(versions: &BTreeMap<String, String>) -> Vec<AgentProfile> {
+    with_system_tools(|catalog, tools| {
+        let from_registry = catalog.profiles(tools, versions, registry::unix_now());
+        let terminal: Vec<AgentProfile> = get_default_profiles()
+            .into_iter()
+            .filter(|builtin| from_registry.iter().all(|p| p.id != builtin.id))
+            .map(|profile| detect(profile, tools.path_var))
+            .collect();
+        from_registry.into_iter().chain(terminal).collect()
+    })
+}
+
+/// The one profile [`agent_profiles`] would give for `id`, resolving only that
+/// agent rather than every one; `None` for an unknown id.
+pub fn agent_profile(id: &str, versions: &BTreeMap<String, String>) -> Option<AgentProfile> {
+    with_system_tools(|catalog, tools| {
+        catalog
+            .profile(id, tools, versions, registry::unix_now())
+            .or_else(|| {
+                get_default_profiles()
+                    .into_iter()
+                    .find(|builtin| builtin.id == id)
+                    .map(|profile| detect(profile, tools.path_var))
+            })
+    })
+}
+
+/// Runs `f` with the catalog and what this machine has: the user's login-shell
+/// `PATH` (this process's as a fallback) and the global npm packages.
+fn with_system_tools<R>(f: impl FnOnce(&registry::Catalog, &SystemTools) -> R) -> R {
     let path_var = match env_resolver::cached_user_env() {
         Ok(env_map) => env_map.get("PATH").cloned(),
         Err(_) => None,
@@ -297,13 +326,7 @@ pub fn agent_profiles(versions: &BTreeMap<String, String>) -> Vec<AgentProfile> 
         path_var: path_var.as_deref(),
         npm_globals: &npm_globals,
     };
-    let from_registry = catalog.profiles(&tools, versions, registry::unix_now());
-    let terminal: Vec<AgentProfile> = get_default_profiles()
-        .into_iter()
-        .filter(|builtin| from_registry.iter().all(|p| p.id != builtin.id))
-        .map(|profile| detect(profile, path_var.as_deref()))
-        .collect();
-    from_registry.into_iter().chain(terminal).collect()
+    f(catalog, &tools)
 }
 
 /// Marks a profile detected when its CLI is on PATH and, for ACP agents, the

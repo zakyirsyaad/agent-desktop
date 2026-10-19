@@ -12,7 +12,7 @@ use super::manager::{AcpEvent, AcpLaunch, AcpManager, StartedSession};
 use super::probe::ProbedAgent;
 use crate::env_resolver::cached_user_env;
 use crate::files::ensure_known_workspace;
-use crate::profiles::{agent_profiles, TRANSPORT_ACP};
+use crate::profiles::{agent_profile, TRANSPORT_ACP};
 use crate::registry::{
     self,
     resolve::{canonical_agent_id, missing_reason},
@@ -58,9 +58,7 @@ pub fn event_payload(event: &AcpEvent) -> Value {
 /// id is mapped first), at the version in `versions` when the catalog has it.
 fn launch_for(profile_id: &str, versions: &BTreeMap<String, String>) -> Result<AcpLaunch, String> {
     let id = canonical_agent_id(profile_id);
-    let profile = agent_profiles(versions)
-        .into_iter()
-        .find(|p| p.id == id)
+    let profile = agent_profile(id, versions)
         .ok_or_else(|| format!("Unknown agent profile '{}'", profile_id))?;
     if profile.transport != TRANSPORT_ACP {
         return Err(format!(
