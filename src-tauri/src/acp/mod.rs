@@ -10,3 +10,4 @@ pub mod jsonrpc;
 pub mod manager;
 pub mod probe;
 pub mod prompt_blocks;
+pub mod terminal_auth;
