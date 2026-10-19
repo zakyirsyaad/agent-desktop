@@ -11,139 +11,41 @@ fn find<'a>(profiles: &'a [AgentProfile], id: &str) -> &'a AgentProfile {
 fn test_get_available_agent_profiles_contains_defaults() {
     let profiles = get_available_agent_profiles();
 
-    // Every agent this app knows how to drive.
-    assert!(profiles.len() >= 4);
-    for id in ["claude-code", "qwen", "codex", "omp", "aider"] {
+    // The default registry agents (from the bundle, with no catalog installed)
+    // and the terminal agents.
+    for id in ["claude-acp", "codex-acp", "qwen-code", "omp", "aider"] {
         find(&profiles, id);
+    }
+    for legacy in ["claude-code", "codex", "qwen"] {
+        assert!(profiles.iter().all(|p| p.id != legacy), "{legacy}");
     }
 }
 
 #[test]
+fn test_registry_profiles_come_before_the_terminal_profiles() {
+    let profiles = get_available_agent_profiles();
+    let first_builtin = profiles
+        .iter()
+        .position(|p| p.source == "builtin")
+        .expect("terminal profiles are listed");
+
+    assert!(first_builtin > 0, "registry profiles are listed");
+    assert!(profiles[..first_builtin]
+        .iter()
+        .all(|p| p.source == "registry" && p.transport == "acp"));
+    assert!(profiles[first_builtin..]
+        .iter()
+        .all(|p| p.source == "builtin" && p.transport == "pty"));
+}
+
+#[test]
 fn test_profile_ids_are_unique() {
-    let profiles = get_default_profiles();
+    let profiles = get_available_agent_profiles();
     let mut ids: Vec<&str> = profiles.iter().map(|p| p.id.as_str()).collect();
     let unique = ids.len();
     ids.sort_unstable();
     ids.dedup();
     assert_eq!(ids.len(), unique, "profile ids must be unique");
-}
-
-#[test]
-fn test_claude_code_profile_matches_its_real_cli_flags() {
-    let profiles = get_default_profiles();
-    let claude = find(&profiles, "claude-code");
-
-    assert_eq!(claude.name, "Claude Code");
-    assert_eq!(claude.command, "claude");
-
-    // `--model <model>`: "Provide an alias for the latest model (e.g. 'fable',
-    // 'opus', or 'sonnet')". Aliases, not versioned ids that go stale.
-    assert_eq!(claude.model_arg, Some("--model".to_string()));
-    assert!(
-        claude.models.contains(&"opus".to_string()),
-        "{:?}",
-        claude.models
-    );
-    assert!(
-        claude.models.contains(&"sonnet".to_string()),
-        "{:?}",
-        claude.models
-    );
-
-    // `--effort <level>`: "(low, medium, high, xhigh, max)".
-    assert!(
-        !claude.effort_levels.is_empty(),
-        "claude exposes a real --effort flag"
-    );
-    for level in &claude.effort_levels {
-        assert_eq!(
-            level.args.first().map(String::as_str),
-            Some("--effort"),
-            "level {:?} must map to the real --effort flag",
-            level.label
-        );
-        assert_eq!(
-            level.args.len(),
-            2,
-            "level {:?} must pass exactly one value",
-            level.label
-        );
-        assert!(
-            ["low", "medium", "high", "xhigh", "max"].contains(&level.args[1].as_str()),
-            "'{}' is not a documented --effort value",
-            level.args[1]
-        );
-        assert!(
-            level.env.is_empty(),
-            "claude effort is a flag, it must not fake an env var: {:?}",
-            level.env
-        );
-    }
-
-    // `--session-id <uuid>`, `-r, --resume [value]`, `--fork-session`.
-    assert_eq!(claude.session_id_arg, Some("--session-id".to_string()));
-    assert_eq!(claude.fork_support, "native");
-    assert_eq!(
-        claude.resume_fork_args,
-        vec![
-            "--resume".to_string(),
-            "{session_id}".to_string(),
-            "--fork-session".to_string()
-        ]
-    );
-
-    assert_eq!(claude.approval_key, Some("y\n".to_string()));
-    assert_eq!(claude.reject_key, Some("n\n".to_string()));
-}
-
-#[test]
-fn test_claude_code_ask_permission_mode_is_first_and_passes_no_args() {
-    let profiles = get_default_profiles();
-    let claude = find(&profiles, "claude-code");
-
-    let ask = claude
-        .permission_modes
-        .first()
-        .expect("claude must offer permission modes");
-    assert_eq!(ask.id, "ask");
-    assert!(
-        ask.args.is_empty(),
-        "'ask' is the agent default and must add no args, got {:?}",
-        ask.args
-    );
-
-    // `--permission-mode <mode>` with choices acceptEdits/auto/bypassPermissions/
-    // manual/dontAsk/plan. Only modes with documented semantics are surfaced.
-    let ids: Vec<&str> = claude
-        .permission_modes
-        .iter()
-        .map(|m| m.id.as_str())
-        .collect();
-    assert!(ids.contains(&"bypass"), "{ids:?}");
-    let bypass = claude
-        .permission_modes
-        .iter()
-        .find(|m| m.id == "bypass")
-        .unwrap();
-    assert_eq!(
-        bypass.args,
-        vec![
-            "--permission-mode".to_string(),
-            "bypassPermissions".to_string()
-        ]
-    );
-
-    for mode in &claude.permission_modes {
-        if mode.id == "ask" {
-            continue;
-        }
-        assert_eq!(
-            mode.args.first().map(String::as_str),
-            Some("--permission-mode"),
-            "mode {:?} must use the real flag",
-            mode.id
-        );
-    }
 }
 
 #[test]
@@ -416,46 +318,29 @@ fn test_there_is_no_unconfigurable_custom_cli_profile() {
 }
 
 #[test]
-fn test_acp_agents_are_driven_over_acp_with_pinned_adapters() {
-    let profiles = get_default_profiles();
+fn test_builtin_profiles_are_only_the_terminal_agents() {
+    let ids: Vec<String> = get_default_profiles().into_iter().map(|p| p.id).collect();
 
-    let qwen = find(&profiles, "qwen");
-    assert_eq!(qwen.name, "Qwen Code");
-    assert_eq!(qwen.command, "qwen");
-    assert_eq!(qwen.transport, "acp");
-    assert_eq!(qwen.acp_program.as_deref(), Some("qwen"));
-    assert_eq!(qwen.acp_args, vec!["--acp".to_string()]);
-
-    let claude = find(&profiles, "claude-code");
-    assert_eq!(claude.transport, "acp");
-    assert_eq!(claude.acp_program.as_deref(), Some("npx"));
-    assert!(claude
-        .acp_args
-        .contains(&"@agentclientprotocol/claude-agent-acp@0.85.1".to_string()));
-
-    let codex = find(&profiles, "codex");
-    assert_eq!(codex.command, "codex");
-    assert_eq!(codex.transport, "acp");
-    assert!(codex
-        .acp_args
-        .contains(&"@agentclientprotocol/codex-acp@2.1.1".to_string()));
+    assert_eq!(ids, vec!["omp".to_string(), "aider".to_string()]);
 }
 
 #[test]
-fn test_npx_adapters_are_pinned_to_exact_versions() {
-    for profile in get_default_profiles()
+fn test_npx_registry_agents_are_pinned_to_exact_versions() {
+    let profiles = get_available_agent_profiles();
+    let npx: Vec<&AgentProfile> = profiles
         .iter()
-        .filter(|p| p.acp_program.as_deref() == Some("npx"))
-    {
-        let package = profile
-            .acp_args
-            .iter()
-            .find(|a| a.starts_with('@'))
-            .expect("an npx adapter package");
+        .filter(|p| p.distribution.as_deref() == Some("npx"))
+        .collect();
+    assert!(!npx.is_empty());
+
+    for profile in npx {
+        assert_eq!(profile.acp_args.first().map(String::as_str), Some("-y"));
+        let package = &profile.acp_args[1];
         let version = package.rsplit('@').next().unwrap();
-        assert!(
-            version.chars().all(|c| c.is_ascii_digit() || c == '.'),
-            "{} must pin an exact version, got {}",
+        assert_eq!(
+            Some(version),
+            profile.version.as_deref(),
+            "{} must pin its registry version, got {}",
             profile.id,
             package
         );

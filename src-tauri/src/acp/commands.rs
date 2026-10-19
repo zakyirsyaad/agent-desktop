@@ -3,6 +3,8 @@
 //! The webview names a profile; the backend decides which program runs, from
 //! the detected profile, with the user's login-shell environment.
 
+use std::collections::BTreeMap;
+
 use serde_json::{json, Value};
 use tauri::State;
 
@@ -10,7 +12,11 @@ use super::manager::{AcpEvent, AcpLaunch, AcpManager, StartedSession};
 use super::probe::ProbedAgent;
 use crate::env_resolver::cached_user_env;
 use crate::files::ensure_known_workspace;
-use crate::profiles::{get_available_agent_profiles, TRANSPORT_ACP};
+use crate::profiles::{agent_profiles, TRANSPORT_ACP};
+use crate::registry::{
+    self,
+    resolve::{canonical_agent_id, missing_reason},
+};
 use crate::store::AppStore;
 
 /// The single event channel the UI listens on for every ACP session.
@@ -48,17 +54,22 @@ pub fn event_payload(event: &AcpEvent) -> Value {
     }
 }
 
-/// Resolves how to launch an installed ACP agent for `profile_id`.
-fn launch_for(profile_id: &str) -> Result<AcpLaunch, String> {
-    let profile = get_available_agent_profiles()
+/// Resolves how to launch an installed ACP agent for `profile_id` (a legacy
+/// id is mapped first), at the version in `versions` when the catalog has it.
+fn launch_for(profile_id: &str, versions: &BTreeMap<String, String>) -> Result<AcpLaunch, String> {
+    let id = canonical_agent_id(profile_id);
+    let profile = agent_profiles(versions)
         .into_iter()
-        .find(|p| p.id == profile_id)
+        .find(|p| p.id == id)
         .ok_or_else(|| format!("Unknown agent profile '{}'", profile_id))?;
     if profile.transport != TRANSPORT_ACP {
         return Err(format!(
             "{} does not support the Agent Client Protocol",
             profile.name
         ));
+    }
+    if let Some(reason) = missing_reason(&profile) {
+        return Err(reason);
     }
     if !profile.detected {
         return Err(format!("{} is not installed", profile.name));
@@ -67,25 +78,42 @@ fn launch_for(profile_id: &str) -> Result<AcpLaunch, String> {
         .acp_program_path
         .ok_or_else(|| format!("Could not locate the program that runs {}", profile.name))?;
     // A GUI app does not inherit the login shell's PATH, so hand the agent the
-    // user's real environment (nvm, Homebrew, ...).
-    let env = cached_user_env()
+    // user's real environment (nvm, Homebrew, ...), then the variables the
+    // registry sets for this version.
+    let mut env: BTreeMap<String, String> = cached_user_env()
         .map(|m| m.into_iter().collect())
         .unwrap_or_default();
+    if let Some(version) = &profile.version {
+        env.extend(registry::catalog().launch_env(&profile.id, version));
+    }
     Ok(AcpLaunch {
         program,
         args: profile.acp_args,
-        env,
+        env: env.into_iter().collect(),
     })
+}
+
+/// [`launch_for`] at the versions the user has in use.
+fn launch_with_store(store: &AppStore, profile_id: &str) -> Result<AcpLaunch, String> {
+    let versions = store
+        .load_state()
+        .map(|state| state.settings.agent_versions)
+        .unwrap_or_else(|error| {
+            eprintln!("Could not read the agent versions in use: {error}");
+            BTreeMap::new()
+        });
+    launch_for(profile_id, &versions)
 }
 
 #[tauri::command(async)]
 pub fn acp_start_session(
     manager: State<'_, AcpManager>,
+    store: State<'_, AppStore>,
     session_id: String,
     cwd: String,
     profile_id: String,
 ) -> Result<StartedSession, String> {
-    manager.start(&session_id, &cwd, &launch_for(&profile_id)?)
+    manager.start(&session_id, &cwd, &launch_with_store(&store, &profile_id)?)
 }
 
 /// Learns what an agent offers (modes, models, efforts, commands) before a
@@ -101,24 +129,30 @@ pub fn acp_probe_agent(
 ) -> Result<ProbedAgent, String> {
     // It runs the agent in `cwd`, so only in one of the user's own folders.
     ensure_known_workspace(&cwd, |path| store.is_known_workspace(path))?;
-    manager.probe(&cwd, &launch_for(&profile_id)?, needs_options)
+    manager.probe(
+        &cwd,
+        &launch_with_store(&store, &profile_id)?,
+        needs_options,
+    )
 }
 
 /// Signs in to an agent with one of the auth methods it reported.
 #[tauri::command(async)]
 pub fn acp_authenticate(
     manager: State<'_, AcpManager>,
+    store: State<'_, AppStore>,
     profile_id: String,
     cwd: String,
     method_id: String,
 ) -> Result<(), String> {
-    manager.authenticate(&cwd, &launch_for(&profile_id)?, &method_id)
+    manager.authenticate(&cwd, &launch_with_store(&store, &profile_id)?, &method_id)
 }
 
 /// Resumes the agent's earlier session `acp_session_id` as app session `session_id`.
 #[tauri::command(async)]
 pub fn acp_load_session(
     manager: State<'_, AcpManager>,
+    store: State<'_, AppStore>,
     session_id: String,
     cwd: String,
     profile_id: String,
@@ -127,7 +161,7 @@ pub fn acp_load_session(
     manager.load(
         &session_id,
         &cwd,
-        &launch_for(&profile_id)?,
+        &launch_with_store(&store, &profile_id)?,
         &acp_session_id,
     )
 }
@@ -239,8 +273,27 @@ mod tests {
 
     #[test]
     fn launching_a_terminal_only_agent_over_acp_is_refused() {
-        let err = launch_for("omp").unwrap_err();
+        let none = BTreeMap::new();
+        let err = launch_for("omp", &none).unwrap_err();
         assert!(err.contains("does not support"), "unexpected: {err}");
-        assert!(launch_for("no-such-agent").unwrap_err().contains("Unknown"));
+        assert!(launch_for("no-such-agent", &none)
+            .unwrap_err()
+            .contains("Unknown"));
+    }
+
+    #[test]
+    fn a_legacy_id_launches_its_registry_agent() {
+        match launch_for("claude-code", &BTreeMap::new()) {
+            Ok(launch) => assert!(
+                launch
+                    .args
+                    .iter()
+                    .any(|a| a.starts_with("@agentclientprotocol/claude-agent-acp@")),
+                "{:?}",
+                launch.args
+            ),
+            // Without Node.js the registry agent is found but cannot run.
+            Err(error) => assert!(error.contains("Node.js"), "unexpected: {error}"),
+        }
     }
 }

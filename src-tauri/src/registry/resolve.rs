@@ -1,7 +1,7 @@
 //! Turns a registry entry into an [`AgentProfile`] the rest of the app can launch.
 //! The webview never supplies a program or args; they come from the pinned entry.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::env_resolver::find_binary_in_path_str;
 use crate::profiles::{AgentProfile, TRANSPORT_ACP};
@@ -98,6 +98,18 @@ pub fn resolve_profile(entry: &RegistryEntry, tools: &SystemTools, listed: bool)
     profile.installed_on_system = installed_on_system;
     profile.listed = listed;
     profile
+}
+
+/// The environment variables the registry sets for this entry: the package's
+/// own, or the current platform's target for a binary.
+pub fn registry_env(entry: &RegistryEntry) -> BTreeMap<String, String> {
+    match &entry.distribution {
+        Distribution::Npx { env, .. } | Distribution::Uvx { env, .. } => env.clone(),
+        Distribution::Binary { platforms } => platforms
+            .get(current_platform())
+            .map(|target| target.env.clone())
+            .unwrap_or_default(),
+    }
 }
 
 /// Why a profile cannot run, for the launch error; `None` when it is ready.

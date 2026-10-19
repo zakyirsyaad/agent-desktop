@@ -36,7 +36,7 @@ fn no_options() -> SpawnOptions {
 
 /// A profile that supports every capability `build_spawn_plan` can express.
 fn full_profile() -> AgentProfile {
-    AgentProfile::new("claude-code", "Claude Code", "claude")
+    AgentProfile::new("full", "Full CLI", "full-cli")
         .with_models(&["opus", "sonnet"])
         .with_model_arg("--model")
         .with_effort_levels(vec![
@@ -75,11 +75,11 @@ fn plan_with_no_options_runs_profile_command_without_extra_args() {
 fn plan_prefers_detected_path_over_bare_command_name() {
     let mut profile = full_profile();
     profile.detected = true;
-    profile.detected_path = Some("/opt/homebrew/bin/claude".to_string());
+    profile.detected_path = Some("/opt/homebrew/bin/full-cli".to_string());
 
     let plan = build_spawn_plan(&profile, &no_options()).expect("detected profile must plan");
 
-    assert_eq!(plan.command, "/opt/homebrew/bin/claude");
+    assert_eq!(plan.command, "/opt/homebrew/bin/full-cli");
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn plan_falls_back_to_command_when_detection_found_no_path() {
 
     let plan = build_spawn_plan(&profile, &no_options()).expect("profile must plan");
 
-    assert_eq!(plan.command, "claude");
+    assert_eq!(plan.command, "full-cli");
 }
 
 #[test]

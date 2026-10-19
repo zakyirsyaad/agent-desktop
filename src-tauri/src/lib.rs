@@ -20,13 +20,16 @@ pub mod workspace_files;
 pub mod workspaces;
 pub mod worktrees;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use acp::commands::{event_payload, ACP_EVENT};
 use acp::manager::AcpManager;
-use profiles::{get_available_agent_profiles, AgentProfile};
+use profiles::{agent_profiles, get_available_agent_profiles, AgentProfile, TRANSPORT_PTY};
 use pty_session::{PtyEvent, PtySessionManager};
+use registry::resolve::canonical_agent_id;
+use registry::{Catalog, AGENT_PROFILES_CHANGED};
 use spawn_plan::{build_spawn_plan, SpawnOptions};
 use store::{AppStore, PersistedState};
 use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
@@ -57,11 +60,16 @@ fn spawn_session(
     profile_id: String,
     options: SpawnOptions,
 ) -> Result<(), String> {
+    let id = canonical_agent_id(&profile_id);
     let profile = get_available_agent_profiles()
         .into_iter()
-        .find(|profile| profile.id == profile_id)
+        .find(|profile| profile.id == id)
         .ok_or_else(|| format!("Unknown agent profile '{}'", profile_id))?;
 
+    // A registry agent speaks ACP; its program (`npx`, ...) has no terminal UI.
+    if profile.transport != TRANSPORT_PTY {
+        return Err(format!("{} does not run in a terminal", profile.name));
+    }
     if !profile.detected {
         return Err(format!(
             "{} is not installed ('{}' was not found on PATH)",
@@ -93,15 +101,47 @@ fn resize_session(
     state.resize(&session_id, cols, rows)
 }
 
-/// Detects the installed agents. With `refresh`, the login shell's PATH is read
-/// afresh first, so an agent installed while the app runs is found.
+/// The agents the app can run, at the versions the user has in use. With
+/// `refresh`, the login shell's PATH and the global npm packages are read
+/// afresh and the registry is refetched, so an agent installed or published
+/// while the app runs is found. A failed fetch keeps the cached catalog.
 #[tauri::command(async)]
-fn get_agent_profiles(refresh: Option<bool>) -> Result<Vec<AgentProfile>, String> {
+fn get_agent_profiles(
+    store: State<'_, AppStore>,
+    refresh: Option<bool>,
+) -> Result<Vec<AgentProfile>, String> {
     if refresh.unwrap_or(false) {
         // A failed re-read leaves detection on the process PATH; it is not fatal.
-        let _ = env_resolver::refresh_user_env();
+        let env = env_resolver::refresh_user_env().unwrap_or_else(|error| {
+            eprintln!("Could not re-read the login shell environment: {error}");
+            Default::default()
+        });
+        registry::refresh_catalog(registry::catalog(), &env, true);
     }
-    Ok(get_available_agent_profiles())
+    let versions = store
+        .load_state()
+        .map(|state| state.settings.agent_versions)
+        .unwrap_or_else(|error| {
+            eprintln!("Could not read the agent versions in use: {error}");
+            BTreeMap::new()
+        });
+    Ok(agent_profiles(&versions))
+}
+
+/// Reads the global npm packages and, when the last fetch is a day old,
+/// the registry, on its own thread so startup never waits on `npm` or the
+/// network. The UI is told to reload its profiles only when they changed.
+fn refresh_catalog_in_background(app: AppHandle) {
+    std::thread::spawn(move || {
+        // Also warms the login-shell environment for the first session spawn.
+        let env = env_resolver::cached_user_env().unwrap_or_else(|error| {
+            eprintln!("Could not read the login shell environment: {error}");
+            Default::default()
+        });
+        if registry::refresh_catalog(registry::catalog(), &env, false) {
+            let _ = app.emit(AGENT_PROFILES_CHANGED, ());
+        }
+    });
 }
 
 /// Lists the project folders under `$HOME/developer` the UI can spawn into.
@@ -275,6 +315,8 @@ pub fn run() {
                     e
                 )
             })?;
+            // Reads two small files; fetching and `npm` wait for the thread below.
+            registry::install(Catalog::open(data_dir.clone(), registry::BUNDLED_HISTORY));
             let (store, migration) = data_migration::open_store(data_dir);
             app.manage(store);
             if let Err(error) = migration {
@@ -288,11 +330,7 @@ pub fn run() {
                     .set_theme(appearance::theme_for(&state.settings.appearance));
             }
 
-            // Warm the login-shell environment off the main thread so the first
-            // session spawn and profile scan do not pay for it.
-            std::thread::spawn(|| {
-                let _ = env_resolver::cached_user_env();
-            });
+            refresh_catalog_in_background(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
