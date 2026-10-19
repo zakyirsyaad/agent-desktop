@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use super::layout::{read_record, ToolsDir};
 use super::prerequisites::{all_prerequisites, Prerequisite};
-use super::runtimes::{installed_runtime, InstalledRuntime, RuntimeKind, RuntimeManifest};
+use super::runtimes::{
+    installed_runtime, pinned_installed, InstalledRuntime, RuntimeKind, RuntimeManifest,
+};
 
 /// What is on disk now. A tool counts only when its dir has `install.json`,
 /// since a crash can leave an empty dir.
@@ -39,10 +41,7 @@ impl InstalledTools {
         platform: &str,
         user_node_major: Option<u32>,
     ) -> Self {
-        let pinned = |kind: RuntimeKind| {
-            let version = &manifest.release(kind).version;
-            read_record(&kind.dir(tools, version, platform)).is_some()
-        };
+        let pinned = |kind: RuntimeKind| pinned_installed(tools, manifest, platform, kind);
         let prereq_bins = all_prerequisites()
             .filter_map(|p| {
                 let dir = tools.prereq_dir(p.command, p.version);

@@ -84,7 +84,7 @@ fn major_or_probe(state: &RwLock<UserNode>, probe: impl FnOnce() -> NodeProbe) -
 /// Probes the user's Node once, the first time it is needed, so the first
 /// profiles and launches are right before the background refresh has run.
 /// Blocks for at most [`NODE_VERSION_TIMEOUT`] after the login shell is read.
-fn user_node_major() -> Option<u32> {
+pub fn user_node_major() -> Option<u32> {
     major_or_probe(&USER_NODE, || {
         let env = cached_user_env().unwrap_or_else(|_| std::env::vars().collect());
         probe_user_node(&env, NODE_VERSION_TIMEOUT)

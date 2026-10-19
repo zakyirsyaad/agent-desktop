@@ -316,10 +316,13 @@ fn installs_a_runtime_then_skips_it_when_present() {
     let d = data_dir();
     let install = installer(&d, &server);
     let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
+    assert!(!install.pinned_runtime_installed(RuntimeKind::Node));
 
     install
         .run("runtime:node", &steps, &env(), None, &no_progress)
         .unwrap();
+    assert!(install.pinned_runtime_installed(RuntimeKind::Node));
+    assert!(!install.pinned_runtime_installed(RuntimeKind::Uv));
     install
         .run("runtime:node", &steps, &env(), None, &no_progress)
         .unwrap();

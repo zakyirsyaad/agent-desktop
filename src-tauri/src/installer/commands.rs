@@ -13,7 +13,7 @@ use super::install::{InstallProgress, Installer, Job};
 use super::layout::ToolsDir;
 use super::plan::PlannedStep;
 use super::runtimes::RuntimeKind;
-use super::{bundled_manifest, installed_tools};
+use super::{bundled_manifest, user_node_major};
 use crate::acp::manager::AcpManager;
 use crate::env_resolver::cached_user_env;
 use crate::profiles::{agent_name, agent_profiles, install_steps_for};
@@ -118,12 +118,7 @@ pub fn install_runtime(
     let installer = installer.get()?;
     let steps = [PlannedStep::Runtime(runtime)];
     let job = installer.begin(&format!("runtime:{kind}"), &installer.plan_name(&steps))?;
-    let installed = installed_tools();
-    let pinned_installed = match runtime {
-        RuntimeKind::Node => installed.pinned_node_installed,
-        RuntimeKind::Uv => installed.pinned_uv_installed,
-    };
-    if pinned_installed {
+    if installer.pinned_runtime_installed(runtime) {
         return Ok(());
     }
     run_plan(
@@ -180,7 +175,7 @@ fn run_with_user_env(
     steps: &[PlannedStep],
 ) -> Result<(), String> {
     let env = cached_user_env().unwrap_or_else(|_| std::env::vars().collect());
-    let user_node_major = installed_tools().user_node_major;
+    let user_node_major = user_node_major();
     let report = |progress: InstallProgress| {
         let _ = app.emit(AGENT_INSTALL_PROGRESS, progress);
     };

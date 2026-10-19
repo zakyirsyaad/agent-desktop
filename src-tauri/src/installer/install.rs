@@ -8,8 +8,6 @@
 //! downloads, unpacks, runs npm or waits for a lock.
 
 use std::collections::{BTreeSet, HashMap};
-use std::fs;
-use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
@@ -21,13 +19,15 @@ use serde::Serialize;
 use super::archive::{ensure_agent_command, format_for_url, unpack, UnpackError, UnpackLimits};
 use super::cleanup::{clean_up, CleanupInputs};
 use super::download::{download, DownloadError, DownloadLimits};
-use super::layout::{read_record, CommitOutcome, InstallRecord, Staging, ToolsDir};
+use super::layout::{read_record, remove_path, CommitOutcome, InstallRecord, Staging, ToolsDir};
 use super::plan::PlannedStep;
 use super::prerequisites::{
     npm_install_args, prerequisites_for, run_npm_install, NpmError, Prerequisite,
     NPM_INSTALL_TIMEOUT,
 };
-use super::runtimes::{installed_runtime, RuntimeKind, RuntimeManifest, MIN_USER_NODE_MAJOR};
+use super::runtimes::{
+    installed_runtime, pinned_installed, RuntimeKind, RuntimeManifest, MIN_USER_NODE_MAJOR,
+};
 use crate::env_resolver::find_binary_in_path_str;
 
 /// What a cancelled run returns, so the UI can tell it from a failure.
@@ -204,6 +204,12 @@ impl Installer {
         self.cancel(job_id)
     }
 
+    /// True when the pinned version of `kind` is installed; reads only its
+    /// install record.
+    pub fn pinned_runtime_installed(&self, kind: RuntimeKind) -> bool {
+        pinned_installed(&self.tools, &self.manifest, &self.platform, kind)
+    }
+
     /// The tools dir this installer writes to.
     pub fn tools(&self) -> &ToolsDir {
         &self.tools
@@ -258,7 +264,7 @@ impl Installer {
         {
             let target = self.target_lock(&format!("agent:{agent_id}"));
             let _held = lock(&target);
-            remove_dir(&self.tools.root().join("agents").join(agent_id))?;
+            remove_path(&self.tools.root().join("agents").join(agent_id))?;
         }
         for p in prerequisites_for(agent_id) {
             if prereqs_still_needed.contains(p.command) {
@@ -266,7 +272,7 @@ impl Installer {
             }
             let target = self.target_lock(&format!("prereq:{}", p.command));
             let _held = lock(&target);
-            remove_dir(&self.tools.root().join("prereqs").join(p.command))?;
+            remove_path(&self.tools.root().join("prereqs").join(p.command))?;
         }
         Ok(())
     }
@@ -591,7 +597,7 @@ fn commit(
 ) -> Result<(), StepError> {
     run.check_cancel()?;
     if read_record(dest).is_none() {
-        remove_leftover(dest)?;
+        remove_path(dest)?;
     }
     match staging.commit(dest, &record)? {
         CommitOutcome::Installed => Ok(()),
@@ -605,22 +611,6 @@ fn commit(
     }
 }
 
-/// Deletes whatever is at `dest` without following a symlink there.
-fn remove_leftover(dest: &Path) -> Result<(), String> {
-    let removed = match fs::symlink_metadata(dest) {
-        Ok(meta) if meta.is_dir() => fs::remove_dir_all(dest),
-        Ok(_) => fs::remove_file(dest),
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(e) => Err(e),
-    };
-    removed.map_err(|e| {
-        format!(
-            "Could not remove the incomplete install at {}: {e}",
-            dest.display()
-        )
-    })
-}
-
 fn record(source: &str, sha256: Option<&str>, bin: Option<&str>) -> InstallRecord {
     InstallRecord {
         source: source.to_string(),
@@ -629,15 +619,6 @@ fn record(source: &str, sha256: Option<&str>, bin: Option<&str>) -> InstallRecor
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs()),
         bin: bin.map(String::from),
-    }
-}
-
-fn remove_dir(dir: &Path) -> Result<(), String> {
-    match fs::remove_dir_all(dir) {
-        Err(e) if e.kind() != ErrorKind::NotFound => {
-            Err(format!("Could not remove {}: {e}", dir.display()))
-        }
-        _ => Ok(()),
     }
 }
 

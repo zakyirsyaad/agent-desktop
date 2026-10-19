@@ -32,6 +32,22 @@ pub fn read_record(dir: &Path) -> Option<InstallRecord> {
     serde_json::from_str(&text).ok()
 }
 
+/// Deletes whatever is at `path`, a dir with everything in it or a file,
+/// without following a symlink there. Nothing there is not an error.
+pub fn remove_path(path: &Path) -> Result<(), String> {
+    let removed = match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
+        Ok(_) => fs::remove_file(path),
+        Err(e) => Err(e),
+    };
+    match removed {
+        Err(e) if e.kind() != ErrorKind::NotFound => {
+            Err(format!("Could not remove {}: {e}", path.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// How a commit ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommitOutcome {
