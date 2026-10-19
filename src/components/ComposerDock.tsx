@@ -44,6 +44,8 @@ export interface ComposerDockProps {
   onStop?: () => void;
   placeholder?: string;
   disabled?: boolean;
+  /** True when only sending must wait (e.g. for the agent's install): the prompt can still be written. */
+  sendDisabled?: boolean;
   /** `attachments` are file paths, given only when `attachAsFiles` is set. */
   onSendMessage: (message: string, attachments?: string[]) => void;
   /** Opens a file picker and resolves with the chosen paths; hidden when absent. */
@@ -76,6 +78,7 @@ export function ComposerDock({
   onStop,
   placeholder,
   disabled = false,
+  sendDisabled = false,
   onSendMessage,
   onAttach,
   handleRef,
@@ -123,7 +126,7 @@ export function ComposerDock({
   });
 
   // While the agent works, Stop takes Send's place; the draft waits for the turn to end.
-  const canSend = !disabled && !(isThinking && onStop);
+  const canSend = !disabled && !sendDisabled && !(isThinking && onStop);
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -343,7 +346,7 @@ export function ComposerDock({
                 variant="primary"
                 label="Send message"
                 onClick={handleSend}
-                disabled={(!text.trim() && attachments.length === 0) || disabled}
+                disabled={(!text.trim() && attachments.length === 0) || !canSend}
               >
                 <CornerDownLeft size={14} />
               </IconButton>

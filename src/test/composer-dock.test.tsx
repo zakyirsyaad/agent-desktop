@@ -72,6 +72,20 @@ describe("ComposerDock", () => {
       fireEvent.click(screen.getByRole("button", { name: "Send message" }));
       expect(onSendMessage).toHaveBeenCalledWith("run tests");
     });
+
+    it("with sendDisabled, keeps the prompt and attach usable but does not send", () => {
+      const onSendMessage = vi.fn();
+      render(<ComposerDock onSendMessage={onSendMessage} onAttach={async () => []} sendDisabled />);
+
+      expect(prompt().disabled).toBe(false);
+      expect((screen.getByRole("button", { name: "Add attachment" }) as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.change(prompt(), { target: { value: "fix the build" } });
+      expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.keyDown(prompt(), { key: "Enter" });
+
+      expect(onSendMessage).not.toHaveBeenCalled();
+      expect(prompt().value).toBe("fix the build");
+    });
   });
 
   describe("controls", () => {

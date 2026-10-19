@@ -335,8 +335,12 @@ describe("Installing an agent from the new-session draft", () => {
     });
 
     expect(screen.getByRole("region", { name: "Install Codex" })).toBeDefined();
+    // Only Send waits for the install: the prompt can be written meanwhile.
+    const promptBox = screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
+    expect(promptBox.disabled).toBe(false);
+    expect(promptBox.placeholder).toBe("Install Codex to start a session.");
     await act(async () => {
-      fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: "hello" } });
+      fireEvent.change(promptBox, { target: { value: "hello" } });
     });
     expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(true);
     // Codex is not installed, so there is nothing to ask yet.

@@ -167,6 +167,10 @@ export default function App() {
     isAcp(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
   const draftAgent = isResumable ? activeAgent : newSessionAgent;
   const isDraftAgentReady = draftAgent?.availability === "ready";
+  // A draft whose agent is not installed offers the install; meanwhile only Send waits.
+  const showsInstallPanel =
+    (isNewSessionDraft || isResumable) && IS_MAIN_WINDOW && Boolean(draftAgent?.install_plan?.length);
+  const draftNeedsInstall = showsInstallPanel && !isDraftAgentReady;
 
   // A model or effort chosen for one agent means nothing to another one.
   useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
@@ -665,7 +669,7 @@ export default function App() {
               onDismiss={dismissSignIn}
             />
           )}
-          {(isNewSessionDraft || isResumable) && IS_MAIN_WINDOW && draftAgent?.install_plan?.length ? <AgentInstallPanel agent={draftAgent} /> : null}
+          {showsInstallPanel && draftAgent ? <AgentInstallPanel agent={draftAgent} /> : null}
           {showsTerminal ? (
             <TerminalView
               sessionId={activeSessionId}
@@ -714,12 +718,17 @@ export default function App() {
               optionsLocked={composer.locked}
               isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
               onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
-              disabled={isCreatingWorktree || (!isActiveRunning && (!isDraftAgentReady || (!isResumable && !canStartSession)))}
+              disabled={
+                isCreatingWorktree ||
+                (!isActiveRunning && ((!isDraftAgentReady && !draftNeedsInstall) || (!isResumable && !canStartSession)))
+              }
+              sendDisabled={draftNeedsInstall}
               placeholder={composerPlaceholder({
                 isRunning: isActiveRunning,
                 isCreatingWorktree,
                 isResumable,
                 canStartSession,
+                agentToInstall: draftNeedsInstall ? draftAgent?.name : undefined,
               })}
               onSendMessage={handleSendMessage}
               attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}

@@ -15,6 +15,19 @@ describe("composerPlaceholder", () => {
     expect(composerPlaceholder({ ...IDLE, canStartSession: true })).toBe(COMPOSER_PLACEHOLDERS.newSession);
     expect(composerPlaceholder(IDLE)).toBe(COMPOSER_PLACEHOLDERS.noWorkspace);
   });
+
+  it("asks for the agent's install before a message can start or continue a session", () => {
+    expect(composerPlaceholder({ ...IDLE, canStartSession: true, agentToInstall: "Codex" })).toBe(
+      "Install Codex to start a session.",
+    );
+    expect(composerPlaceholder({ ...IDLE, isResumable: true, agentToInstall: "Codex" })).toBe(
+      "Install Codex to start a session.",
+    );
+    expect(composerPlaceholder({ ...IDLE, agentToInstall: "Codex" })).toBe(COMPOSER_PLACEHOLDERS.noWorkspace);
+    expect(composerPlaceholder({ ...IDLE, isCreatingWorktree: true, agentToInstall: "Codex" })).toBe(
+      COMPOSER_PLACEHOLDERS.creatingWorktree,
+    );
+  });
 });
 
 describe("composerCommandsFor", () => {
