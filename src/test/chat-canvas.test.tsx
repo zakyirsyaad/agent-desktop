@@ -764,11 +764,11 @@ describe("ChatCanvas: your messages and the session's header", () => {
 
   it("offers no Rewind when the host cannot rewind, and shows the header above the conversation", () => {
     render(
-      <ChatCanvas messages={messages} onSendPtyInput={() => {}} header={<p>agent-desktop · ~/developer</p>} />
+      <ChatCanvas messages={messages} onSendPtyInput={() => {}} header={<p>zorvo · ~/developer</p>} />
     );
 
     expect(screen.queryByRole("button", { name: "Rewind to here" })).toBeNull();
     const container = screen.getByTestId("chat-canvas-container");
-    expect(container.firstElementChild?.textContent).toContain("agent-desktop · ~/developer");
+    expect(container.firstElementChild?.textContent).toContain("zorvo · ~/developer");
   });
 });

@@ -85,7 +85,7 @@ fn has_no_branch_outside_a_repository_or_with_an_unreadable_head() {
 fn shows_the_parent_folder_relative_to_home() {
     let home = Path::new("/Users/mac");
     assert_eq!(
-        display_location(Path::new("/Users/mac/developer/agent-desktop"), Some(home)),
+        display_location(Path::new("/Users/mac/developer/zorvo"), Some(home)),
         "~/developer"
     );
     assert_eq!(

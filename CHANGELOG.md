@@ -8,6 +8,10 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 - **Landing page.** A marketing site for Zorvo in `site/` (Next.js, exported as static HTML): the hero with a picture of the app, the supported agents, features, approvals and diffs, privacy, and the download. It follows the design system, dark by default and light when your system is, with self-hosted fonts and no requests to other sites.
 
+### Changed
+
+- **The repository is now [zakyirsyaad/zorvo](https://github.com/zakyirsyaad/zorvo).** Links to the old `agent-desktop` address still redirect there.
+
 ### Fixed
 
 - **Claude Code and Codex show their options before the first message.** Picking an agent for a new session now asks it what it offers, so its permission mode, model, effort and slash commands show right away, even for an agent that never ran before.
@@ -64,27 +68,27 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 - Approval safety, terminal handling, the stream parser and working folders. ([#1])
 
-[Unreleased]: https://github.com/zakyirsyaad/agent-desktop/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/zakyirsyaad/agent-desktop/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/zakyirsyaad/agent-desktop/releases/tag/v0.1.0
-[#1]: https://github.com/zakyirsyaad/agent-desktop/pull/1
-[#2]: https://github.com/zakyirsyaad/agent-desktop/pull/2
-[#3]: https://github.com/zakyirsyaad/agent-desktop/pull/3
-[#4]: https://github.com/zakyirsyaad/agent-desktop/pull/4
-[#5]: https://github.com/zakyirsyaad/agent-desktop/pull/5
-[#6]: https://github.com/zakyirsyaad/agent-desktop/pull/6
-[#7]: https://github.com/zakyirsyaad/agent-desktop/pull/7
-[#8]: https://github.com/zakyirsyaad/agent-desktop/pull/8
-[#9]: https://github.com/zakyirsyaad/agent-desktop/pull/9
-[#11]: https://github.com/zakyirsyaad/agent-desktop/pull/11
-[#12]: https://github.com/zakyirsyaad/agent-desktop/pull/12
-[#13]: https://github.com/zakyirsyaad/agent-desktop/pull/13
-[#14]: https://github.com/zakyirsyaad/agent-desktop/pull/14
-[#15]: https://github.com/zakyirsyaad/agent-desktop/pull/15
-[#16]: https://github.com/zakyirsyaad/agent-desktop/pull/16
-[#17]: https://github.com/zakyirsyaad/agent-desktop/pull/17
-[#35]: https://github.com/zakyirsyaad/agent-desktop/pull/35
-[#36]: https://github.com/zakyirsyaad/agent-desktop/pull/36
-[#39]: https://github.com/zakyirsyaad/agent-desktop/pull/39
-[#40]: https://github.com/zakyirsyaad/agent-desktop/pull/40
-[#41]: https://github.com/zakyirsyaad/agent-desktop/pull/41
+[Unreleased]: https://github.com/zakyirsyaad/zorvo/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/zakyirsyaad/zorvo/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/zakyirsyaad/zorvo/releases/tag/v0.1.0
+[#1]: https://github.com/zakyirsyaad/zorvo/pull/1
+[#2]: https://github.com/zakyirsyaad/zorvo/pull/2
+[#3]: https://github.com/zakyirsyaad/zorvo/pull/3
+[#4]: https://github.com/zakyirsyaad/zorvo/pull/4
+[#5]: https://github.com/zakyirsyaad/zorvo/pull/5
+[#6]: https://github.com/zakyirsyaad/zorvo/pull/6
+[#7]: https://github.com/zakyirsyaad/zorvo/pull/7
+[#8]: https://github.com/zakyirsyaad/zorvo/pull/8
+[#9]: https://github.com/zakyirsyaad/zorvo/pull/9
+[#11]: https://github.com/zakyirsyaad/zorvo/pull/11
+[#12]: https://github.com/zakyirsyaad/zorvo/pull/12
+[#13]: https://github.com/zakyirsyaad/zorvo/pull/13
+[#14]: https://github.com/zakyirsyaad/zorvo/pull/14
+[#15]: https://github.com/zakyirsyaad/zorvo/pull/15
+[#16]: https://github.com/zakyirsyaad/zorvo/pull/16
+[#17]: https://github.com/zakyirsyaad/zorvo/pull/17
+[#35]: https://github.com/zakyirsyaad/zorvo/pull/35
+[#36]: https://github.com/zakyirsyaad/zorvo/pull/36
+[#39]: https://github.com/zakyirsyaad/zorvo/pull/39
+[#40]: https://github.com/zakyirsyaad/zorvo/pull/40
+[#41]: https://github.com/zakyirsyaad/zorvo/pull/41

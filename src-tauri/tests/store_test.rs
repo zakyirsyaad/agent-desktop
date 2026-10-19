@@ -83,8 +83,8 @@ fn populated_state() -> PersistedState {
             appearance: String::new(),
         },
         recent_folders: vec![RecentFolder {
-            name: "agent-desktop".to_string(),
-            path: "/Users/dev/developer/agent-desktop".to_string(),
+            name: "zorvo".to_string(),
+            path: "/Users/dev/developer/zorvo".to_string(),
             last_opened_at: 1_700_000_000_123,
         }],
         sessions: vec![session("s-1", "terminated")],
@@ -481,8 +481,8 @@ fn keeps_a_sessions_worktree_through_a_save() {
     let store = AppStore::new(root.clone());
     let mut state = populated_state();
     state.sessions[0].worktree = Some(SessionWorktreeRecord {
-        repo_path: "/Users/dev/developer/agent-desktop".to_string(),
-        path: "/data/worktrees/agent-desktop/fix-login".to_string(),
+        repo_path: "/Users/dev/developer/zorvo".to_string(),
+        path: "/data/worktrees/zorvo/fix-login".to_string(),
         branch: "agent/fix-login".to_string(),
     });
 

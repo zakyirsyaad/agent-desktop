@@ -30,7 +30,7 @@ function emptyFakeStore(): FakeTauriStore {
       recentFolders: [
         { name: "ai-perpetual-trading", path: "/Users/test/developer/ai-perpetual-trading", lastOpenedAt: 3000 },
         { name: "titan-investment", path: "/Users/test/developer/titan-investment", lastOpenedAt: 2000 },
-        { name: "agent-desktop", path: "/Users/test/developer/agent-desktop", lastOpenedAt: 1000 },
+        { name: "zorvo", path: "/Users/test/developer/zorvo", lastOpenedAt: 1000 },
       ],
       sessions: [],
     },
@@ -129,7 +129,7 @@ export function fakeTauriInvoke(cmd: string, args?: unknown): Promise<unknown> {
     return Promise.resolve([
       { name: "ai-perpetual-trading", path: "/Users/test/developer/ai-perpetual-trading" },
       { name: "titan-investment", path: "/Users/test/developer/titan-investment" },
-      { name: "agent-desktop", path: "/Users/test/developer/agent-desktop" },
+      { name: "zorvo", path: "/Users/test/developer/zorvo" },
     ]);
   }
   if (cmd === "get_agent_profiles") {

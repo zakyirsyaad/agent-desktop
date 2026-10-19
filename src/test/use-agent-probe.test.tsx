@@ -13,7 +13,7 @@ function tauriInternals(): TauriInternals {
 const agent = (id: string) => fakeProfiles.find((a) => a.id === id) as AgentProfile;
 const QWEN = agent("qwen");
 const TERMINAL_AGENT = agent("omp");
-const CWD = "/Users/test/developer/agent-desktop";
+const CWD = "/Users/test/developer/zorvo";
 
 const PROBED = {
   modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },

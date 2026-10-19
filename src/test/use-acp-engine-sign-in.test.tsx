@@ -25,7 +25,7 @@ const SESSION: Session = {
   id: "s-1",
   name: "Rewound",
   profileId: "qwen",
-  cwd: "/Users/test/developer/agent-desktop",
+  cwd: "/Users/test/developer/zorvo",
   status: "running",
   createdAt: 1,
   transport: "acp",

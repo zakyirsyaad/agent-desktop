@@ -29,7 +29,7 @@ function seedSession(id: string, name: string, createdAt: number) {
     id,
     name,
     profileId: "claude-code",
-    cwd: "/Users/test/developer/agent-desktop",
+    cwd: "/Users/test/developer/zorvo",
     status: "terminated",
     createdAt,
   };
@@ -265,7 +265,7 @@ describe("Session lifecycle", () => {
   });
 
   it("removes a deleted session's worktree, unless another session still runs in it", async () => {
-    const worktree = { repoPath: "/Users/test/developer/agent-desktop", path: "/data/worktrees/agent-desktop/fix", branch: "agent/fix" };
+    const worktree = { repoPath: "/Users/test/developer/zorvo", path: "/data/worktrees/zorvo/fix", branch: "agent/fix" };
     fakeStore().state.sessions = [
       { ...seedSession("s-src", "Fix login", 1000), cwd: worktree.path, worktree },
       { ...seedSession("s-fork", "Fix login (fork)", 2000), cwd: worktree.path, worktree, forkedFrom: "s-src" },
@@ -290,12 +290,12 @@ describe("Session lifecycle", () => {
   });
 
   it("says so when a deleted session's worktree is kept for its uncommitted changes", async () => {
-    const worktree = { repoPath: "/Users/test/developer/agent-desktop", path: "/data/worktrees/agent-desktop/fix", branch: "agent/fix" };
+    const worktree = { repoPath: "/Users/test/developer/zorvo", path: "/data/worktrees/zorvo/fix", branch: "agent/fix" };
     fakeStore().state.sessions = [{ ...seedSession("s-src", "Fix login", 1000), cwd: worktree.path, worktree }];
     await renderApp();
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "remove_session_worktree"
-        ? Promise.reject("/data/worktrees/agent-desktop/fix has uncommitted changes, so it was kept")
+        ? Promise.reject("/data/worktrees/zorvo/fix has uncommitted changes, so it was kept")
         : fakeTauriInvoke(cmd, args)
     );
 
