@@ -13,7 +13,10 @@ export interface AgentSignInDeps {
   agents: AgentProfile[];
   composerRef: RefObject<ComposerHandle | null>;
   activeSessionIdRef: { readonly current: string | undefined };
-  retryAfterSignIn: (sessionId: string, message: FirstMessage) => void;
+  /** Resolves to false when the message did not go out, for a reason other than a sign-in. */
+  retryAfterSignIn: (sessionId: string, message: FirstMessage) => Promise<boolean>;
+  /** Puts a message back in the composer of the session it was written for. */
+  onRestore: (sessionId: string, text: string, attachments?: readonly string[]) => void;
 }
 
 /**
@@ -34,9 +37,11 @@ export function useAgentSignIn(deps: AgentSignInDeps) {
   const requestSignIn = useCallback<AgentAuth['requestSignIn']>(
     (profileId, cwd, methods, pending) => {
       attemptRef.current = null;
+      // A login of the request this one replaces ends with it, and so does its dialog.
+      closeTerminal();
       openPanel(profileId, cwd, methods, pending);
     },
-    [openPanel],
+    [closeTerminal, openPanel],
   );
 
   const dismiss = useCallback(() => {
@@ -83,14 +88,20 @@ export function useAgentSignIn(deps: AgentSignInDeps) {
     return terminal.run({ profileId, cwd, agentName, method });
   };
 
-  /** Sends the refused message again, but only into its own session and only as the user left it. */
+  /**
+   * Sends the refused message again, but only into its own session and only as
+   * the user left it. A message that still does not go out comes back.
+   */
   const sendRefused = (pending: AuthRequest['pending']) => {
     const { composerRef, activeSessionIdRef, retryAfterSignIn } = depsRef.current;
     const composer = composerRef.current;
     if (!pending || activeSessionIdRef.current !== pending.sessionId || !composer?.holdsRestored()) return false;
+    const { sessionId, text, attachments } = pending;
     composer.clear();
     dismiss();
-    retryAfterSignIn(pending.sessionId, { text: pending.text, attachments: pending.attachments });
+    void retryAfterSignIn(sessionId, { text, attachments }).then((isHandled) => {
+      if (!isHandled) depsRef.current.onRestore(sessionId, text, attachments);
+    });
     return true;
   };
 

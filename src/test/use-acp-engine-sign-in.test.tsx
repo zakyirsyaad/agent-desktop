@@ -119,19 +119,40 @@ describe("useAcpEngine retryAfterSignIn", () => {
     );
   }
 
-  function renderEngine(session: Session) {
-    return renderHook(() =>
-      useAcpEngine({
-        sessions: [session],
-        agents: fakeProfiles,
-        updateMessages: () => {},
-        patchSession: () => {},
-        reportError: () => {},
-        rememberOptions: () => {},
-        onAuthRequired: () => {},
-      }),
+  /** Answers the given commands itself; everything else as the default fake. */
+  function spyWith(overrides: Record<string, (args: Record<string, unknown> | undefined) => Promise<unknown>>) {
+    const internals = tauriInternals();
+    const original = internals.invoke.bind(internals);
+    return vi.spyOn(internals, "invoke").mockImplementation((cmd, args) => {
+      const override = overrides[cmd];
+      return override ? override(args) : original(cmd, args);
+    });
+  }
+
+  /** Renders the engine over one session; rerender it with the session as the app has it by then. */
+  function renderEngine(session: Session, patchSession: (sessionId: string, patch: Partial<Session>) => void = () => {}) {
+    return renderHook(
+      ({ current }: { current: Session }) =>
+        useAcpEngine({
+          sessions: [current],
+          agents: fakeProfiles,
+          updateMessages: () => {},
+          patchSession,
+          reportError: () => {},
+          rememberOptions: () => {},
+          onAuthRequired: () => {},
+        }),
+      { initialProps: { current: session } },
     );
   }
+
+  const refuseAtPrompt = async () => {
+    await act(async () => {
+      listeners.get("acp-event")?.({
+        payload: { sessionId: "s-1", kind: "turn-end", error: `ACP_AUTH_REQUIRED:${JSON.stringify([])}` },
+      });
+    });
+  };
 
   it("reopens a session refused at a prompt with session/load and sends the message", async () => {
     const spy = spyOnInvoke({ loadSession: true });
@@ -208,5 +229,125 @@ describe("useAcpEngine retryAfterSignIn", () => {
     });
 
     expect(promptsSent(spy)[1]).toBe("EARLIER CONVERSATION\n\ntry again");
+  });
+
+  it("starts a new ACP session when the agent cannot load a session refused at a prompt", async () => {
+    let starts = 0;
+    const spy = spyWith({
+      acp_start_session: () => Promise.resolve({ acpSessionId: `acp-${++starts}`, agentCapabilities: { loadSession: true } }),
+      acp_load_session: () => Promise.reject("Resource not found"),
+    });
+    const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" });
+    await act(async () => {
+      await result.current.start(SESSION);
+    });
+    spy.mockClear();
+
+    let isHandled: boolean | undefined;
+    await act(async () => {
+      isHandled = await result.current.retryAfterSignIn("s-1", { text: "try again" });
+    });
+
+    expect(callsOf(spy, "acp_stop_session", "acp_load_session", "acp_start_session", "acp_prompt")).toEqual([
+      "acp_stop_session",
+      "acp_load_session",
+      "acp_start_session",
+      "acp_prompt",
+    ]);
+    expect(promptsSent(spy)).toEqual(["try again"]);
+    expect(isHandled).toBe(true);
+  });
+
+  it("gives the message back when neither a load nor a new session opens", async () => {
+    let starts = 0;
+    const spy = spyWith({
+      acp_start_session: () =>
+        starts++ === 0
+          ? Promise.resolve({ acpSessionId: "acp-1", agentCapabilities: { loadSession: true } })
+          : Promise.reject("spawn failed"),
+      acp_load_session: () => Promise.reject("Resource not found"),
+    });
+    const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" });
+    await act(async () => {
+      await result.current.start(SESSION);
+    });
+    spy.mockClear();
+
+    let isHandled: boolean | undefined;
+    await act(async () => {
+      isHandled = await result.current.retryAfterSignIn("s-1", { text: "try again" });
+    });
+
+    expect(callsOf(spy, "acp_start_session")).toHaveLength(1);
+    expect(promptsSent(spy)).toEqual([]);
+    expect(isHandled).toBe(false);
+  });
+
+  it("gives the message back, and keeps the hidden context, when the agent cannot be stopped", async () => {
+    const spy = spyWith({ acp_stop_session: () => Promise.reject("stop failed") });
+    const { result } = renderEngine(SESSION);
+    await act(async () => {
+      await result.current.start(SESSION, { text: "try again", context: "EARLIER CONVERSATION" });
+    });
+    await waitFor(() => expect(promptsSent(spy)).toHaveLength(1));
+    await refuseAtPrompt();
+
+    let isHandled: boolean | undefined;
+    await act(async () => {
+      isHandled = await result.current.retryAfterSignIn("s-1", { text: "try again" });
+    });
+    await act(async () => {
+      await result.current.send("s-1", "try again");
+    });
+
+    expect(isHandled).toBe(false);
+    expect(callsOf(spy, "acp_load_session", "acp_start_session")).toEqual(["acp_start_session"]);
+    expect(promptsSent(spy)[1]).toBe("EARLIER CONVERSATION\n\ntry again");
+  });
+
+  it("marks a session refused at start running again before it opens it", async () => {
+    spyWith({});
+    const patchSession = vi.fn();
+    const { result } = renderEngine({ ...SESSION, status: "terminated", archivedAt: 5 }, patchSession);
+
+    await act(async () => {
+      await result.current.retryAfterSignIn("s-1", { text: "try again" });
+    });
+
+    expect(patchSession).toHaveBeenCalledWith("s-1", { status: "running", endedAt: null, exitCode: null, archivedAt: null });
+  });
+
+  it("starts a session refused at start with the picks it was started with", async () => {
+    let starts = 0;
+    const model = {
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: "fast",
+      options: [
+        { value: "fast", name: "Fast" },
+        { value: "smart", name: "Smart" },
+      ],
+    };
+    const spy = spyWith({
+      acp_start_session: () =>
+        starts++ === 0
+          ? Promise.reject(`ACP_AUTH_REQUIRED:${JSON.stringify([])}`)
+          : Promise.resolve({ acpSessionId: "acp-1", configOptions: [model] }),
+      acp_set_config_option: () => Promise.resolve([{ ...model, currentValue: "smart" }]),
+    });
+    const { result, rerender } = renderEngine(SESSION);
+    await act(async () => {
+      await result.current.start(SESSION, { text: "hello" }, { config: { model: "smart" } });
+    });
+    rerender({ current: { ...SESSION, status: "terminated" } });
+
+    await act(async () => {
+      await result.current.retryAfterSignIn("s-1", { text: "hello" });
+    });
+
+    const changes = spy.mock.calls.filter(([cmd]) => cmd === "acp_set_config_option").map(([, args]) => args);
+    expect(changes).toEqual([{ sessionId: "s-1", configId: "model", value: "smart" }]);
   });
 });

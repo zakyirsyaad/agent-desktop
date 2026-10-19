@@ -1,5 +1,6 @@
-import { useEffect, useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { X } from "lucide-react";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import type { TerminalSignInState } from "../hooks/useTerminalSignIn";
 import type { PtyOutputStore } from "../lib/pty-output-store";
 import { TerminalView } from "./TerminalView";
@@ -10,7 +11,8 @@ export interface TerminalSignInDialogProps {
   state: TerminalSignInState;
   output: PtyOutputStore;
   onClose: () => void;
-  onTryAgain: () => void;
+  /** Absent when the method cannot be run again: a failed sign-in then offers Close only. */
+  onTryAgain?: () => void;
   onInput: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
 }
@@ -39,6 +41,16 @@ export function TerminalSignInDialog({
 }: TerminalSignInDialogProps) {
   const titleId = useId();
   const isFailed = state.phase === "failed";
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // The button that takes focus: Try again after a failure, else Cancel or Close.
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const canTryAgain = onTryAgain !== undefined;
+  useFocusTrap(dialogRef);
+
+  // While the login runs, its terminal has focus.
+  useEffect(() => {
+    if (state.phase !== "running") primaryRef.current?.focus();
+  }, [state.phase, canTryAgain]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -51,6 +63,7 @@ export function TerminalSignInDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay px-4">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -85,13 +98,19 @@ export function TerminalSignInDialog({
         <footer className="flex justify-end gap-2">
           {isFailed ? (
             <>
-              <Button onClick={onClose}>Close</Button>
-              <Button variant="primary" onClick={onTryAgain}>
-                Try again
+              <Button ref={canTryAgain ? undefined : primaryRef} onClick={onClose}>
+                Close
               </Button>
+              {canTryAgain && (
+                <Button ref={primaryRef} variant="primary" onClick={onTryAgain}>
+                  Try again
+                </Button>
+              )}
             </>
           ) : (
-            <Button onClick={onClose}>Cancel</Button>
+            <Button ref={primaryRef} onClick={onClose}>
+              Cancel
+            </Button>
           )}
         </footer>
       </div>

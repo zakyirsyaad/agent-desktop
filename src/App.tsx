@@ -205,13 +205,20 @@ export default function App() {
     rememberAgentOptions(profileId, { preferredConfig, ...(reported?.length ? { configOptions: reported } : {}) });
   };
 
+  // The user may have opened another session meanwhile: the message goes back
+  // into the session it was written for, not that one's composer.
+  const restoreMessage = (sessionId: string, text: string, attachments?: readonly string[]) => {
+    setActiveSessionId(sessionId);
+    composerRef.current?.restore(text, attachments);
+  };
   // Read when an agent answers, seconds after the closure that waits for it was made.
   const activeSessionIdRef = useLatest(activeSessionId);
   const signIn = useAgentSignIn({
     agents,
     composerRef,
     activeSessionIdRef,
-    retryAfterSignIn: (sessionId, message) => void acp.retryAfterSignIn(sessionId, message),
+    retryAfterSignIn: (sessionId, message) => acp.retryAfterSignIn(sessionId, message),
+    onRestore: restoreMessage,
   });
 
   // A draft asks its ACP agent what it offers, and whether it needs a sign-in, before the first message.
@@ -251,12 +258,7 @@ export default function App() {
     acp,
     patchSession,
     updateMessages,
-    // The user may have opened another session meanwhile: the message goes back
-    // into the session it was written for, not that one's composer.
-    onRestore: (sessionId, text, attachments) => {
-      setActiveSessionId(sessionId);
-      composerRef.current?.restore(text, attachments);
-    },
+    onRestore: restoreMessage,
     onNotice: setNotice,
   });
 

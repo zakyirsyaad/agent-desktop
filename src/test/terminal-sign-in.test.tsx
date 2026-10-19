@@ -261,4 +261,82 @@ describe("TerminalSignInDialog", () => {
     act(() => output.append("signin-1", "Visit the link"));
     expect(terminals[0].written).toContain("Visit the link");
   });
+
+  it.each(["starting", "checking"] as const)("moves focus to Cancel while %s", (phase) => {
+    renderDialog(phase);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+  });
+
+  it("moves focus to Try again when failed, and again after each failure", () => {
+    const output = createPtyOutputStore();
+    const state = { terminalId: "signin-1", agentName: "Qwen Code", methodName: "Log in with Qwen" };
+    const handlers = { onClose: () => {}, onTryAgain: () => {}, onInput: () => {}, onResize: () => {} };
+    const { rerender } = render(
+      <TerminalSignInDialog state={{ ...state, phase: "failed", error: "boom" }} output={output} {...handlers} />,
+    );
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Try again" }));
+
+    rerender(<TerminalSignInDialog state={{ ...state, phase: "starting" }} output={output} {...handlers} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+  });
+
+  it("offers Close only, with focus on it, when the method cannot be tried again", () => {
+    const output = createPtyOutputStore();
+    render(
+      <TerminalSignInDialog
+        state={{ terminalId: "signin-1", agentName: "Qwen Code", methodName: "Log in with Qwen", phase: "failed", error: "gone" }}
+        output={output}
+        onClose={() => {}}
+        onInput={() => {}}
+        onResize={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
+  });
+
+  it("keeps Tab inside the dialog", () => {
+    renderDialog("failed", "The sign-in ended with code 1");
+    const first = screen.getByRole("button", { name: "Cancel sign-in" });
+    const last = screen.getByRole("button", { name: "Try again" });
+
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
+  });
+
+  it("brings Tab back into the dialog when focus is outside it", () => {
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    renderDialog("failed", "The sign-in ended with code 1");
+    outside.focus();
+
+    fireEvent.keyDown(outside, { key: "Tab" });
+
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel sign-in" }));
+    outside.remove();
+  });
+
+  it("gives focus back to what opened it when it closes", () => {
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const { unmount } = render(
+      <TerminalSignInDialog
+        state={{ terminalId: "signin-1", agentName: "Qwen Code", methodName: "Log in with Qwen", phase: "starting" }}
+        output={createPtyOutputStore()}
+        onClose={() => {}}
+        onTryAgain={() => {}}
+        onInput={() => {}}
+        onResize={() => {}}
+      />,
+    );
+    expect(document.activeElement).not.toBe(opener);
+
+    unmount();
+
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
 });

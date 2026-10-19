@@ -20,6 +20,8 @@ export function SignInLayer({ signIn, agents }: SignInLayerProps) {
     setMethodId(id);
     auth.signIn(id);
   };
+  // A method the agent no longer offers cannot be tried again: its dialog offers Close only.
+  const retryId = methodId !== null && authRequest?.methods.some((m) => m.id === methodId) ? methodId : null;
 
   return (
     <>
@@ -38,9 +40,7 @@ export function SignInLayer({ signIn, agents }: SignInLayerProps) {
           state={terminal.dialog}
           output={terminal.output}
           onClose={cancel}
-          onTryAgain={() => {
-            if (methodId) auth.signIn(methodId);
-          }}
+          onTryAgain={retryId ? () => auth.signIn(retryId) : undefined}
           onInput={terminal.sendInput}
           onResize={terminal.resize}
         />

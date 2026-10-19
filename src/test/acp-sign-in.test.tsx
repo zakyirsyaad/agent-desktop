@@ -158,6 +158,27 @@ describe("signing in to an ACP agent from the app", () => {
     expect(screen.queryByRole("region", { name: "Sign in to Qwen Code" })).toBeNull();
   });
 
+  it("shows the session running again once the refused message is sent", async () => {
+    const { spy, panel } = await sendRefused();
+
+    await signInInTerminal(spy, panel);
+
+    await waitFor(() => expect(promptedTexts(spy)).toEqual(["hello"]));
+    await waitFor(() => expect(fakeStore().state.sessions).toMatchObject([{ status: "running", endedAt: null }]));
+  });
+
+  it("puts the message back in the composer when sending it again fails", async () => {
+    const { spy, panel } = await sendRefused({
+      overrides: { acp_start_session: () => Promise.reject("spawn failed") },
+    });
+
+    await signInInTerminal(spy, panel);
+
+    await waitFor(() => expect(callsTo(spy, "acp_start_session")).toHaveLength(2));
+    await waitFor(() => expect(prompt().value).toBe("hello"));
+    expect(callsTo(spy, "acp_prompt")).toHaveLength(0);
+  });
+
   it("keeps the dialog open with the reason when the login fails", async () => {
     const { spy, panel } = await sendRefused();
 
@@ -298,6 +319,47 @@ describe("signing in to an ACP agent from the app", () => {
     expect(prompt().value).toBe("hello");
   });
 
+  it("offers only Close when the agent no longer offers the sign-in", async () => {
+    const { panel } = await sendRefused({
+      overrides: {
+        acp_start_terminal_sign_in: () =>
+          Promise.reject(`ACP_AUTH_REQUIRED:${JSON.stringify([{ id: "other", name: "Other", type: "terminal" }])}`),
+      },
+    });
+
+    await act(async () => {
+      fireEvent.click(panel.getByRole("button", { name: "Sign in with Claude Subscription" }));
+    });
+
+    const dialog = within(await screen.findByRole("dialog", { name: "Sign in to Qwen Code" }));
+    expect(await dialog.findByText("Qwen Code no longer offers this sign-in")).toBeDefined();
+    expect(dialog.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(dialog.getByRole("button", { name: "Close" })).toBeDefined();
+  });
+
+  it("closes the login's dialog when another sign-in request replaces it", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+    const { result } = renderHook(() =>
+      useAgentSignIn({
+        agents: [],
+        composerRef: { current: null },
+        activeSessionIdRef: { current: "session-a" },
+        retryAfterSignIn: () => Promise.resolve(true),
+        onRestore: () => {},
+      }),
+    );
+    const methods = [{ id: "login", name: "Log in", kind: "terminal" as const }];
+    act(() => result.current.auth.requestSignIn("agent-a", "/work", methods));
+    await act(async () => result.current.auth.signIn("login"));
+    expect(result.current.terminal.dialog).not.toBeNull();
+    const terminalId = result.current.terminal.dialog?.terminalId;
+
+    act(() => result.current.auth.requestSignIn("agent-b", "/work", methods));
+
+    expect(result.current.terminal.dialog).toBeNull();
+    expect(callsTo(spy, "terminate_session").map(([, args]) => args)).toContainEqual({ sessionId: terminalId });
+  });
+
   it("a sign-in that ends after its panel gave way to another agent's leaves that one alone", async () => {
     const authenticate = deferred();
     const real = tauriInternals().invoke;
@@ -311,6 +373,7 @@ describe("signing in to an ACP agent from the app", () => {
         composerRef: { current: null },
         activeSessionIdRef: { current: "session-a" },
         retryAfterSignIn,
+        onRestore: () => {},
       }),
     );
     const methods = [{ id: "chat-gpt", name: "ChatGPT", kind: "agent" as const }];
