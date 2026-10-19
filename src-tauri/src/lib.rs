@@ -8,6 +8,7 @@ pub mod env_resolver;
 pub mod files;
 pub mod fork_handoff;
 pub mod git_info;
+pub mod installer;
 pub mod profiles;
 pub mod pty_session;
 pub mod pull_requests;
