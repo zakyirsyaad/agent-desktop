@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::env_resolver;
+use crate::installer::{self, plan::InstallStep};
 use crate::registry::{self, resolve::SystemTools};
 
 /// A thinking/effort level the agent's CLI can actually be told to use.
@@ -110,6 +111,12 @@ pub struct AgentProfile {
     pub acp_args: Vec<String>,
     /// Absolute path of `acp_program` on this machine, once detected.
     pub acp_program_path: Option<String>,
+    /// Dirs put before the user's `PATH` at launch (Zorvo's Node).
+    #[serde(skip)]
+    pub acp_path_prepend: Vec<String>,
+    /// Dirs put after the user's `PATH` at launch (Zorvo's uv, prerequisites).
+    #[serde(skip)]
+    pub acp_path_append: Vec<String>,
     /// `"registry"` or `"builtin"`.
     pub source: String,
     pub version: Option<String>,
@@ -117,6 +124,8 @@ pub struct AgentProfile {
     pub distribution: Option<String>,
     /// `"ready"`, `"needs_runtime"` or `"not_installed"`.
     pub availability: String,
+    /// What an install would do; `None` when the agent is ready.
+    pub install_plan: Option<Vec<InstallStep>>,
     pub description: Option<String>,
     /// The agent's own CLI is already installed on this machine.
     pub installed_on_system: bool,
@@ -146,10 +155,13 @@ impl AgentProfile {
             acp_program: None,
             acp_args: Vec::new(),
             acp_program_path: None,
+            acp_path_prepend: Vec::new(),
+            acp_path_append: Vec::new(),
             source: "builtin".to_string(),
             version: None,
             distribution: None,
             availability: "ready".to_string(),
+            install_plan: None,
             description: None,
             installed_on_system: false,
             listed: true,
@@ -279,9 +291,10 @@ pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
     agent_profiles(&BTreeMap::new())
 }
 
-/// Every agent the app can run, detected against the user's `PATH`: the
-/// registry agents first (at the version in `versions` when the catalog has
-/// it, else the offered one), then the built-in terminal agents.
+/// Every agent the app can run, detected against the user's `PATH` and what
+/// Zorvo installed: the registry agents first (at the version in `versions`
+/// when the catalog has it, else the offered one), then the built-in terminal
+/// agents.
 ///
 /// Uses the cached user environment to avoid launching the login shell multiple times.
 pub fn agent_profiles(versions: &BTreeMap<String, String>) -> Vec<AgentProfile> {
@@ -293,9 +306,11 @@ pub fn agent_profiles(versions: &BTreeMap<String, String>) -> Vec<AgentProfile> 
 
     let catalog = registry::catalog();
     let npm_globals = catalog.npm_globals();
+    let installed = installer::installed_tools();
     let tools = SystemTools {
         path_var: path_var.as_deref(),
         npm_globals: &npm_globals,
+        installed: &installed,
     };
     let from_registry = catalog.profiles(&tools, versions, registry::unix_now());
     let terminal: Vec<AgentProfile> = get_default_profiles()

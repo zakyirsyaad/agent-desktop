@@ -24,6 +24,7 @@ export function makeProfile(overrides: Partial<AgentProfile> & Pick<AgentProfile
     version: null,
     distribution: null,
     availability: "ready",
+    install_plan: null,
     description: null,
     installed_on_system: false,
     listed: true,

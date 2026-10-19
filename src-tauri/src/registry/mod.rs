@@ -17,6 +17,10 @@ use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::installer::{
+    self,
+    runtimes::{user_node_major, NODE_VERSION_TIMEOUT},
+};
 use crate::profiles::AgentProfile;
 use cache::RegistryCache;
 use fetch::{fetch_registry, FETCH_TIMEOUT, MAX_REGISTRY_BYTES, REGISTRY_URL};
@@ -245,16 +249,18 @@ impl Catalog {
     }
 }
 
-/// Re-reads the global npm packages with the user's environment `env` and,
-/// when `force` or the last fetch is stale, the registry. A failed fetch is
-/// logged and otherwise ignored. Returns whether the profiles changed.
+/// Re-reads the user's Node version and the global npm packages with the
+/// user's environment `env` and, when `force` or the last fetch is stale, the
+/// registry. A failed fetch is logged and otherwise ignored. Returns whether
+/// the profiles changed.
 ///
-/// It runs `npm` and may fetch, so call it off the main thread.
+/// It runs `node` and `npm` and may fetch, so call it off the main thread.
 pub fn refresh_catalog(catalog: &Catalog, env: &HashMap<String, String>, force: bool) -> bool {
+    let node_changed = installer::set_user_node_major(user_node_major(env, NODE_VERSION_TIMEOUT));
     // A working `npm ls -g` always lists npm itself, so an empty set means
     // detection failed (no npm, an error, the timeout): keep what was found.
     let found = npm_globals(env, NPM_TIMEOUT);
-    let npm_changed = !found.is_empty() && catalog.set_npm_globals(found);
+    let npm_changed = (!found.is_empty() && catalog.set_npm_globals(found)) || node_changed;
     let now = unix_now();
     if !force && !catalog.needs_refresh(now) {
         return npm_changed;

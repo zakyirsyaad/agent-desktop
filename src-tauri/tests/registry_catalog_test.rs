@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
+use zorvo_lib::installer::plan::InstalledTools;
 use zorvo_lib::profiles::AgentProfile;
 use zorvo_lib::registry::history::{VersionHistory, MIN_AGE_SECS};
 use zorvo_lib::registry::npm_globals::npm_globals;
@@ -80,6 +81,7 @@ fn no_tools_profiles(
     let tools = SystemTools {
         path_var: Some(""),
         npm_globals: &npm,
+        installed: &InstalledTools::none(),
     };
     catalog.profiles(&tools, versions, now)
 }
@@ -334,6 +336,7 @@ fn marks_an_agent_installed_globally_with_npm() {
     let tools = SystemTools {
         path_var: Some(""),
         npm_globals: &catalog.npm_globals(),
+        installed: &InstalledTools::none(),
     };
     let profiles = catalog.profiles(&tools, &BTreeMap::new(), T0 + 30 * DAY);
 

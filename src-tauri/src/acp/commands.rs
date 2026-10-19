@@ -78,11 +78,19 @@ fn launch_for(profile_id: &str, versions: &BTreeMap<String, String>) -> Result<A
         .acp_program_path
         .ok_or_else(|| format!("Could not locate the program that runs {}", profile.name))?;
     // A GUI app does not inherit the login shell's PATH, so hand the agent the
-    // user's real environment (nvm, Homebrew, ...), then the variables the
+    // user's real environment (nvm, Homebrew, ...) with the dirs of Zorvo's
+    // runtimes and prerequisites around its PATH, then the variables the
     // registry sets for this version.
     let mut env: BTreeMap<String, String> = cached_user_env()
         .map(|m| m.into_iter().collect())
         .unwrap_or_default();
+    if let Some(path) = agent_path(
+        &profile.acp_path_prepend,
+        env.get("PATH").map(String::as_str),
+        &profile.acp_path_append,
+    ) {
+        env.insert("PATH".to_string(), path);
+    }
     if let Some(version) = &profile.version {
         env.extend(registry::catalog().launch_env(&profile.id, version));
     }
@@ -91,6 +99,25 @@ fn launch_for(profile_id: &str, versions: &BTreeMap<String, String>) -> Result<A
         args: profile.acp_args,
         env: env.into_iter().collect(),
     })
+}
+
+/// `prepend`, the user's `PATH` entries, then `append`, joined with `:`;
+/// `None` when there is nothing to add, so the user's `PATH` is left alone.
+fn agent_path(prepend: &[String], user_path: Option<&str>, append: &[String]) -> Option<String> {
+    if prepend.is_empty() && append.is_empty() {
+        return None;
+    }
+    let user_entries = user_path
+        .unwrap_or_default()
+        .split(':')
+        .filter(|entry| !entry.is_empty());
+    let entries: Vec<&str> = prepend
+        .iter()
+        .map(String::as_str)
+        .chain(user_entries)
+        .chain(append.iter().map(String::as_str))
+        .collect();
+    Some(entries.join(":"))
 }
 
 /// [`launch_for`] at the versions the user has in use.
@@ -269,6 +296,22 @@ mod tests {
         });
         assert_eq!(failed["error"], "boom");
         assert!(failed.get("stopReason").is_none());
+    }
+
+    #[test]
+    fn agent_path_puts_zorvos_dirs_around_the_users_path() {
+        let node = vec!["/zorvo/node/bin".to_string()];
+        let extras = vec!["/zorvo/uv".to_string(), "/zorvo/pi/bin".to_string()];
+
+        assert_eq!(agent_path(&[], Some("/usr/bin:/bin"), &[]), None);
+        assert_eq!(
+            agent_path(&node, Some("/usr/bin:/bin"), &extras).as_deref(),
+            Some("/zorvo/node/bin:/usr/bin:/bin:/zorvo/uv:/zorvo/pi/bin")
+        );
+        assert_eq!(
+            agent_path(&[], None, &extras).as_deref(),
+            Some("/zorvo/uv:/zorvo/pi/bin")
+        );
     }
 
     #[test]

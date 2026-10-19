@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::layout::{read_record, ToolsDir};
 use super::prerequisites::{all_prerequisites, Prerequisite};
@@ -117,7 +117,7 @@ pub enum PlannedStep {
 }
 
 /// A step as the UI shows it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallStep {
     /// `node`, `uv`, `agent` or `prerequisite`.
     pub kind: String,
