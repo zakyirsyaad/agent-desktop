@@ -137,11 +137,11 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
-  const defaultAgentId = resolveDefaultAgentId(agents, state.settings.defaultAgentId, (agent) =>
-    isInUse(agent, state.settings),
-  );
-  const newSessionAgentId =
-    agents.find((a) => a.id === pickedAgentId && a.detected)?.id ?? defaultAgentId;
+  // Only the agents in use are offered: the defaults, installed ones and the terminal agents found.
+  const agentsInUse = agents.filter((agent) => isInUse(agent, state.settings));
+  const readyAgentsInUse = agentsInUse.filter((agent) => agent.detected);
+  const defaultAgentId = resolveDefaultAgentId(agentsInUse, state.settings.defaultAgentId);
+  const newSessionAgentId = readyAgentsInUse.find((a) => a.id === pickedAgentId)?.id ?? defaultAgentId;
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
   // No session is selected: the window shows a new one, not started until its first message.
   const isNewSessionDraft = !activeSession;
@@ -739,7 +739,7 @@ export default function App() {
               agent={
                 isNewSessionDraft && newSessionAgent
                   ? {
-                      options: agents.filter((a) => a.detected).map((a) => ({ value: a.id, label: a.name })),
+                      options: readyAgentsInUse.map((a) => ({ value: a.id, label: a.name })),
                       selected: newSessionAgent.id,
                       onChange: (agentId) => setPickedAgentId(agentId ?? null),
                     }
@@ -791,7 +791,7 @@ export default function App() {
         <SettingsPanel
           appearance={state.settings.appearance}
           onChangeAppearance={(appearance) => updateSettings({ appearance })}
-          agents={agents}
+          agents={agentsInUse}
           defaultAgentId={state.settings.defaultAgentId}
           recentFolders={workspaces}
           onChangeDefaultAgent={(defaultAgentId) => updateSettings({ defaultAgentId })}
