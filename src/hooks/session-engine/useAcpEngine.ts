@@ -59,8 +59,8 @@ interface LaunchOptions {
 export interface AcpEngineDeps extends EngineDeps {
   /** The agent needs the user's answer, or ended its turn: worth a notification when the user is away. */
   onAttention?: (sessionId: string, reason: AttentionReason) => void;
-  /** The agent refused to start until the user signs in, with the ways it offers and the unsent message. */
-  onAuthRequired: (profileId: string, cwd: string, methods: AuthMethod[], unsent?: FirstMessage) => void;
+  /** The agent refused to start, or to answer, until the user signs in: the ways it offers and the unsent message. */
+  onAuthRequired: (session: Pick<Session, 'id' | 'profileId' | 'cwd'>, methods: AuthMethod[], unsent?: FirstMessage) => void;
   /** Called with what an agent offers when one of its sessions opens or its commands change. */
   rememberOptions: (profileId: string, options: Partial<AgentOptions>) => void;
 }
@@ -85,6 +85,8 @@ export function useAcpEngine({
   // events must not write a transcript back, and a start still in flight must
   // end the agent as soon as it is up.
   const stoppedRef = useRef(new Set<string>());
+  // Each session's latest prompt: an agent that refuses it for a sign-in hands it back to the composer.
+  const lastPromptRef = useRef(new Map<string, ChatMessage>());
   const ctx = (sessionId: string) => ({ sessionId, now: Date.now(), createId });
   const isStopped = (sessionId: string) => stoppedRef.current.has(sessionId);
   const unlessStopped =
@@ -117,6 +119,12 @@ export function useAcpEngine({
     }),
     onTurnEnd: unlessStopped((sessionId, { stopReason, error }: TurnResult) => {
       updateMessages(sessionId, closeTurn);
+      const authMethods = parseAuthRequired(error);
+      if (authMethods) {
+        handBackForSignIn(sessionId, authMethods);
+        return;
+      }
+      lastPromptRef.current.delete(sessionId);
       const notice = turnEndNotice(stopReason, error);
       if (notice) reportError(notice);
       // A turn the user cancelled needs no notification: they were there.
@@ -138,10 +146,22 @@ export function useAcpEngine({
     });
   }, []);
 
+  /** The agent opened the session but refused the prompt until the user signs in. */
+  const handBackForSignIn = (sessionId: string, methods: AuthMethod[]) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    const message = lastPromptRef.current.get(sessionId);
+    lastPromptRef.current.delete(sessionId);
+    if (message) updateMessages(sessionId, (prev) => withoutMessage(prev, message.id));
+    if (!session) return;
+    const unsent = message ? { text: message.content, attachments: message.attachments } : undefined;
+    onAuthRequired(session, methods, unsent);
+  };
+
   const reportFailure = (what: string) => (error: unknown) => reportError(`${what}: ${String(error)}`);
 
   /** Prompts the agent with a message already shown in the chat; removes it if the prompt is refused. */
   const prompt = async (sessionId: string, message: ChatMessage, context?: string): Promise<boolean> => {
+    lastPromptRef.current.set(sessionId, message);
     try {
       await acp.prompt(sessionId, context ? `${context}\n\n${message.content}` : message.content, message.attachments);
       return true;
@@ -210,7 +230,7 @@ export function useAcpEngine({
         patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
         const authMethods = parseAuthRequired(error);
         if (authMethods) {
-          onAuthRequired(session.profileId, session.cwd, authMethods, options.first);
+          onAuthRequired(session, authMethods, options.first);
           return;
         }
         const name = agents.find((a) => a.id === session.profileId)?.name ?? session.profileId;

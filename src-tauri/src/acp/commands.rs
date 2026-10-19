@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use tauri::State;
 
 use super::manager::{AcpEvent, AcpLaunch, AcpManager, StartedSession};
+use super::probe::ProbedAgent;
 use crate::env_resolver::cached_user_env;
 use crate::profiles::{get_available_agent_profiles, TRANSPORT_ACP};
 
@@ -83,6 +84,17 @@ pub fn acp_start_session(
     profile_id: String,
 ) -> Result<StartedSession, String> {
     manager.start(&session_id, &cwd, &launch_for(&profile_id)?)
+}
+
+/// Learns what an agent offers (modes, models, efforts, commands) before a
+/// session starts, or that it needs a sign-in first.
+#[tauri::command(async)]
+pub fn acp_probe_agent(
+    manager: State<'_, AcpManager>,
+    profile_id: String,
+    cwd: String,
+) -> Result<ProbedAgent, String> {
+    manager.probe(&cwd, &launch_for(&profile_id)?)
 }
 
 /// Signs in to an agent with one of the auth methods it reported.

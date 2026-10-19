@@ -40,7 +40,7 @@ pub struct AcpLaunch {
 /// Why opening a session failed: the agent answered with an error (its
 /// message says it all), or the process or transport failed (the agent's
 /// stderr helps explain that).
-enum OpenError {
+pub(super) enum OpenError {
     Agent(String),
     Transport(String),
 }
@@ -86,6 +86,8 @@ struct SessionEntry {
     connection_key: u64,
     acp_session_id: String,
     agent_capabilities: Value,
+    /// The sign-in methods the agent reported, offered again when it refuses a prompt.
+    auth_methods: Value,
 }
 
 #[derive(Default)]
@@ -184,20 +186,19 @@ impl AcpManager {
             self.connection_sink(connection_key),
         )?;
 
-        let started = initialize(&connection)
+        let (started, auth_methods) = initialize(&connection)
             .map_err(OpenError::Transport)
-            .and_then(|init| open_session(&connection, &init))
-            .map_err(|error| {
-                let stderr = connection.stderr_tail();
-                connection.kill();
-                match error {
-                    // Includes sign-in errors, whose JSON the UI parses.
-                    OpenError::Agent(message) => message,
-                    OpenError::Transport(message) if stderr.is_empty() => message,
-                    OpenError::Transport(message) => format!("{}\n{}", message, stderr),
-                }
-            })?;
-        self.register(app_session_id, connection, connection_key, &started);
+            .and_then(|init| {
+                open_session(&connection, &init).map(|started| (started, auth_methods_of(&init)))
+            })
+            .map_err(|error| failure_message(&connection, error))?;
+        self.register(
+            app_session_id,
+            connection,
+            connection_key,
+            &started,
+            auth_methods,
+        );
         Ok(started)
     }
 
@@ -211,24 +212,7 @@ impl AcpManager {
         method_id: &str,
     ) -> Result<(), String> {
         validate_cwd(cwd)?;
-        // This process hosts no app session, so routing cannot answer its
-        // requests; refuse them here so the agent never waits on us.
-        let connection_slot: Arc<OnceLock<Weak<AcpConnection>>> = Arc::new(OnceLock::new());
-        let sink_slot = Arc::clone(&connection_slot);
-        let sink: EventSink = Arc::new(move |event| {
-            if let ConnectionEvent::Request { id, .. } = event {
-                if let Some(connection) = sink_slot.get().and_then(Weak::upgrade) {
-                    let _ = connection.respond_error(
-                        &id,
-                        METHOD_NOT_FOUND,
-                        "Not available while signing in",
-                    );
-                }
-            }
-        });
-        let connection =
-            AcpConnection::spawn(&launch.program, &launch.args, cwd, &launch.env, sink)?;
-        let _ = connection_slot.set(Arc::downgrade(&connection));
+        let connection = spawn_unrouted(cwd, launch, |_, _| {})?;
         let result = initialize(&connection).and_then(|_| {
             connection.request(
                 "authenticate",
@@ -247,13 +231,14 @@ impl AcpManager {
         new_app_id: &str,
         cwd: &str,
     ) -> Result<StartedSession, String> {
-        let (connection, connection_key, acp_id, capabilities) =
+        let (connection, connection_key, acp_id, capabilities, auth_methods) =
             self.with_entry(source_app_id, |e| {
                 (
                     Arc::clone(&e.connection),
                     e.connection_key,
                     e.acp_session_id.clone(),
                     e.agent_capabilities.clone(),
+                    e.auth_methods.clone(),
                 )
             })?;
         let response = connection.request(
@@ -262,7 +247,13 @@ impl AcpManager {
             SESSION_REQUEST_TIMEOUT,
         )?;
         let started = started_session(response, capabilities)?;
-        self.register(new_app_id, connection, connection_key, &started);
+        self.register(
+            new_app_id,
+            connection,
+            connection_key,
+            &started,
+            auth_methods,
+        );
         Ok(started)
     }
 
@@ -273,13 +264,15 @@ impl AcpManager {
         text: &str,
         attachments: &[String],
     ) -> Result<(), String> {
-        let (connection, acp_id, capabilities) = self.with_entry(app_session_id, |e| {
-            (
-                Arc::clone(&e.connection),
-                e.acp_session_id.clone(),
-                e.agent_capabilities.clone(),
-            )
-        })?;
+        let (connection, acp_id, capabilities, auth_methods) =
+            self.with_entry(app_session_id, |e| {
+                (
+                    Arc::clone(&e.connection),
+                    e.acp_session_id.clone(),
+                    e.agent_capabilities.clone(),
+                    e.auth_methods.clone(),
+                )
+            })?;
         let supports_images = capabilities["promptCapabilities"]["image"] == Value::Bool(true);
         let prompt = prompt_blocks(text, attachments, supports_images)?;
         let sink = Arc::clone(&self.sink);
@@ -288,9 +281,17 @@ impl AcpManager {
             "session/prompt",
             json!({ "sessionId": acp_id, "prompt": prompt }),
             Box::new(move |result| {
+                // An agent can open a session signed out and refuse only the
+                // prompt (Claude Code does): the UI then asks for a sign-in.
                 let stop_reason = result
                     .map(|r| r["stopReason"].as_str().unwrap_or("end_turn").to_string())
-                    .map_err(|e| error_message(&e));
+                    .map_err(|e| {
+                        if is_auth_required(&e) {
+                            auth_required_error(&auth_methods)
+                        } else {
+                            error_message(&e)
+                        }
+                    });
                 sink(AcpEvent::TurnEnded {
                     session_id,
                     stop_reason,
@@ -399,6 +400,7 @@ impl AcpManager {
         connection: Arc<AcpConnection>,
         key: u64,
         started: &StartedSession,
+        auth_methods: Value,
     ) {
         if let Ok(mut routes) = self.routes.lock() {
             routes
@@ -411,6 +413,7 @@ impl AcpManager {
                     connection_key: key,
                     acp_session_id: started.acp_session_id.clone(),
                     agent_capabilities: started.agent_capabilities.clone(),
+                    auth_methods,
                 },
             );
         }
@@ -537,7 +540,7 @@ fn is_auth_required(error: &Value) -> bool {
 
 /// Opens a session; an "authentication required" answer becomes an error
 /// carrying [`AUTH_REQUIRED_PREFIX`] and the agent's auth methods.
-fn open_request(
+pub(super) fn open_request(
     connection: &AcpConnection,
     init: &Value,
     method: &str,
@@ -548,16 +551,9 @@ fn open_request(
         .map_err(OpenError::Transport)?
     {
         Ok(result) => Ok(result),
-        Err(error) if is_auth_required(&error) => {
-            let methods = match &init["authMethods"] {
-                Value::Array(methods) => Value::Array(methods.clone()),
-                _ => Value::Array(Vec::new()),
-            };
-            Err(OpenError::Agent(format!(
-                "{}{}",
-                AUTH_REQUIRED_PREFIX, methods
-            )))
-        }
+        Err(error) if is_auth_required(&error) => Err(OpenError::Agent(auth_required_error(
+            &auth_methods_of(init),
+        ))),
         Err(error) => Err(OpenError::Agent(format!(
             "{} failed: {}",
             method,
@@ -566,8 +562,58 @@ fn open_request(
     }
 }
 
+/// The sign-in methods `initialize` reported, always as a JSON array.
+pub(super) fn auth_methods_of(init: &Value) -> Value {
+    match &init["authMethods"] {
+        Value::Array(methods) => Value::Array(methods.clone()),
+        _ => Value::Array(Vec::new()),
+    }
+}
+
+/// The error the UI reads as "sign in first": [`AUTH_REQUIRED_PREFIX`] and the methods.
+pub(super) fn auth_required_error(auth_methods: &Value) -> String {
+    format!("{}{}", AUTH_REQUIRED_PREFIX, auth_methods)
+}
+
+/// Ends a connection that failed to open and says why. A transport failure
+/// gets the agent's stderr tail; an agent's own answer (sign-in JSON
+/// included, which the UI parses) is kept as it is.
+pub(super) fn failure_message(connection: &AcpConnection, error: OpenError) -> String {
+    let stderr = connection.stderr_tail();
+    connection.kill();
+    match error {
+        OpenError::Agent(message) => message,
+        OpenError::Transport(message) if stderr.is_empty() => message,
+        OpenError::Transport(message) => format!("{}\n{}", message, stderr),
+    }
+}
+
+/// Spawns an agent that hosts no app session (a sign-in or a probe). Routing
+/// cannot answer its requests, so they are refused here and the agent never
+/// waits on us; its notifications go to `on_notification`.
+pub(super) fn spawn_unrouted(
+    cwd: &str,
+    launch: &AcpLaunch,
+    on_notification: impl Fn(&str, &Value) + Send + Sync + 'static,
+) -> Result<Arc<AcpConnection>, String> {
+    let connection_slot: Arc<OnceLock<Weak<AcpConnection>>> = Arc::new(OnceLock::new());
+    let sink_slot = Arc::clone(&connection_slot);
+    let sink: EventSink = Arc::new(move |event| match event {
+        ConnectionEvent::Request { id, .. } => {
+            if let Some(connection) = sink_slot.get().and_then(Weak::upgrade) {
+                let _ = connection.respond_error(&id, METHOD_NOT_FOUND, "Not available here");
+            }
+        }
+        ConnectionEvent::Notification { method, params } => on_notification(&method, &params),
+        ConnectionEvent::Exited { .. } => {}
+    });
+    let connection = AcpConnection::spawn(&launch.program, &launch.args, cwd, &launch.env, sink)?;
+    let _ = connection_slot.set(Arc::downgrade(&connection));
+    Ok(connection)
+}
+
 /// Initializes ACP and returns the agent's answer: capabilities and auth methods.
-fn initialize(connection: &AcpConnection) -> Result<Value, String> {
+pub(super) fn initialize(connection: &AcpConnection) -> Result<Value, String> {
     connection.request(
         "initialize",
         json!({

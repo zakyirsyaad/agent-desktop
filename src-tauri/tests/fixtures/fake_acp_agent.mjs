@@ -3,6 +3,7 @@
 //   "permission" -> asks the client for permission, then reports the choice
 //   "slow"       -> waits until the client sends session/cancel
 //   "crash"      -> exits with code 3 mid-turn
+//   "needs-login" -> refuses the prompt until the user signs in
 //   anything else -> echoes the text back as an agent message chunk
 import { createInterface } from "node:readline";
 
@@ -39,20 +40,32 @@ function handlePrompt(id, params) {
     return;
   }
   if (text === "crash") process.exit(3);
+  if (text === "needs-login") {
+    send({ id, error: { code: -32000, message: "Authentication required" } });
+    return;
+  }
   say(params.sessionId, `echo: ${text}`);
   reply(id, { stopReason: "end_turn" });
 }
 
 const handlers = {
-  initialize: (id) =>
+  initialize: (id) => {
+    // FAKE_ACP_AUTH_STATUS: pushes who is signed in, like Claude Code's adapter.
+    const authStatus = process.env.FAKE_ACP_AUTH_STATUS;
     reply(id, {
       protocolVersion: 1,
-      agentCapabilities: { loadSession: !process.env.FAKE_ACP_NO_LOAD, sessionCapabilities: { fork: {} } },
+      agentCapabilities: {
+        loadSession: !process.env.FAKE_ACP_NO_LOAD,
+        sessionCapabilities: { fork: {} },
+        ...(authStatus ? { _meta: { authStatus: {} } } : {}),
+      },
       authMethods: [
         { id: "browser", name: "Sign in with a browser" },
         { id: "api-key", name: "API key", description: "Set FAKE_API_KEY" },
       ],
-    }),
+    });
+    if (authStatus) send({ method: "_auth/status_update", params: { authStatus: { kind: authStatus } } });
+  },
   authenticate: (id, params) =>
     params.methodId === "browser"
       ? reply(id, {})
@@ -80,8 +93,9 @@ const handlers = {
       send({ id, error: { code: -32000, message: process.env.FAKE_ACP_AUTH_MESSAGE ?? "Authentication required" } });
       return;
     }
+    const sessionId = `fake-${nextSession++}`;
     reply(id, {
-      sessionId: `fake-${nextSession++}`,
+      sessionId,
       modes: {
         currentModeId: "default",
         availableModes: [
@@ -89,6 +103,24 @@ const handlers = {
           { id: "yolo", name: "YOLO" },
         ],
       },
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "fast",
+          options: [
+            { value: "fast", name: "Fast" },
+            { value: "smart", name: "Smart" },
+          ],
+        },
+      ],
+    });
+    // Like real agents, lists its slash commands just after the session opens.
+    update(sessionId, {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [{ name: "review", description: "Review the changes" }],
     });
   },
   "session/fork": (id) => reply(id, { sessionId: `fake-${nextSession++}` }),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { changesToApply, draftInfo, NO_CHOICES, rememberedChoice, withPreferred, type AgentOptions } from "../lib/acp-draft";
+import { changesToApply, draftInfo, NO_CHOICES, rememberedChoice, withPreferred, withProbed, type AgentOptions } from "../lib/acp-draft";
 
 const qwen: AgentOptions = {
   modes: {
@@ -127,5 +127,37 @@ describe("the model picked last", () => {
       { kind: "config", configId: "model", value: "qwen3-max" },
       { kind: "config", configId: "reasoning_effort", value: "high" },
     ]);
+  });
+});
+
+describe("withProbed", () => {
+  const probed = {
+    modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
+    configOptions: [
+      { id: "model", name: "Model", category: "model", type: "select", currentValue: "fast", options: [{ value: "fast", name: "Fast" }] },
+    ],
+    commands: [{ name: "review", description: "Review the changes" }],
+  } as unknown as Required<Pick<AgentOptions, "modes" | "configOptions" | "commands">>;
+
+  it("fills in what an agent that never ran offers", () => {
+    expect(withProbed(undefined, probed)).toEqual(probed);
+  });
+
+  it("keeps what a session reported: it is newer than a probe that started before it", () => {
+    const known: AgentOptions = {
+      modes: null,
+      configOptions: [{ ...probed.configOptions[0], currentValue: "smart" }],
+      commands: [{ name: "init", description: "Set up the project" }],
+      preferredConfig: { model: "smart" },
+    };
+
+    expect(withProbed(known, probed)).toEqual({ ...known, modes: probed.modes });
+  });
+
+  it("does not empty remembered commands when the probe heard none", () => {
+    const commands = [{ name: "init", description: "Set up the project" }];
+    const known: AgentOptions = { modes: null, configOptions: [], commands };
+
+    expect(withProbed(known, { ...probed, commands: [] }).commands).toEqual(commands);
   });
 });

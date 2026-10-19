@@ -366,3 +366,79 @@ fn reports_an_agent_error_without_its_stderr_noise() {
     assert!(error.contains("disk full"), "unexpected error: {error}");
     assert!(!error.contains("warming up"), "stderr leaked into: {error}");
 }
+
+fn with_env(mut launch: AcpLaunch, key: &str, value: &str) -> AcpLaunch {
+    launch.env.push((key.to_string(), value.to_string()));
+    launch
+}
+
+fn auth_methods_in(error: &str) -> Value {
+    let methods = error
+        .strip_prefix(zorvo_lib::acp::manager::AUTH_REQUIRED_PREFIX)
+        .unwrap_or_else(|| panic!("expected an auth-required error, got {error}"));
+    serde_json::from_str(methods).expect("auth methods as JSON")
+}
+
+#[test]
+fn reports_a_sign_in_when_the_agent_refuses_a_prompt_for_it() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "needs-login", &[]).unwrap();
+
+    let ended = wait_for(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
+    let AcpEvent::TurnEnded {
+        stop_reason: Err(error),
+        ..
+    } = ended
+    else {
+        panic!("expected a failed turn, got {ended:?}");
+    };
+    assert_eq!(auth_methods_in(&error)[0]["id"], "browser");
+    manager.stop("s-1");
+}
+
+#[test]
+fn probes_an_agent_for_its_options_and_commands_without_keeping_a_session() {
+    let (manager, _rx) = manager();
+
+    let probed = manager.probe(&cwd(), &fake_agent()).expect("probe");
+
+    assert_eq!(probed.modes["currentModeId"], "default");
+    assert_eq!(probed.config_options[0]["id"], "model");
+    assert_eq!(probed.commands[0]["name"], "review");
+    assert!(
+        manager.root_pids().is_empty(),
+        "the probe must not leave an agent running"
+    );
+}
+
+#[test]
+fn probing_reports_a_sign_in_when_the_agent_will_not_open_a_session() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_REQUIRED", "1");
+
+    let error = manager.probe(&cwd(), &launch).unwrap_err();
+
+    assert_eq!(auth_methods_in(&error)[0]["id"], "browser");
+}
+
+#[test]
+fn probing_reports_a_sign_in_when_the_agent_says_nobody_is_signed_in() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_STATUS", "none");
+
+    let error = manager.probe(&cwd(), &launch).unwrap_err();
+
+    assert_eq!(auth_methods_in(&error)[0]["id"], "browser");
+}
+
+#[test]
+fn probing_succeeds_when_the_agent_says_someone_is_signed_in() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_STATUS", "account");
+
+    let probed = manager.probe(&cwd(), &launch).expect("probe");
+
+    assert_eq!(probed.commands[0]["name"], "review");
+}
