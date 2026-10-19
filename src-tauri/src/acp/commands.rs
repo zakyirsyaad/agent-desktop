@@ -103,6 +103,14 @@ fn launch_with_store(store: &AppStore, profile_id: &str) -> Result<AcpLaunch, St
     launch_for(profile_id, &versions)
 }
 
+/// [`launch_with_store`] for an agent that runs in `cwd`, which must be one of
+/// the user's workspaces: a folder they opened, a session's folder or a
+/// session worktree (remembered when it is made).
+fn launch_in_workspace(store: &AppStore, cwd: &str, profile_id: &str) -> Result<AcpLaunch, String> {
+    ensure_known_workspace(cwd, |path| store.is_known_workspace(path))?;
+    launch_with_store(store, profile_id)
+}
+
 #[tauri::command(async)]
 pub fn acp_start_session(
     manager: State<'_, AcpManager>,
@@ -111,7 +119,11 @@ pub fn acp_start_session(
     cwd: String,
     profile_id: String,
 ) -> Result<StartedSession, String> {
-    manager.start(&session_id, &cwd, &launch_with_store(&store, &profile_id)?)
+    manager.start(
+        &session_id,
+        &cwd,
+        &launch_in_workspace(&store, &cwd, &profile_id)?,
+    )
 }
 
 /// Learns what an agent offers (modes, models, efforts, commands) before a
@@ -125,11 +137,9 @@ pub fn acp_probe_agent(
     cwd: String,
     needs_options: bool,
 ) -> Result<ProbedAgent, String> {
-    // It runs the agent in `cwd`, so only in one of the user's own folders.
-    ensure_known_workspace(&cwd, |path| store.is_known_workspace(path))?;
     manager.probe(
         &cwd,
-        &launch_with_store(&store, &profile_id)?,
+        &launch_in_workspace(&store, &cwd, &profile_id)?,
         needs_options,
     )
 }
@@ -143,7 +153,11 @@ pub fn acp_authenticate(
     cwd: String,
     method_id: String,
 ) -> Result<(), String> {
-    manager.authenticate(&cwd, &launch_with_store(&store, &profile_id)?, &method_id)
+    manager.authenticate(
+        &cwd,
+        &launch_in_workspace(&store, &cwd, &profile_id)?,
+        &method_id,
+    )
 }
 
 /// Resumes the agent's earlier session `acp_session_id` as app session `session_id`.
@@ -159,7 +173,7 @@ pub fn acp_load_session(
     manager.load(
         &session_id,
         &cwd,
-        &launch_with_store(&store, &profile_id)?,
+        &launch_in_workspace(&store, &cwd, &profile_id)?,
         &acp_session_id,
     )
 }
@@ -277,6 +291,63 @@ mod tests {
         assert!(launch_for("no-such-agent", &none)
             .unwrap_err()
             .contains("Unknown"));
+    }
+
+    /// A fresh store and an empty folder it does not know yet, both removed on drop.
+    struct Scratch {
+        root: std::path::PathBuf,
+    }
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let root = std::env::temp_dir()
+                .join(format!("zorvo-acp-commands-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(root.join("data")).expect("data dir");
+            std::fs::create_dir_all(root.join("folder")).expect("folder");
+            Self { root }
+        }
+
+        fn store(&self) -> AppStore {
+            AppStore::new(self.root.join("data"))
+        }
+
+        fn folder(&self) -> String {
+            self.root.join("folder").to_string_lossy().to_string()
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn an_agent_is_not_launched_in_a_folder_that_is_not_a_workspace() {
+        let scratch = Scratch::new("unknown");
+        let store = scratch.store();
+
+        let err = launch_in_workspace(&store, &scratch.folder(), "omp").unwrap_err();
+
+        assert!(
+            err.contains("is not one of your workspaces"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn an_agent_is_launched_in_a_remembered_workspace() {
+        let scratch = Scratch::new("known");
+        let store = scratch.store();
+        store
+            .remember_workspace(&scratch.folder())
+            .expect("remember");
+
+        // Past the folder check, the terminal-only agent is refused for its transport.
+        let err = launch_in_workspace(&store, &scratch.folder(), "omp").unwrap_err();
+
+        assert!(err.contains("does not support"), "unexpected: {err}");
     }
 
     #[test]
