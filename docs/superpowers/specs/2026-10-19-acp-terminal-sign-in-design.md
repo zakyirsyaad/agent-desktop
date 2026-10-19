@@ -174,8 +174,9 @@ agent.
 The sign-in uses these PTY pieces unchanged; sub-project 5 must keep them:
 `PtySessionManager`, the `send_input`, `resize_session` and
 `terminate_session` commands, `PtyOutputStore` and `TerminalView`. `end_orphaned_sessions`
-(`kill_all`) already ends a sign-in terminal left behind by a webview reload
-or by quitting.
+(`kill_all`) already ends a sign-in terminal left behind by a webview reload.
+Quitting does not run `kill_all`: on quit the login ends when its PTY
+closes.
 
 ## Frontend
 
@@ -208,11 +209,17 @@ A modal dialog (`role="dialog"`, `aria-modal`, focus trapped, design tokens,
 | Starting | "Starting {agent}…" (the short `initialize`) | Cancel |
 | Running | "Finish signing in in the terminal. Zorvo continues when it closes." | Cancel |
 | Checking | "Checking your sign-in…" | Cancel (stops waiting; the login already ended) |
-| Failed | The reason, with the terminal output left on screen | Try again, Close |
+| Failed | The reason, with the terminal output left on screen | Try again, Close (Close only when the agent no longer offers the method) |
 | Signed in | The dialog closes by itself | — |
 
+Focus moves to Cancel, or to Try again (Close when there is none) in
+Failed, when the dialog opens and when its state changes; while the login
+runs, the terminal has it. Tab stays inside the dialog, and focus goes back
+to what opened it when it closes.
+
 X, Esc and Cancel while the login runs call `terminate_session`; the
-sign-in ends as "Sign-in cancelled". Failure reasons: "The sign-in ended
+dialog closes and the panel returns to idle with the message left in the
+composer. Failure reasons: "The sign-in ended
 with code N", "Sign-in cancelled", "{agent} still says you are signed
 out", or the error of `acp_start_terminal_sign_in`.
 
@@ -221,7 +228,9 @@ out", or the error of `acp_start_terminal_sign_in`.
 Drives one terminal sign-in: makes `signin-<uuid>`, calls
 `acp_start_terminal_sign_in`, follows the `sign-in-terminal` events of
 that id, and
-resolves to success, failure or cancellation. It owns the dialog state, so
+resolves to success, failure or cancellation. A new sign-in request
+(another agent, or another session refused) ends a login still running and
+closes its dialog. It owns the dialog state, so
 `App.tsx` only renders the dialog.
 
 ### The re-check
@@ -257,7 +266,9 @@ sign-in of either kind:
      still signed out, as Claude Agent does): stop that session's
      connection and open it again with `session/load` when the agent
      supports it, otherwise with a new ACP session in the same app
-     session, then send the message. This is the reconnect and
+     session, then send the message. A `session/load` that fails for a
+     reason other than a sign-in (a session that never had a turn the
+     agent kept) falls back to a new ACP session. This is the reconnect and
      reinitialize ACP asks for. Other sessions on the old process are
      handled the same way if they are refused later.
 2. Otherwise the panel says "Signed in to {agent}. Send your message
@@ -282,11 +293,13 @@ today. Popouts do not show them.
 | The agent no longer lists the method, or it is not `type: "terminal"` | The command fails with `ACP_AUTH_REQUIRED:` and the methods `initialize` just reported; the dialog says "{agent} no longer offers this sign-in" and the panel shows those methods |
 | `args` or `env` break a rule | Refused whole; the message names the reason |
 | `initialize` fails or times out | The error with the agent's stderr tail |
-| Exit code not 0, a signal, or Cancel | Failed; the output stays; Try again |
+| Exit code not 0 or a signal | Failed; the output stays; Try again |
+| Cancel, X or Esc | The login is stopped, the dialog closes and the panel returns to idle |
 | Exit 0 but the re-check says signed out | "{agent} still says you are signed out" |
 | The login never ends | No timeout; the user cancels |
-| Webview reload or quit | `kill_all` ends the sign-in terminal |
-| Retry after sign-in fails | Reported like any failed start or prompt; a new refusal opens the panel again |
+| Webview reload | `end_orphaned_sessions` (`kill_all`) ends the sign-in terminal |
+| Quit | The login ends when its PTY closes |
+| Retry after sign-in fails | Reported like any failed start or prompt, and the message goes back to its session's composer; a new refusal opens the panel again |
 
 ## Security
 
@@ -327,8 +340,9 @@ Frontend:
 - `AuthPanel` shows buttons for `agent` and `terminal` methods only, and
   disables them while a sign-in runs.
 - The dialog goes Starting → Running → Checking → closed on success; a
-  non-zero exit, a cancel (`terminate_session` called) and "still signed
-  out" each end in Failed with Try again.
+  non-zero exit and "still signed out" each end in Failed with Try again; a
+  cancel calls `terminate_session`, closes the dialog and returns the panel
+  to idle.
 - After a sign-in, the refused message is sent only when the composer still
   holds it unchanged; otherwise the panel asks to send again.
 - A session refused at a prompt is stopped and reopened before the message
