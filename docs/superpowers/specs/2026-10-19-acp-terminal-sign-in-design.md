@@ -151,8 +151,14 @@ pub fn acp_start_terminal_sign_in(
    lands, the same installed program).
 3. `manager.terminal_login(&cwd, &launch, &method_id)`.
 4. `pty.start_session(&terminal_id, &cwd, &login.program, &login.args, &login.env)`.
-5. Returns once the PTY runs. Output and exit arrive as the existing
-   `pty-output` and `pty-exit` events.
+5. Returns once the PTY runs.
+
+Output and exit of a `signin-` terminal go out on their own event,
+`sign-in-terminal` (`{ terminalId, kind: "output", data }` or
+`{ terminalId, kind: "exit", exitCode }`), instead of `pty-output` and
+`pty-exit`. The PTY engine turns every `pty-output` into chat messages of a
+session, so a login's output must not reach it; a separate channel also lets
+sub-project 5 remove that engine without touching the sign-in.
 
 It is registered in `lib.rs`'s `generate_handler!`.
 
@@ -167,8 +173,7 @@ agent.
 
 The sign-in uses these PTY pieces unchanged; sub-project 5 must keep them:
 `PtySessionManager`, the `send_input`, `resize_session` and
-`terminate_session` commands, the `pty-output`/`pty-exit` events,
-`usePtyEvents`, `PtyOutputStore` and `TerminalView`. `end_orphaned_sessions`
+`terminate_session` commands, `PtyOutputStore` and `TerminalView`. `end_orphaned_sessions`
 (`kill_all`) already ends a sign-in terminal left behind by a webview reload
 or by quitting.
 
@@ -196,7 +201,7 @@ line" hint shows only when no method has a button.
 A modal dialog (`role="dialog"`, `aria-modal`, focus trapped, design tokens,
 `shadow-dialog`, `focus-ring` on every control), titled
 "Sign in to {agent}", with the method name under the title and a
-`TerminalView` fed by `PtyOutputStore` for the `terminalId`.
+`TerminalView` fed by a `PtyOutputStore` of its own for the `terminalId`.
 
 | State | Shown | Controls |
 |---|---|---|
@@ -214,7 +219,8 @@ out", or the error of `acp_start_terminal_sign_in`.
 ### `useTerminalSignIn` (new hook)
 
 Drives one terminal sign-in: makes `signin-<uuid>`, calls
-`acp_start_terminal_sign_in`, waits for the `pty-exit` of that id, and
+`acp_start_terminal_sign_in`, follows the `sign-in-terminal` events of
+that id, and
 resolves to success, failure or cancellation. It owns the dialog state, so
 `App.tsx` only renders the dialog.
 
