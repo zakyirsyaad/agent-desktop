@@ -11,6 +11,8 @@ export interface AgentProbeDeps {
   agent: AgentProfile | undefined;
   /** The folder it would start in; nothing is asked before one is chosen. */
   cwd: string | undefined;
+  /** Whether the agent's options are remembered: then no session is opened, only the sign-in is read. */
+  isKnown: (profileId: string) => boolean;
   onProbed: (profileId: string, options: ProbedOptions) => void;
   onAuthRequired: (profileId: string, cwd: string, methods: AuthMethod[]) => void;
 }
@@ -19,18 +21,19 @@ export interface AgentProbeDeps {
  * Asks an ACP agent, as soon as it is picked for a new session, what it
  * offers (modes, models, efforts, slash commands) and whether it needs a
  * sign-in, so the composer shows its choices before the first message and
- * the user signs in before writing one. Each agent is asked once per run;
+ * the user signs in before writing one. An agent whose options are known
+ * is only asked whether someone is signed in. Each agent is asked once per run;
  * one that needs a sign-in is asked again when picked again, or through
  * `reprobe` once the user signed in.
  */
-export function useAgentProbe({ agent, cwd, onProbed, onAuthRequired }: AgentProbeDeps) {
+export function useAgentProbe({ agent, cwd, isKnown, onProbed, onAuthRequired }: AgentProbeDeps) {
   // Agents being asked now; several can be, when the user switches while one starts.
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const probedRef = useRef(new Set<string>());
   const pendingRef = useRef(new Set<string>());
   // Bumped by `reprobe`, so the agent in view is asked again.
   const [round, setRound] = useState(0);
-  const callbacksRef = useLatest({ onProbed, onAuthRequired });
+  const callbacksRef = useLatest({ isKnown, onProbed, onAuthRequired });
   const agentId = agent?.transport === TRANSPORT_ACP ? agent.id : undefined;
   // The agent picked now: a sign-in is asked for only while it still is.
   const currentRef = useLatest(agentId);
@@ -40,7 +43,9 @@ export function useAgentProbe({ agent, cwd, onProbed, onAuthRequired }: AgentPro
     if (probedRef.current.has(agentId) || pendingRef.current.has(agentId)) return;
     pendingRef.current.add(agentId);
     setPending(new Set(pendingRef.current));
-    invoke('acp_probe_agent', { profileId: agentId, cwd })
+    // Opening a session can run the agent's own hooks and leaves it in its history: only for an agent never seen.
+    const openSession = !callbacksRef.current.isKnown(agentId);
+    invoke('acp_probe_agent', { profileId: agentId, cwd, openSession })
       .then((raw) => {
         // No answer to read: keep what is remembered rather than wipe it.
         if (typeof raw !== 'object' || raw === null) return;

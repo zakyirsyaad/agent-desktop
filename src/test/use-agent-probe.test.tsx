@@ -34,8 +34,15 @@ function probeCalls(spy: { mock: { calls: unknown[][] } }) {
   return spy.mock.calls.filter(([cmd]) => cmd === "acp_probe_agent");
 }
 
-function deps(overrides: { agent?: AgentProfile; cwd?: string } = {}) {
-  return { agent: QWEN, cwd: CWD as string | undefined, onProbed: vi.fn(), onAuthRequired: vi.fn(), ...overrides };
+function deps(overrides: { agent?: AgentProfile; cwd?: string; isKnown?: (id: string) => boolean } = {}) {
+  return {
+    agent: QWEN,
+    cwd: CWD as string | undefined,
+    isKnown: (_id: string) => false,
+    onProbed: vi.fn(),
+    onAuthRequired: vi.fn(),
+    ...overrides,
+  };
 }
 
 describe("useAgentProbe", () => {
@@ -48,7 +55,7 @@ describe("useAgentProbe", () => {
     const { result } = renderHook(() => useAgentProbe(props));
 
     await waitFor(() => expect(props.onProbed).toHaveBeenCalledTimes(1));
-    expect(probeCalls(spy)[0][1]).toEqual({ profileId: "qwen", cwd: CWD });
+    expect(probeCalls(spy)[0][1]).toEqual({ profileId: "qwen", cwd: CWD, openSession: true });
     const [profileId, options] = props.onProbed.mock.calls[0];
     expect(profileId).toBe("qwen");
     expect(options.modes?.currentModeId).toBe("default");
@@ -149,5 +156,15 @@ describe("useAgentProbe", () => {
 
     expect(result.current.isProbing("codex")).toBe(false);
     expect(result.current.isProbing("qwen")).toBe(true);
+  });
+
+  it("only asks who is signed in when the agent's options are already known, opening no session", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockResolvedValue(structuredClone(PROBED));
+    const props = deps({ isKnown: (id) => id === "qwen" });
+
+    renderHook(() => useAgentProbe(props));
+
+    await waitFor(() => expect(props.onProbed).toHaveBeenCalledTimes(1));
+    expect(probeCalls(spy)[0][1]).toEqual({ profileId: "qwen", cwd: CWD, openSession: false });
   });
 });

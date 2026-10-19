@@ -9,7 +9,9 @@ use tauri::State;
 use super::manager::{AcpEvent, AcpLaunch, AcpManager, StartedSession};
 use super::probe::ProbedAgent;
 use crate::env_resolver::cached_user_env;
+use crate::files::ensure_known_workspace;
 use crate::profiles::{get_available_agent_profiles, TRANSPORT_ACP};
+use crate::store::AppStore;
 
 /// The single event channel the UI listens on for every ACP session.
 pub const ACP_EVENT: &str = "acp-event";
@@ -87,14 +89,19 @@ pub fn acp_start_session(
 }
 
 /// Learns what an agent offers (modes, models, efforts, commands) before a
-/// session starts, or that it needs a sign-in first.
+/// session starts, or that it needs a sign-in first. `open_session` is for an
+/// agent whose options are not known yet; otherwise only the sign-in is read.
 #[tauri::command(async)]
 pub fn acp_probe_agent(
     manager: State<'_, AcpManager>,
+    store: State<'_, AppStore>,
     profile_id: String,
     cwd: String,
+    open_session: bool,
 ) -> Result<ProbedAgent, String> {
-    manager.probe(&cwd, &launch_for(&profile_id)?)
+    // It runs the agent in `cwd`, so only in one of the user's own folders.
+    ensure_known_workspace(&cwd, |path| store.is_known_workspace(path))?;
+    manager.probe(&cwd, &launch_for(&profile_id)?, open_session)
 }
 
 /// Signs in to an agent with one of the auth methods it reported.

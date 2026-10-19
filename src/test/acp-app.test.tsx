@@ -471,6 +471,51 @@ describe("ACP sessions in the app", () => {
     expect(panel.getByRole("button", { name: "Sign in with ChatGPT" })).toBeDefined();
   });
 
+  it("asks a signed-out agent again when the user comes back to the window, and clears the panel once someone is signed in", async () => {
+    realInvoke = tauriInternals().invoke;
+    let signedIn = false;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "acp_probe_agent"
+        ? signedIn
+          ? Promise.resolve({ modes: null, configOptions: [], commands: [] })
+          : Promise.reject(`ACP_AUTH_REQUIRED:${JSON.stringify([])}`)
+        : realInvoke(cmd, args)
+    );
+    fakeStore().state.settings.defaultAgentId = "qwen";
+    await act(async () => {
+      render(<App />);
+    });
+    expect(await screen.findByRole("region", { name: "Sign in to Qwen Code" })).toBeDefined();
+
+    // Signed in with the agent's own tool, in a terminal.
+    signedIn = true;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Sign in to Qwen Code" })).toBeNull());
+  });
+
+  it("does not say the agent's options are loading once its session runs", async () => {
+    realInvoke = tauriInternals().invoke;
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "acp_probe_agent" ? new Promise(() => {}) : realInvoke(cmd, args)
+    );
+    fakeStore().state.settings.defaultAgentId = "qwen";
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    expect(await screen.findByText(/Loading Qwen Code's models and commands/)).toBeDefined();
+
+    await send("hello");
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
+
+    expect(screen.queryByText(/Loading Qwen Code's models and commands/)).toBeNull();
+  });
+
   it("continues an ended ACP session with the agent's own session/load", async () => {
     fakeStore().state.sessions = [
       {

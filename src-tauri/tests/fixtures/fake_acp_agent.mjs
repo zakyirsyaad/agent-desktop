@@ -5,6 +5,7 @@
 //   "crash"      -> exits with code 3 mid-turn
 //   "needs-login" -> refuses the prompt until the user signs in
 //   anything else -> echoes the text back as an agent message chunk
+import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 let nextSession = 1;
@@ -56,7 +57,7 @@ const handlers = {
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: !process.env.FAKE_ACP_NO_LOAD,
-        sessionCapabilities: { fork: {} },
+        sessionCapabilities: { fork: {}, delete: {} },
         ...(authStatus ? { _meta: { authStatus: {} } } : {}),
       },
       authMethods: [
@@ -118,11 +119,12 @@ const handlers = {
       ],
     });
     // Like real agents, lists its slash commands just after the session opens.
-    update(sessionId, {
+    if (!process.env.FAKE_ACP_NO_COMMANDS) update(sessionId, {
       sessionUpdate: "available_commands_update",
       availableCommands: [{ name: "review", description: "Review the changes" }],
     });
   },
+  "session/delete": (id) => reply(id, {}),
   "session/fork": (id) => reply(id, { sessionId: `fake-${nextSession++}` }),
   "session/prompt": handlePrompt,
   "session/set_mode": (id, params) => {
@@ -133,6 +135,8 @@ const handlers = {
 
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
+  // FAKE_ACP_METHOD_LOG: records each method the client called, one per line.
+  if (process.env.FAKE_ACP_METHOD_LOG && message.method) appendFileSync(process.env.FAKE_ACP_METHOD_LOG, `${message.method}\n`);
   if (message.method === "session/cancel" && pendingSlow) {
     reply(pendingSlow.promptId, { stopReason: "cancelled" });
     pendingSlow = null;

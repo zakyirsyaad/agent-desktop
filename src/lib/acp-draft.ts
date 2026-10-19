@@ -130,6 +130,11 @@ export function withRewound(
   return { ...options, [agentId]: { modes: null, ...options?.[agentId], ...rewound } };
 }
 
+/** Whether an agent ever reported what it offers, so a probe need not open a session to learn it. */
+export function hasReportedOptions(options: AgentOptions | undefined): boolean {
+  return Boolean(options && (options.modes || options.configOptions.length > 0 || options.commands?.length));
+}
+
 /** What a probe learned about an agent: its modes, config options and slash commands. */
 export type ProbedOptions = Required<Pick<AgentOptions, 'modes' | 'configOptions' | 'commands'>>;
 

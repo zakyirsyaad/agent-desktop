@@ -402,7 +402,7 @@ fn reports_a_sign_in_when_the_agent_refuses_a_prompt_for_it() {
 fn probes_an_agent_for_its_options_and_commands_without_keeping_a_session() {
     let (manager, _rx) = manager();
 
-    let probed = manager.probe(&cwd(), &fake_agent()).expect("probe");
+    let probed = manager.probe(&cwd(), &fake_agent(), true).expect("probe");
 
     assert_eq!(probed.modes["currentModeId"], "default");
     assert_eq!(probed.config_options[0]["id"], "model");
@@ -418,7 +418,7 @@ fn probing_reports_a_sign_in_when_the_agent_will_not_open_a_session() {
     let (manager, _rx) = manager();
     let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_REQUIRED", "1");
 
-    let error = manager.probe(&cwd(), &launch).unwrap_err();
+    let error = manager.probe(&cwd(), &launch, true).unwrap_err();
 
     assert_eq!(auth_methods_in(&error)[0]["id"], "browser");
 }
@@ -428,7 +428,7 @@ fn probing_reports_a_sign_in_when_the_agent_says_nobody_is_signed_in() {
     let (manager, _rx) = manager();
     let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_STATUS", "none");
 
-    let error = manager.probe(&cwd(), &launch).unwrap_err();
+    let error = manager.probe(&cwd(), &launch, true).unwrap_err();
 
     assert_eq!(auth_methods_in(&error)[0]["id"], "browser");
 }
@@ -438,7 +438,78 @@ fn probing_succeeds_when_the_agent_says_someone_is_signed_in() {
     let (manager, _rx) = manager();
     let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_STATUS", "account");
 
-    let probed = manager.probe(&cwd(), &launch).expect("probe");
+    let probed = manager.probe(&cwd(), &launch, true).expect("probe");
 
     assert_eq!(probed.commands[0]["name"], "review");
+}
+
+/// A fresh file the fake agent records the methods it was called with in.
+fn method_log(name: &str) -> std::path::PathBuf {
+    let path =
+        std::env::temp_dir().join(format!("zorvo-probe-{}-{}.log", name, std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    path
+}
+
+fn methods_in(path: &std::path::Path) -> Vec<String> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn probing_deletes_the_session_it_opened() {
+    let (manager, _rx) = manager();
+    let log = method_log("delete");
+    let launch = with_env(fake_agent(), "FAKE_ACP_METHOD_LOG", log.to_str().unwrap());
+
+    manager.probe(&cwd(), &launch, true).expect("probe");
+
+    let methods = methods_in(&log);
+    assert!(methods.contains(&"session/new".to_string()), "{methods:?}");
+    assert!(
+        methods.contains(&"session/delete".to_string()),
+        "{methods:?}"
+    );
+}
+
+#[test]
+fn probing_an_agent_whose_options_are_known_opens_no_session() {
+    let (manager, _rx) = manager();
+    let log = method_log("light");
+    let launch = with_env(fake_agent(), "FAKE_ACP_METHOD_LOG", log.to_str().unwrap());
+
+    let probed = manager.probe(&cwd(), &launch, false).expect("probe");
+
+    assert_eq!(methods_in(&log), vec!["initialize".to_string()]);
+    assert!(probed.modes.is_null());
+}
+
+#[test]
+fn probing_without_a_session_still_reports_that_nobody_is_signed_in() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_STATUS", "none");
+
+    let error = manager.probe(&cwd(), &launch, false).unwrap_err();
+
+    assert_eq!(auth_methods_in(&error)[0]["id"], "browser");
+}
+
+#[test]
+fn probing_does_not_wait_long_for_commands_an_agent_never_sends() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_NO_COMMANDS", "1");
+    let started = std::time::Instant::now();
+
+    let probed = manager.probe(&cwd(), &launch, true).expect("probe");
+
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(probed.commands, Value::Array(vec![]));
+    assert_eq!(probed.config_options[0]["id"], "model");
 }

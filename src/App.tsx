@@ -70,6 +70,7 @@ import { resolveDefaultAgentId } from "./lib/agent-readiness";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
 import {
+  hasReportedOptions,
   NO_CHOICES,
   rememberedChoice,
   withPreferred,
@@ -202,11 +203,15 @@ export default function App() {
   const agentProbe = useAgentProbe({
     agent: isActiveRunning ? undefined : draftAgent,
     cwd: shownFolderPath ?? undefined,
-    onProbed: (profileId: string, probed: ProbedOptions) =>
+    isKnown: (profileId) => hasReportedOptions(state.agentOptions?.[profileId]),
+    onProbed: (profileId: string, probed: ProbedOptions) => {
       updateState((prev) => ({
         ...prev,
         agentOptions: { ...prev.agentOptions, [profileId]: withProbed(prev.agentOptions?.[profileId], probed) },
-      })),
+      }));
+      // The agent answered without asking for a sign-in: someone signed in, maybe in a terminal.
+      if (authRequest?.profileId === profileId && authRequest.status !== "signing-in") dismissSignIn();
+    },
     onAuthRequired: (profileId, cwd, methods) => {
       // A sign-in already under way for this agent (a refused start) is not reset by the probe's own answer.
       if (authRequest?.profileId !== profileId) requestSignIn(profileId, cwd, methods);
@@ -218,6 +223,17 @@ export default function App() {
   useEffect(() => {
     if (signedInAgentId) reprobe(signedInAgentId);
   }, [signedInAgentId, reprobe]);
+  // An agent whose sign-in runs in a terminal is signed in outside the app: ask it again when the user comes back.
+  const awaitingSignInAgentId =
+    authRequest && authRequest.status !== "signing-in" && authRequest.status !== "signed-in"
+      ? authRequest.profileId
+      : undefined;
+  useEffect(() => {
+    if (!awaitingSignInAgentId) return;
+    const askAgain = () => reprobe(awaitingSignInAgentId);
+    window.addEventListener("focus", askAgain);
+    return () => window.removeEventListener("focus", askAgain);
+  }, [awaitingSignInAgentId, reprobe]);
 
   // Read when an agent answers, seconds after the closure that waits for it was made.
   const activeSessionIdRef = useLatest(activeSessionId);
@@ -714,7 +730,7 @@ export default function App() {
               handleRef={composerRef}
               commands={composerCommands}
               note={
-                draftAgent && agentProbe.isProbing(draftAgent.id)
+                !isActiveRunning && draftAgent && agentProbe.isProbing(draftAgent.id)
                   ? `Loading ${draftAgent.name}'s models and commands…`
                   : undefined
               }

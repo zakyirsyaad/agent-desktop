@@ -86,7 +86,9 @@ export function useAcpEngine({
   // end the agent as soon as it is up.
   const stoppedRef = useRef(new Set<string>());
   // Each session's latest prompt: an agent that refuses it for a sign-in hands it back to the composer.
-  const lastPromptRef = useRef(new Map<string, ChatMessage>());
+  const lastPromptRef = useRef(new Map<string, { message: ChatMessage; context?: string }>());
+  // Hidden context a refused prompt carried (a rewound session's conversation): it goes out with the next message.
+  const unsentContextRef = useRef(new Map<string, string>());
   const ctx = (sessionId: string) => ({ sessionId, now: Date.now(), createId });
   const isStopped = (sessionId: string) => stoppedRef.current.has(sessionId);
   const unlessStopped =
@@ -149,9 +151,11 @@ export function useAcpEngine({
   /** The agent opened the session but refused the prompt until the user signs in. */
   const handBackForSignIn = (sessionId: string, methods: AuthMethod[]) => {
     const session = sessions.find((s) => s.id === sessionId);
-    const message = lastPromptRef.current.get(sessionId);
+    const refused = lastPromptRef.current.get(sessionId);
     lastPromptRef.current.delete(sessionId);
+    const message = refused?.message;
     if (message) updateMessages(sessionId, (prev) => withoutMessage(prev, message.id));
+    if (refused?.context) unsentContextRef.current.set(sessionId, refused.context);
     if (!session) return;
     const unsent = message ? { text: message.content, attachments: message.attachments } : undefined;
     onAuthRequired(session, methods, unsent);
@@ -161,11 +165,13 @@ export function useAcpEngine({
 
   /** Prompts the agent with a message already shown in the chat; removes it if the prompt is refused. */
   const prompt = async (sessionId: string, message: ChatMessage, context?: string): Promise<boolean> => {
-    lastPromptRef.current.set(sessionId, message);
+    lastPromptRef.current.set(sessionId, { message, context });
     try {
       await acp.prompt(sessionId, context ? `${context}\n\n${message.content}` : message.content, message.attachments);
       return true;
     } catch (error) {
+      lastPromptRef.current.delete(sessionId);
+      if (context) unsentContextRef.current.set(sessionId, context);
       updateMessages(sessionId, (prev) => withoutMessage(prev, message.id));
       reportError(`Failed to send the message: ${String(error)}`);
       return false;
@@ -177,7 +183,9 @@ export function useAcpEngine({
     // Shown before the prompt goes out, so the agent's reply always lands after it.
     const message = userMessage(text, attachments);
     updateMessages(sessionId, (prev) => [...prev, message]);
-    return prompt(sessionId, message);
+    const context = unsentContextRef.current.get(sessionId);
+    unsentContextRef.current.delete(sessionId);
+    return prompt(sessionId, message, context);
   };
 
   /**

@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { changesToApply, draftInfo, NO_CHOICES, rememberedChoice, withPreferred, withProbed, type AgentOptions } from "../lib/acp-draft";
+import {
+  changesToApply,
+  draftInfo,
+  hasReportedOptions,
+  NO_CHOICES,
+  rememberedChoice,
+  withPreferred,
+  withProbed,
+  type AgentOptions,
+} from "../lib/acp-draft";
 
 const qwen: AgentOptions = {
   modes: {
@@ -159,5 +168,14 @@ describe("withProbed", () => {
     const known: AgentOptions = { modes: null, configOptions: [], commands };
 
     expect(withProbed(known, { ...probed, commands: [] }).commands).toEqual(commands);
+  });
+});
+
+describe("hasReportedOptions", () => {
+  it("is true once the agent reported modes, options or commands, and false for a bare model pick", () => {
+    expect(hasReportedOptions(undefined)).toBe(false);
+    expect(hasReportedOptions({ modes: null, configOptions: [], preferredConfig: { model: "fast" } })).toBe(false);
+    expect(hasReportedOptions({ modes: null, configOptions: [], commands: [{ name: "init", description: "Set up" }] })).toBe(true);
+    expect(hasReportedOptions({ modes: { currentModeId: "default", availableModes: [] }, configOptions: [] })).toBe(true);
   });
 });
