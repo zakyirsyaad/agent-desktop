@@ -118,7 +118,7 @@ Each registry agent gets one availability:
 
 | Availability | When |
 |---|---|
-| `ready` | It can run now: an `npx` agent with `npx` found, a `uvx` agent with `uvx` found, a binary agent whose `cmd` is on `PATH` |
+| `ready` | It can run now: an `npx` agent with `npx` found, a `uvx` agent with `uvx` found, a binary agent whose `cmd` is on `PATH` outside Apple's system tool directories (`/usr/bin`, `/bin`, `/usr/sbin`, `/sbin`, `/System/`, `/Library/Developer/`, `/Applications/Xcode*`) |
 | `needs_runtime` | An `npx` or `uvx` agent while Node.js or `uv` is missing (Zorvo's own runtimes come in sub-project 2) |
 | `not_installed` | A binary agent not on `PATH` (Zorvo's installer comes in sub-project 2) |
 
@@ -130,7 +130,7 @@ cannot decide what the sidebar shows. The agents the user uses are kept in
    and new users.
 2. An agent found installed on the system is enabled automatically, once:
    - a binary agent whose `cmd` (for example `opencode`, `goose`) is on
-     `PATH`;
+     `PATH` outside Apple's system tool directories;
    - an `npx` agent whose package (without version) is installed globally,
      read once per refresh from `npm ls -g --depth=0 --json` with the
      user's own `npm`.
@@ -225,6 +225,12 @@ An entry is skipped, with the rest of the registry kept, when:
 - a `binary` entry for this Mac's platform has an archive URL that is not
   `https`, or a `sha256` that is not 64 hex digits;
 - its `cmd` is an absolute path or contains `..`;
+- its `cmd`'s file name, lower-cased, is a general-purpose program (`git`,
+  `awk`, `sed`, `ssh`, `curl`, `make`, `env`, `sudo`, `osascript`, a shell,
+  a package runner such as `npx` or `uvx`, ...) or starts like an
+  interpreter or runtime (`python`, `pip`, `node`, `ruby`, `perl`, `php`,
+  `lua`, `java`, `swift`, `pwsh`, `powershell`), since a binary agent is
+  found on `PATH` by that name;
 - it has no `distribution`, or more than one kind.
 
 The whole fetch is rejected, and the cached registry kept, when the

@@ -2,6 +2,7 @@
 //! The webview never supplies a program or args; they come from the pinned entry.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use crate::env_resolver::find_binary_in_path_str;
 use crate::profiles::{AgentProfile, TRANSPORT_ACP};
@@ -39,6 +40,39 @@ impl SystemTools<'_> {
             .and_then(|path_var| find_binary_in_path_str(binary, path_var))
             .map(|path| path.to_string_lossy().to_string())
     }
+
+    /// The first `binary` on `PATH` that is not one of Apple's system tools,
+    /// so a binary agent named like one never counts as installed.
+    fn locate_user_installed(&self, binary: &str) -> Option<String> {
+        self.path_var?
+            .split(':')
+            .filter_map(|dir| find_binary_in_path_str(binary, dir))
+            .find(|path| !is_system_tool(path))
+            .map(|path| path.to_string_lossy().to_string())
+    }
+}
+
+/// Where Apple keeps its own command-line tools and developer tools.
+pub const SYSTEM_TOOL_DIRS: &[&str] = &[
+    "/usr/bin/",
+    "/bin/",
+    "/usr/sbin/",
+    "/sbin/",
+    "/System/",
+    "/Library/Developer/",
+    "/Applications/Xcode",
+];
+
+/// True when `path` is inside one of [`SYSTEM_TOOL_DIRS`].
+pub fn is_system_tool_path(path: &str) -> bool {
+    SYSTEM_TOOL_DIRS.iter().any(|dir| path.starts_with(dir))
+}
+
+/// [`is_system_tool_path`] for `path` as found or as it resolves through symlinks.
+fn is_system_tool(path: &Path) -> bool {
+    is_system_tool_path(&path.to_string_lossy())
+        || std::fs::canonicalize(path)
+            .is_ok_and(|real| is_system_tool_path(&real.to_string_lossy()))
 }
 
 /// `@scope/name@1.2.3` -> `@scope/name`; `name@1` -> `name`.
@@ -54,29 +88,31 @@ fn basename(cmd: &str) -> &str {
 }
 
 pub fn resolve_profile(entry: &RegistryEntry, tools: &SystemTools, listed: bool) -> AgentProfile {
-    let (kind, program, args, installed_on_system) = match &entry.distribution {
+    let (kind, program, args, program_path, installed_on_system) = match &entry.distribution {
         Distribution::Npx { package, args, .. } => (
             "npx",
             "npx".to_string(),
             [vec!["-y".to_string(), package.clone()], args.clone()].concat(),
+            tools.locate("npx"),
             tools.npm_globals.contains(package_name(package)),
         ),
         Distribution::Uvx { package, args, .. } => (
             "uvx",
             "uvx".to_string(),
             [vec![package.clone()], args.clone()].concat(),
+            tools.locate("uvx"),
             false,
         ),
         Distribution::Binary { platforms } => {
             let target = platforms.get(current_platform());
             let program = target.map_or_else(String::new, |t| basename(&t.cmd).to_string());
             let args = target.map_or_else(Vec::new, |t| t.args.clone());
-            let installed = tools.locate(&program).is_some();
-            ("binary", program, args, installed)
+            let path = tools.locate_user_installed(&program);
+            let installed = path.is_some();
+            ("binary", program, args, path, installed)
         }
     };
 
-    let program_path = tools.locate(&program);
     let availability = match (&program_path, kind) {
         (Some(_), _) => AVAILABILITY_READY,
         (None, "binary") => AVAILABILITY_NOT_INSTALLED,

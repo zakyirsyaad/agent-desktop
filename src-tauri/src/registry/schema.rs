@@ -297,48 +297,67 @@ fn is_valid_binary_target(target: &BinaryTarget) -> bool {
 /// Programs a Mac may already have that run whatever they are given. A binary
 /// agent is found on `PATH` by its `cmd`'s file name, so one named like these
 /// would count as installed and run the registry's args with that program.
-const GENERIC_PROGRAMS: [&str; 33] = [
-    "node",
-    "nodejs",
-    "python",
-    "python2",
-    "python3",
-    "pythonw",
-    "bash",
+const GENERIC_PROGRAMS: &[&str] = &[
+    "git",
+    "awk",
+    "gawk",
+    "nawk",
+    "sed",
+    "tclsh",
+    "wish",
+    "expect",
+    "ssh",
+    "scp",
+    "curl",
+    "wget",
+    "make",
+    "xargs",
+    "env",
+    "sudo",
+    "open",
+    "osascript",
     "sh",
+    "bash",
     "zsh",
     "fish",
     "dash",
     "ksh",
     "csh",
     "tcsh",
-    "ruby",
-    "perl",
-    "php",
-    "osascript",
-    "env",
+    "deno",
+    "bun",
     "npx",
     "npm",
     "pnpm",
     "yarn",
     "uv",
     "uvx",
-    "pip",
-    "pip3",
-    "deno",
-    "bun",
-    "java",
-    "sudo",
-    "open",
-    "xargs",
 ];
 
-/// True when `cmd`'s file name is an interpreter, shell or package runner (any case).
+/// Interpreter and runtime families, matched as a prefix so versioned names
+/// (`python3.12`, `node22`, `lua5.4`) are caught too.
+const GENERIC_PROGRAM_PREFIXES: &[&str] = &[
+    "python",
+    "pip",
+    "node",
+    "ruby",
+    "perl",
+    "php",
+    "lua",
+    "java",
+    "swift",
+    "pwsh",
+    "powershell",
+];
+
+/// True when `cmd`'s file name (any case) is a general-purpose program or
+/// starts like an interpreter or runtime.
 fn is_generic_program(cmd: &str) -> bool {
-    let name = cmd.rsplit('/').next().unwrap_or(cmd);
-    GENERIC_PROGRAMS
-        .iter()
-        .any(|generic| generic.eq_ignore_ascii_case(name))
+    let name = cmd.rsplit('/').next().unwrap_or(cmd).to_ascii_lowercase();
+    GENERIC_PROGRAMS.contains(&name.as_str())
+        || GENERIC_PROGRAM_PREFIXES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
 }
 
 fn is_sha256(value: &str) -> bool {

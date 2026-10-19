@@ -3,7 +3,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use zorvo_lib::registry::resolve::{
-    canonical_agent_id, missing_reason, resolve_profile, SystemTools,
+    canonical_agent_id, is_system_tool_path, missing_reason, resolve_profile, SystemTools,
 };
 use zorvo_lib::registry::schema::{current_platform, BinaryTarget, Distribution, RegistryEntry};
 
@@ -241,4 +241,58 @@ fn missing_reason_names_what_is_missing() {
         missing_reason(&resolve_profile(&gemini(), &some, true)),
         None
     );
+}
+
+#[test]
+fn recognises_apple_system_tool_paths() {
+    for path in [
+        "/usr/bin/git",
+        "/bin/ls",
+        "/usr/sbin/sshd",
+        "/sbin/mount",
+        "/System/Library/Frameworks/Python.framework/python3",
+        "/Library/Developer/CommandLineTools/usr/bin/swift",
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xcrun",
+        "/Applications/Xcode-beta.app/Contents/Developer/usr/bin/lldb",
+    ] {
+        assert!(is_system_tool_path(path), "{path} is a system tool");
+    }
+    for path in [
+        "/usr/local/bin/opencode",
+        "/opt/homebrew/bin/goose",
+        "/Users/me/.local/bin/cursor-agent",
+        "/usr/bin2/agent",
+        "/Applications/OpenCode.app/Contents/MacOS/opencode",
+    ] {
+        assert!(!is_system_tool_path(path), "{path} is not a system tool");
+    }
+}
+
+#[test]
+fn a_binary_found_only_among_system_tools_is_not_installed() {
+    let mut platforms = BTreeMap::new();
+    platforms.insert(
+        current_platform().to_string(),
+        BinaryTarget {
+            archive: "https://example.com/ls.tar.gz".to_string(),
+            cmd: "./ls".to_string(),
+            args: vec!["acp".to_string()],
+            sha256: "0".repeat(64),
+            env: BTreeMap::new(),
+        },
+    );
+    let lister = entry("lister", "Lister", Distribution::Binary { platforms });
+    let globals = BTreeSet::new();
+    let tools = SystemTools {
+        path_var: Some("/bin"),
+        npm_globals: &globals,
+    };
+    assert!(Path::new("/bin/ls").is_file(), "the test needs /bin/ls");
+
+    let profile = resolve_profile(&lister, &tools, true);
+
+    assert!(!profile.installed_on_system);
+    assert_eq!(profile.availability, "not_installed");
+    assert!(!profile.detected);
+    assert_eq!(profile.acp_program_path, None);
 }
