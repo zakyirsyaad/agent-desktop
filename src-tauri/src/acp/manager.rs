@@ -378,6 +378,7 @@ impl AcpManager {
     }
 
     /// True while a session's agent was started from a program under `dir`,
+    /// or with a `PATH` entry under it (a prerequisite, Zorvo's uv or Node),
     /// so its files must not be deleted yet.
     pub fn is_running_under(&self, dir: &Path) -> bool {
         // Read even a poisoned map: answering "not running" could delete a live agent.
@@ -385,10 +386,14 @@ impl AcpManager {
             .routes
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        routes
-            .sessions
-            .values()
-            .any(|entry| Path::new(entry.connection.program()).starts_with(dir))
+        routes.sessions.values().any(|entry| {
+            let connection = &entry.connection;
+            Path::new(connection.program()).starts_with(dir)
+                || connection
+                    .path_entries()
+                    .iter()
+                    .any(|path| Path::new(path).starts_with(dir))
+        })
     }
 
     /// Forgets the session; kills the agent once no other session uses it.
