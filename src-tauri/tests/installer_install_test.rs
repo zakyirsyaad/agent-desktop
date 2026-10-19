@@ -727,13 +727,17 @@ fn clean_up_waits_for_no_job_and_skips_while_one_runs() {
         let job = s.spawn(|| install.run("job", &steps, &env(), None, &no_progress));
         server.wait_for_hits("/node.tar.gz", 1);
 
-        assert_eq!(install.clean_up(&inputs), None, "a job is running");
+        assert_eq!(
+            install.clean_up(&inputs, &|_| false),
+            None,
+            "a job is running"
+        );
         assert!(left_over.exists());
 
         assert!(install.cancel("job"));
         assert_eq!(job.join().unwrap(), Err(INSTALL_CANCELLED.to_string()));
     });
-    assert_eq!(install.clean_up(&inputs), Some(Vec::new()));
+    assert_eq!(install.clean_up(&inputs, &|_| false), Some(Vec::new()));
     assert!(!left_over.exists());
 }
 

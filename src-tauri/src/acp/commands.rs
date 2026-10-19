@@ -67,7 +67,9 @@ fn launch_for(profile_id: &str, versions: &BTreeMap<String, String>) -> Result<A
             .map(|m| m.into_iter().collect())
             .unwrap_or_default()
     };
-    launch_from(profile, user_env, |id, version| {
+    // Stands in for the login shell's PATH when that could not be read.
+    let process_path = std::env::var("PATH").ok();
+    launch_from(profile, user_env, process_path.as_deref(), |id, version| {
         registry::catalog().launch_env(id, version)
     })
 }
@@ -92,12 +94,13 @@ fn profile_to_launch(
 }
 
 /// How to launch `profile` over ACP, or why it cannot run. The agent gets
-/// `user_env` with the profile's dirs around its `PATH`, and then the
-/// variables `registry_env` gives for its id and version; both are read only
-/// once the profile can run.
+/// `user_env` with the profile's dirs around its `PATH` (`process_path` when
+/// `user_env` has none), and then the variables `registry_env` gives for its
+/// id and version; both are read only once the profile can run.
 fn launch_from(
     profile: AgentProfile,
     user_env: impl FnOnce() -> BTreeMap<String, String>,
+    process_path: Option<&str>,
     registry_env: impl FnOnce(&str, &str) -> BTreeMap<String, String>,
 ) -> Result<AcpLaunch, String> {
     if profile.transport != TRANSPORT_ACP {
@@ -119,11 +122,10 @@ fn launch_from(
     // Zorvo's runtime and prerequisite dirs go around the user's PATH. Without
     // the login shell's env, the process PATH stands in (as in
     // `agent_profiles`) rather than leave the agent only Zorvo's dirs.
-    let process_path = std::env::var("PATH").ok();
     if let Some(path) = agent_path(
         &profile.acp_path_prepend,
         env.get("PATH").map(String::as_str),
-        process_path.as_deref(),
+        process_path,
         &profile.acp_path_append,
     ) {
         env.insert("PATH".to_string(), path);
@@ -531,6 +533,56 @@ mod tests {
         );
     }
 
+    /// A ready registry agent run through Zorvo's Node, whose `bin` goes first on `PATH`.
+    fn agent_on_zorvos_node() -> AgentProfile {
+        let mut profile = AgentProfile::new(
+            "gemini".to_string(),
+            "Gemini CLI".to_string(),
+            "npx".to_string(),
+        );
+        profile.transport = TRANSPORT_ACP.to_string();
+        profile.detected = true;
+        profile.acp_program_path = Some("/zorvo/node/bin/npx".to_string());
+        profile.acp_path_prepend = vec!["/zorvo/node/bin".to_string()];
+        profile
+    }
+
+    fn path_of(launch: &AcpLaunch) -> Option<&str> {
+        launch
+            .env
+            .iter()
+            .find(|(key, _)| key == "PATH")
+            .map(|(_, value)| value.as_str())
+    }
+
+    #[test]
+    fn a_launch_puts_the_prepend_dir_first_on_the_users_path() {
+        let user_env = || BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]);
+
+        let launch = launch_from(
+            agent_on_zorvos_node(),
+            user_env,
+            Some("/ignored"),
+            |_, _| BTreeMap::new(),
+        )
+        .expect("it launches");
+
+        assert_eq!(path_of(&launch), Some("/zorvo/node/bin:/usr/bin:/bin"));
+    }
+
+    #[test]
+    fn a_launch_without_the_login_path_falls_back_to_the_process_path() {
+        let launch = launch_from(
+            agent_on_zorvos_node(),
+            BTreeMap::new,
+            Some("/usr/bin:/bin"),
+            |_, _| BTreeMap::new(),
+        )
+        .expect("it launches");
+
+        assert_eq!(path_of(&launch), Some("/zorvo/node/bin:/usr/bin:/bin"));
+    }
+
     /// Later than every version in the bundle, so each one is old enough.
     const FIXED_NOW: u64 = 4_000_000_000;
 
@@ -560,7 +612,7 @@ mod tests {
             profile_to_launch(&catalog, &tools, "claude-code", &BTreeMap::new(), FIXED_NOW)
                 .expect("claude-code is known");
         assert_eq!(profile.id, "claude-acp");
-        let launch = launch_from(profile, BTreeMap::new, |id, version| {
+        let launch = launch_from(profile, BTreeMap::new, None, |id, version| {
             catalog.launch_env(id, version)
         })
         .expect("it launches");

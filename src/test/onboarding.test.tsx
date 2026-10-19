@@ -250,7 +250,11 @@ describe("Onboarding — agent step", () => {
   });
 
   it("points a missing registry agent at Node.js", () => {
-    renderOnboarding({ agents: [notDetected(claudeCode), omp, aider] });
+    const withoutNode = makeProfile({
+      ...notDetected(claudeCode),
+      install_plan: [{ kind: "node", name: "Node.js", version: "24.11.1", download_bytes: null }],
+    });
+    renderOnboarding({ agents: [withoutNode, omp, aider] });
 
     const item = agentItem("Claude Code");
     expect(item).toHaveTextContent("Not installed");

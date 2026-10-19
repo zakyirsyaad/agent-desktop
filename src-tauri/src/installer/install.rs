@@ -177,9 +177,22 @@ impl Installer {
 
     /// Runs the clean-up at start while no job runs, holding off new jobs
     /// until it ends, so it never deletes a staging dir or an install a job
-    /// is writing. `None` when a job was running; else the errors it logged.
-    pub fn clean_up(&self, inputs: &CleanupInputs) -> Option<Vec<String>> {
-        self.run_exclusive(|| clean_up(&self.tools, &self.manifest, &self.platform, inputs))
+    /// is writing, nor a dir `is_running_under` reports an agent running in.
+    /// `None` when a job was running; else the errors it logged.
+    pub fn clean_up(
+        &self,
+        inputs: &CleanupInputs,
+        is_running_under: &dyn Fn(&Path) -> bool,
+    ) -> Option<Vec<String>> {
+        self.run_exclusive(|| {
+            clean_up(
+                &self.tools,
+                &self.manifest,
+                &self.platform,
+                inputs,
+                is_running_under,
+            )
+        })
     }
 
     /// Runs `work` while no job runs, holding off new jobs until it ends;

@@ -184,7 +184,8 @@ fn run_job(
 
 /// Deletes what no enabled agent uses any more. Runs once at start, on the
 /// background thread after the catalog refresh, so the versions in use are
-/// the ones the UI shows. Logs failures and never blocks start.
+/// the ones the UI shows, and skips any install an agent is running from.
+/// Logs failures and never blocks start.
 pub fn clean_up_at_start(app: &AppHandle) {
     let state = app.state::<AppInstaller>();
     let installer = match state.get() {
@@ -203,7 +204,13 @@ pub fn clean_up_at_start(app: &AppHandle) {
         }
     };
     let inputs = cleanup_inputs(&settings, &agent_profiles(&settings.agent_versions));
-    if installer.clean_up(&inputs).is_none() {
+    // A refresh may have moved an agent off the version a session already
+    // runs from; that install stays until the next start.
+    let acp = app.state::<AcpManager>();
+    if installer
+        .clean_up(&inputs, &|dir| acp.is_running_under(dir))
+        .is_none()
+    {
         eprintln!("Skipped the clean-up of old installs: an install is running");
     }
 }

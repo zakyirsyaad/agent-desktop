@@ -65,7 +65,7 @@ fn inputs() -> CleanupInputs {
 }
 
 fn run(tools: &ToolsDir, inputs: &CleanupInputs) -> Vec<String> {
-    clean_up(tools, &manifest(), PLATFORM, inputs)
+    clean_up(tools, &manifest(), PLATFORM, inputs, &|_| false)
 }
 
 fn pinned_node(tools: &ToolsDir) -> PathBuf {
@@ -110,6 +110,32 @@ fn removes_versions_not_in_use() {
     assert!(errors.is_empty(), "{errors:?}");
     assert!(!tools.agent_dir("opencode", "1.0.0").exists());
     assert!(tools.agent_dir("opencode", "2.0.0").exists());
+}
+
+#[test]
+fn keeps_a_version_an_agent_is_running_from_even_when_not_in_use() {
+    let d = data_dir();
+    let tools = ToolsDir::new(&d);
+    let running = tools.agent_dir("opencode", "1.0.0");
+    mark_installed(&running);
+    mark_installed(&tools.agent_dir("opencode", "2.0.0"));
+    mark_installed(&tools.agent_dir("goose", "0.5.0"));
+    // A refresh withdrew 1.0.0, so 2.0.0 is in use now, but a session
+    // started before it still runs 1.0.0; goose is no longer enabled.
+    let inputs = CleanupInputs {
+        agents_in_use: BTreeMap::from([("opencode".to_string(), "2.0.0".to_string())]),
+        ..inputs()
+    };
+    let program = running.join("opencode");
+
+    let errors = clean_up(&tools, &manifest(), PLATFORM, &inputs, &|dir| {
+        program.starts_with(dir)
+    });
+
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(running.exists(), "the running version survives");
+    assert!(tools.agent_dir("opencode", "2.0.0").exists());
+    assert!(!tools.root().join("agents").join("goose").exists());
 }
 
 #[test]

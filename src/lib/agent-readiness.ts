@@ -16,6 +16,11 @@ export function canInstall(agent: AgentSummary): boolean {
   return (agent.install_plan?.length ?? 0) > 0;
 }
 
+/** Install would set up Zorvo's Node.js first: the agent needs a newer Node than this Mac has. */
+export function needsNode(agent: AgentSummary): boolean {
+  return agent.install_plan?.some((step) => step.kind === "node") ?? false;
+}
+
 /** Ready now, or ready after Install. */
 export function isAgentUsable(agent: AgentSummary): boolean {
   return isAgentReady(agent) || canInstall(agent);
@@ -67,31 +72,32 @@ function joinNames(names: readonly string[]): string {
 
 /**
  * Why no session can start, built from the agents in use that are not ready
- * but Zorvo can install: the ones that run through `npx` are named as needing
- * Node.js (which Install sets up), else the others are named. With none, it
- * asks to install one of the agents.
+ * but Zorvo can install: the ones whose Install sets up Node.js are named as
+ * needing it, else every installable one is named. With none, it asks to
+ * install one of the agents.
  */
 export function noAgentNotice(agentsInUse: readonly AgentSummary[]): string {
   const installable = agentsInUse.filter((agent) => !isAgentReady(agent) && canInstall(agent));
   if (installable.length === 0) {
     return "No agent is ready. Install one of your agents, then check again in Settings.";
   }
-  const needNode = installable.filter((agent) => agent.distribution === "npx").map((agent) => agent.name);
-  const named = needNode.length > 0 ? needNode : installable.map((agent) => agent.name);
-  const isOne = named.length === 1;
-  const action = isOne ? "Click Install to set it up." : "Choose one and click Install.";
-  if (needNode.length > 0) {
-    return `No agent is ready. ${joinNames(named)} ${isOne ? "needs" : "need"} Node.js 22 or later, which Zorvo installs for you. ${action}`;
+  // Counted over every installable agent: the draft may show any of them.
+  const action = installable.length === 1 ? "Click Install to set it up." : "Choose one and click Install.";
+  const nodeNames = installable.filter(needsNode).map((agent) => agent.name);
+  if (nodeNames.length > 0) {
+    const verb = nodeNames.length === 1 ? "needs" : "need";
+    return `No agent is ready. ${joinNames(nodeNames)} ${verb} Node.js 22 or newer, which Zorvo installs for you. ${action}`;
   }
-  return `No agent is ready. ${joinNames(named)} ${isOne ? "is" : "are"} not installed yet. ${action}`;
+  const verb = installable.length === 1 ? "is" : "are";
+  return `No agent is ready. ${joinNames(installable.map((agent) => agent.name))} ${verb} not installed yet. ${action}`;
 }
 
 export type InstallHint =
   | { kind: "command"; command: string }
   | { kind: "docs"; text: string };
 
-/** A registry npx agent runs through `npx`, so it is only missing when Node.js is. */
-export const NODE_HINT = "Needs Node.js 22 or later. Zorvo installs it when you click Install in a new session.";
+/** An agent whose Install sets up Node.js: this Mac has none, or one older than 22. */
+export const NODE_HINT = "Needs Node.js 22 or newer. Zorvo installs it when you click Install in a new session.";
 
 /** A registry agent Zorvo can download for this Mac. */
 export const INSTALLABLE_HINT = "Zorvo installs it when you click Install in a new session.";
@@ -103,9 +109,7 @@ const INSTALL_HINTS: Readonly<Record<string, InstallHint>> = {
 
 /** How to install a missing agent; agents without a verified command get a docs pointer. */
 export function installHintFor(agent: AgentSummary): InstallHint {
-  if (agent.distribution === "npx") {
-    return { kind: "docs", text: NODE_HINT };
-  }
+  if (needsNode(agent)) return { kind: "docs", text: NODE_HINT };
   if (canInstall(agent)) return { kind: "docs", text: INSTALLABLE_HINT };
   return (
     INSTALL_HINTS[agent.id] ?? {

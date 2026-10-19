@@ -46,15 +46,32 @@ describe("installHintFor", () => {
     });
   });
 
-  it("points a registry npx agent at Node.js, which is all it needs", () => {
+  it("points an agent whose Install sets up Node.js at Node.js", () => {
     const nodeHint = { kind: "docs", text: NODE_HINT };
-    const gemini: AgentSummary = { id: "gemini", name: "Gemini CLI", detected: false, distribution: "npx" };
+    const gemini: AgentSummary = {
+      id: "gemini",
+      name: "Gemini CLI",
+      detected: false,
+      distribution: "npx",
+      install_plan: [nodeStep],
+    };
 
-    expect(installHintFor(claude)).toEqual(nodeHint);
     expect(installHintFor(gemini)).toEqual(nodeHint);
-    expect(NODE_HINT).toContain("Node.js 22");
+    expect(NODE_HINT).toContain("Node.js 22 or newer");
     expect(NODE_HINT).toContain("Zorvo installs it");
     expect(NODE_HINT).not.toContain("https://nodejs.org");
+  });
+
+  it("goes by the install plan, not the distribution: an npx agent missing only a prerequisite", () => {
+    const piAcp: AgentSummary = {
+      id: "pi-acp",
+      name: "pi ACP",
+      detected: false,
+      distribution: "npx",
+      install_plan: [{ kind: "prerequisite", name: "pi", version: "0.9.0", download_bytes: null }],
+    };
+
+    expect(installHintFor(piAcp)).toEqual({ kind: "docs", text: INSTALLABLE_HINT });
   });
 
   it("goes by the distribution, not the agent id", () => {
@@ -103,13 +120,27 @@ describe("noAgentNotice", () => {
     distribution: "binary",
     install_plan: [{ kind: "agent", name: "OpenCode", version: "1.19.3", download_bytes: null }],
   };
-  const NODE_TAIL = "Node.js 22 or later, which Zorvo installs for you.";
+  const NODE_TAIL = "Node.js 22 or newer, which Zorvo installs for you.";
   const GENERIC = "No agent is ready. Install one of your agents, then check again in Settings.";
 
   it("names one agent that needs Node.js and points at Install", () => {
-    expect(noAgentNotice([codex, opencode])).toBe(
-      `No agent is ready. Codex needs ${NODE_TAIL} Click Install to set it up.`,
-    );
+    expect(noAgentNotice([codex, omp])).toBe(`No agent is ready. Codex needs ${NODE_TAIL} Click Install to set it up.`);
+  });
+
+  it("asks to choose when other agents can be installed too, even if only one needs Node.js", () => {
+    expect(noAgentNotice([codex, opencode])).toBe(`No agent is ready. Codex needs ${NODE_TAIL} Choose one and click Install.`);
+  });
+
+  it("does not say Node.js for an npx agent that only misses a prerequisite", () => {
+    const piAcp: AgentSummary = {
+      id: "pi-acp",
+      name: "pi ACP",
+      detected: false,
+      distribution: "npx",
+      install_plan: [{ kind: "prerequisite", name: "pi", version: "0.9.0", download_bytes: null }],
+    };
+
+    expect(noAgentNotice([piAcp])).toBe("No agent is ready. pi ACP is not installed yet. Click Install to set it up.");
   });
 
   it("joins two agents that need Node.js with and", () => {

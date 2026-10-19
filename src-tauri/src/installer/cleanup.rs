@@ -66,13 +66,16 @@ pub fn prereqs_needed_by(ids: &[String]) -> BTreeSet<String> {
         .collect()
 }
 
-/// Deletes what `inputs` says no enabled agent uses. Returns the errors it
+/// Deletes what `inputs` says no enabled agent uses, except a dir
+/// `is_running_under` reports a running agent in (a session that started
+/// before a refresh changed the version in use). Returns the errors it
 /// logged; one failed deletion never stops the rest.
 pub fn clean_up(
     tools: &ToolsDir,
     manifest: &RuntimeManifest,
     platform: &str,
     inputs: &CleanupInputs,
+    is_running_under: &dyn Fn(&Path) -> bool,
 ) -> Vec<String> {
     let doomed = [
         entries(&tools.staging_root()),
@@ -90,6 +93,7 @@ pub fn clean_up(
     .concat();
     doomed
         .iter()
+        .filter(|path| !is_running_under(path))
         .filter_map(|path| remove(path).err())
         .inspect(|error| eprintln!("Clean-up of old installs: {error}"))
         .collect()

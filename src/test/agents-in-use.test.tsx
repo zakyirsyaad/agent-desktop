@@ -34,7 +34,7 @@ async function renderWithRegistryAgents() {
 }
 
 const NO_AGENT_NOTICE =
-  "No agent is ready. Claude Code, Codex and Qwen Code need Node.js 22 or later, which Zorvo installs for you. Choose one and click Install.";
+  "No agent is ready. Claude Code, Codex and Qwen Code need Node.js 22 or newer, which Zorvo installs for you. Choose one and click Install.";
 
 /** What Install does for an npx agent on a Mac without Node.js 22: Zorvo's Node.js first. */
 const NODE_PLAN = [{ kind: "node" as const, name: "Node.js", version: "24.11.1", download_bytes: null }];
@@ -151,7 +151,7 @@ describe("Agents in use", () => {
     await click(screen.getByRole("button", { name: "+ New session" }));
 
     expect(newSessionView()).toHaveTextContent(
-      "No agent is ready. Codex and Kimi CLI need Node.js 22 or later, which Zorvo installs for you. Choose one and click Install.",
+      "No agent is ready. Codex and Kimi CLI need Node.js 22 or newer, which Zorvo installs for you. Choose one and click Install.",
     );
   });
 
