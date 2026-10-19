@@ -291,6 +291,54 @@ fn is_valid_binary_target(target: &BinaryTarget) -> bool {
     target.archive.starts_with("https://")
         && is_sha256(&target.sha256)
         && is_safe_relative_cmd(&target.cmd)
+        && !is_generic_program(&target.cmd)
+}
+
+/// Programs a Mac may already have that run whatever they are given. A binary
+/// agent is found on `PATH` by its `cmd`'s file name, so one named like these
+/// would count as installed and run the registry's args with that program.
+const GENERIC_PROGRAMS: [&str; 33] = [
+    "node",
+    "nodejs",
+    "python",
+    "python2",
+    "python3",
+    "pythonw",
+    "bash",
+    "sh",
+    "zsh",
+    "fish",
+    "dash",
+    "ksh",
+    "csh",
+    "tcsh",
+    "ruby",
+    "perl",
+    "php",
+    "osascript",
+    "env",
+    "npx",
+    "npm",
+    "pnpm",
+    "yarn",
+    "uv",
+    "uvx",
+    "pip",
+    "pip3",
+    "deno",
+    "bun",
+    "java",
+    "sudo",
+    "open",
+    "xargs",
+];
+
+/// True when `cmd`'s file name is an interpreter, shell or package runner (any case).
+fn is_generic_program(cmd: &str) -> bool {
+    let name = cmd.rsplit('/').next().unwrap_or(cmd);
+    GENERIC_PROGRAMS
+        .iter()
+        .any(|generic| generic.eq_ignore_ascii_case(name))
 }
 
 fn is_sha256(value: &str) -> bool {

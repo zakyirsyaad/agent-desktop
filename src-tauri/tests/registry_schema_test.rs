@@ -348,3 +348,15 @@ fn skips_an_id_that_collides_with_a_legacy_or_terminal_agent() {
     ]);
     assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["claude-acp"]);
 }
+
+#[test]
+fn skips_a_binary_whose_cmd_is_an_interpreter_shell_or_package_runner() {
+    let json = doc(&[
+        binary("runs-node", "https://h/o.zip", "./node", SHA),
+        binary("runs-bash", "https://h/o.zip", "./bash", SHA),
+        binary("runs-npx", "https://h/o.zip", "bin/NPX", SHA),
+        binary("runs-python", "https://h/o.zip", "python3", SHA),
+        binary("opencode", "https://h/o.zip", "./opencode", SHA),
+    ]);
+    assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["opencode"]);
+}
