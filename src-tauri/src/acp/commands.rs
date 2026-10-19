@@ -178,14 +178,28 @@ pub fn acp_load_session(
     )
 }
 
+/// Forks `source_session_id` into `session_id` in `cwd`, which must be one of
+/// the user's workspaces (the source's folder or worktree is).
+fn fork_in_workspace(
+    manager: &AcpManager,
+    store: &AppStore,
+    source_session_id: &str,
+    session_id: &str,
+    cwd: &str,
+) -> Result<StartedSession, String> {
+    ensure_known_workspace(cwd, |path| store.is_known_workspace(path))?;
+    manager.fork(source_session_id, session_id, cwd)
+}
+
 #[tauri::command(async)]
 pub fn acp_fork_session(
     manager: State<'_, AcpManager>,
+    store: State<'_, AppStore>,
     source_session_id: String,
     session_id: String,
     cwd: String,
 ) -> Result<StartedSession, String> {
-    manager.fork(&source_session_id, &session_id, &cwd)
+    fork_in_workspace(&manager, &store, &source_session_id, &session_id, &cwd)
 }
 
 #[tauri::command(async)]
@@ -348,6 +362,56 @@ mod tests {
         let err = launch_in_workspace(&store, &scratch.folder(), "omp").unwrap_err();
 
         assert!(err.contains("does not support"), "unexpected: {err}");
+    }
+
+    fn quiet_manager() -> AcpManager {
+        AcpManager::new(Box::new(|_| {}))
+    }
+
+    #[test]
+    fn a_session_is_not_forked_into_a_folder_that_is_not_a_workspace() {
+        let scratch = Scratch::new("fork-unknown");
+        let store = scratch.store();
+
+        let Err(err) = fork_in_workspace(
+            &quiet_manager(),
+            &store,
+            "source",
+            "fork",
+            &scratch.folder(),
+        ) else {
+            panic!("the fork is refused");
+        };
+
+        assert!(
+            err.contains("is not one of your workspaces"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn a_session_is_forked_in_a_remembered_workspace() {
+        let scratch = Scratch::new("fork-known");
+        let store = scratch.store();
+        store
+            .remember_workspace(&scratch.folder())
+            .expect("remember");
+
+        // Past the folder check, the manager refuses an unknown source session.
+        let Err(err) = fork_in_workspace(
+            &quiet_manager(),
+            &store,
+            "source",
+            "fork",
+            &scratch.folder(),
+        ) else {
+            panic!("the fork is refused");
+        };
+
+        assert!(
+            err.contains("Session 'source' not found"),
+            "unexpected: {err}"
+        );
     }
 
     #[test]
