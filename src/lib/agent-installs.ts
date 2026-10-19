@@ -62,25 +62,35 @@ function settle(agentId: string, attempt: number, next: (entry: InstallEntry) =>
   if (entry.attempt === attempt) setEntry(agentId, next(entry));
 }
 
-function ensureProgressListener() {
+/**
+ * Attaches the progress listener once and resolves when it is attached. A failed listen
+ * resolves too: the install still runs and still reports how it ended; listen again next time.
+ */
+function ensureProgressListener(): Promise<UnlistenFn> {
   progressListener ??= listen<InstallProgress>('agent-install-progress', (event) => {
     const progress = event.payload;
     const entry = installEntryOf(progress.agentId);
     if (entry.status === 'installing') setEntry(progress.agentId, { ...entry, progress });
   }).catch(() => {
-    // Without progress the install still runs and still reports how it ended; listen again next time.
     progressListener = null;
     return () => {};
   });
+  return progressListener;
 }
 
-/** Starts installing an agent, unless it is already installing. */
+/**
+ * Starts installing an agent, unless it is already installing. The backend reports its
+ * first phase at once, so the install starts only once the progress listener is attached.
+ */
 export function startInstall(agentId: string): void {
   if (installEntryOf(agentId).status === 'installing') return;
   lastAttempt += 1;
   const attempt = lastAttempt;
   setEntry(agentId, { status: 'installing', progress: null, error: null, attempt });
-  ensureProgressListener();
+  void ensureProgressListener().then(() => runInstall(agentId, attempt));
+}
+
+function runInstall(agentId: string, attempt: number): void {
   invoke('install_agent', { agentId }).then(
     // The backend emits `agent-profiles-changed`, which reloads the profiles.
     () => settle(agentId, attempt, () => ({ ...IDLE_INSTALL, attempt })),
