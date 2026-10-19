@@ -197,6 +197,31 @@ describe("Onboarding — agent step", () => {
     ).toBeInTheDocument();
   });
 
+  it("lets you continue and start with an agent Zorvo can install", async () => {
+    const installable = makeProfile({
+      ...notDetected(claudeCode),
+      availability: "needs_runtime",
+      distribution: "npx",
+      install_plan: [
+        { kind: "node", name: "Node.js", version: "24.11.1", download_bytes: null },
+        { kind: "agent", name: "Claude Code", version: "0.9.0", download_bytes: null },
+      ],
+    });
+    const onComplete = vi.fn();
+    renderOnboarding({ agents: [installable, omp, notDetected(aider)], onComplete });
+
+    expect(screen.queryByText("Install at least one agent to continue.")).toBeNull();
+    await goToDefaultAgentStep();
+    const group = screen.getByRole("radiogroup", { name: "Default agent" });
+    expect(within(group).getByRole("radio", { name: /Claude Code/ })).toBeChecked();
+    await clickButton("Start");
+
+    expect(onComplete).toHaveBeenCalledWith({
+      defaultAgentId: "claude-acp",
+      folder: { name: "trading-bot", path: "/Users/test/trading-bot" },
+    });
+  });
+
   it("enables Continue once at least one agent is ready", () => {
     renderOnboarding();
 

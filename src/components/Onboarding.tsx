@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Bot, Check } from "lucide-react";
-import { readyAgents, resolveDefaultAgentId } from "../lib/agent-readiness";
+import { isAgentUsable, resolveUsableAgentId } from "../lib/agent-readiness";
 import { isInUse, type EnabledSettings } from "../lib/enabled-agents";
 import type { AgentProfile } from "../types";
 import { Button } from "./ui/Button";
@@ -46,7 +46,7 @@ const GATE_HINT_ID = "onboarding-gate-hint";
 const GATE_MESSAGES = [
   "Install at least one agent to continue.",
   "Choose a folder to continue.",
-  "No ready agent to start with.",
+  "No agent to start with.",
 ] as const;
 
 function StepIndicator({ current }: { current: number }) {
@@ -115,8 +115,9 @@ export function Onboarding({
   const [preferredAgentId, setPreferredAgentId] = useState<string | null>(null);
 
   const agents = allAgents.filter((agent) => isInUse(agent, settings));
-  const defaultAgentId = resolveDefaultAgentId(agents, preferredAgentId);
-  const canAdvance = [readyAgents(agents).length > 0, folder !== null, defaultAgentId !== null][step];
+  // An agent Zorvo can install counts: a new Mac without Node.js installs it from the first session.
+  const defaultAgentId = resolveUsableAgentId(agents, preferredAgentId);
+  const canAdvance = [agents.some(isAgentUsable), folder !== null, defaultAgentId !== null][step];
   const current = STEPS[step];
 
   const handleSelectFolder = (selected: FolderOption) => setFolder(toFolderOption(selected));

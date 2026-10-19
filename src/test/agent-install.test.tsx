@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
-import { fakeProfiles, makeProfile } from "./fixtures/agents";
+import { aiderProfile, claudeProfile, fakeProfiles, makeProfile } from "./fixtures/agents";
 import type { AgentProfile } from "../types";
 
 type Listener = (event: { payload: unknown }) => void;
@@ -256,6 +256,39 @@ describe("Installing an agent from the new-session draft", () => {
 
     await act(async () => settle().resolve());
     expect(screen.getByRole("button", { name: "Install" })).toBeDefined();
+  });
+
+  it("with no ready agent in use, the draft offers the picker and Install", async () => {
+    // A new Mac without Node.js: every default agent needs Zorvo's Node first.
+    const claude = makeProfile({
+      ...claudeProfile,
+      detected: false,
+      detected_path: null,
+      transport: "acp",
+      availability: "needs_runtime",
+      distribution: "npx",
+      install_plan: [
+        { kind: "node", name: "Node.js", version: "24.11.1", download_bytes: 49 * MB },
+        { kind: "agent", name: "Claude Code", version: "0.9.0", download_bytes: null },
+      ],
+    });
+    const profiles: AgentProfile[] = [claude, codex, aiderProfile];
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "get_agent_profiles" ? Promise.resolve(structuredClone(profiles)) : fakeTauriInvoke(cmd, args)
+    );
+    await act(async () => {
+      render(<App />);
+    });
+
+    await waitFor(() => expect(screen.getByRole("region", { name: "Install Claude Code" })).toBeDefined());
+    expect(screen.getByRole("button", { name: "Install" })).toBeDefined();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Agent:/ }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "Codex (not installed)" }));
+    });
+    expect(screen.getByRole("region", { name: "Install Codex" })).toBeDefined();
   });
 
   it("a_not_ready_agent_in_use_is_offered_in_the_picker_and_shows_the_panel", async () => {

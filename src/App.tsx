@@ -69,7 +69,7 @@ import { attentionBody, notifyIfAway } from "./lib/notify";
 import { pickFiles } from "./lib/file-picker";
 import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
-import { resolveDefaultAgentId } from "./lib/agent-readiness";
+import { resolveDraftAgentId } from "./lib/agent-readiness";
 import { isInUse, withAutoEnabled } from "./lib/enabled-agents";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
@@ -147,7 +147,7 @@ export default function App() {
   const agentsInUse = agents.filter((agent) => isInUse(agent, state.settings));
   // A registry agent not installed yet is offered too: picking it shows its Install panel.
   const pickableAgents = agentsInUse.filter((agent) => agent.source === "registry" || agent.detected);
-  const defaultAgentId = resolveDefaultAgentId(agentsInUse, state.settings.defaultAgentId);
+  const defaultAgentId = resolveDraftAgentId(agentsInUse, state.settings.defaultAgentId, pickableAgents);
   const newSessionAgentId = pickableAgents.find((a) => a.id === pickedAgentId)?.id ?? defaultAgentId;
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
   // No session is selected: the window shows a new one, not started until its first message.

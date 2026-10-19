@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  INSTALLABLE_HINT,
   NODE_HINT,
   installHintFor,
   readyAgents,
   resolveDefaultAgentId,
+  resolveDraftAgentId,
+  resolveUsableAgentId,
   type AgentSummary,
 } from "../lib/agent-readiness";
 
@@ -51,7 +54,8 @@ describe("installHintFor", () => {
     expect(installHintFor({ id: "qwen-code", name: "Qwen Code", detected: false })).toEqual(nodeHint);
     expect(installHintFor(gemini)).toEqual(nodeHint);
     expect(NODE_HINT).toContain("Node.js 22");
-    expect(NODE_HINT).toContain("https://nodejs.org");
+    expect(NODE_HINT).toContain("Zorvo installs it");
+    expect(NODE_HINT).not.toContain("https://nodejs.org");
   });
 
   it("points unknown agents to their own documentation", () => {
@@ -70,5 +74,43 @@ describe("resolveDefaultAgentId with a candidate filter", () => {
 
     expect(resolveDefaultAgentId([claude, aider], "claude-acp", isAider)).toBe("aider");
     expect(resolveDefaultAgentId([claude], null, isAider)).toBeNull();
+  });
+});
+
+const nodeStep = { kind: "node", name: "Node.js", version: "24.11.1", download_bytes: null } as const;
+const codexToInstall: AgentSummary = { id: "codex-acp", name: "Codex", detected: false, install_plan: [nodeStep] };
+const opencodeToInstall: AgentSummary = {
+  id: "opencode",
+  name: "OpenCode",
+  detected: false,
+  distribution: "binary",
+  install_plan: [{ kind: "agent", name: "OpenCode", version: "1.19.3", download_bytes: null }],
+};
+
+describe("resolveDraftAgentId", () => {
+  it("keeps the ready default over an offered agent", () => {
+    expect(resolveDraftAgentId([codexToInstall, claude], null, [codexToInstall, claude])).toBe("claude-acp");
+  });
+
+  it("falls back to the preferred, else the first, offered agent when none is ready", () => {
+    const offered = [codexToInstall, opencodeToInstall];
+    expect(resolveDraftAgentId(offered, "opencode", offered)).toBe("opencode");
+    expect(resolveDraftAgentId(offered, null, offered)).toBe("codex-acp");
+    expect(resolveDraftAgentId(offered, null, [])).toBeNull();
+  });
+});
+
+describe("resolveUsableAgentId", () => {
+  it("keeps a preferred agent Zorvo can install, else picks a ready one first", () => {
+    expect(resolveUsableAgentId([codexToInstall, claude], "codex-acp")).toBe("codex-acp");
+    expect(resolveUsableAgentId([codexToInstall, claude], null)).toBe("claude-acp");
+    expect(resolveUsableAgentId([codexToInstall, omp], "omp")).toBe("codex-acp");
+    expect(resolveUsableAgentId([omp], null)).toBeNull();
+  });
+});
+
+describe("installHintFor an agent Zorvo can install", () => {
+  it("says Install does it", () => {
+    expect(installHintFor(opencodeToInstall)).toEqual({ kind: "docs", text: INSTALLABLE_HINT });
   });
 });
