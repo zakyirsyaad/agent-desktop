@@ -58,13 +58,14 @@ you have.
 
 ## Supported agents
 
-Zorvo reads the [ACP agent registry](https://agentclientprotocol.com), so any
-agent listed there can run as a chat. Zorvo checks the registry in the
-background at startup when the last check is over a day old, and when you click
-**Check again** in Settings. Claude Code, Codex and Qwen Code are in
-use by default. An agent that is already installed on your Mac shows up on its
-own. A new version of an agent is offered once the registry has listed it for a
-week. Oh-My-Pi and Aider are terminal agents that Zorvo defines itself.
+Zorvo reads the [ACP agent registry](https://agentclientprotocol.com) and runs
+its agents as chats. Zorvo checks the registry in the background at startup
+when the last check is over a day old, and when you click **Check again** in
+Settings. Only the agents in use show up: Claude Code, Codex and Qwen Code by
+default, plus any registry agent that is already installed on your Mac. Adding
+other registry agents comes in a later release. A new version of an agent is
+offered a week after it was published, and never one the registry has
+withdrawn. Oh-My-Pi and Aider are terminal agents that Zorvo defines itself.
 
 | | Qwen Code | Claude Code | Codex | Oh-My-Pi | Aider |
 |---|---|---|---|---|---|

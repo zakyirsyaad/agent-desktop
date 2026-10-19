@@ -120,7 +120,7 @@ pub struct AgentProfile {
     pub description: Option<String>,
     /// The agent's own CLI is already installed on this machine.
     pub installed_on_system: bool,
-    /// Shown in the picker without the user searching for it.
+    /// Still listed in the ACP registry (always true before the first fetch).
     pub listed: bool,
 }
 

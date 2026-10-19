@@ -6,9 +6,9 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 ### Added
 
-- **Every agent in the ACP registry.** Zorvo reads the official ACP agent registry, so any agent listed there can run as a chat. It checks the registry in the background at startup when the last check is over a day old, and when you click **Check again** in Settings.
+- **Agents from the ACP registry.** Zorvo reads the official ACP agent registry and runs its agents as chats. Only the agents in use show up: Claude Code, Codex and Qwen Code by default, plus installed ones; adding other registry agents comes in a later release. Zorvo checks the registry in the background at startup when the last check is over a day old, and when you click **Check again** in Settings.
 - **Installed agents show up on their own.** An agent already on your Mac, as a binary on your `PATH` or an npm package installed globally, is enabled automatically, once.
-- **New versions are offered after a week.** A version is offered once the registry has listed it for at least seven days. The version you use only changes when you update.
+- **New versions are offered after a week.** A version is offered a week after it was published, and never one the registry has withdrawn. Zorvo keeps the version an agent started with; updating it comes in a later release.
 - **Landing page.** A marketing site for Zorvo in `site/` (Next.js, exported as static HTML): the hero with a picture of the app, the supported agents, features, approvals and diffs, privacy, and the download. It follows the design system, dark by default and light when your system is, with self-hosted fonts and no requests to other sites.
 
 ### Changed
