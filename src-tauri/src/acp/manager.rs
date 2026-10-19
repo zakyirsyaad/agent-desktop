@@ -618,7 +618,7 @@ pub(super) fn initialize(connection: &AcpConnection) -> Result<Value, String> {
         "initialize",
         json!({
             "protocolVersion": PROTOCOL_VERSION,
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
+            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "auth": { "terminal": true } },
             "clientInfo": { "name": "zorvo", "version": env!("CARGO_PKG_VERSION") },
         }),
         HANDSHAKE_TIMEOUT,

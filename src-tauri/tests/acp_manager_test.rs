@@ -380,6 +380,24 @@ fn auth_methods_in(error: &str) -> Value {
 }
 
 #[test]
+fn offers_terminal_sign_in_because_zorvo_advertises_it() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_REQUIRED", "1");
+
+    let err = manager.start("s-1", &cwd(), &launch).unwrap_err();
+
+    let methods = auth_methods_in(&err);
+    let terminal = methods
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == "terminal-login")
+        .expect("terminal method listed");
+    assert_eq!(terminal["type"], "terminal");
+    assert_eq!(terminal["args"][0], "--login");
+}
+
+#[test]
 fn reports_a_sign_in_when_the_agent_refuses_a_prompt_for_it() {
     let (manager, rx) = manager();
     manager.start("s-1", &cwd(), &fake_agent()).unwrap();
