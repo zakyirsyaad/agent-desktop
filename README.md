@@ -89,9 +89,11 @@ the new agent is asked to read it.
 ## Requirements
 
 - macOS (Apple Silicon or Intel).
-- **Node.js 22+ with `npx`** on your login shell's `PATH` (nvm, Homebrew…).
-  Claude Code, Codex, Qwen Code and any other registry agent that runs with
-  `npx` need it. The first start downloads the agent's pinned package.
+- **Node.js 22+ with `npx`** for Claude Code, Codex, Qwen Code and any other
+  registry agent that runs with `npx`. Zorvo uses yours when it is on your
+  login shell's `PATH` (nvm, Homebrew…) and is 22 or newer. Otherwise it
+  installs Node.js when you click **Install** on an agent that needs it. The
+  first start downloads the agent's pinned package.
 - **At least one agent, signed in.** Agents sign in with their own tools. A
   global install is optional: it only makes an agent show up as installed
   before you first use it.
@@ -193,7 +195,7 @@ or runs commands.
 |---|---|
 | An agent shows as not installed | Choose it in a new session's agent picker (it is labelled "(not installed)") and click **Install**. Zorvo brings Node.js or `uv` too, if the agent needs one. A registry agent also counts as installed when its binary is on your `PATH` or its npm package is installed globally. Agents that run with `npx` also work without that, as long as Node.js is on your `PATH`. For Oh-My-Pi and Aider, check that `which omp` (or `aider`) works in a new terminal. Then click **Check again** in Settings. |
 | "Sign in to *agent*": the agent needs you to sign in before it can start | Use a sign-in method the panel offers, or sign in once in a terminal (see [Requirements](#requirements)), then send your message again. |
-| Claude Code, Codex or Qwen Code does not start | Zorvo installs Node.js for them when yours is missing or older than 22. The first start downloads the agent's pinned package, so it can take a moment. |
+| Claude Code, Codex or Qwen Code does not start | When you click **Install** and your Node.js is missing or older than 22, Zorvo installs Node.js for them. The first start downloads the agent's pinned package, so it can take a moment. |
 | No pull request status | Install `gh` and run `gh auth login`. A repository without a GitHub remote has none to show. |
 | "is not in the last commit, so a worktree would not have it" | A worktree checks out the last commit. Commit the folder first, or start the session without Worktree. |
 | The app is blocked on first open | See [Install](#install). |
