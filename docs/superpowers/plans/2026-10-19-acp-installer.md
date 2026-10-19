@@ -436,5 +436,5 @@ git commit -m "docs: list the hosts the installer contacts"
 ### Task 13: Full verification
 
 - [ ] **Step 1:** `pnpm lint && pnpm test && pnpm build`, then from `src-tauri/`: `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`. Expected: all green.
-- [ ] **Step 2: Manual, debug build (`pnpm tauri dev`).** With `PATH` hiding Node (`env PATH=/usr/bin:/bin pnpm tauri dev`), pick Gemini CLI (enable it in `state.json` → `settings.enabledAgents` until sub-project 4), **Install**, start a session. Then enable OpenCode (zip) and Goose (`.tar.bz2`), install each, start a session with each. Quit mid-download once and confirm `tools/staging/` is empty after restart.
+- [ ] **Step 2: Manual, debug build (`pnpm tauri dev`).** With Node hidden from the login shell (`env PATH=…` does not work: `env_resolver` reads the login shell's `PATH`; use a separate macOS user without Node, or temporarily move your Node shims aside, e.g. rename `~/.nvm` or Homebrew's `node`), pick Gemini CLI (enable it in `state.json` → `settings.enabledAgents` until sub-project 4), **Install**, start a session. Then enable OpenCode (zip) and Goose (`.tar.bz2`), install each, start a session with each. Quit mid-download once and confirm `tools/staging/` is empty after restart.
 - [ ] **Step 3:** Record results in the PR description (what was run, what was not).

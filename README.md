@@ -89,10 +89,10 @@ the new agent is asked to read it.
 ## Requirements
 
 - macOS (Apple Silicon or Intel).
-- **Node.js 22+ with `npx`** for Claude Code, Codex, Qwen Code and any other
-  registry agent that runs with `npx`. Zorvo uses yours when it is on your
-  login shell's `PATH` (nvm, Homebrew…) and is 22 or newer. Otherwise it
-  installs Node.js when you click **Install** on an agent that needs it. The
+- **Node.js 22+, yours or Zorvo's,** for Claude Code, Codex, Qwen Code and
+  any other registry agent that runs with `npx`. Zorvo uses yours when it is
+  on your login shell's `PATH` (nvm, Homebrew…) and is 22 or newer. Otherwise
+  it installs Node.js when you click **Install** on an agent that needs it. The
   first start downloads the agent's pinned package.
 - **At least one agent, signed in.** Agents sign in with their own tools. A
   global install is optional: it only makes an agent show up as installed
