@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::fmt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -23,6 +24,24 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// How long to wait for stderr after the child has exited.
 const STDERR_GRACE: Duration = Duration::from_secs(2);
+
+/// Why an npm install did not finish.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NpmError {
+    /// The cancel flag was set and npm was stopped.
+    Cancelled,
+    /// npm could not start, failed or timed out; the message says which.
+    Failed(String),
+}
+
+impl fmt::Display for NpmError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Cancelled => f.write_str("The npm install was cancelled"),
+            Self::Failed(message) => f.write_str(message),
+        }
+    }
+}
 
 /// A command an agent needs on PATH, and the npm package that provides it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +95,7 @@ pub fn run_npm_install(
     env: &HashMap<String, String>,
     timeout: Duration,
     cancel: &AtomicBool,
-) -> Result<(), String> {
+) -> Result<(), NpmError> {
     let package = args
         .last()
         .map(|a| a.to_string_lossy().into_owned())
@@ -92,7 +111,7 @@ pub fn run_npm_install(
         // children down with it.
         .process_group(0)
         .spawn()
-        .map_err(|e| format!("npm could not start to install {package}: {e}"))?;
+        .map_err(|e| NpmError::Failed(format!("npm could not start to install {package}: {e}")))?;
     let stderr = child.stderr.take().map(drain_in_background);
 
     let deadline = Instant::now() + timeout;
@@ -102,19 +121,21 @@ pub fn run_npm_install(
             Ok(None) => {}
             Err(e) => {
                 stop(&mut child);
-                return Err(format!("npm could not install {package}: {e}"));
+                return Err(NpmError::Failed(format!(
+                    "npm could not install {package}: {e}"
+                )));
             }
         }
         if cancel.load(Ordering::Relaxed) {
             stop(&mut child);
-            return Err(format!("The install of {package} was cancelled."));
+            return Err(NpmError::Cancelled);
         }
         if Instant::now() >= deadline {
             stop(&mut child);
-            return Err(format!(
+            return Err(NpmError::Failed(format!(
                 "npm timed out installing {package}\n{}",
                 stderr_tail(stderr)
-            ));
+            )));
         }
         std::thread::sleep(POLL_INTERVAL);
     };
@@ -122,10 +143,10 @@ pub fn run_npm_install(
         return Ok(());
     }
 
-    Err(format!(
+    Err(NpmError::Failed(format!(
         "npm could not install {package}\n{}",
         stderr_tail(stderr)
-    ))
+    )))
 }
 
 /// The last lines npm wrote to stderr, waiting briefly for the drain thread.

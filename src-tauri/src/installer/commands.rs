@@ -9,14 +9,14 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use super::archive::UnpackLimits;
 use super::cleanup::{cleanup_inputs, prereqs_needed_by};
 use super::download::DownloadLimits;
-use super::install::{InstallProgress, Installer};
+use super::install::{InstallProgress, Installer, Job};
 use super::layout::ToolsDir;
 use super::plan::PlannedStep;
 use super::runtimes::RuntimeKind;
 use super::{bundled_manifest, installed_tools};
 use crate::acp::manager::AcpManager;
 use crate::env_resolver::cached_user_env;
-use crate::profiles::{agent_profiles, install_steps_for};
+use crate::profiles::{agent_name, agent_profiles, install_steps_for};
 use crate::registry::resolve::canonical_agent_id;
 use crate::registry::schema::current_platform;
 use crate::registry::AGENT_PROFILES_CHANGED;
@@ -64,7 +64,9 @@ pub fn versions_in_use(store: &AppStore) -> BTreeMap<String, String> {
 }
 
 /// Installs what the agent needs, planned again here from the version in use
-/// so the webview cannot choose what is downloaded.
+/// so the webview cannot choose what is downloaded. The job begins before the
+/// plan is made (planning can wait on the user's Node), so a Cancel meanwhile
+/// finds it.
 #[tauri::command(async)]
 pub fn install_agent(
     app: AppHandle,
@@ -74,11 +76,13 @@ pub fn install_agent(
 ) -> Result<(), String> {
     let installer = installer.get()?;
     let id = canonical_agent_id(&agent_id);
-    let (_, steps) = install_steps_for(id, &versions_in_use(&store))
-        .ok_or_else(|| format!("Unknown agent '{agent_id}'"))?;
+    let unknown = || format!("Unknown agent '{agent_id}'");
+    let versions = versions_in_use(&store);
+    let job = installer.begin(id, &agent_name(id, &versions).ok_or_else(unknown)?)?;
+    let (_, steps) = install_steps_for(id, &versions).ok_or_else(unknown)?;
     run_plan(
         &steps,
-        |steps| run_job(&app, installer, id, steps),
+        |steps| run_with_user_env(&app, installer, &job, steps),
         || profiles_changed(&app),
     )
 }
@@ -112,6 +116,8 @@ pub fn install_runtime(
 ) -> Result<(), String> {
     let runtime = RuntimeKind::parse(&kind).ok_or_else(|| format!("Unknown runtime '{kind}'"))?;
     let installer = installer.get()?;
+    let steps = [PlannedStep::Runtime(runtime)];
+    let job = installer.begin(&format!("runtime:{kind}"), &installer.plan_name(&steps))?;
     let installed = installed_tools();
     let pinned_installed = match runtime {
         RuntimeKind::Node => installed.pinned_node_installed,
@@ -120,16 +126,15 @@ pub fn install_runtime(
     if pinned_installed {
         return Ok(());
     }
-    let job_id = format!("runtime:{kind}");
     run_plan(
-        &[PlannedStep::Runtime(runtime)],
-        |steps| run_job(&app, installer, &job_id, steps),
+        &steps,
+        |steps| run_with_user_env(&app, installer, &job, steps),
         || profiles_changed(&app),
     )
 }
 
 /// Asks the job `agent_id` (an agent id, or `runtime:<kind>`) to stop; false
-/// when it is not running yet. Sync: it only takes the job map's short lock.
+/// when it has not begun or has ended. Sync: it only takes the job map's short lock.
 #[tauri::command]
 pub fn cancel_agent_install(installer: State<'_, AppInstaller>, agent_id: String) -> bool {
     installer
@@ -166,12 +171,12 @@ pub fn remove_agent_install(
     Ok(())
 }
 
-/// Runs `steps` as the job `job_id` with the user's environment, reporting
-/// progress to the UI.
-fn run_job(
+/// Runs `steps` in `job` with the user's environment, reporting progress to
+/// the UI.
+fn run_with_user_env(
     app: &AppHandle,
     installer: &Installer,
-    job_id: &str,
+    job: &Job,
     steps: &[PlannedStep],
 ) -> Result<(), String> {
     let env = cached_user_env().unwrap_or_else(|_| std::env::vars().collect());
@@ -179,7 +184,7 @@ fn run_job(
     let report = |progress: InstallProgress| {
         let _ = app.emit(AGENT_INSTALL_PROGRESS, progress);
     };
-    installer.run(job_id, steps, &env, user_node_major, &report)
+    installer.run_job(job, steps, &env, user_node_major, &report)
 }
 
 /// Deletes what no enabled agent uses any more. Runs once at start, on the

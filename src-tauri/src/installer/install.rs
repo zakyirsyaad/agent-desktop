@@ -4,7 +4,8 @@
 //! Each step takes its target's lock and then checks the disk again, so two
 //! plans that both need Node download it once: the second waits and finds it
 //! there. Plans for different targets run in parallel. A job can be cancelled
-//! while it downloads, unpacks, runs npm or waits for a lock.
+//! from the moment it begins: while its command prepares, and while it
+//! downloads, unpacks, runs npm or waits for a lock.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fs;
@@ -13,17 +14,18 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-use super::archive::{ensure_agent_command, format_for_url, unpack, UnpackLimits};
+use super::archive::{ensure_agent_command, format_for_url, unpack, UnpackError, UnpackLimits};
 use super::cleanup::{clean_up, CleanupInputs};
-use super::download::{download, DownloadLimits};
+use super::download::{download, DownloadError, DownloadLimits};
 use super::layout::{read_record, CommitOutcome, InstallRecord, Staging, ToolsDir};
 use super::plan::PlannedStep;
 use super::prerequisites::{
-    npm_install_args, prerequisites_for, run_npm_install, Prerequisite, NPM_INSTALL_TIMEOUT,
+    npm_install_args, prerequisites_for, run_npm_install, NpmError, Prerequisite,
+    NPM_INSTALL_TIMEOUT,
 };
 use super::runtimes::{installed_runtime, RuntimeKind, RuntimeManifest, MIN_USER_NODE_MAJOR};
 use crate::env_resolver::find_binary_in_path_str;
@@ -35,11 +37,6 @@ const UNKNOWN_FORMAT: &str = "Zorvo cannot unpack this archive format";
 
 /// How often a job waiting for another job's target checks its cancel flag.
 const LOCK_POLL: Duration = Duration::from_millis(50);
-
-/// How long a cancel that came before its job started still stops it. It
-/// covers the command's work before the job registers (reading the
-/// environment can probe the user's Node); a stray cancel expires after it.
-const EARLY_CANCEL_WINDOW: Duration = Duration::from_secs(30);
 
 const PHASE_DOWNLOAD: &str = "download";
 const PHASE_VERIFY: &str = "verify";
@@ -81,8 +78,35 @@ struct Jobs {
     running: HashMap<String, Arc<AtomicBool>>,
     /// True while the clean-up deletes; jobs wait for it, cancellably.
     cleaning: bool,
-    /// Cancels that came before their job registered, and when.
-    early_cancels: HashMap<String, Instant>,
+}
+
+/// How a step ended early: stopped by the job's cancel flag, or a failure
+/// with its readable message. Only the first is reported as cancelled, so a
+/// real failure that races a Cancel keeps its message.
+enum StepError {
+    Cancelled,
+    Failed(String),
+}
+
+impl From<String> for StepError {
+    fn from(message: String) -> Self {
+        Self::Failed(message)
+    }
+}
+
+impl From<&str> for StepError {
+    fn from(message: &str) -> Self {
+        Self::Failed(message.to_string())
+    }
+}
+
+impl From<NpmError> for StepError {
+    fn from(error: NpmError) -> Self {
+        match error {
+            NpmError::Cancelled => Self::Cancelled,
+            NpmError::Failed(message) => Self::Failed(message),
+        }
+    }
 }
 
 impl Installer {
@@ -104,9 +128,8 @@ impl Installer {
         }
     }
 
-    /// Runs `steps` in order as the job `job_id`. `user_node_major` decides
-    /// whose npm installs prerequisites. Returns [`INSTALL_CANCELLED`] when
-    /// the job is cancelled, else the first step's readable error.
+    /// Begins the job `job_id` and runs `steps` in it: [`Self::begin`], then
+    /// [`Self::run_job`], for a caller with nothing to prepare in between.
     pub fn run(
         &self,
         job_id: &str,
@@ -115,59 +138,70 @@ impl Installer {
         user_node_major: Option<u32>,
         on_progress: &(dyn Fn(InstallProgress) + Sync),
     ) -> Result<(), String> {
-        // The last step is what the plan is for: the agent, or the runtime.
-        let name = steps.last().map_or_else(
+        let job = self.begin(job_id, &self.plan_name(steps))?;
+        self.run_job(&job, steps, env, user_node_major, on_progress)
+    }
+
+    /// Registers the job `job_id`, so a cancel finds it from now on, even
+    /// while its command still prepares the plan. `name` is what the user is
+    /// told when the job is already running. The job ends when the returned
+    /// [`Job`] is dropped.
+    pub fn begin(&self, job_id: &str, name: &str) -> Result<Job<'_>, String> {
+        let mut jobs = lock(&self.jobs);
+        if jobs.running.contains_key(job_id) {
+            return Err(format!("{name} is already installing"));
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        jobs.running.insert(job_id.to_string(), Arc::clone(&cancel));
+        Ok(Job {
+            jobs: &self.jobs,
+            id: job_id.to_string(),
+            cancel,
+        })
+    }
+
+    /// Runs `steps` in order in `job`, once no clean-up is deleting.
+    /// `user_node_major` decides whose npm installs prerequisites. Returns
+    /// [`INSTALL_CANCELLED`] when the job is cancelled, else the first
+    /// step's readable error.
+    pub fn run_job(
+        &self,
+        job: &Job,
+        steps: &[PlannedStep],
+        env: &HashMap<String, String>,
+        user_node_major: Option<u32>,
+        on_progress: &(dyn Fn(InstallProgress) + Sync),
+    ) -> Result<(), String> {
+        self.run_steps(job, steps, env, user_node_major, on_progress)
+            .map_err(|error| match error {
+                StepError::Cancelled => INSTALL_CANCELLED.to_string(),
+                StepError::Failed(message) => message,
+            })
+    }
+
+    /// What the plan is for, as the user sees it: its last step, the agent
+    /// or the runtime.
+    pub fn plan_name(&self, steps: &[PlannedStep]) -> String {
+        steps.last().map_or_else(
             || "This agent".to_string(),
             |step| step.display(Some(&self.manifest), &self.platform).name,
-        );
-        let job = self.start_job(job_id, &name)?;
-        let cancel = job.cancel.as_ref();
-        for (index, step) in steps.iter().enumerate() {
-            let shown = step.display(Some(&self.manifest), &self.platform);
-            let run = StepRun {
-                job_id,
-                index,
-                count: steps.len(),
-                kind: shown.kind,
-                name: shown.name,
-                cancel,
-                on_progress,
-            };
-            self.run_step(step, &run, env, user_node_major)
-                .map_err(|e| {
-                    if cancel.load(Ordering::Relaxed) {
-                        INSTALL_CANCELLED.to_string()
-                    } else {
-                        e
-                    }
-                })?;
-        }
-        Ok(())
+        )
     }
 
-    /// Asks the job to stop; false when no such job is running. A job that
-    /// starts soon after (its command was still preparing) is stopped too.
+    /// Asks the job to stop; false when no such job is running. Nothing is
+    /// recorded for a job that is not running, so a cancel that lands just
+    /// after a job ended never stops the next one.
     pub fn cancel(&self, job_id: &str) -> bool {
-        let mut jobs = lock(&self.jobs);
-        if let Some(flag) = jobs.running.get(job_id) {
-            flag.store(true, Ordering::Relaxed);
-            return true;
-        }
-        jobs.early_cancels
-            .retain(|_, at| at.elapsed() < EARLY_CANCEL_WINDOW);
-        jobs.early_cancels
-            .insert(job_id.to_string(), Instant::now());
-        false
-    }
-
-    /// Stops the job if it runs, and records nothing when it does not, for
-    /// callers that are not answering the user's Cancel.
-    pub fn stop_if_running(&self, job_id: &str) -> bool {
         lock(&self.jobs)
             .running
             .get(job_id)
             .inspect(|flag| flag.store(true, Ordering::Relaxed))
             .is_some()
+    }
+
+    /// [`Self::cancel`], for callers that are not answering the user's Cancel.
+    pub fn stop_if_running(&self, job_id: &str) -> bool {
+        self.cancel(job_id)
     }
 
     /// The tools dir this installer writes to.
@@ -237,32 +271,40 @@ impl Installer {
         Ok(())
     }
 
-    /// Registers the job, then waits for a clean-up that is deleting. A
-    /// cancel that came first, or comes while it waits, ends it.
-    fn start_job(&self, job_id: &str, name: &str) -> Result<Job<'_>, String> {
-        let job = {
-            let mut jobs = lock(&self.jobs);
-            if jobs.running.contains_key(job_id) {
-                return Err(format!("{name} is already installing"));
-            }
-            let cancelled_early = jobs
-                .early_cancels
-                .remove(job_id)
-                .is_some_and(|at| at.elapsed() < EARLY_CANCEL_WINDOW);
-            let cancel = Arc::new(AtomicBool::new(cancelled_early));
-            jobs.running.insert(job_id.to_string(), Arc::clone(&cancel));
-            Job {
-                jobs: &self.jobs,
-                id: job_id.to_string(),
+    fn run_steps(
+        &self,
+        job: &Job,
+        steps: &[PlannedStep],
+        env: &HashMap<String, String>,
+        user_node_major: Option<u32>,
+        on_progress: &(dyn Fn(InstallProgress) + Sync),
+    ) -> Result<(), StepError> {
+        let cancel = job.cancel.as_ref();
+        self.wait_for_clean_up(cancel)?;
+        for (index, step) in steps.iter().enumerate() {
+            let shown = step.display(Some(&self.manifest), &self.platform);
+            let run = StepRun {
+                job_id: &job.id,
+                index,
+                count: steps.len(),
+                kind: shown.kind,
+                name: shown.name,
                 cancel,
-            }
-        };
+                on_progress,
+            };
+            self.run_step(step, &run, env, user_node_major)?;
+        }
+        Ok(())
+    }
+
+    /// Waits for a clean-up that is deleting; a cancel that came first, or
+    /// comes while it waits, ends the job.
+    fn wait_for_clean_up(&self, cancel: &AtomicBool) -> Result<(), StepError> {
         while lock(&self.jobs).cleaning {
-            check_cancel(&job.cancel)?;
+            check_cancel(cancel)?;
             thread::sleep(LOCK_POLL);
         }
-        check_cancel(&job.cancel)?;
-        Ok(job)
+        check_cancel(cancel)
     }
 
     /// The target's lock, cloned out so the map is never held while waiting.
@@ -276,12 +318,12 @@ impl Installer {
         run: &StepRun,
         env: &HashMap<String, String>,
         user_node_major: Option<u32>,
-    ) -> Result<(), String> {
+    ) -> Result<(), StepError> {
         if !has_plain_path_parts(step) {
-            return Err(format!(
+            return Err(StepError::Failed(format!(
                 "Zorvo cannot install {}: its id or version is not a plain name",
                 run.name
-            ));
+            )));
         }
         let target = self.target_lock(&lock_key(step));
         let _held = wait_for(&target, run.cancel)?;
@@ -309,7 +351,7 @@ impl Installer {
         }
     }
 
-    fn install_runtime(&self, kind: RuntimeKind, run: &StepRun) -> Result<(), String> {
+    fn install_runtime(&self, kind: RuntimeKind, run: &StepRun) -> Result<(), StepError> {
         let release = self.manifest.release(kind);
         let dest = kind.dir(&self.tools, &release.version, &self.platform);
         if read_record(&dest).is_some() {
@@ -332,7 +374,7 @@ impl Installer {
         url: &str,
         sha256: &str,
         size: Option<u64>,
-    ) -> Result<Staging, String> {
+    ) -> Result<Staging, StepError> {
         // Fail before spending the download on an archive that cannot be unpacked.
         let format = format_for_url(url).ok_or(UNKNOWN_FORMAT)?;
         let staging = self.tools.new_staging()?;
@@ -350,7 +392,10 @@ impl Installer {
                 run.report(PHASE_DOWNLOAD, seen.0, seen.1);
             },
         )
-        .map_err(|e| e.user_message(&run.name))?;
+        .map_err(|e| match e {
+            DownloadError::Cancelled => StepError::Cancelled,
+            e => StepError::Failed(e.user_message(&run.name)),
+        })?;
         // The download already compared the hash; this tells the UI it matched.
         run.report(PHASE_VERIFY, seen.0, seen.1);
         run.check_cancel()?;
@@ -362,7 +407,10 @@ impl Installer {
             &self.unpack,
             run.cancel,
         )
-        .map_err(|e| e.user_message(&run.name))?;
+        .map_err(|e| match e {
+            UnpackError::Cancelled => StepError::Cancelled,
+            e => StepError::Failed(e.user_message(&run.name)),
+        })?;
         Ok(staging)
     }
 
@@ -372,7 +420,7 @@ impl Installer {
         run: &StepRun,
         env: &HashMap<String, String>,
         user_node_major: Option<u32>,
-    ) -> Result<(), String> {
+    ) -> Result<(), StepError> {
         let dest = self.tools.prereq_dir(p.command, p.version);
         if read_record(&dest).is_some() {
             return Ok(());
@@ -430,8 +478,8 @@ impl Installer {
     }
 }
 
-/// A running job's entry in the job map, removed when the run ends.
-struct Job<'a> {
+/// A begun job's entry in the job map, removed when this is dropped.
+pub struct Job<'a> {
     jobs: &'a Mutex<Jobs>,
     id: String,
     cancel: Arc<AtomicBool>,
@@ -477,14 +525,14 @@ impl StepRun<'_> {
         });
     }
 
-    fn check_cancel(&self) -> Result<(), String> {
+    fn check_cancel(&self) -> Result<(), StepError> {
         check_cancel(self.cancel)
     }
 }
 
-fn check_cancel(cancel: &AtomicBool) -> Result<(), String> {
+fn check_cancel(cancel: &AtomicBool) -> Result<(), StepError> {
     if cancel.load(Ordering::Relaxed) {
-        Err(INSTALL_CANCELLED.to_string())
+        Err(StepError::Cancelled)
     } else {
         Ok(())
     }
@@ -512,7 +560,10 @@ fn lock_key(step: &PlannedStep) -> String {
 
 /// Takes `target`, giving up as soon as `cancel` is set, so a job queued
 /// behind another job's long download can still be cancelled.
-fn wait_for<'a>(target: &'a Mutex<()>, cancel: &AtomicBool) -> Result<MutexGuard<'a, ()>, String> {
+fn wait_for<'a>(
+    target: &'a Mutex<()>,
+    cancel: &AtomicBool,
+) -> Result<MutexGuard<'a, ()>, StepError> {
     loop {
         match target.try_lock() {
             Ok(guard) => return Ok(guard),
@@ -537,7 +588,7 @@ fn commit(
     staging: Staging,
     dest: &Path,
     record: InstallRecord,
-) -> Result<(), String> {
+) -> Result<(), StepError> {
     run.check_cancel()?;
     if read_record(dest).is_none() {
         remove_leftover(dest)?;
@@ -546,11 +597,11 @@ fn commit(
         CommitOutcome::Installed => Ok(()),
         // Only another process could have put it there; count it if it is complete.
         CommitOutcome::AlreadyPresent if read_record(dest).is_some() => Ok(()),
-        CommitOutcome::AlreadyPresent => Err(format!(
+        CommitOutcome::AlreadyPresent => Err(StepError::Failed(format!(
             "Could not install {}: something else is at {}",
             run.name,
             dest.display()
-        )),
+        ))),
     }
 }
 

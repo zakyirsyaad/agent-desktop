@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use zorvo_lib::installer::prerequisites::{
-    npm_install_args, prerequisites_for, run_npm_install, Prerequisite,
+    npm_install_args, prerequisites_for, run_npm_install, NpmError, Prerequisite,
 };
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -118,7 +118,8 @@ fn run_npm_install_reports_the_stderr_tail() {
         Duration::from_secs(10),
         &AtomicBool::new(false),
     )
-    .unwrap_err();
+    .unwrap_err()
+    .to_string();
     assert!(
         err.starts_with("npm could not install @earendil-works/pi-coding-agent@"),
         "{err}"
@@ -159,7 +160,8 @@ fn run_npm_install_stops_at_the_timeout() {
         Duration::from_secs(5),
         &AtomicBool::new(false),
     )
-    .unwrap_err();
+    .unwrap_err()
+    .to_string();
     assert!(started.elapsed() < Duration::from_secs(15));
     assert!(err.contains("timed out"), "{err}");
     assert!(
@@ -190,7 +192,7 @@ fn run_npm_install_stops_when_cancelled() {
     })
     .unwrap_err();
     assert!(started.elapsed() < Duration::from_secs(10));
-    assert!(err.contains("cancelled"), "{err}");
+    assert_eq!(err, NpmError::Cancelled);
 }
 
 #[test]

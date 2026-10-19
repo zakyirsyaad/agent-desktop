@@ -358,6 +358,12 @@ pub(crate) fn with_system_tools<R>(f: impl FnOnce(&registry::Catalog, &SystemToo
     f(catalog, &tools)
 }
 
+/// The registry agent's name at the version [`install_steps_for`] would plan,
+/// read without probing the machine; `None` for an id the catalog cannot offer.
+pub fn agent_name(id: &str, versions: &BTreeMap<String, String>) -> Option<String> {
+    registry::catalog().agent_name(id, versions, registry::unix_now())
+}
+
 /// The registry agent's name and what an install of it would do, at the
 /// version in `versions` when the catalog has it, else the offered one: the
 /// same entry and machine [`agent_profiles`] resolve. `None` for an id the

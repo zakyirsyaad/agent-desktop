@@ -780,23 +780,68 @@ fn a_cancel_during_a_slow_clean_up_returns_promptly_and_ends_the_waiting_install
 }
 
 #[test]
-fn a_cancel_before_the_job_starts_is_not_lost() {
+fn a_cancel_for_a_job_not_begun_records_nothing() {
     let server = Server::start(vec![("/node.tar.gz", Reply::Ok(node_archive()))]);
     let d = data_dir();
     let install = installer(&d, &server);
     let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
 
-    install.cancel("job");
-    assert_eq!(
-        install.run("job", &steps, &env(), None, &no_progress),
-        Err(INSTALL_CANCELLED.to_string())
-    );
-    assert_eq!(server.hits("/node.tar.gz"), 0);
-
-    // The cancel is used up: the next install runs.
+    // A Cancel that lands just after a job ended must not stop the next install.
+    assert!(!install.cancel("job"));
     assert_eq!(
         install.run("job", &steps, &env(), None, &no_progress),
         Ok(())
+    );
+    assert_eq!(server.hits("/node.tar.gz"), 1);
+}
+
+#[test]
+fn a_cancel_while_the_command_prepares_ends_the_job_before_any_step() {
+    let server = Server::start(vec![("/node.tar.gz", Reply::Ok(node_archive()))]);
+    let d = data_dir();
+    let install = installer(&d, &server);
+    let steps = [PlannedStep::Runtime(RuntimeKind::Node)];
+
+    let job = install.begin("job", "Node.js").unwrap();
+    // A second install of the same job is refused while the first prepares.
+    assert_eq!(
+        install.begin("job", "Node.js").err(),
+        Some("Node.js is already installing".to_string())
+    );
+    assert!(install.cancel("job"));
+
+    assert_eq!(
+        install.run_job(&job, &steps, &env(), None, &no_progress),
+        Err(INSTALL_CANCELLED.to_string())
+    );
+    assert_eq!(server.hits("/node.tar.gz"), 0);
+    drop(job);
+    assert!(!install.cancel("job"), "an ended job is forgotten");
+}
+
+#[test]
+fn a_real_failure_that_races_a_cancel_keeps_its_message() {
+    let server = Server::start(vec![("/agent.tar.gz", Reply::Ok(agent_archive()))]);
+    let d = data_dir();
+    let install = installer(&d, &server);
+    // A pin that is not a SHA-256 fails before the download checks its cancel flag.
+    let steps = [PlannedStep::Agent {
+        id: "my-agent".to_string(),
+        name: "Agent my-agent".to_string(),
+        version: "1.0.0".to_string(),
+        url: server.url("/agent.tar.gz"),
+        sha256: "not-a-hash".to_string(),
+        cmd: "./dist/my-agent".to_string(),
+    }];
+
+    let result = install.run("my-agent", &steps, &env(), None, &|_| {
+        // The user clicks Cancel as the download starts.
+        install.cancel("my-agent");
+    });
+
+    assert_eq!(
+        result,
+        Err("The download of Agent my-agent did not match its checksum".to_string())
     );
 }
 

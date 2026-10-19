@@ -517,6 +517,12 @@ fn plans_the_install_of_the_version_in_use() {
     assert!(catalog
         .planned_steps_for("unknown", &tools, &in_use, now)
         .is_none());
+    // The name alone, read without planning, for the same entry.
+    assert_eq!(
+        catalog.agent_name("opencode", &in_use, now).as_deref(),
+        Some("Agent opencode")
+    );
+    assert!(catalog.agent_name("unknown", &in_use, now).is_none());
 }
 
 /// A catalog of gemini 1.0.0 and 2.0.0 (both old enough) after a fetch listing `listed`.
