@@ -44,11 +44,18 @@ function optimisticStatus(answer: ElicitationAnswer, mode: ElicitationCard['mode
   return mode === 'url' ? 'opened' : 'submitted';
 }
 
-/** Puts the waiting card back, but only while it still shows the answer that failed. */
+/**
+ * Puts the waiting card back, but only while it still shows the answer that
+ * failed. It comes back without the field errors it had: the user may have
+ * fixed them since, and the backend checks the form again on the next submit.
+ * A refused form gets its new errors after this.
+ */
 function putBack(messages: ChatMessage[], { card, status }: InFlightAnswer): ChatMessage[] | null {
   const index = findElicitationIndex(messages, card.key, status);
   if (index < 0) return null;
-  return messages.map((m, i) => (i === index ? { ...m, elicitation: card } : m));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { errors, ...waiting } = card;
+  return messages.map((m, i) => (i === index ? { ...m, elicitation: waiting } : m));
 }
 
 /**

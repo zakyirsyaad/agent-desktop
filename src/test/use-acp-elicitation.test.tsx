@@ -201,6 +201,24 @@ describe("Elicitations in the app", () => {
     expect(card("el-1").queryByText("You sent the form.")).toBeNull();
   });
 
+  it("puts the card back without old field errors when a later answer fails for another reason", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startWorkingSession(spy);
+    override(spy, "acp_respond_elicitation", () =>
+      Promise.reject('ELICITATION_INVALID:{"name":"Use the format the agent asked for."}'),
+    );
+    await askForName(sessionId);
+    await submitName("el-1", "Ada");
+    await waitFor(() => expect(card("el-1").getByText("Use the format the agent asked for.")).toBeDefined());
+
+    override(spy, "acp_respond_elicitation", () => Promise.reject("the pipe broke"));
+    await submitName("el-1", "Grace");
+
+    await waitFor(() => expect(screen.getByText("Could not answer the agent: the pipe broke")).toBeDefined());
+    expect(card("el-1").getByRole("button", { name: "Submit" })).toBeDefined();
+    expect(card("el-1").queryByText("Use the format the agent asked for.")).toBeNull();
+  });
+
   it("puts the card back when answering fails for another reason", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startWorkingSession(spy);
