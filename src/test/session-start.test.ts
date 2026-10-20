@@ -2,10 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import { isWaitingForAnswer, newSessionRecord } from "../lib/session-start";
 import { TRANSPORT_ACP, type AgentProfile, type ChatMessage, type Session } from "../types";
 
-const QWEN = { id: "qwen", transport: TRANSPORT_ACP } as AgentProfile;
+const QWEN = { id: "qwen" } as AgentProfile;
 
 describe("newSessionRecord", () => {
-  it("records a running session with the spec's agent, folder, flags and fork source", () => {
+  it("records a running session with the spec's agent, folder and fork source", () => {
     const worktree = { repoPath: "/w/api", path: "/data/worktrees/api/fix", branch: "agent/fix" };
 
     const session = newSessionRecord(
@@ -14,7 +14,6 @@ describe("newSessionRecord", () => {
         agent: QWEN,
         cwd: "/data/worktrees/api/fix",
         name: "Fix it",
-        options: { model: "opus", effort: "high", permissionMode: "default", agentSessionId: "a-1" },
         forkedFrom: "s-0",
         worktree,
       },
@@ -28,10 +27,6 @@ describe("newSessionRecord", () => {
       cwd: "/data/worktrees/api/fix",
       status: "running",
       createdAt: 1234,
-      model: "opus",
-      effort: "high",
-      permissionMode: "default",
-      agentSessionId: "a-1",
       forkedFrom: "s-0",
       transport: TRANSPORT_ACP,
       worktree,
@@ -42,7 +37,7 @@ describe("newSessionRecord", () => {
     const session = newSessionRecord({ agent: QWEN, cwd: "/w/api", name: "Session #1" }, 1);
 
     expect(session.id).toMatch(/^s-/);
-    expect(session).toMatchObject({ agentSessionId: null, forkedFrom: null, worktree: null, model: undefined });
+    expect(session).toMatchObject({ forkedFrom: null, worktree: null });
   });
 });
 

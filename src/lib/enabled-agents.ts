@@ -4,15 +4,14 @@ import type { AgentProfile, Settings } from "../types";
 export const DEFAULT_ENABLED_AGENTS: readonly string[] = ["claude-acp", "codex-acp", "qwen-code"];
 
 export type EnabledSettings = Pick<Settings, "enabledAgents">;
-type UsableAgent = Pick<AgentProfile, "id" | "source" | "detected">;
+type UsableAgent = Pick<AgentProfile, "id">;
 
 export function enabledAgentIds(settings: EnabledSettings): readonly string[] {
   return settings.enabledAgents ?? DEFAULT_ENABLED_AGENTS;
 }
 
-/** Terminal agents are in use when found on this machine; registry agents when the user enabled them. */
+/** An agent is in use when the user enabled it. */
 export function isInUse(agent: UsableAgent, settings: EnabledSettings): boolean {
-  if (agent.source === "builtin") return agent.detected;
   return enabledAgentIds(settings).includes(agent.id);
 }
 

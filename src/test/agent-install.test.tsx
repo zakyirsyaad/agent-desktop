@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
-import { aiderProfile, claudeProfile, fakeProfiles, makeProfile } from "./fixtures/agents";
+import { claudeProfile, fakeProfiles, makeProfile } from "./fixtures/agents";
 import type { AgentProfile } from "../types";
 
 type Listener = (event: { payload: unknown }) => void;
@@ -49,7 +49,6 @@ const codex = makeProfile({
   id: "codex-acp",
   name: "Codex",
   source: "registry",
-  transport: "acp",
   detected: false,
   availability: "needs_runtime",
   distribution: "npx",
@@ -268,7 +267,6 @@ describe("Installing an agent from the new-session draft", () => {
       ...claudeProfile,
       detected: false,
       detected_path: null,
-      transport: "acp",
       availability: "needs_runtime",
       distribution: "npx",
       install_plan: [
@@ -276,7 +274,7 @@ describe("Installing an agent from the new-session draft", () => {
         { kind: "agent", name: "Claude Code", version: "0.9.0", download_bytes: null },
       ],
     });
-    const profiles: AgentProfile[] = [claude, codex, aiderProfile];
+    const profiles: AgentProfile[] = [claude, codex];
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "get_agent_profiles" ? Promise.resolve(structuredClone(profiles)) : fakeTauriInvoke(cmd, args)
     );

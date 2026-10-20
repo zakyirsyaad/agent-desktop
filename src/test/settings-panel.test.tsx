@@ -13,27 +13,24 @@ const claudeCode: AgentProfile = makeProfile({
   command: "claude",
   detected: true,
   detected_path: "/opt/homebrew/bin/claude",
-  models: ["claude-sonnet-5-5"],
 });
 
-const omp: AgentProfile = makeProfile({
-  id: "omp",
-  name: "Oh-My-Pi",
-  command: "omp",
+const gemini: AgentProfile = makeProfile({
+  id: "gemini",
+  name: "Gemini CLI",
+  command: "gemini",
   detected: false,
-  models: [],
 });
 
-const aider: AgentProfile = makeProfile({
-  id: "aider",
-  name: "Aider",
-  command: "aider",
+const qwen: AgentProfile = makeProfile({
+  id: "qwen-code",
+  name: "Qwen Code",
+  command: "qwen",
   detected: true,
-  detected_path: "/usr/local/bin/aider",
-  models: ["gpt-5"],
+  detected_path: "/usr/local/bin/qwen",
 });
 
-const AGENTS = [claudeCode, omp, aider];
+const AGENTS = [claudeCode, gemini, qwen];
 
 const RECENT_FOLDERS = [
   { name: "trading-bot", path: "/Users/test/trading-bot" },
@@ -122,26 +119,26 @@ describe("SettingsPanel — dialog", () => {
 
 describe("SettingsPanel — default agent", () => {
   it("offers only ready agents and reflects the current default", () => {
-    renderSettings({ defaultAgentId: "aider" });
+    renderSettings({ defaultAgentId: "qwen-code" });
 
     const select = defaultAgentSelect();
 
     expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
       "Claude Code",
-      "Aider",
+      "Qwen Code",
     ]);
-    expect(within(select).queryByRole("option", { name: /Oh-My-Pi/ })).toBeNull();
-    expect(select).toHaveValue("aider");
+    expect(within(select).queryByRole("option", { name: /Gemini CLI/ })).toBeNull();
+    expect(select).toHaveValue("qwen-code");
   });
 
   it("reports the newly chosen default agent", () => {
     const onChangeDefaultAgent = vi.fn();
     renderSettings({ defaultAgentId: "claude-code", onChangeDefaultAgent });
 
-    fireEvent.change(defaultAgentSelect(), { target: { value: "aider" } });
+    fireEvent.change(defaultAgentSelect(), { target: { value: "qwen-code" } });
 
     expect(onChangeDefaultAgent).toHaveBeenCalledTimes(1);
-    expect(onChangeDefaultAgent).toHaveBeenCalledWith("aider");
+    expect(onChangeDefaultAgent).toHaveBeenCalledWith("qwen-code");
   });
 });
 

@@ -13,6 +13,6 @@ describe("App smoke test", () => {
     expect(screen.getByRole("heading", { name: "New session" })).toBeDefined();
     const agents = within(screen.getByRole("list", { name: "Detected agents" }));
     expect(agents.getByText("Claude Code")).toBeDefined();
-    expect(agents.getByText("Oh-My-Pi")).toBeDefined();
+    expect(agents.getByText("Qwen Code")).toBeDefined();
   });
 });

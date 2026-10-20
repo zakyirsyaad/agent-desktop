@@ -1,32 +1,15 @@
 import { titleFromPrompt } from './session-helpers';
 import { fileNameOf } from './attachments';
-import type { SessionDraft } from './composer-controls';
 import type { FirstMessage } from '../hooks/session-engine/useAcpEngine';
 import { isAwaitingPermission } from './acp-events';
 import { createId } from './ids';
 import {
-  DEFAULT_PERMISSION_MODE,
   TRANSPORT_ACP,
   type AgentProfile,
   type ChatMessage,
   type Session,
   type SessionWorktree,
-  type SpawnOptions,
 } from '../types';
-
-/** The choices for a new terminal session before the user changes any. */
-export const EMPTY_DRAFT: SessionDraft = { permissionMode: DEFAULT_PERMISSION_MODE };
-
-/** The CLI flags a terminal agent starts with, from the choices for it. */
-export function spawnOptionsFor(agent: AgentProfile, draft: SessionDraft): SpawnOptions {
-  return {
-    model: draft.model,
-    effort: draft.effort,
-    permissionMode: draft.permissionMode,
-    // Agents with a session-id flag get an id we choose, so they can be forked natively later.
-    agentSessionId: agent.session_id_arg ? crypto.randomUUID() : undefined,
-  };
-}
 
 /** A session title from a message, or from its first file when it has no text. */
 export function titleFor({ text, attachments }: FirstMessage): string {
@@ -39,16 +22,14 @@ export interface SessionSpec {
   agent: AgentProfile;
   cwd: string;
   name: string;
-  /** Terminal agents only: the CLI flags to start with. */
-  options?: SpawnOptions;
   forkedFrom?: string;
   initialMessages?: ChatMessage[];
   worktree?: SessionWorktree | null;
 }
 
-/** The record of a session about to start: running, with the spec's agent, folder and flags. */
+/** The record of a session about to start: running, with the spec's agent and folder. */
 export function newSessionRecord(spec: SessionSpec, createdAt: number = Date.now()): Session {
-  const { id, agent, cwd, name, options, forkedFrom, worktree } = spec;
+  const { id, agent, cwd, name, forkedFrom, worktree } = spec;
   return {
     id: id ?? createId('s'),
     name,
@@ -56,10 +37,6 @@ export function newSessionRecord(spec: SessionSpec, createdAt: number = Date.now
     cwd,
     status: 'running',
     createdAt,
-    model: options?.model,
-    effort: options?.effort,
-    permissionMode: options?.permissionMode,
-    agentSessionId: options?.agentSessionId ?? null,
     forkedFrom: forkedFrom ?? null,
     transport: TRANSPORT_ACP,
     worktree: worktree ?? null,

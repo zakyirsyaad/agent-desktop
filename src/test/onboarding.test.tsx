@@ -1,8 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, within, fireEvent, act } from "@testing-library/react";
 import { Onboarding } from "../components/Onboarding";
-import { AgentsStep } from "../components/onboarding/AgentsStep";
 import type { AgentProfile } from "../types";
 import { makeProfile } from "./fixtures/agents";
 
@@ -14,29 +13,29 @@ const claudeCode: AgentProfile = makeProfile({
   command: "claude",
   detected: true,
   detected_path: "/opt/homebrew/bin/claude",
-  models: ["claude-sonnet-5-5"],
 });
 
-const omp: AgentProfile = makeProfile({
-  id: "omp",
-  name: "Oh-My-Pi",
-  command: "omp",
+/** Not enabled by default, so Onboarding does not list it. */
+const gemini: AgentProfile = makeProfile({
+  id: "gemini",
+  source: "registry",
+  distribution: "npx",
+  name: "Gemini CLI",
+  command: "gemini",
   detected: false,
-  models: [],
 });
 
-const aider: AgentProfile = makeProfile({
-  id: "aider",
-  name: "Aider",
-  command: "aider",
+const qwen: AgentProfile = makeProfile({
+  id: "qwen-code",
+  source: "registry",
+  distribution: "npx",
+  name: "Qwen Code",
+  command: "qwen",
   detected: true,
-  detected_path: "/usr/local/bin/aider",
-  models: ["gpt-5"],
+  detected_path: "/usr/local/bin/qwen",
 });
 
-const AGENTS = [claudeCode, omp, aider];
-
-const AIDER_INSTALL_COMMAND = "python -m pip install aider-install && aider-install";
+const AGENTS = [claudeCode, gemini, qwen];
 
 /** Recent folders may carry persistence fields the component must not forward. */
 type FolderFixture = { name: string; path: string; lastOpenedAt?: number };
@@ -62,18 +61,6 @@ type OnboardingProps = {
 
 function notDetected(agent: AgentProfile): AgentProfile {
   return { ...agent, detected: false, detected_path: null };
-}
-
-let clipboardWriteText: ReturnType<typeof vi.fn>;
-
-/** jsdom ships no navigator.clipboard, so each test gets a fresh stub. */
-function stubClipboard(): ReturnType<typeof vi.fn> {
-  const writeText = vi.fn().mockResolvedValue(undefined);
-  Object.defineProperty(navigator, "clipboard", {
-    value: { writeText },
-    configurable: true,
-  });
-  return writeText;
 }
 
 function renderOnboarding(overrides: Partial<OnboardingProps> = {}): OnboardingProps {
@@ -136,7 +123,6 @@ async function goToDefaultAgentStep(): Promise<void> {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  clipboardWriteText = stubClipboard();
 });
 
 describe("Onboarding — agent step", () => {
@@ -169,11 +155,11 @@ describe("Onboarding — agent step", () => {
     expect(claude).toHaveTextContent("Ready");
     expect(claude).toHaveTextContent("/opt/homebrew/bin/claude");
 
-    const aider = agentItem("Aider");
-    expect(aider).toHaveTextContent("Ready");
-    expect(aider).toHaveTextContent("/usr/local/bin/aider");
+    const qwenItem = agentItem("Qwen Code");
+    expect(qwenItem).toHaveTextContent("Ready");
+    expect(qwenItem).toHaveTextContent("/usr/local/bin/qwen");
 
-    expect(screen.queryByText("Oh-My-Pi")).toBeNull();
+    expect(screen.queryByText("Gemini CLI")).toBeNull();
   });
 
   it("lists only the agents in use", () => {
@@ -189,7 +175,7 @@ describe("Onboarding — agent step", () => {
 
   it("blocks Continue and says why when no agent is installed", () => {
     renderOnboarding({
-      agents: [notDetected(claudeCode), omp, notDetected(aider)],
+      agents: [notDetected(claudeCode), gemini, notDetected(qwen)],
     });
 
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
@@ -209,7 +195,7 @@ describe("Onboarding — agent step", () => {
       ],
     });
     const onComplete = vi.fn();
-    renderOnboarding({ agents: [installable, omp, notDetected(aider)], onComplete });
+    renderOnboarding({ agents: [installable, gemini, notDetected(qwen)], onComplete });
 
     expect(screen.queryByText("Install at least one agent to continue.")).toBeNull();
     await goToDefaultAgentStep();
@@ -230,31 +216,12 @@ describe("Onboarding — agent step", () => {
     expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
 
-  it("offers a copyable install command for a missing terminal agent", async () => {
-    // Onboarding lists only agents in use, so render the step itself with a missing one.
-    render(<AgentsStep agents={[claudeCode, notDetected(aider)]} onRecheckAgents={vi.fn()} />);
-
-    const item = agentItem("Aider");
-    expect(item).toHaveTextContent("Not installed");
-    const command = within(item).getByText(AIDER_INSTALL_COMMAND);
-    expect(command.closest("code")).not.toBeNull();
-
-    await click(within(item).getByRole("button", {
-      name: "Copy install command for Aider",
-    }));
-
-    await waitFor(() => {
-      expect(clipboardWriteText).toHaveBeenCalledWith(AIDER_INSTALL_COMMAND);
-    });
-    expect(clipboardWriteText).toHaveBeenCalledTimes(1);
-  });
-
   it("points a missing registry agent at Node.js", () => {
     const withoutNode = makeProfile({
       ...notDetected(claudeCode),
       install_plan: [{ kind: "node", name: "Node.js", version: "24.11.1", download_bytes: null }],
     });
-    renderOnboarding({ agents: [withoutNode, omp, aider] });
+    renderOnboarding({ agents: [withoutNode, gemini, qwen] });
 
     const item = agentItem("Claude Code");
     expect(item).toHaveTextContent("Not installed");
@@ -426,8 +393,8 @@ describe("Onboarding — default agent step", () => {
     const group = screen.getByRole("radiogroup", { name: "Default agent" });
     expect(within(group).getAllByRole("radio")).toHaveLength(2);
     expect(within(group).getByRole("radio", { name: /Claude Code/ })).toBeChecked();
-    expect(within(group).getByRole("radio", { name: /Aider/ })).not.toBeChecked();
-    expect(within(group).queryByRole("radio", { name: /Oh-My-Pi/ })).toBeNull();
+    expect(within(group).getByRole("radio", { name: /Qwen Code/ })).not.toBeChecked();
+    expect(within(group).queryByRole("radio", { name: /Gemini CLI/ })).toBeNull();
     expect(stepItems()[2]).toHaveAttribute("aria-current", "step");
   });
 
@@ -448,12 +415,12 @@ describe("Onboarding — default agent step", () => {
     await clickButton("Continue");
 
     const group = screen.getByRole("radiogroup", { name: "Default agent" });
-    await click(within(group).getByRole("radio", { name: /Aider/ }));
+    await click(within(group).getByRole("radio", { name: /Qwen Code/ }));
     await clickButton("Start");
 
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(onComplete).toHaveBeenCalledWith({
-      defaultAgentId: "aider",
+      defaultAgentId: "qwen-code",
       folder: { name: "trading-bot", path: "/Users/test/trading-bot" },
     });
   });

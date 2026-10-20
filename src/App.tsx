@@ -24,7 +24,6 @@ import { useDraftAgentCheck } from "./hooks/useDraftAgentCheck";
 import { useLatest } from "./hooks/useLatest";
 import { createSessionWorktree } from "./lib/session-worktree";
 import {
-  EMPTY_DRAFT,
   isWaitingForAnswer,
   newSessionRecord,
   titleFor,
@@ -67,7 +66,6 @@ import { pickFiles } from "./lib/file-picker";
 import { useFileDrop } from "./hooks/useFileDrop";
 import { isAgentReady, isAgentRunnable, noAgentNotice, resolveDraftAgentId } from "./lib/agent-readiness";
 import { isInUse, withAutoEnabled } from "./lib/enabled-agents";
-import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
 import {
   NO_CHOICES,
@@ -88,7 +86,6 @@ const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState("");
-  const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
   /** The agent picked for the next new session; null means the default from Settings. */
   const [pickedAgentId, setPickedAgentId] = useState<string | null>(null);
   /** Whether the next new session runs in its own worktree (a git repository only). */
@@ -159,8 +156,6 @@ export default function App() {
   const installPanelAgent = installPanelAgentOf(activeSession, activeAgent, newSessionAgent);
   const draftNeedsInstall = useDraftInstall(agents, installPanelAgent, draftAgent);
 
-  // A model or effort chosen for one agent means nothing to another one.
-  useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
   useEffect(() => setAcpChoices(NO_CHOICES), [draftAgent?.id]);
 
   // Agents a previous UI left running (a webview reload keeps the backend
@@ -535,10 +530,7 @@ export default function App() {
   const canStartSession = Boolean(activeWorkspacePath && newSessionAgent);
   const composer = composerStateFor({
     session: activeSession,
-    sessionAgent: activeAgent,
     draftAgent,
-    draft,
-    setDraft,
     acpChoices: startChoices,
     setAcpChoices,
     agentOptions,

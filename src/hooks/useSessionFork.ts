@@ -2,9 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type { AcpEngine, FirstMessage } from './session-engine/useAcpEngine';
 import { buildForkHandoff, buildForkPrompt } from '../lib/fork-handoff';
 import { createId } from '../lib/ids';
-import { spawnOptionsFor, type SessionSpec } from '../lib/session-start';
-import type { SessionDraft } from '../lib/composer-controls';
-import { DEFAULT_PERMISSION_MODE, type AgentProfile, type ChatMessage, type Session } from '../types';
+import type { SessionSpec } from '../lib/session-start';
+import type { AgentProfile, ChatMessage, Session } from '../types';
 
 export interface SessionForkDeps {
   /** The session forked from: the one open. */
@@ -36,11 +35,6 @@ export function useSessionFork(deps: SessionForkDeps): (messageId: string) => Pr
     if (index < 0) return;
 
     const isLatest = index === messages.length - 1;
-    const baseOptions: SessionDraft = {
-      model: source.model,
-      effort: source.effort,
-      permissionMode: source.permissionMode ?? DEFAULT_PERMISSION_MODE,
-    };
     const spec: SessionSpec = {
       id: createId('s'),
       agent,
@@ -65,7 +59,7 @@ export function useSessionFork(deps: SessionForkDeps): (messageId: string) => Pr
         createdAt: Date.now(),
       });
       const handoffPath = await invoke<string>('write_fork_handoff', { handoffId: spec.id, content });
-      startSession({ ...spec, options: spawnOptionsFor(agent, baseOptions) }, { text: buildForkPrompt(handoffPath) });
+      startSession(spec, { text: buildForkPrompt(handoffPath) });
     } catch (error) {
       onNotice(`Could not fork the session: ${String(error)}`);
     }

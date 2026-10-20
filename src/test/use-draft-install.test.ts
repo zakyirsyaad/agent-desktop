@@ -7,12 +7,11 @@ import { makeProfile } from "./fixtures/agents";
 const codex = makeProfile({
   id: "codex-acp",
   name: "Codex",
-  transport: "acp",
   detected: false,
   availability: "needs_runtime",
   install_plan: [{ kind: "agent", name: "Codex", version: "0.4.2", download_bytes: null }],
 });
-const qwen = makeProfile({ id: "qwen-code", name: "Qwen Code", transport: "acp", detected: true, availability: "ready" });
+const qwen = makeProfile({ id: "qwen-code", name: "Qwen Code", detected: true, availability: "ready" });
 
 describe("useDraftInstall", () => {
   afterEach(() => resetAgentInstalls());

@@ -110,19 +110,9 @@ export const NODE_HINT = "Needs Node.js 22 or newer. Zorvo installs it when you 
 /** A registry agent Zorvo can download for this Mac. */
 export const INSTALLABLE_HINT = "Zorvo installs it when you click Install in a new session.";
 
-const INSTALL_HINTS: Readonly<Record<string, InstallHint>> = {
-  aider: { kind: "command", command: "python -m pip install aider-install && aider-install" },
-  omp: { kind: "docs", text: "See the omp documentation for install steps." },
-};
-
 /** How to install a missing agent; agents without a verified command get a docs pointer. */
 export function installHintFor(agent: AgentSummary): InstallHint {
   if (needsNode(agent)) return { kind: "docs", text: NODE_HINT };
   if (canInstall(agent)) return { kind: "docs", text: INSTALLABLE_HINT };
-  return (
-    INSTALL_HINTS[agent.id] ?? {
-      kind: "docs",
-      text: `See the ${agent.name} documentation for install steps.`,
-    }
-  );
+  return { kind: "docs", text: `See the ${agent.name} documentation for install steps.` };
 }

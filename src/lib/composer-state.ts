@@ -1,9 +1,9 @@
-import { acpControls, ptyDraftControls, ptySessionControls, type ComposerControls, type SessionDraft } from './composer-controls';
+import { acpControls, type ComposerControls } from './composer-controls';
 import { draftInfo, type AcpChoices, type AgentOptions } from './acp-draft';
 import type { AcpConfigOption } from '../hooks/useAcpSessions';
 import type { AcpEngine } from '../hooks/session-engine/useAcpEngine';
 import { isAcpSession } from './session-helpers';
-import { TRANSPORT_ACP, type AgentProfile, type Session, type SlashCommand } from '../types';
+import type { AgentProfile, Session, SlashCommand } from '../types';
 
 export interface ComposerState {
   controls: ComposerControls;
@@ -12,11 +12,8 @@ export interface ComposerState {
 
 export interface ComposerInputs {
   session: Session | undefined;
-  sessionAgent: AgentProfile | undefined;
   /** The agent the next message goes to when no session is running: a resumed one's, or the default. */
   draftAgent: AgentProfile | undefined;
-  draft: SessionDraft;
-  setDraft: (draft: SessionDraft) => void;
   acpChoices: AcpChoices;
   setAcpChoices: (choices: AcpChoices) => void;
   agentOptions: Readonly<Record<string, AgentOptions>> | undefined;
@@ -30,12 +27,11 @@ export interface ComposerInputs {
 
 /**
  * What the composer offers: a live ACP session's own modes and options
- * (changed on the fly), a running terminal session's fixed flags, or, before
- * the agent runs, the choices for it. For an ACP agent those are the options
- * it reported last time; they are applied once it is up.
+ * (changed on the fly) or, before the agent runs, the choices for it: the
+ * options it reported last time, applied once it is up.
  */
 export function composerStateFor(inputs: ComposerInputs): ComposerState {
-  const { session, sessionAgent, draftAgent, acp } = inputs;
+  const { session, draftAgent, acp } = inputs;
   if (session?.status === 'running') {
     if (isAcpSession(session)) {
       const info = acp.info[session.id];
@@ -51,12 +47,9 @@ export function composerStateFor(inputs: ComposerInputs): ComposerState {
         : {};
       return { controls, locked: false };
     }
-    return { controls: sessionAgent ? ptySessionControls(sessionAgent, session) : {}, locked: true };
+    return { controls: {}, locked: false };
   }
   if (!draftAgent) return { controls: {}, locked: false };
-  if (draftAgent.transport !== TRANSPORT_ACP) {
-    return { controls: ptyDraftControls(draftAgent, inputs.draft, inputs.setDraft), locked: false };
-  }
   const options = inputs.agentOptions?.[draftAgent.id];
   if (!options) return { controls: {}, locked: false };
   const { acpChoices: choices, setAcpChoices } = inputs;
@@ -100,8 +93,7 @@ export function composerPlaceholder(state: {
 
 /**
  * The slash commands the composer offers: a live ACP session's own; before
- * it runs, the ones its agent offered last time. A terminal agent takes
- * its commands in its own screen.
+ * it runs, the ones its agent offered last time.
  */
 export function composerCommandsFor(inputs: {
   session: Session | undefined;
@@ -112,5 +104,5 @@ export function composerCommandsFor(inputs: {
 }): SlashCommand[] | undefined {
   if (inputs.isRunning) return isAcpSession(inputs.session) ? inputs.liveCommands : undefined;
   const agent = inputs.draftAgent;
-  return agent?.transport === TRANSPORT_ACP ? inputs.agentOptions?.[agent.id]?.commands : undefined;
+  return agent ? inputs.agentOptions?.[agent.id]?.commands : undefined;
 }

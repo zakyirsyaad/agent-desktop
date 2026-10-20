@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ChatMessage, Session } from "../types";
-import { ptySessionControls } from "../lib/composer-controls";
 import {
   POPOUT_ACTION_EVENT,
   POPOUT_CLOSED_EVENT,
@@ -12,7 +11,7 @@ import {
   type SessionSnapshotPayload,
   IDLE_STATUS,
 } from "../lib/popout-bridge";
-import { folderNameOf, isAcpSession } from "../lib/session-helpers";
+import { folderNameOf } from "../lib/session-helpers";
 import { useAgentProfiles } from "../hooks/useDiscovery";
 import { TopBar } from "./TopBar";
 import { ChatCanvas } from "./ChatCanvas";
@@ -76,8 +75,6 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
 
   const agent = agents.find((a) => a.id === session?.profileId);
   const isRunning = session?.status === "running";
-  // An ACP session's live modes belong to the main window; change them there.
-  const isAcp = isAcpSession(session);
 
   return (
     <main className="flex h-screen w-screen flex-col bg-bg text-fg-secondary">
@@ -100,7 +97,6 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
         )}
         <div className="p-4 flex justify-center">
           <ComposerDock
-            controls={agent && session && !isAcp ? ptySessionControls(agent, session) : undefined}
             optionsLocked
             disabled={!isRunning}
             placeholder={isRunning ? undefined : "This session is not running"}

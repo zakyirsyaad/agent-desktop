@@ -117,9 +117,9 @@ describe("First run and project folders", () => {
     await click(screen.getByRole("button", { name: "More options" }));
     const dialog = within(screen.getByRole("dialog"));
     await act(async () => {
-      fireEvent.change(dialog.getByLabelText("Default agent"), { target: { value: "omp" } });
+      fireEvent.change(dialog.getByLabelText("Default agent"), { target: { value: "qwen-code" } });
     });
-    await waitFor(() => expect(fakeStore().state.settings.defaultAgentId).toBe("omp"));
+    await waitFor(() => expect(fakeStore().state.settings.defaultAgentId).toBe("qwen-code"));
 
     await click(dialog.getByRole("button", { name: "Run setup again" }));
     expect(screen.getByRole("heading", { name: "Check your agents" })).toBeDefined();

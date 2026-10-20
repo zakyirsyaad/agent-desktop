@@ -38,28 +38,22 @@ describe("composerCommandsFor", () => {
   const live: SlashCommand[] = [{ name: "init", description: "Set up" }];
   const remembered: SlashCommand[] = [{ name: "review", description: "Review" }];
   const acpSession = { transport: TRANSPORT_ACP } as Session;
-  const acpAgent = { id: "qwen", transport: TRANSPORT_ACP } as AgentProfile;
+  const acpAgent = { id: "qwen" } as AgentProfile;
   const options = { qwen: { modes: null, configOptions: [], commands: remembered } };
 
-  it("offers a live ACP session's own commands, and a terminal session's none", () => {
+  it("offers a live ACP session's own commands, and an old terminal session's none", () => {
     expect(composerCommandsFor({ session: acpSession, isRunning: true, liveCommands: live, draftAgent: acpAgent, agentOptions: options })).toBe(live);
     expect(
       composerCommandsFor({ session: { transport: "pty" } as Session, isRunning: true, liveCommands: live, draftAgent: acpAgent, agentOptions: options }),
     ).toBeUndefined();
   });
 
-  it("offers the commands an ACP agent reported last time before it runs, and none for a terminal agent", () => {
+  it("offers the commands an ACP agent reported last time before it runs", () => {
     expect(composerCommandsFor({ session: undefined, isRunning: false, liveCommands: undefined, draftAgent: acpAgent, agentOptions: options })).toBe(
       remembered,
     );
     expect(
-      composerCommandsFor({
-        session: undefined,
-        isRunning: false,
-        liveCommands: undefined,
-        draftAgent: { id: "aider", transport: "pty" } as AgentProfile,
-        agentOptions: options,
-      }),
+      composerCommandsFor({ session: undefined, isRunning: false, liveCommands: undefined, draftAgent: { id: "other" } as AgentProfile, agentOptions: options }),
     ).toBeUndefined();
   });
 });
