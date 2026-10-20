@@ -137,6 +137,13 @@ fn get_agent_catalog(
     }))
 }
 
+/// The agents' logos as `{id: data URL}` (SVG). The webview makes no network
+/// requests, so the backend caches them from the registry CDN and ships a copy.
+#[tauri::command(async)]
+fn get_agent_icons() -> std::collections::BTreeMap<String, String> {
+    registry::catalog().icon_data_urls()
+}
+
 /// Reads the global npm packages and, when the last fetch is a day old,
 /// the registry, on its own thread so startup never waits on `npm` or the
 /// network. The UI is told to reload its profiles only when they changed.
@@ -359,6 +366,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_agent_profiles,
             get_agent_catalog,
+            get_agent_icons,
             list_workspaces,
             spawn_session,
             send_input,

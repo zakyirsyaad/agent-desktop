@@ -9,6 +9,7 @@ mod cache;
 pub mod catalog_view;
 pub mod fetch;
 pub mod history;
+pub mod icons;
 pub mod npm_globals;
 pub mod resolve;
 pub mod schema;
@@ -31,6 +32,7 @@ use catalog_view::{
 };
 use fetch::{fetch_registry, FETCH_TIMEOUT, MAX_REGISTRY_BYTES, REGISTRY_URL};
 use history::{compare_versions, is_within, VersionHistory, MIN_AGE_SECS};
+use icons::{IconSource, BUNDLED_ICONS, ICON_TIMEOUT, MAX_ICON_BYTES};
 use npm_globals::{npm_globals, NPM_TIMEOUT};
 use resolve::{
     install_status, is_supported, planned_steps, registry_env, resolve_profile, InstallStatus,
@@ -44,6 +46,9 @@ pub const AGENT_PROFILES_CHANGED: &str = "agent-profiles-changed";
 
 /// How old the last successful fetch may be before the next start refetches.
 pub const REFRESH_INTERVAL_SECS: u64 = 24 * 60 * 60;
+
+/// Where the downloaded icons live, inside the data dir.
+const ICONS_DIR: &str = "icons";
 
 /// The version history shipped with the app.
 pub const BUNDLED_HISTORY: &str = include_str!("../../resources/registry-history.json");
@@ -441,6 +446,41 @@ impl Catalog {
             .unwrap_or_default()
     }
 
+    /// The icon of the version the registry lists for each listed agent.
+    pub fn icon_sources(&self) -> Vec<IconSource> {
+        let state = self.read_state();
+        let Some(cache) = &state.cache else {
+            return Vec::new();
+        };
+        cache
+            .listed_versions
+            .iter()
+            .filter_map(|(id, version)| {
+                let url = state.history.version(id, version)?.icon.clone()?;
+                Some(IconSource {
+                    id: id.clone(),
+                    version: version.clone(),
+                    url,
+                })
+            })
+            .collect()
+    }
+
+    /// Downloads the icons that changed into the data dir; true when any did.
+    /// Does nothing for a bundle-only catalog.
+    pub fn refresh_icons(&self, fetch: impl Fn(&str) -> Result<String, String>) -> bool {
+        let Some(dir) = &self.data_dir else {
+            return false;
+        };
+        icons::refresh_icons(&dir.join(ICONS_DIR), &self.icon_sources(), fetch)
+    }
+
+    /// Data URLs of the agents' icons: cached copies, else the bundled ones.
+    pub fn icon_data_urls(&self) -> BTreeMap<String, String> {
+        let dir = self.data_dir.as_ref().map(|dir| dir.join(ICONS_DIR));
+        icons::icon_data_urls(dir.as_deref(), BUNDLED_ICONS)
+    }
+
     /// Unix seconds of the last successful fetch.
     pub fn last_fetch(&self) -> Option<u64> {
         self.read_state()
@@ -544,7 +584,12 @@ pub fn refresh_catalog(catalog: &Catalog, env: &HashMap<String, String>, force: 
     let npm_changed = !found.is_empty() && catalog.set_npm_globals(found);
     let local_changed = npm_changed || node_changed;
     let fetch_changed = match fetched {
-        Some(Ok(changed)) => changed,
+        Some(Ok(changed)) => {
+            // Only the CDN is ever asked for an icon; a failed one keeps its old copy.
+            let icons_changed =
+                catalog.refresh_icons(|url| fetch_registry(url, ICON_TIMEOUT, MAX_ICON_BYTES));
+            changed || icons_changed
+        }
         Some(Err(error)) => {
             eprintln!("Could not refresh the ACP registry: {error}");
             false
