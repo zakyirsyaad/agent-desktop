@@ -9,7 +9,10 @@
 //   "elicit-url"  -> asks the user to open https://agent.example.com/connect (elicitationId "gh-1")
 //   "elicit-voice" -> asks in a mode no client knows
 //   "elicit-twice" -> asks for two forms at once, "elic-1" and "elic-2"
-//     (each elicit-* prompt says "elicited:<reply as JSON>" per reply, then ends the turn)
+//   "elicit-blocked-url" -> asks the user to open http://agent.example.com/connect, which Zorvo blocks
+//   "stray-elicit" -> asks for a form for session "nope", which does not exist
+//     (each elicit-* prompt says "elicited:<reply as JSON>" per reply, then ends the turn;
+//     FAKE_ACP_ELICIT_LOG names a file each reply is appended to, as one JSON line)
 //   "elicit-complete" -> sends elicitation/complete for "gh-1" and "nope", then says "completed-sent"
 //   --login      -> the terminal sign-in: prints a greeting and exits
 //   anything else -> echoes the text back as an agent message chunk
@@ -47,6 +50,10 @@ const elicitations = {
   ],
   "elicit-voice": (sessionId) => [{ sessionId, mode: "voice", message: "Say something" }],
   "elicit-twice": (sessionId) => [nameForm({ sessionId }), nameForm({ sessionId })],
+  "elicit-blocked-url": (sessionId) => [
+    { sessionId, mode: "url", message: "Connect your account", elicitationId: "gh-2", url: "http://agent.example.com/connect" },
+  ],
+  "stray-elicit": () => [nameForm({ sessionId: "nope" })],
 };
 
 // Sends each request as elicitation/create with ids "elic-1", "elic-2", ...
@@ -304,6 +311,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
   if (pendingElicit?.waiting.has(message.id) && message.method === undefined) {
+    if (process.env.FAKE_ACP_ELICIT_LOG) appendFileSync(process.env.FAKE_ACP_ELICIT_LOG, `${JSON.stringify(message)}\n`);
     say(pendingElicit.sessionId, `elicited:${JSON.stringify(message.result ?? message.error)}`);
     pendingElicit.waiting.delete(message.id);
     if (pendingElicit.waiting.size === 0) {

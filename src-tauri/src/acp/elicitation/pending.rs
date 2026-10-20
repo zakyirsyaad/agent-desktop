@@ -71,6 +71,22 @@ impl PendingElicitations {
         self.requests.remove(key)
     }
 
+    /// Takes the request `key` while it is still unanswered and belongs to
+    /// `app_session_id`, so only one answer can be sent for it.
+    pub fn take_open(&mut self, app_session_id: &str, key: &str) -> Option<Pending> {
+        let pending = self.get(app_session_id, key)?;
+        if pending.state != PendingState::Open {
+            return None;
+        }
+        self.requests.remove(key)
+    }
+
+    /// Keeps a request taken with [`take_open`](Self::take_open) again, under
+    /// the same key.
+    pub fn put_back(&mut self, key: String, pending: Pending) {
+        self.requests.insert(key, pending);
+    }
+
     /// Takes the accepted URL request `elicitation_id` of this connection,
     /// with its key. Open requests and other connections' ids are left alone.
     pub fn take_completed(
@@ -89,6 +105,13 @@ impl PendingElicitations {
     /// Takes every request of a session that stopped or failed to open.
     pub fn take_session(&mut self, app_session_id: &str) -> Vec<Pending> {
         self.take_where(|pending| pending.app_session_id == app_session_id)
+    }
+
+    /// Takes a session's unanswered requests; accepted URL requests stay.
+    pub fn take_open_of_session(&mut self, app_session_id: &str) -> Vec<Pending> {
+        self.take_where(|pending| {
+            pending.app_session_id == app_session_id && pending.state == PendingState::Open
+        })
     }
 
     /// Takes every request of an agent process that exited.
@@ -176,6 +199,29 @@ mod tests {
         assert_eq!(key, accepted);
         assert_eq!(done.connection_key, 2);
         assert!(pending.take_completed(2, "gh-1").is_none());
+    }
+
+    #[test]
+    fn takes_an_open_request_once_and_puts_it_back_under_its_key() {
+        let mut pending = PendingElicitations::default();
+        let key = pending.insert(form("s-1", 1));
+
+        assert!(pending.take_open("s-2", &key).is_none());
+        let taken = pending.take_open("s-1", &key).expect("open");
+        assert!(pending.take_open("s-1", &key).is_none());
+        pending.put_back(key.clone(), taken);
+        assert!(pending.get("s-1", &key).is_some());
+    }
+
+    #[test]
+    fn does_not_take_an_accepted_url_request_as_open() {
+        let mut pending = PendingElicitations::default();
+        let accepted = pending.insert(url("gh-1", 1, PendingState::AwaitingCompletion));
+        pending.insert(url("gh-2", 1, PendingState::Open));
+
+        assert!(pending.take_open("s-1", &accepted).is_none());
+        assert_eq!(pending.take_open_of_session("s-1").len(), 1);
+        assert!(pending.get("s-1", &accepted).is_some());
     }
 
     #[test]

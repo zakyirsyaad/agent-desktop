@@ -151,7 +151,7 @@ pub fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn open_url(url: &str) -> Result<(), String> {
+pub(crate) fn open_url(url: &str) -> Result<(), String> {
     let status = Command::new("open")
         .arg(url)
         .status()
@@ -164,7 +164,7 @@ fn open_url(url: &str) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn open_url(_url: &str) -> Result<(), String> {
+pub(crate) fn open_url(_url: &str) -> Result<(), String> {
     Err("not supported".to_string())
 }
 

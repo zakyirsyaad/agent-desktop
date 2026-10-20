@@ -21,6 +21,7 @@ use crate::pty_session::validate_cwd;
 mod elicitation_routes;
 mod routing;
 
+pub use elicitation_routes::{UrlOpener, ELICITATION_GONE, ELICITATION_INVALID_PREFIX};
 use routing::{answer, route_event};
 
 /// ACP protocol version this client speaks.
@@ -134,15 +135,23 @@ pub struct AcpManager {
     next_connection_key: AtomicU64,
     /// Terminal sign-ins still starting, so a cancel can end them.
     sign_ins: SignInAttempts,
+    /// Opens the link of an accepted URL elicitation.
+    url_opener: UrlOpener,
 }
 
 impl AcpManager {
     pub fn new(sink: AcpEventSink) -> Self {
+        Self::with_url_opener(sink, Box::new(crate::windows::open_url))
+    }
+
+    /// A manager that opens elicitation links with `opener` (tests record them).
+    pub fn with_url_opener(sink: AcpEventSink, opener: UrlOpener) -> Self {
         Self {
             routes: Arc::new(Mutex::new(Routes::default())),
             sink: Arc::new(sink),
             next_connection_key: AtomicU64::new(1),
             sign_ins: SignInAttempts::default(),
+            url_opener: opener,
         }
     }
 
@@ -373,7 +382,9 @@ impl AcpManager {
         )
     }
 
+    /// Cancels the turn, after answering the session's open elicitations `cancel`.
     pub fn cancel(&self, app_session_id: &str) -> Result<(), String> {
+        self.cancel_open_elicitations(app_session_id);
         let (connection, acp_id) = self.connection_for(app_session_id)?;
         connection.notify("session/cancel", json!({ "sessionId": acp_id }))
     }
@@ -482,23 +493,32 @@ impl AcpManager {
         })
     }
 
-    /// Forgets the session; kills the agent once no other session uses it.
+    /// Forgets the session and answers its open elicitations `cancel`; kills
+    /// the agent once no other session uses it.
     pub fn stop(&self, app_session_id: &str) {
         let Ok(mut routes) = self.routes.lock() else {
             return;
         };
-        routes.elicitations.take_session(app_session_id);
-        let Some(entry) = routes.sessions.remove(app_session_id) else {
-            return;
-        };
+        let requests = routes.elicitations.take_session(app_session_id);
+        // A session stopped while it opens: later requests are cancelled.
         routes
-            .by_acp_id
-            .remove(&(entry.connection_key, entry.acp_session_id.clone()));
-        let still_used = routes
-            .sessions
-            .values()
-            .any(|e| e.connection_key == entry.connection_key);
-        if !still_used {
+            .opening
+            .retain(|_, opening| opening != app_session_id);
+        let entry = routes.sessions.remove(app_session_id);
+        if let Some(entry) = &entry {
+            routes
+                .by_acp_id
+                .remove(&(entry.connection_key, entry.acp_session_id.clone()));
+        }
+        let unused = entry.filter(|entry| {
+            !routes
+                .sessions
+                .values()
+                .any(|e| e.connection_key == entry.connection_key)
+        });
+        drop(routes);
+        elicitation_routes::cancel_open(requests);
+        if let Some(entry) = unused {
             entry.connection.kill();
         }
     }

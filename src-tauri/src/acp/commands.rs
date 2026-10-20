@@ -369,6 +369,28 @@ pub fn acp_respond_permission(
     manager.respond_permission(&session_id, &request_id, option_id.as_deref())
 }
 
+/// Answers an elicitation: `accept` (with the form's `content`), `decline` or `cancel`.
+#[tauri::command(async)]
+pub fn acp_respond_elicitation(
+    manager: State<'_, AcpManager>,
+    session_id: String,
+    key: String,
+    action: String,
+    content: Option<Value>,
+) -> Result<(), String> {
+    manager.respond_elicitation(&session_id, &key, &action, content)
+}
+
+/// Opens the link of an accepted URL elicitation again.
+#[tauri::command(async)]
+pub fn acp_reopen_elicitation_url(
+    manager: State<'_, AcpManager>,
+    session_id: String,
+    key: String,
+) -> Result<(), String> {
+    manager.reopen_elicitation_url(&session_id, &key)
+}
+
 #[tauri::command(async)]
 pub fn acp_set_mode(
     manager: State<'_, AcpManager>,
