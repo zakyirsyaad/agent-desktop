@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { checkForm, initialValues, toContent, type FormValue } from '../lib/elicitation-form';
 import type { ElicitationAnswer, ElicitationCard, ElicitationStatus } from '../types';
 
@@ -11,12 +11,13 @@ const KEEPS_VALUES: ElicitationStatus[] = ['pending', 'submitted'];
  * so a card that mounted while its answer was on its way still has them.
  */
 export function useElicitationForm(card: ElicitationCard, answer: (a: ElicitationAnswer) => void) {
-  const fields = card.fields ?? [];
+  const fields = useMemo(() => card.fields ?? [], [card.fields]);
+  const defaults = useMemo(() => initialValues(fields), [fields]);
   const [typed, setTyped] = useState<Record<string, FormValue>>({});
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
   // Fields edited since the backend's errors came, by their content: a popout
   // gets the same errors as a new object with every snapshot.
-  const errorsKey = JSON.stringify(card.errors ?? {});
+  const errorsKey = useMemo(() => JSON.stringify(card.errors ?? {}), [card.errors]);
   const [editedSince, setEditedSince] = useState({ errorsKey, names: [] as string[] });
   const edited = editedSince.errorsKey === errorsKey ? editedSince.names : [];
   const backendErrors = Object.fromEntries(
@@ -29,7 +30,7 @@ export function useElicitationForm(card: ElicitationCard, answer: (a: Elicitatio
     setClientErrors({});
   }
 
-  const values = { ...initialValues(fields), ...typed };
+  const values = { ...defaults, ...typed };
 
   const submit = () => {
     const errors = checkForm(fields, values);

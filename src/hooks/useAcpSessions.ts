@@ -270,7 +270,11 @@ export function useAcpSessions(handlers: AcpHandlers) {
     [setBusy],
   );
 
-  const cancel = useCallback((sessionId: string) => invoke<void>('acp_cancel', { sessionId }), []);
+  /** Resolves with the keys of the elicitations the backend answered `cancel`. */
+  const cancel = useCallback(
+    async (sessionId: string) => (await invoke<string[] | null>('acp_cancel', { sessionId })) ?? [],
+    [],
+  );
 
   const respondPermission = useCallback(
     (sessionId: string, requestId: string | number, optionId: string | null) =>

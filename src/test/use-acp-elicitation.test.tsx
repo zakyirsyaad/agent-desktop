@@ -25,7 +25,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 import App from "../App";
-import { ELICITATION_GONE } from "../lib/acp-elicitation";
+import { ELICITATION_GONE, ELICITATION_UNDELIVERED } from "../lib/acp-elicitation";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 type InvokeCall = [string, Record<string, unknown> | undefined, ...unknown[]];
@@ -245,10 +245,25 @@ describe("Elicitations in the app", () => {
     expect(screen.getAllByText(ELICITATION_GONE).length).toBeGreaterThan(0);
   });
 
+  it("ends a request whose page opened but whose answer never reached the agent", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startWorkingSession(spy);
+    override(spy, "acp_respond_elicitation", () => Promise.reject(ELICITATION_UNDELIVERED));
+
+    await askForName(sessionId);
+    await submitName("el-1", "Ada");
+
+    await waitFor(() => expect(card("el-1").getByText("This request was not answered.")).toBeDefined());
+    expect(screen.getAllByText(ELICITATION_UNDELIVERED).length).toBeGreaterThan(0);
+    expect(card("el-1").queryByRole("button", { name: "Submit" })).toBeNull();
+  });
+
   it("stop_dismisses_open_cards", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startWorkingSession(spy);
     await askForName(sessionId);
+    // The backend names the requests it answered `cancel`.
+    override(spy, "acp_cancel", () => Promise.resolve(["el-1"]));
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
@@ -256,6 +271,20 @@ describe("Elicitations in the app", () => {
 
     expect(callsTo(spy, "acp_cancel").map(([, a]) => a)).toContainEqual({ sessionId });
     await waitFor(() => expect(card("el-1").getByText("You dismissed this request.")).toBeDefined());
+  });
+
+  it("stop leaves a card the backend did not cancel", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startWorkingSession(spy);
+    await askForName(sessionId);
+    override(spy, "acp_cancel", () => Promise.resolve([]));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    });
+
+    await waitFor(() => expect(callsTo(spy, "acp_cancel")).toHaveLength(1));
+    expect(card("el-1").getByRole("button", { name: "Submit" })).toBeDefined();
   });
 
   it("does not bring back a card dismissed and then stopped when the late answer fails", async () => {

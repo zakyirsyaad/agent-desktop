@@ -18,6 +18,8 @@ import { isAwaitingPermission, openReplyIndex, withOpenReply, type AcpReducerCon
 export const ELICITATION_INVALID_PREFIX = 'ELICITATION_INVALID:';
 /** The backend error for a request that is no longer waiting. */
 export const ELICITATION_GONE = 'This request can no longer be answered.';
+/** The backend's error for a URL request whose page opened but whose accept never reached the agent. */
+export const ELICITATION_UNDELIVERED = 'The page opened, but the agent could not be told. Its request was cancelled.';
 
 type Json = Record<string, unknown>;
 type Warning = NonNullable<ElicitationCard['warnings']>[number];
@@ -245,11 +247,6 @@ export function rejectElicitationSubmit(
 /** The agent reported a URL elicitation done; only a card the user opened can complete. */
 export function completeElicitation(messages: ChatMessage[], key: string): ChatMessage[] {
   return changeCard(messages, key, 'opened', (card) => settled(card, 'completed'));
-}
-
-/** The keys of the cards still waiting. */
-export function pendingElicitationKeys(messages: readonly ChatMessage[]): Set<string> {
-  return new Set(messages.flatMap((m) => (m.elicitation?.status === 'pending' ? [m.elicitation.key] : [])));
 }
 
 /**

@@ -77,8 +77,9 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
       });
     case "acp_set_config_option":
       return Promise.resolve([]);
-    case "acp_prompt":
     case "acp_cancel":
+      return Promise.resolve([]);
+    case "acp_prompt":
     case "acp_respond_permission":
     case "acp_respond_elicitation":
     case "acp_reopen_elicitation_url":

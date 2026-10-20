@@ -1,5 +1,6 @@
 import {
   ELICITATION_GONE,
+  ELICITATION_UNDELIVERED,
   findElicitationIndex,
   markElicitationsUnanswered,
   parseInvalidElicitation,
@@ -73,9 +74,10 @@ export function elicitationActions({ acp, updateMessages, reportError, transcrip
     const errors = parseInvalidElicitation(error);
     if (errors) return restore((messages) => rejectElicitationSubmit(messages, entry.card.key, errors));
     const text = textOf(error);
-    if (text === ELICITATION_GONE) {
+    // Gone, or a page that opened but never reached the agent: the request is over.
+    if (text === ELICITATION_GONE || text === ELICITATION_UNDELIVERED) {
       restore((messages) => setElicitationStatus(messages, entry.card.key, 'pending', 'unanswered'));
-      reportError(ELICITATION_GONE);
+      reportError(text);
       return;
     }
     restore((messages) => messages);

@@ -17,7 +17,7 @@ import type { AgentProfile, ChatMessage, ElicitationCard, Session } from '../../
 import { parseAuthRequired, type AuthMethod } from '../../lib/acp-auth';
 import { isUnknownSessionError } from '../../lib/acp-load-error';
 import { writeConversationHandoff } from '../../lib/session-handoff';
-import { applyElicitation, completeElicitation, dismissPendingElicitations, pendingElicitationKeys } from '../../lib/acp-elicitation';
+import { applyElicitation, completeElicitation, dismissPendingElicitations } from '../../lib/acp-elicitation';
 import { elicitationActions, type InFlightAnswer } from './elicitation-actions';
 
 const NOT_ENDED_NORMALLY = new Set(['refusal', 'max_tokens', 'max_turn_requests']);
@@ -457,11 +457,10 @@ export function useAcpEngine({
       if (card.requestId === undefined) continue;
       acp.respondPermission(sessionId, card.requestId, null).catch(reportFailure('Could not answer the agent'));
     }
-    // The backend answers the open elicitations as cancelled; one that comes after stays open.
+    // The backend answers the open elicitations as cancelled and names them; one that comes after stays open.
     elicitations.forget(sessionId);
-    const cancelled = pendingElicitationKeys(messages ?? []);
     acp.cancel(sessionId).then(
-      () => updateMessages(sessionId, (prev) => dismissPendingElicitations(prev, cancelled)),
+      (cancelled) => updateMessages(sessionId, (prev) => dismissPendingElicitations(prev, new Set(cancelled))),
       reportFailure('Failed to stop the agent'),
     );
   };
