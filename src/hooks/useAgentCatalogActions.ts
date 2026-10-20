@@ -18,6 +18,7 @@ export interface AgentCatalogActions {
 
 export interface AgentCatalogActionsArgs {
   updateState: PersistedStateHandle['updateState'];
+  /** Rejects when the write failed. */
   saveNow: () => Promise<void>;
   agents: readonly AgentProfile[];
   sessions: readonly Session[];
@@ -53,15 +54,20 @@ export function useAgentCatalogActions({
     if (profile && profile.availability !== 'ready') startInstall(id);
   };
 
+  /** Rejects when the version could not be saved: the profiles would then be read from the old file. */
   const recordUpdate = async (id: string, version: string) => {
     updateSettings((settings) => ({ ...settings, agentVersions: { ...settings.agentVersions, [id]: version } }));
-    await saveNow();
+    try {
+      await saveNow();
+    } catch (error) {
+      throw new Error(`Could not save version ${version}: ${String(error)}`);
+    }
     await Promise.all([refreshAgents().catch(ignore), reloadCatalog()]);
   };
 
   const updateAgent = (id: string) => {
     // A refused update emits no `agent-profiles-changed`, so the catalog is read again here.
-    startUpdate(id, (version) => void recordUpdate(id, version), () => void reloadCatalog());
+    startUpdate(id, (version) => recordUpdate(id, version), () => void reloadCatalog());
   };
 
   const stopRunningSessions = (id: string) =>
@@ -77,7 +83,11 @@ export function useAgentCatalogActions({
     await stopRunningSessions(id);
     updateSettings((settings) => withAgentRemoved(settings, id, enabledAgentIds(settings)));
     // The backend keeps the prerequisites the agents still in use need, read from the saved state.
-    await saveNow();
+    try {
+      await saveNow();
+    } catch (error) {
+      throw new Error(`Could not save the removal: ${String(error)}`);
+    }
     try {
       await invoke('remove_agent_install', { agentId: id });
     } catch (error) {

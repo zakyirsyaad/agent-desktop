@@ -732,3 +732,43 @@ fn enabled_agent_ids_defaults_to_the_three_built_ins() {
     .enabled_agent_ids()
     .is_empty());
 }
+
+#[test]
+fn concurrent_saves_never_share_the_scratch_file_and_leave_valid_json() {
+    const WRITERS: usize = 8;
+    const SAVES_PER_WRITER: usize = 40;
+    let root = unique_temp_root("concurrent-saves");
+    let store = AppStore::new(root.clone());
+
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..WRITERS)
+            .map(|writer| {
+                let store = &store;
+                scope.spawn(move || {
+                    // Sizes differ per writer, so an interleaved write would leave broken JSON.
+                    let mut state = populated_state();
+                    state.sessions = (0..writer * 50 + 1)
+                        .map(|n| session(&format!("w{writer}-{n}"), "terminated"))
+                        .collect();
+                    (0..SAVES_PER_WRITER)
+                        .map(|_| store.save_state(&state))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle
+                .join()
+                .expect("a writer panicked")
+                .expect("a save failed");
+        }
+    });
+
+    let raw = fs::read_to_string(root.join("state.json")).expect("state.json exists");
+    serde_json::from_str::<serde_json::Value>(&raw).expect("state.json is valid JSON");
+    assert!(
+        !root.join("state.json.tmp").exists(),
+        "no scratch file is left behind"
+    );
+    let _ = fs::remove_dir_all(&root);
+}

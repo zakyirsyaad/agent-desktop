@@ -93,16 +93,23 @@ export function startInstall(agentId: string): void {
 /**
  * Starts updating an installed agent, unless a job for it is already running. Same entry,
  * progress and cancel handling as an install; `onUpdated` gets the version now installed,
- * and `onFailed` runs when the backend refused or stopped the update.
+ * and `onFailed` runs when the backend refused or stopped the update. The job ends once
+ * `onUpdated` settles; when it rejects, the update shows as failed with its message.
  */
-export function startUpdate(agentId: string, onUpdated: (version: string) => void, onFailed: () => void = () => {}): void {
+export function startUpdate(
+  agentId: string,
+  onUpdated: (version: string) => void | Promise<void>,
+  onFailed: () => void = () => {},
+): void {
   startJob(agentId, 'update', { onDone: onUpdated, onFailed });
 }
 
 interface JobCallbacks {
-  onDone: (version: string) => void;
+  onDone: (version: string) => void | Promise<void>;
   onFailed: () => void;
 }
+
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 const NO_CALLBACKS: JobCallbacks = { onDone: () => {}, onFailed: () => {} };
 
@@ -124,9 +131,13 @@ function runJob(agentId: string, attempt: number, action: InstallEntry['action']
   invoke<unknown>(command, { agentId })
     .then(
       // The backend emits `agent-profiles-changed`, which reloads the profiles.
-      (result) => {
-        settle(agentId, attempt, () => ({ ...IDLE_INSTALL, attempt }));
-        if (action === 'update') onDone(String(result));
+      async (result) => {
+        try {
+          if (action === 'update') await onDone(String(result));
+          settle(agentId, attempt, () => ({ ...IDLE_INSTALL, attempt }));
+        } catch (error) {
+          settle(agentId, attempt, () => ({ status: 'failed', progress: null, error: messageOf(error), action, attempt }));
+        }
       },
       (error: unknown) => {
         const message = String(error);

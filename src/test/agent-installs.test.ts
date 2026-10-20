@@ -35,7 +35,24 @@ describe("startUpdate", () => {
 
     await vi.waitFor(() => expect(onUpdated).toHaveBeenCalledWith("1.1.0"));
     expect(callsTo(spy, "update_agent")[0][1]).toEqual({ agentId: "codex-acp" });
-    expect(installEntryOf("codex-acp").status).toBe("idle");
+    await vi.waitFor(() => expect(installEntryOf("codex-acp").status).toBe("idle"));
+  });
+
+  it("stays running until the new version is recorded, and fails with the reason it could not be", async () => {
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "update_agent" ? Promise.resolve("1.1.0") : fakeTauriInvoke(cmd, args),
+    );
+    let failRecord: (error: Error) => void = () => {};
+    const onUpdated = vi.fn(() => new Promise<void>((_, reject) => (failRecord = reject)));
+
+    startUpdate("codex-acp", onUpdated);
+    await vi.waitFor(() => expect(onUpdated).toHaveBeenCalledWith("1.1.0"));
+    expect(installEntryOf("codex-acp").status).toBe("installing");
+
+    failRecord(new Error("Could not save version 1.1.0: disk full"));
+
+    await vi.waitFor(() => expect(installEntryOf("codex-acp").status).toBe("failed"));
+    expect(installEntryOf("codex-acp")).toMatchObject({ error: "Could not save version 1.1.0: disk full", action: "update" });
   });
 
   it("starts one job when called twice, or while an install runs", async () => {

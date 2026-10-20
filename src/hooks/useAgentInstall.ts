@@ -19,7 +19,7 @@ export interface AgentInstall {
   error: string | null;
   action: InstallEntry['action'];
   install: () => void;
-  update: (onUpdated: (version: string) => void) => void;
+  update: (onUpdated: (version: string) => void | Promise<void>) => void;
   cancel: () => void;
 }
 
@@ -37,7 +37,7 @@ export function useAgentInstall(agentId: string | undefined): AgentInstall {
     if (agentId) startInstall(agentId);
   }, [agentId]);
   const update = useCallback(
-    (onUpdated: (version: string) => void) => {
+    (onUpdated: (version: string) => void | Promise<void>) => {
       if (agentId) startUpdate(agentId, onUpdated);
     },
     [agentId],

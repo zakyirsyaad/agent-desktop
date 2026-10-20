@@ -280,6 +280,53 @@ describe("Catalog actions — Update", () => {
     expect(callsTo(spy, "get_agent_catalog").length).toBeGreaterThan(catalogLoads);
   });
 
+  it("saves the new version before the profiles are read again", async () => {
+    let savedWhenReloaded: Settings | null = null;
+    let isUpdated = false;
+    spyOnBackend((cmd, args) => {
+      if (cmd === "get_agent_catalog") return Promise.resolve(structuredClone(catalogWithUpdate));
+      if (cmd === "update_agent") {
+        isUpdated = true;
+        return Promise.resolve("1.1.0");
+      }
+      if (cmd === "get_agent_profiles" && isUpdated && savedWhenReloaded === null) {
+        savedWhenReloaded = structuredClone(savedSettings());
+      }
+      return withGemini(cmd, args);
+    });
+    await openAgentsTab();
+
+    await act(async () => {
+      fireEvent.click(within(row("Claude Code")).getByRole("button", { name: "Update to 1.1.0" }));
+    });
+
+    await waitFor(() => expect(savedWhenReloaded?.agentVersions?.["claude-acp"]).toBe("1.1.0"));
+  });
+
+  it("says so in the row, and reads nothing again, when the new version could not be saved", async () => {
+    let isUpdated = false;
+    const spy = spyOnBackend((cmd, args) => {
+      if (cmd === "get_agent_catalog") return Promise.resolve(structuredClone(catalogWithUpdate));
+      if (cmd === "update_agent") {
+        isUpdated = true;
+        return Promise.resolve("1.1.0");
+      }
+      if (cmd === "save_app_state" && isUpdated) return Promise.reject("disk full");
+      return withGemini(cmd, args);
+    });
+    await openAgentsTab();
+    const profileLoads = callsTo(spy, "get_agent_profiles").length;
+
+    await act(async () => {
+      fireEvent.click(within(row("Claude Code")).getByRole("button", { name: "Update to 1.1.0" }));
+    });
+
+    expect(await within(row("Claude Code")).findByText("Update failed: Could not save version 1.1.0: disk full"))
+      .toBeInTheDocument();
+    expect(within(row("Claude Code")).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(callsTo(spy, "get_agent_profiles")).toHaveLength(profileLoads);
+  });
+
   it("reloads the catalog after a refused update and says it failed", async () => {
     const spy = spyOnBackend((cmd, args) => {
       if (cmd === "get_agent_catalog") return Promise.resolve(structuredClone(catalogWithUpdate));
@@ -355,6 +402,18 @@ describe("Catalog actions — Remove", () => {
     expect(await within(row("Codex")).findByText("Could not delete Zorvo's copy: busy")).toBeInTheDocument();
     expect(within(section(/^All agents/)).getByRole("listitem", { name: "Codex" })).toBeInTheDocument();
     await waitFor(() => expect(savedSettings().enabledAgents).toEqual(["claude-acp", "qwen-code"]));
+  });
+
+  it("deletes nothing and says so when the removal could not be saved", async () => {
+    const spy = spyOnBackend((cmd, args) =>
+      cmd === "save_app_state" ? Promise.reject("disk full") : withGemini(cmd, args),
+    );
+    await openAgentsTab();
+
+    await removeFromRow("Codex");
+
+    expect(await within(row("Codex")).findByText("Could not save the removal: disk full")).toBeInTheDocument();
+    expect(callsTo(spy, "remove_agent_install")).toHaveLength(0);
   });
 
   it("ends on Add when the agent is removed while its install still runs", async () => {

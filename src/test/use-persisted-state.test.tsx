@@ -104,4 +104,111 @@ describe("usePersistedState saveNow", () => {
     expect(hook.result.current.state.recentFolders).toEqual(loadedState.recentFolders);
     expect(hook.result.current.state.recentFolders.length).toBeGreaterThan(0);
   });
+
+  const mark = (key: string) => (prev: PersistedState) => ({
+    ...prev,
+    settings: { ...prev.settings, agentVersions: { ...prev.settings.agentVersions, [key]: "1" } },
+  });
+  const savedVersions = (call: unknown[]) =>
+    (call[1] as { state: { settings: { agentVersions?: Record<string, string> } } }).state.settings.agentVersions;
+
+  it("never writes an older state after saveNow, when the debounce fires before the render", async () => {
+    const { hook, spy } = await loaded();
+    act(() => hook.result.current.updateState(mark("a")));
+
+    act(() => {
+      hook.result.current.updateState(mark("b"));
+      void hook.result.current.saveNow();
+      vi.advanceTimersByTime(SAVE_DEBOUNCE_MS);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS * 2);
+    });
+
+    // An older state written after saveNow's would be on disk when a catalog action reads it.
+    expect(savesOf(spy).map(savedVersions)).toEqual([{ a: "1", b: "1" }]);
+  });
+
+  it("never runs two writes at once", async () => {
+    let inFlight = 0;
+    let mostInFlight = 0;
+    const pending: Array<() => void> = [];
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd !== "save_app_state") return fakeTauriInvoke(cmd, args);
+      inFlight += 1;
+      mostInFlight = Math.max(mostInFlight, inFlight);
+      return new Promise<void>((resolve) =>
+        pending.push(() => {
+          inFlight -= 1;
+          resolve();
+        }),
+      );
+    });
+    const hook = renderHook(() => usePersistedState(() => {}));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    await act(async () => {
+      hook.result.current.updateState(mark("a"));
+      first = hook.result.current.saveNow();
+      await vi.advanceTimersByTimeAsync(0);
+      hook.result.current.updateState(mark("b"));
+      second = hook.result.current.saveNow();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(pending).toHaveLength(1);
+
+    await act(async () => {
+      pending.shift()?.();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(pending).toHaveLength(1);
+    await act(async () => {
+      pending.shift()?.();
+      await Promise.all([first, second]);
+    });
+
+    expect(mostInFlight).toBe(1);
+  });
+
+  it("rejects saveNow when the write failed, and writes the state again next time", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "save_app_state" ? Promise.reject("disk full") : fakeTauriInvoke(cmd, args),
+    );
+    const hook = renderHook(() => usePersistedState(() => {}));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    act(() => hook.result.current.updateState(mark("a")));
+    await act(async () => {
+      await expect(hook.result.current.saveNow()).rejects.toBe("disk full");
+    });
+    await act(async () => {
+      await expect(hook.result.current.saveNow()).rejects.toBe("disk full");
+    });
+
+    expect(savesOf(spy)).toHaveLength(2);
+  });
+
+  it("reports a failed debounced write", async () => {
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "save_app_state" ? Promise.reject("disk full") : fakeTauriInvoke(cmd, args),
+    );
+    const onError = vi.fn();
+    const hook = renderHook(() => usePersistedState(onError));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    act(() => hook.result.current.updateState(mark("a")));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS);
+    });
+
+    expect(onError).toHaveBeenCalledWith("Failed to save sessions: disk full");
+  });
 });
