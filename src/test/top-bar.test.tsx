@@ -6,14 +6,8 @@ import {
   type TopBarProps,
 } from "../components/TopBar";
 
-/** Renders TopBar with the only required props filled in. */
 function renderTopBar(overrides: Partial<TopBarProps> = {}) {
-  const props: TopBarProps = {
-    isTerminalOpen: false,
-    onToggleTerminal: () => {},
-    ...overrides,
-  };
-  return render(<TopBar {...props} />);
+  return render(<TopBar {...overrides} />);
 }
 
 function headerOf(container: HTMLElement): HTMLElement {
@@ -157,18 +151,6 @@ describe("TopBar", () => {
       fireEvent.click(screen.getByRole("button", { name: /more options/i }));
       expect(onOpenSettings).toHaveBeenCalledTimes(1);
     });
-
-    it("keeps the terminal toggle regardless of the optional handlers", () => {
-      const onToggleTerminal = vi.fn();
-      renderTopBar({ isTerminalOpen: true, onToggleTerminal });
-
-      const terminal = screen.getByRole("button", {
-        name: /toggle terminal/i,
-      });
-      expect(terminal.getAttribute("aria-pressed")).toBe("true");
-      fireEvent.click(terminal);
-      expect(onToggleTerminal).toHaveBeenCalledTimes(1);
-    });
   });
 
   describe("diff-stat chip", () => {
@@ -207,7 +189,7 @@ describe("TopBar", () => {
 
   describe("title", () => {
     it("shows no made-up session or folder name when there is none", () => {
-      render(<TopBar isTerminalOpen={false} onToggleTerminal={() => {}} />);
+      render(<TopBar />);
 
       expect(screen.queryByText(/new session \(fork\)/i)).toBeNull();
       expect(screen.queryByText("ai-perpetual-trading")).toBeNull();
@@ -215,21 +197,10 @@ describe("TopBar", () => {
     });
 
     it("shows only the folder when no session is open", () => {
-      render(<TopBar workspaceName="api" isTerminalOpen={false} onToggleTerminal={() => {}} />);
+      render(<TopBar workspaceName="api" />);
 
       expect(screen.getByText("api")).toBeDefined();
       expect(screen.queryByText("/")).toBeNull();
-    });
-  });
-
-  describe("terminal toggle", () => {
-    it("shows the terminal icon once, without a duplicate >_ text glyph", () => {
-      renderTopBar();
-
-      const toggle = screen.getByRole("button", { name: "Toggle terminal drawer" });
-
-      expect(toggle.textContent).not.toContain(">_");
-      expect(toggle.querySelectorAll("svg")).toHaveLength(1);
     });
   });
 

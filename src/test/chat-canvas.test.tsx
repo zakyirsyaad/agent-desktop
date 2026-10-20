@@ -13,115 +13,46 @@ describe("ActionCard Component", () => {
   const mockCard: ActionCardType = {
     id: "card-1",
     sessionId: "session-1",
-    title: "⚠️ Agent Action Approval Required",
+    title: "Permission requested",
     prompt: "Agent wants to edit file `src/main.ts`",
     commandSnippet: "npm run build",
     toolName: "Bash",
     status: "pending",
-    approvalKey: "y\n",
-    rejectKey: "n\n",
     timestamp: Date.now(),
+    requestId: "perm-1",
+    options: [
+      { optionId: "allow", name: "Allow", kind: "allow_once" },
+      { optionId: "reject", name: "Reject", kind: "reject_once" },
+    ],
   };
 
   it("renders card title, prompt description, and command snippet", () => {
-    render(
-      <ActionCard
-        card={mockCard}
-        onApprove={() => {}}
-        onReject={() => {}}
-      />
-    );
+    render(<ActionCard card={mockCard} />);
 
-    expect(screen.getByText("⚠️ Agent Action Approval Required")).toBeDefined();
+    expect(screen.getByText("Permission requested")).toBeDefined();
     expect(screen.getByText(/Agent wants to edit file/i)).toBeDefined();
     expect(screen.getByText("npm run build")).toBeDefined();
     expect(screen.getByText(/Tool: Bash/i)).toBeDefined();
   });
 
-  it("calls onApprove with approvalKey ('y\\n') when Approve button is clicked", () => {
-    const onApprove = vi.fn();
-    const onReject = vi.fn();
+  it("calls onChoose with the option the user picked", () => {
+    const onChoose = vi.fn();
+    render(<ActionCard card={mockCard} onChoose={onChoose} />);
 
-    render(
-      <ActionCard
-        card={mockCard}
-        onApprove={onApprove}
-        onReject={onReject}
-      />
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
 
-    const approveBtn = screen.getByRole("button", { name: /approve/i });
-    expect(approveBtn).toBeDefined();
-    fireEvent.click(approveBtn);
-
-    expect(onApprove).toHaveBeenCalledWith("y\n");
-    expect(onReject).not.toHaveBeenCalled();
+    expect(onChoose).toHaveBeenCalledWith("reject");
   });
 
-  it("offers no in-place command editing, so approval always targets the agent's original command", () => {
-    // Typing an edited command into a y/n prompt can approve the ORIGINAL command
-    // (e.g. "yarn clean" starts with "y"), so the card must not offer editing.
-    render(
-      <ActionCard
-        card={mockCard}
-        onApprove={() => {}}
-        onReject={() => {}}
-      />
-    );
+  it("disables the choices when the disabled prop is set, and shows the pick once answered", () => {
+    const { rerender } = render(<ActionCard card={mockCard} onChoose={() => {}} disabled />);
 
-    expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
-    expect(screen.queryByLabelText(/edit command/i)).toBeNull();
-  });
+    expect((screen.getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled).toBe(true);
 
-  it("calls onReject with rejectKey ('n\\n') when Reject button is clicked", () => {
-    const onApprove = vi.fn();
-    const onReject = vi.fn();
+    rerender(<ActionCard card={{ ...mockCard, status: "approved", chosenOptionId: "allow" }} onChoose={() => {}} />);
 
-    render(
-      <ActionCard
-        card={mockCard}
-        onApprove={onApprove}
-        onReject={onReject}
-      />
-    );
-
-    const rejectBtn = screen.getByRole("button", { name: /reject/i });
-    expect(rejectBtn).toBeDefined();
-    fireEvent.click(rejectBtn);
-
-    expect(onReject).toHaveBeenCalledWith("n\n");
-    expect(onApprove).not.toHaveBeenCalled();
-  });
-
-  it("disables buttons when status is approved or rejected or disabled prop is set", () => {
-    const approvedCard: ActionCardType = {
-      ...mockCard,
-      status: "approved",
-    };
-
-    const { rerender } = render(
-      <ActionCard
-        card={approvedCard}
-        onApprove={() => {}}
-        onReject={() => {}}
-      />
-    );
-
-    const approveBtn = screen.getByRole("button", { name: /approved/i });
-    expect((approveBtn as HTMLButtonElement).disabled).toBe(true);
-
-    // Test with disabled prop
-    rerender(
-      <ActionCard
-        card={mockCard}
-        onApprove={() => {}}
-        onReject={() => {}}
-        disabled={true}
-      />
-    );
-
-    const pendingApproveBtn = screen.getByRole("button", { name: /approve/i });
-    expect((pendingApproveBtn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(screen.getByText("You chose: Allow")).toBeDefined();
   });
 });
 
@@ -169,14 +100,17 @@ All systems ready for compilation.`,
       actionCard: {
         id: "card-act-1",
         sessionId: "s-1",
-        title: "⚠️ Agent Action Approval Required",
+        title: "Permission requested",
         prompt: "Run command `pnpm test` in background?",
         commandSnippet: "pnpm test",
         toolName: "Bash",
         status: "pending",
-        approvalKey: "y\n",
-        rejectKey: "n\n",
         timestamp: Date.now() - 30000,
+        requestId: "perm-1",
+        options: [
+          { optionId: "allow", name: "Allow", kind: "allow_once" },
+          { optionId: "reject", name: "Reject", kind: "reject_once" },
+        ],
       },
     },
   ];
@@ -212,7 +146,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -238,7 +171,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -253,7 +185,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -266,47 +197,23 @@ All systems ready for compilation.`,
     expect(screen.getByText(/Running/i)).toBeDefined();
   });
 
-  it("renders ActionCard when message has an approval_request actionCard", () => {
-    const onSendPtyInput = vi.fn();
+  it("renders the ActionCard of a message with a permission request and reports the pick with its card", () => {
+    const onChooseOption = vi.fn();
 
-    render(
-      <ChatCanvas
-        messages={mockMessages}
-        onSendPtyInput={onSendPtyInput}
-      />
-    );
+    render(<ChatCanvas messages={mockMessages} onChooseOption={onChooseOption} />);
 
-    expect(screen.getByText("⚠️ Agent Action Approval Required")).toBeDefined();
+    expect(screen.getByText("Permission requested")).toBeDefined();
     expect(screen.getByText("Run command `pnpm test` in background?")).toBeDefined();
 
-    const approveBtn = screen.getByRole("button", { name: /approve/i });
-    fireEvent.click(approveBtn);
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
 
-    expect(onSendPtyInput).toHaveBeenCalledWith("y\n");
-  });
-
-  it("does not expose an Edit control on action cards, so only approval/rejection keys reach the PTY", () => {
-    const onApproveAction = vi.fn();
-
-    render(
-      <ChatCanvas
-        messages={mockMessages}
-        onSendPtyInput={() => {}}
-        onApproveAction={onApproveAction}
-      />
-    );
-
-    expect(screen.queryByRole("button", { name: /^edit$/i })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
-    expect(onApproveAction).toHaveBeenCalledWith("y\n", expect.any(String));
+    expect(onChooseOption).toHaveBeenCalledWith("card-act-1", "allow");
   });
 
   it("renders message action bar (Copy, Fork, Audio, timestamp)", () => {
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
         onForkBranch={() => {}}
       />
     );
@@ -322,7 +229,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
         agentName="Aider"
       />
     );
@@ -335,7 +241,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -347,7 +252,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -360,7 +264,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
         onForkBranch={onForkBranch}
       />
     );
@@ -375,7 +278,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -394,7 +296,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -412,7 +313,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -431,7 +331,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={twoAgentMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -450,7 +349,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={twoAgentMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -473,7 +371,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -494,7 +391,6 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -507,7 +403,6 @@ All systems ready for compilation.`,
     const { unmount } = render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -523,7 +418,6 @@ All systems ready for compilation.`,
     const { unmount } = render(
       <ChatCanvas
         messages={mockMessages}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -542,8 +436,6 @@ describe("ACP chat content", () => {
     prompt: "Run rm -rf build",
     toolName: "execute",
     status: "pending",
-    approvalKey: "",
-    rejectKey: "",
     timestamp: 1,
     requestId: "perm-1",
     options: [
@@ -558,7 +450,6 @@ describe("ACP chat content", () => {
     render(
       <ChatCanvas
         messages={[{ id: "m-1", role: "agent", content: "", timestamp: 1, actionCard: permissionCard }]}
-        onSendPtyInput={() => {}}
         onChooseOption={onChooseOption}
       />
     );
@@ -581,7 +472,6 @@ describe("ACP chat content", () => {
             actionCard: { ...permissionCard, status: "approved", chosenOptionId: "always" },
           },
         ]}
-        onSendPtyInput={() => {}}
         onChooseOption={() => {}}
       />
     );
@@ -606,7 +496,6 @@ describe("ACP chat content", () => {
             ],
           },
         ]}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -629,7 +518,6 @@ describe("ACP chat content", () => {
             tools: [{ id: "t-1", name: "Read src/App.tsx", args: "", status: "completed", kind: "read" }],
           },
         ]}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -645,7 +533,6 @@ describe("ACP chat content", () => {
           { id: "a-1", role: "agent", content: "ok", timestamp: 2 },
           { id: "a-2", role: "agent", content: "", timestamp: 3 },
         ]}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -655,22 +542,22 @@ describe("ACP chat content", () => {
 
   it("shows the reasoning as a collapsed 'Thinking' row while the reply streams, and 'Thought' once done", () => {
     const reply = { id: "a-1", role: "agent" as const, content: "ok", timestamp: 1, thinking: "Let me check" };
-    const { rerender } = render(<ChatCanvas messages={[reply]} onSendPtyInput={() => {}} />);
+    const { rerender } = render(<ChatCanvas messages={[reply]} />);
 
     const summary = screen.getByText("Thinking");
     expect(summary.closest("details")?.open).toBe(false);
 
-    rerender(<ChatCanvas messages={[{ ...reply, isComplete: true }]} onSendPtyInput={() => {}} />);
+    rerender(<ChatCanvas messages={[{ ...reply, isComplete: true }]} />);
     expect(screen.getByText("Thought")).toBeDefined();
   });
 
   it("shows the agent working at the end of the conversation", () => {
     const messages = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
-    const { rerender } = render(<ChatCanvas messages={messages} onSendPtyInput={() => {}} isWorking />);
+    const { rerender } = render(<ChatCanvas messages={messages} isWorking />);
 
     expect(screen.getByTestId("agent-working").textContent).toMatch(/working/i);
 
-    rerender(<ChatCanvas messages={messages} onSendPtyInput={() => {}} />);
+    rerender(<ChatCanvas messages={messages} />);
     expect(screen.queryByTestId("agent-working")).toBeNull();
   });
 
@@ -681,7 +568,6 @@ describe("ACP chat content", () => {
           { id: "a-1", role: "agent", content: "first part", timestamp: 1, thinking: "plan" },
           { id: "a-2", role: "agent", content: "second part", timestamp: 2, thinking: "more" },
         ]}
-        onSendPtyInput={() => {}}
       />
     );
 
@@ -691,23 +577,23 @@ describe("ACP chat content", () => {
 
   it("follows new output to the bottom, unless the user scrolled up to read", () => {
     const first = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
-    const { rerender } = render(<ChatCanvas messages={first} onSendPtyInput={() => {}} />);
+    const { rerender } = render(<ChatCanvas messages={first} />);
     const container = screen.getByTestId("chat-canvas-container");
     Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1000 });
     Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
 
-    rerender(<ChatCanvas messages={first} onSendPtyInput={() => {}} isWorking />);
+    rerender(<ChatCanvas messages={first} isWorking />);
     expect(container.scrollTop).toBe(1000);
 
     container.scrollTop = 100;
     fireEvent.scroll(container);
-    rerender(<ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "hi", timestamp: 2 }]} onSendPtyInput={() => {}} isWorking />);
+    rerender(<ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "hi", timestamp: 2 }]} isWorking />);
     expect(container.scrollTop).toBe(100);
   });
 
   it("jumps to the bottom when the user sends, even if they had scrolled up", () => {
     const first = [{ id: "a-0", role: "agent" as const, content: "earlier answer", timestamp: 1 }];
-    const { rerender } = render(<ChatCanvas messages={first} onSendPtyInput={() => {}} />);
+    const { rerender } = render(<ChatCanvas messages={first} />);
     const container = screen.getByTestId("chat-canvas-container");
     Object.defineProperty(container, "scrollHeight", { configurable: true, value: 2000 });
     Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
@@ -715,7 +601,7 @@ describe("ACP chat content", () => {
     fireEvent.scroll(container);
 
     rerender(
-      <ChatCanvas messages={[...first, { id: "u-1", role: "user", content: "follow-up", timestamp: 2 }]} onSendPtyInput={() => {}} />
+      <ChatCanvas messages={[...first, { id: "u-1", role: "user", content: "follow-up", timestamp: 2 }]} />
     );
 
     expect(container.scrollTop).toBe(2000);
@@ -731,7 +617,7 @@ describe("ChatCanvas: your messages and the session's header", () => {
 
   it("puts the time, Copy and Rewind under your message, and Rewind names the message", () => {
     const onRewind = vi.fn();
-    render(<ChatCanvas messages={messages} onSendPtyInput={() => {}} onRewind={onRewind} />);
+    render(<ChatCanvas messages={messages} onRewind={onRewind} />);
     const yours = within(screen.getByTestId("chat-message-u-1"));
 
     expect(yours.getByText("2 minutes ago")).toBeDefined();
@@ -747,7 +633,7 @@ describe("ChatCanvas: your messages and the session's header", () => {
   it("turns a Rewind left unconfirmed back by itself", () => {
     vi.useFakeTimers();
     try {
-      render(<ChatCanvas messages={messages} onSendPtyInput={() => {}} onRewind={() => {}} />);
+      render(<ChatCanvas messages={messages} onRewind={() => {}} />);
       const yours = within(screen.getByTestId("chat-message-u-1"));
       fireEvent.click(yours.getByRole("button", { name: "Rewind to here" }));
 
@@ -764,7 +650,7 @@ describe("ChatCanvas: your messages and the session's header", () => {
 
   it("offers no Rewind when the host cannot rewind, and shows the header above the conversation", () => {
     render(
-      <ChatCanvas messages={messages} onSendPtyInput={() => {}} header={<p>zorvo · ~/developer</p>} />
+      <ChatCanvas messages={messages} header={<p>zorvo · ~/developer</p>} />
     );
 
     expect(screen.queryByRole("button", { name: "Rewind to here" })).toBeNull();

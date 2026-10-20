@@ -41,8 +41,6 @@ const messages: ChatMessage[] = [
       commandSnippet: "pnpm test",
       toolName: "Bash",
       status: "pending",
-      approvalKey: "y\n",
-      rejectKey: "n\n",
       timestamp: CREATED_AT - 40_000,
     },
   },

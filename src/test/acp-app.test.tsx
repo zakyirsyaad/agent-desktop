@@ -91,7 +91,6 @@ describe("ACP sessions in the app", () => {
 
     const [, startArgs] = callsTo(spy, "acp_start_session")[0];
     expect(startArgs).toMatchObject({ profileId: "qwen-code", cwd: "/Users/test/developer/ai-perpetual-trading" });
-    expect(callsTo(spy, "spawn_session")).toHaveLength(0);
     // The fake agent reports "yolo" as its current mode.
     await waitFor(() =>
       expect(callsTo(spy, "acp_set_mode").map(([, a]) => a)).toContainEqual({ sessionId, modeId: "default" })
@@ -385,13 +384,6 @@ describe("ACP sessions in the app", () => {
     // The session's first message and "first"; "second" waits.
     expect(callsTo(spy, "acp_prompt")).toHaveLength(2);
     expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("second");
-  });
-
-  it("offers no terminal drawer in the main window: terminal agents show their screen as the main view", async () => {
-    const spy = await renderWithQwen();
-    await startQwenSession(spy);
-
-    expect(screen.queryByRole("button", { name: "Toggle terminal drawer" })).toBeNull();
   });
 
   it("remembers the options an agent reported, for the composer before the next session", async () => {

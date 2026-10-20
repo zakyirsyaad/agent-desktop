@@ -1,10 +1,9 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { AcpEngine } from './session-engine/useAcpEngine';
-import type { PtyEngine } from './session-engine/usePtyEngine';
 import type { NavigationHistory } from './useNavigationHistory';
 import { useLatest } from './useLatest';
 import { closeTurn } from '../lib/acp-events';
-import { isAcpSession, isListed, mostRecentSessionId, removeSessionFrom } from '../lib/session-helpers';
+import { isListed, mostRecentSessionId, removeSessionFrom } from '../lib/session-helpers';
 import { removeSessionWorktree } from '../lib/session-worktree';
 import type { ChatMessage, PersistedState, Session } from '../types';
 
@@ -17,7 +16,6 @@ export interface SessionActionsDeps {
   removeTranscript: (sessionId: string) => void;
   navigation: Pick<NavigationHistory, 'remove'>;
   acp: Pick<AcpEngine, 'stop'>;
-  pty: Pick<PtyEngine, 'stop' | 'forget'>;
   onNotice: (message: string) => void;
 }
 
@@ -30,14 +28,14 @@ export interface SessionActions {
 
 /** What the sidebar's session rows can do to a session: delete, rename, pin and archive. */
 export function useSessionActions(deps: SessionActionsDeps): SessionActions {
-  const { sessions, setActiveSessionId, patchSession, acp, pty, onNotice } = deps;
+  const { sessions, setActiveSessionId, patchSession, acp, onNotice } = deps;
   const sessionsRef = useLatest(sessions);
   const sessionById = (sessionId: string) => sessions.find((s) => s.id === sessionId);
 
   /** Ends a session's agent when it runs; resolves with whether it is stopped. */
   const stopAgent = (session: Session | undefined): Promise<boolean> => {
     if (session?.status !== 'running') return Promise.resolve(true);
-    return isAcpSession(session) ? acp.stop(session.id) : pty.stop(session.id);
+    return acp.stop(session.id);
   };
 
   /**
@@ -55,7 +53,6 @@ export function useSessionActions(deps: SessionActionsDeps): SessionActions {
   const deleteSession = (sessionId: string) => {
     const session = sessionById(sessionId);
     const stopped = stopAgent(session);
-    pty.forget(sessionId);
     deps.navigation.remove(sessionId);
     deps.updateState((prev) => removeSessionFrom(prev, sessionId));
     deps.removeTranscript(sessionId);
@@ -71,7 +68,7 @@ export function useSessionActions(deps: SessionActionsDeps): SessionActions {
 
   /**
    * Archiving hides a session and ends its agent; its conversation and pin
-   * stay, and an ACP session can be continued after unarchiving it. A session
+   * stay, and the session can be continued after unarchiving it. A session
    * whose agent cannot be stopped stays listed, so nothing runs out of sight.
    */
   const archiveSession = async (sessionId: string, isArchived: boolean) => {

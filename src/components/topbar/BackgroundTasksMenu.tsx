@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Cog, ListChecks, Terminal, type LucideIcon } from "lucide-react";
+import { Bot, Cog, ListChecks, type LucideIcon } from "lucide-react";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { useDismiss } from "../../hooks/useDismiss";
@@ -17,7 +17,6 @@ const TICK_MS = 1000;
 
 const KIND_ICONS: Record<BackgroundTaskKind, LucideIcon> = {
   agent: Bot,
-  terminal: Terminal,
   process: Cog,
 };
 

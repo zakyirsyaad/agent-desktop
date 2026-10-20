@@ -12,8 +12,7 @@ import { changesToApply, NO_CHOICES, type AcpChange, type AcpChoices, type Agent
 import { findCard, titleFromPrompt, userMessage, withoutMessage } from '../../lib/session-helpers';
 import { createId } from '../../lib/ids';
 import { toCommands, useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
-import type { ChatMessage, Session } from '../../types';
-import type { EngineDeps } from './usePtyEngine';
+import type { AgentProfile, ChatMessage, Session } from '../../types';
 import { parseAuthRequired, type AuthMethod } from '../../lib/acp-auth';
 import { isUnknownSessionError } from '../../lib/acp-load-error';
 import { writeConversationHandoff } from '../../lib/session-handoff';
@@ -47,6 +46,14 @@ export interface FirstMessage {
 }
 
 export type AttentionReason = 'needs-answer' | 'finished' | 'failed';
+
+export interface EngineDeps {
+  sessions: readonly Session[];
+  agents: readonly AgentProfile[];
+  updateMessages: (sessionId: string, change: (prev: ChatMessage[]) => ChatMessage[]) => void;
+  patchSession: (sessionId: string, patch: Partial<Session>) => void;
+  reportError: (message: string) => void;
+}
 
 interface LaunchOptions {
   first?: FirstMessage;

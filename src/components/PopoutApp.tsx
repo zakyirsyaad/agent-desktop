@@ -17,7 +17,6 @@ import { useAgentProfiles } from "../hooks/useDiscovery";
 import { TopBar } from "./TopBar";
 import { ChatCanvas } from "./ChatCanvas";
 import { ComposerDock } from "./ComposerDock";
-import { TerminalDrawer } from "./TerminalDrawer";
 
 export interface PopoutAppProps {
   sessionId: string;
@@ -32,7 +31,6 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<SessionLiveStatus>(IDLE_STATUS);
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const { agents } = useAgentProfiles(() => {});
 
   useEffect(() => {
@@ -86,17 +84,12 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
       <TopBar
         sessionName={session?.name}
         workspaceName={session ? folderNameOf(session.cwd) : undefined}
-        isTerminalOpen={isTerminalOpen}
-        onToggleTerminal={() => setIsTerminalOpen((prev) => !prev)}
       />
       <article className="flex-1 flex flex-col bg-bg relative overflow-hidden">
         {messages.length > 0 ? (
           <ChatCanvas
             messages={messages}
             agentName={agent?.name}
-            onSendPtyInput={(key) => forward({ kind: "resolve-card", key, status: "approved" })}
-            onApproveAction={(key, cardId) => forward({ kind: "resolve-card", cardId, key, status: "approved" })}
-            onRejectAction={(key, cardId) => forward({ kind: "resolve-card", cardId, key, status: "rejected" })}
             onChooseOption={(cardId, optionId) => forward({ kind: "choose-option", cardId, optionId })}
             isWorking={status.isBusy && !status.isWaiting}
           />
@@ -117,13 +110,6 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
             contextUsage={status.contextUsage}
           />
         </div>
-        <TerminalDrawer
-          isOpen={isTerminalOpen}
-          sessionId={sessionId}
-          sessionName={session?.name}
-          isLive={isRunning && !isAcp}
-          onClose={() => setIsTerminalOpen(false)}
-        />
       </article>
     </main>
   );

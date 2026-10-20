@@ -98,7 +98,6 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
     case "open_session_window":
     case "reveal_in_finder":
     case "terminate_session":
-    case "spawn_session":
     case "send_input":
     case "resize_session":
     case "install_agent":

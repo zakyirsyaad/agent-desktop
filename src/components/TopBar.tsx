@@ -6,7 +6,6 @@ import {
   GitCompare,
   ExternalLink,
   MoreHorizontal,
-  Terminal
 } from "lucide-react";
 import { IconButton } from "./ui/IconButton";
 import { DiffStatChip } from "./changes/DiffStatChip";
@@ -35,9 +34,6 @@ export interface TopBarProps {
   /** The branch's pull request, with a chip that opens it; none when absent. */
   pullRequest?: PullRequestStatus | null;
   onOpenPullRequest?: (url: string) => void;
-  isTerminalOpen?: boolean;
-  /** Shows or hides the terminal drawer; the button is hidden when absent. */
-  onToggleTerminal?: () => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
   onBack?: () => void;
@@ -66,8 +62,6 @@ export function TopBar({
   branch,
   pullRequest,
   onOpenPullRequest,
-  isTerminalOpen = false,
-  onToggleTerminal,
   canGoBack = false,
   canGoForward = false,
   onBack,
@@ -152,29 +146,9 @@ export function TopBar({
         )}
       </div>
 
-      {/* Right: Actions (Terminal toggle, popout, folder, overflow) */}
+      {/* Right: Actions (popout, folder, overflow) */}
       <div className="flex items-center space-x-1 text-fg-muted">
         {backgroundTasks && <BackgroundTasksMenu {...backgroundTasks} />}
-
-        {onToggleTerminal && (
-          <button
-            type="button"
-            onClick={onToggleTerminal}
-            aria-label="Toggle terminal drawer"
-            aria-pressed={isTerminalOpen}
-            className={`flex items-center rounded-md p-1.5 transition-all focus-ring ${
-              isTerminalOpen
-                ? "bg-surface-hover border border-border-strong text-fg"
-                : "bg-surface-2 border border-border text-fg-secondary hover:bg-surface-hover hover:text-fg"
-            }`}
-          >
-            <Terminal
-              size={14}
-              aria-hidden="true"
-              className={isTerminalOpen ? "text-fg" : "text-fg-muted"}
-            />
-          </button>
-        )}
 
         {onToggleChanges && diffStats && onOpenDiff && (
           <DiffStatChip added={diffStats.added} removed={diffStats.removed} onOpen={onOpenDiff} />

@@ -22,6 +22,12 @@ function tauriInternals(): TauriInternals {
   return (window as unknown as { __TAURI_INTERNALS__: TauriInternals }).__TAURI_INTERNALS__;
 }
 
+/** The paths of the files attached to the message, in order. */
+function attachedPaths(): (string | null)[] {
+  const list = screen.getByRole("list", { name: "Attachments" });
+  return within(list).getAllByRole("listitem").map((item) => item.getAttribute("title"));
+}
+
 async function typeInPrompt(text: string) {
   await act(async () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: text } });
@@ -29,7 +35,7 @@ async function typeInPrompt(text: string) {
 }
 
 describe("Dropping files onto the window", () => {
-  it("shows where files will go while they are dragged, and puts dropped paths into the prompt", async () => {
+  it("shows where files will go while they are dragged, and attaches dropped files to the message", async () => {
     await act(async () => {
       render(<App />);
     });
@@ -44,27 +50,8 @@ describe("Dropping files onto the window", () => {
     });
 
     expect(screen.queryByText("Drop files to add them to your message")).toBeNull();
-    const prompt = screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
-    expect(prompt.value).toBe('/Users/test/shot.png "/Users/test/my notes.md" ');
-  });
-
-  it("types dropped files into a live terminal agent's screen", async () => {
-    const spy = vi.spyOn(tauriInternals(), "invoke");
-    await act(async () => {
-      render(<App />);
-    });
-    await typeInPrompt("get started");
-    await act(async () => {
-      fireEvent.keyDown(screen.getByRole("textbox", { name: "Prompt" }), { key: "Enter" });
-    });
-    const sessionId = (spy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { sessionId: string }).sessionId;
-
-    await act(async () => {
-      dragHandler({ payload: { type: "drop", paths: ["/Users/test/shot.png"] } });
-    });
-
-    expect(spy).toHaveBeenCalledWith("send_input", { sessionId, data: "/Users/test/shot.png " }, undefined);
-    spy.mockRestore();
+    expect(attachedPaths()).toEqual(["/Users/test/shot.png", "/Users/test/my notes.md"]);
+    expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("");
   });
 
   it("lists the session folder's files after an @ in the prompt", async () => {
@@ -92,8 +79,7 @@ describe("Dropping files onto the window", () => {
       dragHandler({ payload: { type: "drop", paths: ["/Users/test/ok.md", "/Users/test/evil\rname.md"] } });
     });
 
-    const prompt = screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
-    expect(prompt.value).toBe("/Users/test/ok.md ");
+    expect(attachedPaths()).toEqual(["/Users/test/ok.md"]);
     expect(screen.getByRole("alert").textContent).toContain("control characters");
   });
 });

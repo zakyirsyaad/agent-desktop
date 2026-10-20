@@ -4,7 +4,6 @@ import { buildForkHandoff, buildForkPrompt } from '../lib/fork-handoff';
 import { createId } from '../lib/ids';
 import { spawnOptionsFor, type SessionSpec } from '../lib/session-start';
 import type { SessionDraft } from '../lib/composer-controls';
-import { isAcpSession } from '../lib/session-helpers';
 import { DEFAULT_PERMISSION_MODE, type AgentProfile, type ChatMessage, type Session } from '../types';
 
 export interface SessionForkDeps {
@@ -19,11 +18,9 @@ export interface SessionForkDeps {
 }
 
 /**
- * Forks the open session at a message. From the latest message, an ACP
- * agent that supports it forks its own live session, and Claude Code in a
- * terminal resumes and forks its session natively. Otherwise the
- * conversation is written to a handoff file and the new agent is asked, in
- * one line, to read it.
+ * Forks the open session at a message. From the latest message, an agent
+ * that supports it forks its own live session. Otherwise the conversation is
+ * written to a handoff file and the new agent is asked, in one line, to read it.
  */
 export function useSessionFork(deps: SessionForkDeps): (messageId: string) => Promise<void> {
   const { source, agents, transcripts, acp, recordSession, startSession, onNotice } = deps;
@@ -38,7 +35,6 @@ export function useSessionFork(deps: SessionForkDeps): (messageId: string) => Pr
     const index = messages.findIndex((m) => m.id === messageId);
     if (index < 0) return;
 
-    const isAcp = isAcpSession(source);
     const isLatest = index === messages.length - 1;
     const baseOptions: SessionDraft = {
       model: source.model,
@@ -56,12 +52,8 @@ export function useSessionFork(deps: SessionForkDeps): (messageId: string) => Pr
       initialMessages: messages.slice(0, index + 1),
     };
     // A native fork needs the source agent alive; after it exited, fall back to a handoff.
-    if (isAcp && source.status === 'running' && isLatest && acp.canFork(source.id)) {
+    if (source.status === 'running' && isLatest && acp.canFork(source.id)) {
       void acp.fork(source.id, recordSession(spec));
-      return;
-    }
-    if (!isAcp && agent.fork_support === 'native' && isLatest && source.agentSessionId) {
-      startSession({ ...spec, options: { ...baseOptions, forkFromAgentSessionId: source.agentSessionId } });
       return;
     }
 

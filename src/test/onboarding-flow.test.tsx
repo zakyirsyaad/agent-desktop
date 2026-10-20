@@ -84,7 +84,7 @@ describe("First run and project folders", () => {
       fireEvent.keyDown(screen.getByRole("textbox", { name: "Prompt" }), { key: "Enter" });
     });
 
-    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { cwd: string };
+    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")?.[1] as { cwd: string };
     expect(args.cwd).toBe("/Users/test/code/new-project");
   });
 

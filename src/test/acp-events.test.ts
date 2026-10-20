@@ -281,23 +281,15 @@ describe("permission requests", () => {
     expect(pendingCardsInTurn(closed)).toEqual([]);
   });
 
-  it("finds only the current turn's unanswered cards, terminal ones on request", () => {
+  it("finds only the current turn's unanswered cards", () => {
     const c = ctx();
     const earlier = applyPermissionRequest([], request, c);
     const user: ChatMessage = { id: "u-2", role: "user", content: "next", timestamp: 2 };
-    const terminalCard = {
-      id: "card-t", sessionId: "s-1", title: "Approval", prompt: "Allow this action? [y/n]",
-      status: "pending" as const, approvalKey: "y\n", rejectKey: "n\n", timestamp: 3,
-    };
-    const messages: ChatMessage[] = [
-      ...earlier,
-      user,
-      { id: "a-3", role: "agent", content: "", timestamp: 3, actionCard: terminalCard },
-    ];
+    const messages = applyPermissionRequest([...earlier, user], { ...request, requestId: "perm-2" }, c);
 
-    expect(pendingCardsInTurn(messages)).toEqual([]);
-    expect(pendingCardsInTurn(messages, { includeTerminal: true }).map((card) => card.id)).toEqual(["card-t"]);
-    expect(isAwaitingPermission(messages, { includeTerminal: true })).toBe(true);
+    expect(pendingCardsInTurn(messages).map((card) => card.requestId)).toEqual(["perm-2"]);
+    expect(isAwaitingPermission(messages)).toBe(true);
+    expect(isAwaitingPermission([...earlier, user])).toBe(false);
   });
 });
 

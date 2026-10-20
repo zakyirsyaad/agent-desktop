@@ -1,4 +1,4 @@
-import type { ActionCard, ChatMessage, ContextUsage, Session } from '../types';
+import type { ChatMessage, ContextUsage, Session } from '../types';
 
 /**
  * Events between the main window and session popouts.
@@ -35,7 +35,6 @@ export interface SessionSnapshotPayload {
 
 export type PopoutAction =
   | { kind: 'send'; text: string }
-  | { kind: 'resolve-card'; cardId?: string; key: string; status: ActionCard['status'] }
   | { kind: 'choose-option'; cardId: string; optionId: string }
   | { kind: 'stop' };
 

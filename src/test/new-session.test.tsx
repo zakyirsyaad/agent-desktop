@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, within } from "@testing-library/react";
+
+type Listener = (event: { payload: unknown }) => void;
+const listeners = new Map<string, Listener>();
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: (event: string, cb: Listener) => {
+    listeners.set(event, cb);
+    return Promise.resolve(() => listeners.delete(event));
+  },
+  emit: () => Promise.resolve(),
+}));
+
 import App from "../App";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
@@ -8,9 +20,10 @@ function tauriInternals(): TauriInternals {
   return (window as unknown as { __TAURI_INTERNALS__: TauriInternals }).__TAURI_INTERNALS__;
 }
 
-describe("New session spawning", () => {
+describe("Starting a new session", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    listeners.clear();
   });
 
   /**
@@ -75,7 +88,7 @@ describe("New session spawning", () => {
     expect(screen.queryByRole("button", { name: "Agent: Qwen Code" })).toBeNull();
   });
 
-  it("spawns the agent in the workspace's absolute path, not its display name", async () => {
+  it("starts the agent in the workspace's absolute path, not its display name", async () => {
     const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
 
     await act(async () => {
@@ -83,9 +96,9 @@ describe("New session spawning", () => {
     });
     await startFromNew();
 
-    const spawnCall = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session");
-    expect(spawnCall).toBeDefined();
-    const cwd = (spawnCall?.[1] as { cwd: string }).cwd;
+    const startCall = invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session");
+    expect(startCall).toBeDefined();
+    const cwd = (startCall?.[1] as { cwd: string }).cwd;
     expect(cwd.startsWith("/")).toBe(true);
     expect(cwd.endsWith("/ai-perpetual-trading")).toBe(true);
   });
@@ -100,7 +113,7 @@ describe("New session spawning", () => {
       fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
     });
 
-    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")).toBeUndefined();
+    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")).toBeUndefined();
     expect(screen.getByRole("heading", { name: "New session" })).toBeDefined();
     const workspace = within(await screen.findByRole("group", { name: "Workspace" }));
     expect(workspace.getByText("~/developer", { exact: false })).toBeDefined();
@@ -119,13 +132,13 @@ describe("New session spawning", () => {
     const menu = within(screen.getByRole("menu", { name: "Agent for the new session in titan-investment" }));
     expect(menu.getAllByRole("menuitem")[0].textContent).toContain("Default");
     await act(async () => {
-      fireEvent.click(menu.getByRole("menuitem", { name: /Oh-My-Pi/ }));
+      fireEvent.click(menu.getByRole("menuitem", { name: /Qwen Code/ }));
     });
-    expect(screen.getByRole("button", { name: "Agent: Oh-My-Pi" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Agent: Qwen Code" })).toBeDefined();
     await sendFirst();
 
-    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { cwd: string; profileId: string };
-    expect(args).toMatchObject({ cwd: "/Users/test/developer/titan-investment", profileId: "omp" });
+    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")?.[1] as { cwd: string; profileId: string };
+    expect(args).toMatchObject({ cwd: "/Users/test/developer/titan-investment", profileId: "qwen-code" });
     expect(await screen.findByRole("list", { name: "Sessions in titan-investment" })).toBeDefined();
   });
 
@@ -150,12 +163,12 @@ describe("New session spawning", () => {
       fireEvent.click(screen.getByRole("button", { name: "Agent: Claude Code" }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("option", { name: "Oh-My-Pi" }));
+      fireEvent.click(screen.getByRole("option", { name: "Qwen Code" }));
     });
     await sendFirst();
 
-    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { cwd: string; profileId: string };
-    expect(args).toMatchObject({ cwd: "/Users/test/developer/zorvo", profileId: "omp" });
+    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")?.[1] as { cwd: string; profileId: string };
+    expect(args).toMatchObject({ cwd: "/Users/test/developer/zorvo", profileId: "qwen-code" });
     // The pickers only belong to a session that has not started.
     expect(screen.queryByRole("button", { name: /^Folder:/ })).toBeNull();
   });
@@ -183,7 +196,7 @@ describe("New session spawning", () => {
 
     const created = invokeSpy.mock.calls.find(([cmd]) => cmd === "create_session_worktree")?.[1];
     expect(created).toEqual({ repoPath: "/Users/test/developer/ai-perpetual-trading", title: "get started" });
-    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { cwd: string };
+    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")?.[1] as { cwd: string };
     expect(args.cwd).toBe("/data/worktrees/ai-perpetual-trading/get-started");
     // The session is listed under the workspace it was made from.
     const sessions = within(await screen.findByRole("list", { name: "Sessions in ai-perpetual-trading" }));
@@ -208,7 +221,7 @@ describe("New session spawning", () => {
 
     expect(screen.getByRole("alert").textContent).toContain("not a git repository");
     expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("fix the login");
-    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")).toBeUndefined();
+    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")).toBeUndefined();
   });
 
   it("offers Worktree only for a folder that is a git repository", async () => {
@@ -240,6 +253,15 @@ describe("New session spawning", () => {
     branch: "agent/get-started",
   };
 
+  /** Ends the agent's first turn, so its session can be deleted. */
+  async function endFirstTurn(invokeSpy: { mock: { calls: unknown[][] } }) {
+    const start = invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session");
+    const sessionId = (start?.[1] as { sessionId: string }).sessionId;
+    await act(async () => {
+      listeners.get("acp-event")?.({ payload: { sessionId, kind: "turn-end", stopReason: "end_turn" } });
+    });
+  }
+
   async function deleteSession(name: string) {
     const row = () => within(screen.getByRole("complementary")).getByText(name).closest("li") as HTMLElement;
     await act(async () => {
@@ -254,7 +276,7 @@ describe("New session spawning", () => {
     let finishStopping: () => void = () => {};
     const invokeSpy = stubInvoke({
       create_session_worktree: () => Promise.resolve(CREATED_WORKTREE),
-      terminate_session: () =>
+      acp_stop_session: () =>
         new Promise((resolve) => {
           finishStopping = () => resolve(undefined);
         }),
@@ -264,6 +286,7 @@ describe("New session spawning", () => {
     });
     await turnOnWorktree();
     await sendFirst();
+    await endFirstTurn(invokeSpy);
     const removals = () => invokeSpy.mock.calls.filter(([cmd]) => cmd === "remove_session_worktree");
 
     await deleteSession("get started");
@@ -278,13 +301,14 @@ describe("New session spawning", () => {
   it("keeps a deleted session's worktree when its agent could not be stopped", async () => {
     const invokeSpy = stubInvoke({
       create_session_worktree: () => Promise.resolve(CREATED_WORKTREE),
-      terminate_session: () => Promise.reject("no such session"),
+      acp_stop_session: () => Promise.reject("no such session"),
     });
     await act(async () => {
       render(<App />);
     });
     await turnOnWorktree();
     await sendFirst();
+    await endFirstTurn(invokeSpy);
 
     await deleteSession("get started");
 
@@ -324,7 +348,7 @@ describe("New session spawning", () => {
     expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).value).toBe("fix the login");
   });
 
-  it("spawns by agent profile and options, never by a raw command", async () => {
+  it("starts an agent by its profile id, never by a raw command", async () => {
     const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
 
     await act(async () => {
@@ -332,41 +356,14 @@ describe("New session spawning", () => {
     });
     await startFromNew();
 
-    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as {
-      profileId: string;
-      command?: string;
-      options: { permissionMode: string; agentSessionId?: string };
-    };
+    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")?.[1] as Record<string, unknown>;
+    expect(Object.keys(args).sort()).toEqual(["cwd", "profileId", "sessionId"]);
     expect(args.profileId).toBe("claude-acp");
-    expect(args.command).toBeUndefined();
-    expect(args.options.permissionMode).toBe("ask");
-    // Claude Code takes --session-id, so the app assigns one up front for native forks later.
-    expect(args.options.agentSessionId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it("starts the next session with the model picked in the composer", async () => {
-    const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
-    await act(async () => {
-      render(<App />);
-    });
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^model:/i }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("option", { name: "opus" }));
-    });
-    await startFromNew();
-
-    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as {
-      options: { model?: string };
-    };
-    expect(args.options.model).toBe("opus");
-  });
-
-  it("surfaces an alert when the backend rejects the spawn cwd", async () => {
+  it("surfaces an alert when the backend rejects the session's folder", async () => {
     stubInvoke({
-      spawn_session: () =>
+      acp_start_session: () =>
         Promise.reject(
           "Working directory '/Users/test/developer/ai-perpetual-trading' is not an existing directory"
         ),
@@ -380,7 +377,7 @@ describe("New session spawning", () => {
     expect(screen.getByRole("alert").textContent).toContain("Failed to start");
   });
 
-  it("warns instead of spawning when no project folder has been opened", async () => {
+  it("warns instead of starting an agent when no project folder has been opened", async () => {
     (window as unknown as { __FAKE_TAURI_STORE__: { state: { recentFolders: unknown[] } } })
       .__FAKE_TAURI_STORE__.state.recentFolders = [];
     const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
@@ -392,6 +389,6 @@ describe("New session spawning", () => {
 
     expect(screen.getByText("Open a project folder to start a session in it.")).toBeDefined();
     expect((screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement).disabled).toBe(true);
-    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")).toBeUndefined();
+    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")).toBeUndefined();
   });
 });

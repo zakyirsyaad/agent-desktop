@@ -174,8 +174,6 @@ export interface ActionCard {
   commandSnippet?: string;
   toolName?: string;
   status: 'pending' | 'approved' | 'rejected';
-  approvalKey: string;
-  rejectKey: string;
   timestamp: number;
   /** ACP permission requests: the agent's own choices and the request to answer. */
   options?: PermissionChoice[];
@@ -196,18 +194,6 @@ export interface PermissionChoice {
   optionId: string;
   name: string;
   kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always' | string;
-}
-
-export type ParsedStreamEventType =
-  | 'text'
-  | 'tool_start'
-  | 'approval_request'
-  | 'idle';
-
-export interface ParsedStreamEvent {
-  type: ParsedStreamEventType;
-  content: string;
-  metadata?: Record<string, string>;
 }
 
 export interface ToolExecution {
@@ -249,14 +235,4 @@ export interface ChatMessage {
   isComplete?: boolean;
   /** Files the user sent with the message (ACP agents). */
   attachments?: string[];
-}
-
-export interface PtyOutputPayload {
-  session_id: string;
-  data: string;
-}
-
-export interface PtyExitPayload {
-  session_id: string;
-  exit_code: number;
 }

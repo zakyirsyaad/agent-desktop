@@ -29,41 +29,11 @@ describe("Navigation and Layout Components", () => {
   ];
 
   describe("TopBar", () => {
-    it("renders the session breadcrumb, workspace badge, and terminal toggle", () => {
-      const onToggleTerminal = vi.fn();
+    it("renders the session breadcrumb and workspace badge", () => {
+      render(<TopBar sessionName="New session (fork)" workspaceName="ai-perpetual-trading" />);
 
-      render(
-        <TopBar
-          sessionName="New session (fork)"
-          workspaceName="ai-perpetual-trading"
-          isTerminalOpen={false}
-          onToggleTerminal={onToggleTerminal}
-        />
-      );
-
-      // Breadcrumb elements
       expect(screen.getByText("New session (fork)")).toBeDefined();
       expect(screen.getByText("ai-perpetual-trading")).toBeDefined();
-
-      // Terminal toggle button
-      const terminalBtn = screen.getByRole("button", { name: /toggle terminal/i });
-      expect(terminalBtn).toBeDefined();
-      fireEvent.click(terminalBtn);
-      expect(onToggleTerminal).toHaveBeenCalledTimes(1);
-    });
-
-    it("displays active terminal state badge/indicator when open", () => {
-      render(
-        <TopBar
-          sessionName="Active Session"
-          workspaceName="my-workspace"
-          isTerminalOpen={true}
-          onToggleTerminal={() => {}}
-        />
-      );
-
-      const terminalBtn = screen.getByRole("button", { name: /toggle terminal/i });
-      expect(terminalBtn.getAttribute("aria-pressed")).toBe("true");
     });
   });
 

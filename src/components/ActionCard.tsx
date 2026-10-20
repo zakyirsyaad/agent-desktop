@@ -2,17 +2,10 @@ import { Check, X, Wrench, AlertTriangle } from "lucide-react";
 import { Button, type ButtonVariant } from "./ui/Button";
 import type { ActionCard as ActionCardType, PermissionChoice } from "../types";
 
-/**
- * Approval card for an agent prompt. It deliberately offers no in-place command
- * editing: the only thing a y/n prompt understands is the approval or rejection
- * key, and typing an edited command into it can approve the original command
- * (for example "yarn clean" begins with "y").
- */
+/** A permission request from an agent, answered with one of the agent's own options. */
 export interface ActionCardProps {
   card: ActionCardType;
-  onApprove: (key: string) => void;
-  onReject: (key: string) => void;
-  /** Picks one of the agent's own options (ACP permission requests). */
+  /** Picks one of the agent's options. */
   onChoose?: (optionId: string) => void;
   disabled?: boolean;
 }
@@ -58,26 +51,7 @@ function PermissionChoices({
   );
 }
 
-export function ActionCard({
-  card,
-  onApprove,
-  onReject,
-  onChoose,
-  disabled = false,
-}: ActionCardProps) {
-  const isResolved = card.status === "approved" || card.status === "rejected";
-  const isDisabled = disabled || isResolved;
-
-  const handleApprove = () => {
-    if (isDisabled) return;
-    onApprove(card.approvalKey || "y\n");
-  };
-
-  const handleReject = () => {
-    if (isDisabled) return;
-    onReject(card.rejectKey || "n\n");
-  };
-
+export function ActionCard({ card, onChoose, disabled = false }: ActionCardProps) {
   return (
     <div
       data-testid={`action-card-${card.id}`}
@@ -112,39 +86,7 @@ export function ActionCard({
         </div>
       )}
 
-      {card.options && card.options.length > 0 ? (
-        <PermissionChoices card={card} disabled={disabled} onChoose={onChoose} />
-      ) : (
-        <>
-        {/* Action Buttons */}
-        <div className="mt-4 flex items-center justify-between gap-2 pt-2 border-t border-border">
-          <div className="flex items-center gap-2">
-            {/* Both buttons are disabled once resolved; the chosen one keeps its color. */}
-            <Button
-              variant="primary"
-              onClick={handleApprove}
-              disabled={isDisabled}
-              className={card.status === "approved" ? "disabled:bg-primary! disabled:text-on-primary!" : undefined}
-              aria-label={card.status === "approved" ? "Approved" : "Approve"}
-              icon={<Check className="h-3.5 w-3.5" />}
-            >
-              {card.status === "approved" ? "Approved" : "✓ Approve"}
-            </Button>
-
-            <Button
-              variant="danger"
-              onClick={handleReject}
-              disabled={isDisabled}
-              className={card.status === "rejected" ? "disabled:opacity-100!" : undefined}
-              aria-label={card.status === "rejected" ? "Rejected" : "Reject"}
-              icon={<X className="h-3.5 w-3.5" />}
-            >
-              {card.status === "rejected" ? "Rejected" : "✕ Reject"}
-            </Button>
-          </div>
-        </div>
-        </>
-      )}
+      <PermissionChoices card={card} disabled={disabled} onChoose={onChoose} />
     </div>
   );
 }

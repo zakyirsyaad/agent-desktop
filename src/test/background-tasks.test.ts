@@ -7,7 +7,6 @@ function session(over: Partial<Session>): Session {
 }
 
 const base = {
-  isAcp: (s: Session) => s.transport === "acp",
   isBusy: () => false,
   busySince: () => undefined,
   needsApproval: () => false,
@@ -46,14 +45,6 @@ describe("backgroundTasksOf", () => {
     expect(backgroundTasksOf({ ...base, sessions: [session({ transport: "acp" })] })).toEqual([]);
   });
 
-  it("lists running terminals and skips terminated ones", () => {
-    const tasks = backgroundTasksOf({
-      ...base,
-      sessions: [session({}), session({ id: "s2", status: "terminated" })],
-    });
-    expect(tasks).toEqual([expect.objectContaining({ id: "terminal:s1", kind: "terminal", status: "Running", startedAt: 500 })]);
-  });
-
   it("lists processes with the session name and ports", () => {
     const tasks = backgroundTasksOf({
       ...base,
@@ -86,9 +77,11 @@ describe("backgroundTasksOf", () => {
   it("sorts oldest first", () => {
     const tasks = backgroundTasksOf({
       ...base,
-      sessions: [session({ createdAt: 90_000 })],
+      sessions: [session({ transport: "acp" })],
+      isBusy: () => true,
+      busySince: () => 90_000,
       processes: [{ pid: 1, sessionId: "s1", command: "a", elapsedSecs: 50, ports: [] }],
     });
-    expect(tasks.map((t) => t.id)).toEqual(["process:1", "terminal:s1"]);
+    expect(tasks.map((t) => t.id)).toEqual(["process:1", "agent:s1"]);
   });
 });

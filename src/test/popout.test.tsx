@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
-import type { FakeTauriStore } from "./setup";
 
 type Listener = (event: { payload: unknown }) => void;
 const listeners = new Map<string, Listener[]>();
@@ -29,10 +28,6 @@ function tauriInternals(): TauriInternals {
   return (window as unknown as { __TAURI_INTERNALS__: TauriInternals }).__TAURI_INTERNALS__;
 }
 
-function fakeStore(): FakeTauriStore {
-  return (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__;
-}
-
 async function deliver(event: string, payload: unknown) {
   await act(async () => {
     (listeners.get(event) ?? []).forEach((cb) => cb({ payload }));
@@ -42,11 +37,26 @@ async function deliver(event: string, payload: unknown) {
 const runningSession = {
   id: "s-1",
   name: "Fix login",
-  profileId: "claude-code",
+  profileId: "claude-acp",
   cwd: "/Users/test/developer/zorvo",
   status: "running",
   createdAt: 1,
+  transport: "acp",
 };
+
+/** Starts a session in the main window with its first message; resolves with its id. */
+async function startSessionInMainWindow(spy: { mock: { calls: unknown[][] } }): Promise<string> {
+  await act(async () => {
+    render(<App />);
+  });
+  const prompt = screen.getByRole("textbox", { name: "Prompt" });
+  await act(async () => {
+    fireEvent.change(prompt, { target: { value: "get started" } });
+    fireEvent.keyDown(prompt, { key: "Enter" });
+  });
+  const start = spy.mock.calls.find(([cmd]) => cmd === "acp_start_session");
+  return (start?.[1] as { sessionId: string }).sessionId;
+}
 
 describe("Popout windows", () => {
   afterEach(() => {
@@ -88,19 +98,18 @@ describe("Popout windows", () => {
   });
 
   it("main window answers a popout and performs the actions it forwards", async () => {
-    fakeStore().state.sessions = [runningSession];
     const spy = vi.spyOn(tauriInternals(), "invoke");
-    await act(async () => {
-      render(<App />);
-    });
+    const sessionId = await startSessionInMainWindow(spy);
+    await deliver("acp-event", { sessionId, kind: "turn-end", stopReason: "end_turn" });
 
-    await deliver("popout-ready", { sessionId: "s-1" });
+    await deliver("popout-ready", { sessionId });
     const snapshot = emitted.find((e) => e.event === "session-snapshot")?.payload as { sessionId: string };
-    expect(snapshot.sessionId).toBe("s-1");
+    expect(snapshot.sessionId).toBe(sessionId);
 
-    await deliver("popout-action", { sessionId: "s-1", action: { kind: "send", text: "hello" } });
-    expect(spy).toHaveBeenCalledWith("send_input", { sessionId: "s-1", data: "hello" }, undefined);
-    await waitFor(() => expect(spy).toHaveBeenCalledWith("send_input", { sessionId: "s-1", data: "\r" }, undefined));
+    await deliver("popout-action", { sessionId, action: { kind: "send", text: "hello" } });
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith("acp_prompt", expect.objectContaining({ sessionId, text: "hello" }), undefined),
+    );
   });
 
   it("forwards the option picked on an agent's permission request", async () => {
@@ -109,7 +118,7 @@ describe("Popout windows", () => {
     });
     await deliver("session-snapshot", {
       sessionId: "s-1",
-      session: { ...runningSession, profileId: "qwen", transport: "acp" },
+      session: { ...runningSession, profileId: "qwen-code" },
       messages: [
         {
           id: "m-1",
@@ -122,8 +131,6 @@ describe("Popout windows", () => {
             title: "Permission requested",
             prompt: "Run tests",
             status: "pending",
-            approvalKey: "",
-            rejectKey: "",
             timestamp: 1,
             requestId: 3,
             options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
@@ -163,15 +170,12 @@ describe("Popout windows", () => {
   });
 
   it("main window stops a session's turn when its popout asks", async () => {
-    fakeStore().state.sessions = [runningSession];
     const spy = vi.spyOn(tauriInternals(), "invoke");
-    await act(async () => {
-      render(<App />);
-    });
+    const sessionId = await startSessionInMainWindow(spy);
 
-    await deliver("popout-action", { sessionId: "s-1", action: { kind: "stop" } });
+    await deliver("popout-action", { sessionId, action: { kind: "stop" } });
 
-    expect(spy).toHaveBeenCalledWith("send_input", { sessionId: "s-1", data: "\x03" }, undefined);
+    expect(spy).toHaveBeenCalledWith("acp_cancel", { sessionId }, undefined);
   });
 });
 

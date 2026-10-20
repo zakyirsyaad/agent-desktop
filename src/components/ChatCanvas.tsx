@@ -29,11 +29,8 @@ function hasSomethingToShow(msg: ChatMessage): boolean {
 
 export interface ChatCanvasProps {
   messages: ChatMessage[];
-  /** Display name of the agent behind this conversation, e.g. "Aider". */
+  /** Display name of the agent behind this conversation, e.g. "Claude Code". */
   agentName?: string;
-  onSendPtyInput: (input: string) => void;
-  onApproveAction?: (key: string, cardId?: string) => void;
-  onRejectAction?: (key: string, cardId?: string) => void;
   onForkBranch?: (messageId: string) => void;
   /** Answers an ACP permission card with one of the agent's options. */
   onChooseOption?: (cardId: string, optionId: string) => void;
@@ -64,9 +61,6 @@ function formatRelativeTime(timestamp: number): string {
 export function ChatCanvas({
   messages,
   agentName = DEFAULT_AGENT_NAME,
-  onSendPtyInput,
-  onApproveAction,
-  onRejectAction,
   onForkBranch,
   onChooseOption,
   isWorking = false,
@@ -109,22 +103,6 @@ export function ChatCanvas({
       navigator.clipboard.writeText(content);
       setCopiedMessageId(id);
       setTimeout(() => setCopiedMessageId(null), COPIED_FEEDBACK_MS);
-    }
-  };
-
-  const handleApprove = (key: string, cardId: string) => {
-    if (onApproveAction) {
-      onApproveAction(key, cardId);
-    } else {
-      onSendPtyInput(key);
-    }
-  };
-
-  const handleReject = (key: string, cardId: string) => {
-    if (onRejectAction) {
-      onRejectAction(key, cardId);
-    } else {
-      onSendPtyInput(key);
     }
   };
 
@@ -191,12 +169,10 @@ export function ChatCanvas({
                 </div>
               )}
 
-              {/* Interactive Action Card if approval request */}
+              {/* The agent's permission request, answered with one of its options */}
               {msg.actionCard && (
                 <ActionCard
                   card={msg.actionCard}
-                  onApprove={(key) => handleApprove(key, msg.actionCard!.id)}
-                  onReject={(key) => handleReject(key, msg.actionCard!.id)}
                   onChoose={
                     onChooseOption ? (optionId) => onChooseOption(msg.actionCard!.id, optionId) : undefined
                   }
