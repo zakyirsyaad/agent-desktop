@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use zorvo_lib::env_resolver::resolve_user_env;
-use zorvo_lib::profiles::get_available_agent_profiles;
+use zorvo_lib::profiles::agent_profiles;
 use zorvo_lib::pty_session::{PtyEvent, PtySessionManager};
 
 /// Helper to compute SHA-256 hash of a file if it exists.
@@ -89,10 +89,10 @@ fn test_e2e_pty_interactive_approval_and_zero_harness_mutation() {
     );
 
     // STEP 2: Verify Profiles and Environment Resolution
-    let profiles = get_available_agent_profiles();
+    let profiles = agent_profiles(&Default::default());
     assert!(
         !profiles.is_empty(),
-        "Agent profiles must not be empty (should contain default profiles)"
+        "Agent profiles must not be empty (should contain the registry profiles)"
     );
 
     let env_vars = resolve_user_env().expect("Should resolve user environment");

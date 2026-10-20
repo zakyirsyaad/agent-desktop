@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Zorvo (formerly Agent Desktop) is a macOS Tauri 2 app that hosts other coding agents. Qwen Code, Claude Code and Codex are driven over the Agent Client Protocol (ACP, JSON-RPC over stdio) and shown as a chat UI. Oh-My-Pi and Aider run as their real TUI in a PTY. React 19 + Tailwind 4 frontend in `src/`, Rust backend in `src-tauri/` (crate `zorvo`, lib `zorvo_lib`). Package manager is pnpm.
+Zorvo (formerly Agent Desktop) is a macOS Tauri 2 app that hosts other coding agents. Qwen Code, Claude Code, Codex and the other agents come from the ACP registry and are driven over the Agent Client Protocol (ACP, JSON-RPC over stdio) and shown as a chat UI. Pi comes through the registry's `pi-acp` adapter. A PTY is used only to run an agent's own terminal sign-in. React 19 + Tailwind 4 frontend in `src/`, Rust backend in `src-tauri/` (crate `zorvo`, lib `zorvo_lib`). Package manager is pnpm.
 
 ## Commands
 
@@ -13,8 +13,8 @@ pnpm install
 pnpm tauri dev              # run the app (Vite on :1420 + Rust backend)
 pnpm lint                   # tsc --noEmit + eslint --max-warnings=0
 pnpm test                   # all Vitest tests
-pnpm vitest run src/test/stream-parser.test.ts          # one file
-pnpm vitest run src/test/stream-parser.test.ts -t "name" # one test
+pnpm vitest run src/test/persistence.test.ts          # one file
+pnpm vitest run src/test/persistence.test.ts -t "name" # one test
 pnpm design-system          # local design-system reference on :5180
 pnpm registry:update        # refresh the bundled ACP registry history (src-tauri/resources/registry-history.json)
 pnpm tauri build            # production bundle (the only build that applies the CSP)
@@ -34,13 +34,11 @@ The Rust ACP tests spawn `src-tauri/tests/fixtures/fake_acp_agent.mjs` with Node
 
 ## Architecture
 
-**Frontend ↔ backend.** The UI calls Tauri commands (all registered in `src-tauri/src/lib.rs`'s `generate_handler!`) and listens to events: `acp-event` (one channel for every ACP session, payload `{sessionId, kind: update|permission|turn-end|exit, ...}` built in `acp/commands.rs`) and `pty-output-<id>` / `pty-exit-<id>` for terminal sessions.
+**Frontend ↔ backend.** The UI calls Tauri commands (all registered in `src-tauri/src/lib.rs`'s `generate_handler!`) and listens to events: `acp-event` (one channel for every ACP session, payload `{sessionId, kind: update|permission|turn-end|exit, ...}` built in `acp/commands.rs`) and `sign-in-terminal` (output and exit of an agent's terminal sign-in, see below).
 
-**Two session engines.** `App.tsx` picks one per session by the profile's transport (`TRANSPORT_ACP` vs `TRANSPORT_PTY`):
-- `src/hooks/session-engine/useAcpEngine.ts` — chat sessions. ACP updates are folded into chat messages by `src/lib/acp-events.ts`; modes/models/config options come from the agent at session start (`useAcpSessions.ts`, `lib/acp-draft.ts`).
-- `src/hooks/session-engine/usePtyEngine.ts` — terminal sessions via xterm; `lib/stream-parser.ts` detects `[y/n]` prompts in PTY output.
+**Session engine.** Every session is an ACP chat, run by `src/hooks/session-engine/useAcpEngine.ts`. ACP updates are folded into chat messages by `src/lib/acp-events.ts`; modes/models/config options come from the agent at session start (`useAcpSessions.ts`, `lib/acp-draft.ts`). Saved terminal sessions from older versions are dropped on load (`dropTerminalSessions` in `lib/persistence.ts`).
 
-**Agent profiles are the trust boundary.** ACP agents come from `src-tauri/src/registry/`: the official ACP registry, fetched by the Rust backend (never the webview) at startup when the last fetch is over 24 hours old and on **Check again**. It keeps a dated version history, and a version is offered only after it has been listed for 7 days. A history is bundled with each release (`pnpm registry:update` regenerates `src-tauri/resources/registry-history.json`). Agents in use are `settings.enabledAgents`, the version in use is `settings.agentVersions`, and installed agents are enabled once automatically. Settings' **Check again** lives on the Agents tab. Terminal agents (Oh-My-Pi, Aider) are still declared statically in `src-tauri/src/profiles.rs`. The webview only ever sends an agent id plus `SpawnOptions`; `spawn_plan.rs` validates them into a command line and `acp/commands.rs::launch_for` does the same for ACP. Never let the UI pass a raw command or args.
+**Agent profiles are the trust boundary.** ACP agents come from `src-tauri/src/registry/`: the official ACP registry, fetched by the Rust backend (never the webview) at startup when the last fetch is over 24 hours old and on **Check again**. It keeps a dated version history, and a version is offered only after it has been listed for 7 days. A history is bundled with each release (`pnpm registry:update` regenerates `src-tauri/resources/registry-history.json`). Agents in use are `settings.enabledAgents`, the version in use is `settings.agentVersions`, and installed agents are enabled once automatically. Settings' **Check again** lives on the Agents tab. The webview only ever sends an agent id (and folder); `acp/commands.rs::launch_for` turns the id into a command line. Never let the UI pass a raw command or args.
 
 **Agent catalog.** Settings → Agents (and onboarding) render one read model: `get_agent_catalog` returns `Catalog::catalog_view` (in `registry/mod.rs`; its types are in `registry/catalog_view.rs`) with each registry agent's availability (including `unsupported` for a binary agent with no build for this Mac's target), install state and offered update. Recorded versions under 7 days old are ignored. `update_agent` (`installer/commands.rs`) is the only way an agent's version changes; the target comes from `Catalog::update_target`, never the UI. Logos: `registry/icons.rs` fetches SVGs from the registry CDN into the app data dir (only allowed URLs, SVG bodies only) and `get_agent_icons` returns data URLs, falling back to the bundled `src-tauri/resources/registry-icons.json` (`pnpm registry:update --icons-only` regenerates it). Frontend: `components/agents/` (`AgentCatalog`, `AgentCatalogRow`, `AgentCatalogPanel`), `hooks/useAgentCatalog.ts`, `useAgentCatalogActions.ts`, `useAgentUpdates.ts` (badge, and `settings.notifiedUpdates` for the once-per-version notice), `lib/agent-catalog.ts`, `lib/agent-icons.ts`. A removed agent's saved sessions, once stopped, show `RemovedAgentPanel` with **Add <Agent>**. `usePersistedState().saveNow` flushes state before a catalog action reads it and rejects when the write failed; writes run one at a time, and `AppStore::save_state` holds a lock around `state.json`.
 
@@ -50,7 +48,7 @@ The Rust ACP tests spawn `src-tauri/tests/fixtures/fake_acp_agent.mjs` with Node
 
 **Probing a draft's agent.** ACP agents report modes/models/efforts/slash commands only inside a session, so `acp/probe.rs` (`acp_probe_agent`) asks in a short-lived process. Opening a session can run the user's session hooks and lands in the agent's history, so it opens one only to learn a never-run agent's options or to check the sign-in of an agent that cannot report it, and deletes it in the background (`session/delete`, else `session/close`). An agent that pushes `_auth/status_update` (Claude Code) and whose options are known is only asked who is signed in. `signInChecked` in the result says whether the sign-in was actually seen. `src/hooks/useDraftAgentCheck.ts` drives it for a new-session draft (via `useAgentProbe`), keeps the sign-in panel in step and asks again on window focus while a sign-in is pending; results are merged with `withProbed` (`lib/acp-draft.ts`), which never overwrites what a real session reported.
 
-**Terminal sign-in.** Zorvo advertises `auth.terminal`. `acp_start_terminal_sign_in` reads a `type: "terminal"` method from a fresh `initialize` (`acp/terminal_auth.rs`, same env deny list as the registry) and runs the agent's own program plus the method's args in a PTY with a `signin-` id. Its output goes on `sign-in-terminal`, not `pty-output`. `useAgentSignIn` re-checks with the probe and sends the refused message through `retryAfterSignIn`. `authenticate` is never sent for a terminal method.
+**Terminal sign-in.** Zorvo advertises `auth.terminal`. `acp_start_terminal_sign_in` reads a `type: "terminal"` method from a fresh `initialize` (`acp/terminal_auth.rs`, same env deny list as the registry) and runs the agent's own program plus the method's args in a PTY with a `signin-` id. Its output goes on `sign-in-terminal`. `useAgentSignIn` re-checks with the probe and sends the refused message through `retryAfterSignIn`. `authenticate` is never sent for a terminal method.
 
 **Environment.** A Finder-launched app has no shell PATH, so `env_resolver.rs` reads the user's login-shell environment once (warmed at startup) and every spawn uses it. `get_agent_profiles(refresh: true)` re-reads it.
 
@@ -62,7 +60,7 @@ The Rust ACP tests spawn `src-tauri/tests/fixtures/fake_acp_agent.mjs` with Node
 
 **Fork, rewind, worktrees.** Fork uses the agent's native ACP fork when available, otherwise a handoff file (`fork_handoff.rs`, `lib/fork-handoff.ts`) the new agent is told to read. Worktree sessions get an `agent/<title>` branch under the app data dir's `worktrees/` (`worktrees.rs`). Git changes/commits are in `changes.rs` and `diff_stats.rs`; PR data comes from the user's own `gh` (`pull_requests.rs`).
 
-**Threading rule for Tauri commands.** Commands that touch the filesystem, the login shell or a child process are `#[tauri::command(async)]` so they don't freeze the window. `send_input` is deliberately sync: async would run keystrokes on a thread pool where they could reach the PTY out of order.
+**Threading rule for Tauri commands.** Commands that touch the filesystem, the login shell or a child process are `#[tauri::command(async)]` so they don't freeze the window. `send_input` stays sync so a sign-in terminal's keystrokes reach the PTY in order: async would run them on a thread pool where they could arrive out of order.
 
 ## Testing conventions
 

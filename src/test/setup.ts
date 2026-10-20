@@ -26,7 +26,7 @@ export interface FakeTauriStore {
 function emptyFakeStore(): FakeTauriStore {
   return {
     state: {
-      version: 1,
+      version: 2,
       settings: { defaultAgentId: null, onboardingCompleted: true },
       recentFolders: [
         { name: "ai-perpetual-trading", path: "/Users/test/developer/ai-perpetual-trading", lastOpenedAt: 3000 },
@@ -99,7 +99,6 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
     case "open_session_window":
     case "reveal_in_finder":
     case "terminate_session":
-    case "spawn_session":
     case "send_input":
     case "resize_session":
     case "install_agent":

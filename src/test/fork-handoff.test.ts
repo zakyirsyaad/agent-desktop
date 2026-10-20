@@ -12,7 +12,7 @@ const CREATED_AT = Date.UTC(2026, 9, 16, 10, 30, 0);
 
 const meta: ForkHandoffMeta = {
   sourceSessionName: "zorvo / feat-real-ui-chat",
-  agentName: "Aider",
+  agentName: "Codex",
   cwd: "/Users/test/developer/zorvo",
   createdAt: CREATED_AT,
 };
@@ -30,8 +30,8 @@ const messages: ChatMessage[] = [
     content: "I edited the parser and the suite is green.",
     timestamp: CREATED_AT - 50_000,
     tools: [
-      { id: "t-1", name: "Edit", args: 'file_path: "a.ts"', status: "completed" },
-      { id: "t-2", name: "Bash", args: "pnpm test", status: "running" },
+      { id: "t-1", name: "Edit a.ts", status: "completed" },
+      { id: "t-2", name: "Run pnpm test", status: "running" },
     ],
     actionCard: {
       id: "card-1",
@@ -41,8 +41,6 @@ const messages: ChatMessage[] = [
       commandSnippet: "pnpm test",
       toolName: "Bash",
       status: "pending",
-      approvalKey: "y\n",
-      rejectKey: "n\n",
       timestamp: CREATED_AT - 40_000,
     },
   },
@@ -137,8 +135,8 @@ describe("buildForkHandoff sections", () => {
   it("lists one `- Tool:` line per tool execution, before the message content", () => {
     const doc = buildForkHandoff(messages, "msg-2", meta);
 
-    expect(doc).toContain('- Tool: Edit(file_path: "a.ts")');
-    expect(doc).toContain("- Tool: Bash(pnpm test)");
+    expect(doc).toContain("- Tool: Edit a.ts");
+    expect(doc).toContain("- Tool: Run pnpm test");
 
     const toolIdx = doc.indexOf("- Tool: Edit");
     const contentIdx = doc.indexOf("I edited the parser");

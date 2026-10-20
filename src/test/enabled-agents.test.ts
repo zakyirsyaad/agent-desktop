@@ -7,7 +7,7 @@ import {
   withAutoEnabled,
 } from "../lib/enabled-agents";
 import type { Settings } from "../types";
-import { aiderProfile, claudeProfile, makeProfile } from "./fixtures/agents";
+import { claudeProfile, makeProfile } from "./fixtures/agents";
 
 const BASE: Settings = { appearance: "system", defaultAgentId: null, onboardingCompleted: true };
 
@@ -59,7 +59,6 @@ describe("enabled agents", () => {
     const first = withAutoEnabled(BASE, [gemini, claudeProfile]);
 
     expect(withAutoEnabled(first, [gemini, claudeProfile])).toBe(first);
-    expect(withAutoEnabled(BASE, [aiderProfile])).toBe(BASE);
   });
 
   it("leaves the enabled list unset when it only records versions", () => {
@@ -75,11 +74,6 @@ describe("enabled agents", () => {
 
     expect(next.enabledAgents).toEqual(["gemini"]);
     expect(next.agentVersions).toEqual({ gemini: "1.2.3" });
-  });
-
-  it("a builtin terminal agent is in use when detected", () => {
-    expect(isInUse({ ...aiderProfile, detected: true }, BASE)).toBe(true);
-    expect(isInUse({ ...aiderProfile, detected: false }, BASE)).toBe(false);
   });
 });
 

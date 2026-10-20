@@ -11,7 +11,6 @@ import { SignInLayer } from "./components/SignInLayer";
 import { AgentInstallPanel } from "./components/AgentInstallPanel";
 import { pickerLabelOf } from "./lib/install-plan";
 import { installPanelAgentOf } from "./lib/install-panel";
-import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
 import { WorkspaceSummary } from "./components/workspace/WorkspaceSummary";
 import { ChangesPanel } from "./components/changes/ChangesPanel";
@@ -26,18 +25,14 @@ import { useDraftAgentCheck } from "./hooks/useDraftAgentCheck";
 import { useLatest } from "./hooks/useLatest";
 import { createSessionWorktree } from "./lib/session-worktree";
 import {
-  EMPTY_DRAFT,
   isWaitingForAnswer,
   newSessionRecord,
-  spawnOptionsFor,
   titleFor,
   type SessionSpec,
 } from "./lib/session-start";
-import { createPtyOutputStore } from "./lib/pty-output-store";
 import { isAwaitingPermission } from "./lib/acp-events";
 import {
   folderNameOf,
-  isAcpSession as isAcp,
   isListed,
   isAutoName,
   workspacePathOf,
@@ -70,16 +65,13 @@ import { useSessionActions } from "./hooks/useSessionActions";
 import { useSessionFork } from "./hooks/useSessionFork";
 import { useSessionRewind } from "./hooks/useSessionRewind";
 import { useUnreadMarks } from "./hooks/useUnreadMarks";
-import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
 import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
 import type { AcpConfigOption } from "./hooks/useAcpSessions";
 import { attentionBody, notifyIfAway } from "./lib/notify";
 import { pickFiles } from "./lib/file-picker";
-import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
 import { isAgentReady, isAgentRunnable, noAgentNotice, resolveDraftAgentId } from "./lib/agent-readiness";
 import { isInUse, removedAgentNameFor } from "./lib/enabled-agents";
-import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
 import {
   NO_CHOICES,
@@ -91,7 +83,6 @@ import {
   type AgentOptions,
 } from "./lib/acp-draft";
 import type { Session, SessionWorktree, Settings } from "./types";
-import { TRANSPORT_ACP } from "./types";
 
 const NO_FOLDER_NOTICE = "Open a project folder first: use the Open folder button next to Workspaces.";
 
@@ -101,7 +92,6 @@ const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState("");
-  const [draft, setDraft] = useState<SessionDraft>(EMPTY_DRAFT);
   /** The agent picked for the next new session; null means the default from Settings. */
   const [pickedAgentId, setPickedAgentId] = useState<string | null>(null);
   /** Whether the next new session runs in its own worktree (a git repository only). */
@@ -112,7 +102,6 @@ export default function App() {
   const [acpChoices, setAcpChoices] = useState<AcpChoices>(NO_CHOICES);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const composerRef = useRef<ComposerHandle>(null);
-  const [ptyOutput] = useState(createPtyOutputStore);
 
   const reportError = useCallback((message: string) => setNotice(message), []);
   const { state, isLoaded, updateState, saveNow } = usePersistedState(reportError);
@@ -140,12 +129,12 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
-  // Only the agents in use are offered: the defaults, installed ones and the terminal agents found.
+  // Only the agents in use are offered: the defaults and installed ones.
   const agentsInUse = agents.filter((agent) => isInUse(agent, state.settings));
   // A saved session of a removed agent stays readable; once it stops, its composer offers to add the agent again.
   const activeAgentRemoved = removedAgentNameFor(activeSession, agents, state.settings);
-  // A registry agent not installed yet is offered too: picking it shows its Install panel.
-  const pickableAgents = agentsInUse.filter((agent) => agent.source === "registry" || agent.detected);
+  // An agent not installed yet is offered too: picking it shows its Install panel.
+  const pickableAgents = agentsInUse;
   const defaultAgentId = resolveDraftAgentId(agentsInUse, state.settings.defaultAgentId, pickableAgents);
   const newSessionAgentId = pickableAgents.find((a) => a.id === pickedAgentId)?.id ?? defaultAgentId;
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
@@ -165,14 +154,12 @@ export default function App() {
   // An ended ACP session continues with its own agent: in the agent's own
   // session when it has one, else (rewound) in a fresh one handed the conversation.
   const isResumable =
-    isAcp(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
+    Boolean(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
   const draftAgent = isResumable ? activeAgent : newSessionAgent;
   const isDraftAgentReady = draftAgent ? isAgentRunnable(draftAgent) : false;
   const installPanelAgent = installPanelAgentOf(activeSession, activeAgent, newSessionAgent);
   const draftNeedsInstall = useDraftInstall(agents, installPanelAgent, draftAgent);
 
-  // A model or effort chosen for one agent means nothing to another one.
-  useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
   useEffect(() => setAcpChoices(NO_CHOICES), [draftAgent?.id]);
 
   // Agents a previous UI left running (a webview reload keeps the backend
@@ -248,7 +235,6 @@ export default function App() {
   });
 
   const engineDeps = { sessions, agents, updateMessages, patchSession, reportError };
-  const pty = usePtyEngine({ ...engineDeps, output: ptyOutput });
   const acp = useAcpEngine({
     ...engineDeps,
     transcripts,
@@ -280,8 +266,7 @@ export default function App() {
     onNotice: setNotice,
   });
 
-  const isSessionBusy = (sessionId: string) =>
-    isAcp(sessionById(sessionId)) ? acp.isBusy(sessionId) || isRestarting(sessionId) : pty.isBusy(sessionId);
+  const isSessionBusy = (sessionId: string) => acp.isBusy(sessionId) || isRestarting(sessionId);
 
   // What a new or resumed session starts with: the picks made for it, else the
   // model picked last; a rewound session's fresh agent, the model and effort it
@@ -290,22 +275,14 @@ export default function App() {
   const agentOptions = withRewound(state.agentOptions, draftAgent?.id, rewound);
   const startChoices = draftAgent ? withPreferred(acpChoices, agentOptions?.[draftAgent.id]) : acpChoices;
 
-  /**
-   * Dropped files: typed into a live terminal agent, otherwise added to the
-   * message. A name with control characters is left out: a terminal would
-   * take them as keys (Enter, Ctrl-C), not as part of a path.
-   */
+  /** Dropped files are added to the message; a name with control characters is left out. */
   const handleDroppedFiles = (dropped: string[]) => {
     const paths = dropped.filter((path) => !CONTROL_CHARACTER.test(path));
     if (paths.length < dropped.length) {
       setNotice("Left out a dropped file whose name has control characters.");
     }
     if (paths.length === 0) return;
-    if (activeSession?.status === "running" && !isAcp(activeSession)) {
-      void pty.sendRaw(activeSession.id, `${paths.map(formatAttachmentPath).join(" ")} `);
-    } else {
-      composerRef.current?.insertPaths(paths);
-    }
+    composerRef.current?.insertPaths(paths);
   };
   const isDraggingFiles = useFileDrop(handleDroppedFiles, reportError);
 
@@ -350,11 +327,9 @@ export default function App() {
     return session;
   };
 
-  /** A terminal agent gets only the text: its files are already typed into it. */
   const startSession = (spec: SessionSpec, first?: FirstMessage) => {
     const session = recordSession(spec);
-    if (isAcp(session)) void acp.start(session, first, startChoices);
-    else pty.start(session, spec.options ?? spawnOptionsFor(spec.agent, draft), first?.text);
+    void acp.start(session, first, startChoices);
     // The picks went with the session; a later draft starts from the model picked last.
     setAcpChoices(NO_CHOICES);
   };
@@ -437,13 +412,11 @@ export default function App() {
   const handleInterrupt = (sessionId: string) => {
     // A rewound session's fresh agent has not started yet: only its start is called off.
     if (isRestarting(sessionId)) cancelRestart(sessionId);
-    else if (isAcp(sessionById(sessionId))) acp.interrupt(sessionId, transcripts[sessionId]);
-    else pty.interrupt(sessionId);
+    else acp.interrupt(sessionId, transcripts[sessionId]);
   };
 
   const backgroundTasks = useBackgroundTasks({
     sessions,
-    isAcp,
     isBusy: acp.isBusy,
     busySince: acp.busySinceOf,
     needsApproval: (id) => isAwaitingPermission(transcripts[id] ?? []),
@@ -480,7 +453,6 @@ export default function App() {
     removeTranscript,
     navigation,
     acp,
-    pty,
     onNotice: setNotice,
   });
 
@@ -488,9 +460,7 @@ export default function App() {
     const session = sessionById(sessionId);
     // A numbered session takes its title from the first thing the user asks.
     const isFirstMessage = !(transcripts[sessionId]?.some((m) => m.role === "user") ?? false);
-    const sent = await (isAcp(session)
-      ? acp.send(sessionId, message.text, message.attachments)
-      : pty.send(sessionId, message.text));
+    const sent = await acp.send(sessionId, message.text, message.attachments);
     if (sent && session && isFirstMessage && isAutoName(session.name) && !session.namedByUser) {
       patchSession(sessionId, { name: titleFor(message) });
     }
@@ -530,14 +500,13 @@ export default function App() {
     statusOf: (sessionId) => ({
       isBusy: isSessionBusy(sessionId),
       isWaiting: isSessionWaiting(sessionId),
-      contextUsage: isAcp(sessionById(sessionId)) ? acp.info[sessionId]?.usage : undefined,
+      contextUsage: acp.info[sessionId]?.usage,
     }),
     agentCatalog: { agents, settings: state.settings, addAgent: catalogActions.addAgent },
     onAction: (sessionId, action) => {
       if (action.kind === "send") void sendTo(sessionId, { text: action.text });
       else if (action.kind === "stop") handleInterrupt(sessionId);
-      else if (action.kind === "choose-option") chooseOption(sessionId, action.cardId, action.optionId);
-      else pty.resolveCard(sessionId, action.key, action.cardId, action.status);
+      else chooseOption(sessionId, action.cardId, action.optionId);
     },
   });
 
@@ -549,22 +518,14 @@ export default function App() {
   const canStartSession = Boolean(activeWorkspacePath && newSessionAgent);
   const composer = composerStateFor({
     session: activeSession,
-    sessionAgent: activeAgent,
     draftAgent,
-    draft,
-    setDraft,
     acpChoices: startChoices,
     setAcpChoices,
     agentOptions,
     acp,
     onPick: rememberPick,
   });
-  const isActiveTerminal = isActiveRunning && !isAcp(activeSession);
-  // A terminal agent shows its real screen: live, or the last one while it is still in memory.
-  const showsTerminal =
-    Boolean(activeSession) && !isAcp(activeSession) && (isActiveRunning || ptyOutput.has(activeSessionId));
   const composerCommands = composerCommandsFor({
-    session: activeSession,
     isRunning: isActiveRunning,
     liveCommands: acp.info[activeSessionId]?.commands,
     draftAgent,
@@ -656,21 +617,13 @@ export default function App() {
           />
           <SignInLayer signIn={signIn} agents={agents} />
           {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
-          {showsTerminal ? (
-            <TerminalView
-              sessionId={activeSessionId}
-              output={ptyOutput}
-              isLive={isActiveTerminal}
-              onInput={(data) => void pty.sendRaw(activeSessionId, data)}
-              onResize={(cols, rows) => pty.resize(activeSessionId, cols, rows)}
-            />
-          ) : activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId)) ? (
+          {activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId)) ? (
             <ChatCanvas
               conversationId={activeSessionId}
               messages={currentMessages}
               agentName={activeAgent?.name}
               onForkBranch={(messageId) => void forkSession(messageId)}
-              onRewind={isAcp(activeSession) ? (messageId) => void rewind(activeSession, messageId) : undefined}
+              onRewind={(messageId) => void rewind(activeSession, messageId)}
               header={
                 <div className="rounded-xl border border-border bg-surface-1 px-4 py-3">
                   <WorkspaceSummary
@@ -680,9 +633,6 @@ export default function App() {
                   />
                 </div>
               }
-              onSendPtyInput={(input) => void pty.sendRaw(activeSessionId, input)}
-              onApproveAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "approved")}
-              onRejectAction={(key, cardId) => pty.resolveCard(activeSessionId, key, cardId, "rejected")}
               onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
               isWorking={isSessionBusy(activeSessionId) && !isAwaitingPermission(currentMessages)}
             />
@@ -697,14 +647,12 @@ export default function App() {
             <EmptySessionState />
           )}
 
-          {/* A live terminal agent takes input in its own screen. */}
-          <div className={isActiveTerminal ? "hidden" : "p-4 flex justify-center"}>
+          <div className="p-4 flex justify-center">
             {activeAgentRemoved ? (
               <RemovedAgentPanel agentName={activeAgentRemoved} onAdd={() => activeAgent && catalogActions.addAgent(activeAgent.id)} />
             ) : (
               <ComposerDock
                 controls={composer.controls}
-                optionsLocked={composer.locked}
                 isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
                 onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
                 disabled={
@@ -721,7 +669,7 @@ export default function App() {
                   isEndedSession: Boolean(activeSession),
                 })}
                 onSendMessage={handleSendMessage}
-                attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}
+                attachAsFiles
                 onAttach={pickFiles}
                 handleRef={composerRef}
                 commands={composerCommands}
@@ -730,7 +678,7 @@ export default function App() {
                     ? `Loading ${draftAgent.name}'s models and commands…`
                     : undefined
                 }
-                contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
+                contextUsage={isActiveRunning ? acp.info[activeSessionId]?.usage : undefined}
                 mentions={filesFolder ? { root: filesFolder.path, loadFiles: () => shell.loadWorkspaceFiles(filesFolder.path) } : undefined}
                 folder={
                   isNewSessionDraft

@@ -1,4 +1,3 @@
-import type { AgentProfile, PermissionMode } from '../types';
 import type { AcpSessionInfo } from '../hooks/useAcpSessions';
 import type { DropdownOption } from '../components/composer/OptionDropdown';
 
@@ -15,22 +14,11 @@ export interface ComposerControls {
   effort?: ComposerControl;
 }
 
-/** Choices for the next terminal session, edited before it starts. */
-export interface SessionDraft {
-  model?: string;
-  effort?: string;
-  permissionMode: PermissionMode;
-}
-
 /** Modes that let the agent act without asking (shown with a warning icon). */
 const RISKY_MODE = /yolo|bypass|dontask|full.?access|danger/i;
 
 export function isRiskyMode(modeId: string | undefined): boolean {
   return modeId !== undefined && RISKY_MODE.test(modeId);
-}
-
-function withDefault(defaultLabel: string, values: readonly string[]): DropdownOption[] {
-  return [{ value: undefined, label: defaultLabel }, ...values.map((v) => ({ value: v, label: v }))];
 }
 
 /** `undefined` when there is nothing real to choose from. */
@@ -68,40 +56,4 @@ export function acpControls(
     : fromConfig('mode');
 
   return { permission, model: fromConfig('model'), effort: fromConfig('thought_level') };
-}
-
-/** Controls for the next terminal session, from the flags its profile declares. */
-export function ptyDraftControls(
-  agent: AgentProfile,
-  draft: SessionDraft,
-  onChange: (draft: SessionDraft) => void,
-): ComposerControls {
-  return {
-    permission: controlIf(
-      agent.permission_modes.map((m) => ({ value: m.id, label: m.label })),
-      1,
-      { selected: draft.permissionMode, onChange: (value) => value && onChange({ ...draft, permissionMode: value }) },
-    ),
-    model: controlIf(withDefault('Default model', agent.models), 2, {
-      selected: draft.model,
-      onChange: (model) => onChange({ ...draft, model }),
-    }),
-    effort: controlIf(
-      withDefault('Default effort', agent.effort_levels.map((e) => e.label)),
-      2,
-      { selected: draft.effort, onChange: (effort) => onChange({ ...draft, effort }) },
-    ),
-  };
-}
-
-/** A running terminal session's choices: fixed, because CLI flags only apply at start. */
-export function ptySessionControls(
-  agent: AgentProfile,
-  session: { model?: string; effort?: string; permissionMode?: PermissionMode },
-): ComposerControls {
-  return ptyDraftControls(
-    agent,
-    { model: session.model, effort: session.effort, permissionMode: session.permissionMode ?? 'ask' },
-    () => {},
-  );
 }

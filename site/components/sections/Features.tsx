@@ -11,8 +11,8 @@ const FEATURES: { icon: IconName; title: string; body: ReactNode }[] = [
   },
   {
     icon: "square-terminal",
-    title: "Terminal agents stay terminals",
-    body: "Oh-My-Pi and Aider run as their real TUI in the main view, not squeezed into a chat.",
+    title: "Sign in from inside Zorvo",
+    body: "An agent's own login runs in a terminal in the app. Your message is sent once you are signed in.",
   },
   {
     icon: "folder",

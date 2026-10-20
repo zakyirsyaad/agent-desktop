@@ -1,6 +1,6 @@
 import type { Session } from '../types';
 
-export type BackgroundTaskKind = 'agent' | 'terminal' | 'process';
+export type BackgroundTaskKind = 'agent' | 'process';
 
 /** A shell process an agent started, as the backend reports it. */
 export interface BackgroundProcess {
@@ -24,7 +24,6 @@ export interface BackgroundTask {
 
 export interface BackgroundTasksInput {
   sessions: readonly Session[];
-  isAcp: (session: Session) => boolean;
   isBusy: (sessionId: string) => boolean;
   busySince: (sessionId: string) => number | undefined;
   needsApproval: (sessionId: string) => boolean;
@@ -35,35 +34,21 @@ export interface BackgroundTasksInput {
 
 /** Everything running in the background, oldest first. */
 export function backgroundTasksOf(input: BackgroundTasksInput): BackgroundTask[] {
-  const { sessions, isAcp, isBusy, busySince, needsApproval, processes, processesReadAt } = input;
+  const { sessions, isBusy, busySince, needsApproval, processes, processesReadAt } = input;
   const names = new Map(sessions.map((s) => [s.id, s.name]));
 
-  const sessionTasks = sessions.flatMap((session): BackgroundTask[] => {
-    if (isAcp(session)) {
-      if (!isBusy(session.id)) return [];
-      return [
-        {
-          id: `agent:${session.id}`,
-          kind: 'agent',
-          name: session.name,
-          status: needsApproval(session.id) ? 'Needs approval' : 'Working',
-          startedAt: busySince(session.id) ?? session.createdAt,
-          sessionId: session.id,
-        },
-      ];
-    }
-    if (session.status !== 'running') return [];
-    return [
-      {
-        id: `terminal:${session.id}`,
-        kind: 'terminal',
+  const sessionTasks = sessions
+    .filter((session) => isBusy(session.id))
+    .map(
+      (session): BackgroundTask => ({
+        id: `agent:${session.id}`,
+        kind: 'agent',
         name: session.name,
-        status: 'Running',
-        startedAt: session.createdAt,
+        status: needsApproval(session.id) ? 'Needs approval' : 'Working',
+        startedAt: busySince(session.id) ?? session.createdAt,
         sessionId: session.id,
-      },
-    ];
-  });
+      }),
+    );
 
   const processTasks = processes.map((process): BackgroundTask => {
     const sessionName = names.get(process.sessionId);

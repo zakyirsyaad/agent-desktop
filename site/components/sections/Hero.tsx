@@ -27,7 +27,7 @@ export function Hero() {
           One desktop.
         </h1>
         <p className="t-lead m-0 max-w-[560px]">
-          Claude Code, Codex, Qwen and Aider in one native app. Bring the agent you already use. No
+          Claude Code, Codex and Qwen Code in one native app. Bring the agent you already use. No
           lock-in, no API keys.
         </p>
         <div className="flex flex-wrap justify-center gap-3">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PersistedState } from '../types';
-import { emptyPersistedState, loadAppState, saveAppState } from '../lib/persistence';
+import { deleteTranscript, dropTerminalSessions, emptyPersistedState, loadAppState, saveAppState } from '../lib/persistence';
 import { useLatest } from './useLatest';
 
 /** Delay before writing state to disk, so bursts of updates cost one write. */
@@ -41,13 +41,20 @@ export function usePersistedState(onError: (message: string) => void): Persisted
   useEffect(() => {
     let isCancelled = false;
     loadAppState()
-      .then((loaded) => {
+      .then(({ state: loaded, isOutdated }) => {
         if (isCancelled) return;
-        lastSavedRef.current = loaded;
-        latestStateRef.current = loaded;
+        const { state: cleaned, droppedSessionIds } = dropTerminalSessions(loaded);
+        // What differs from the file (an older version, dropped sessions) is written by the save effect.
+        lastSavedRef.current = isOutdated ? null : loaded;
+        latestStateRef.current = cleaned;
         canSaveRef.current = true;
-        setState(loaded);
+        setState(cleaned);
         setIsLoaded(true);
+        for (const sessionId of droppedSessionIds) {
+          deleteTranscript(sessionId).catch((error) => {
+            onErrorRef.current(`Could not delete a removed terminal session: ${String(error)}`);
+          });
+        }
       })
       .catch((error) => {
         if (isCancelled) return;

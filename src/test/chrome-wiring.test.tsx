@@ -15,8 +15,8 @@ function fakeStore(): FakeTauriStore {
 
 function seedSessions() {
   fakeStore().state.sessions = [
-    { id: "s-a", name: "Alpha work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 1 },
-    { id: "s-b", name: "Beta work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 2 },
+    { id: "s-a", name: "Alpha work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 1, transport: "acp" },
+    { id: "s-b", name: "Beta work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 2, transport: "acp" },
   ];
 }
 
@@ -82,7 +82,7 @@ describe("Window chrome wiring", () => {
 
   it("keeps Files for a session whose folder has left the recents", async () => {
     fakeStore().state.sessions = [
-      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/old-project", status: "terminated", createdAt: 1 },
+      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/old-project", status: "terminated", createdAt: 1, transport: "acp" },
     ];
     const spy = vi.spyOn(tauriInternals(), "invoke");
     await renderApp();
@@ -292,7 +292,7 @@ describe("Window chrome wiring", () => {
     expect(spy).toHaveBeenCalledWith("open_session_window", { sessionId: "s-b" }, undefined);
   });
 
-  it("adds a file from the files panel to the prompt", async () => {
+  it("attaches a file from the files panel to the message", async () => {
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "list_directory"
         ? Promise.resolve([{ name: "README.md", relativePath: "README.md", isDir: false }])
@@ -303,8 +303,8 @@ describe("Window chrome wiring", () => {
     await click(header().getByRole("button", { name: "Toggle files panel" }));
     await click(await screen.findByRole("button", { name: "Add README.md to prompt" }));
 
-    const prompt = screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
-    expect(prompt.value).toContain("/Users/test/developer/ai-perpetual-trading/README.md");
+    const attachments = within(screen.getByRole("list", { name: "Attachments" }));
+    expect(attachments.getByRole("listitem").getAttribute("title")).toBe("/Users/test/developer/ai-perpetual-trading/README.md");
   });
 
   it("shows the user's git identity and app version, and opens settings from the profile", async () => {

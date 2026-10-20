@@ -10,8 +10,8 @@ import {
 } from "../lib/agent-readiness";
 
 const claude: AgentSummary = { id: "claude-acp", name: "Claude Code", detected: true, distribution: "npx" };
-const omp: AgentSummary = { id: "omp", name: "Oh-My-Pi", detected: false, distribution: null };
-const aider: AgentSummary = { id: "aider", name: "Aider", detected: true, distribution: null };
+const missing: AgentSummary = { id: "custom", name: "Custom Agent", detected: false, distribution: null };
+const ready: AgentSummary = { id: "custom-ready", name: "Custom Ready", detected: true, distribution: null };
 
 describe("isAgentRunnable", () => {
   it("is true only when the backend says the agent can start now", () => {
@@ -22,8 +22,8 @@ describe("isAgentRunnable", () => {
 
 describe("readyAgents", () => {
   it("keeps only detected agents in their original order", () => {
-    expect(readyAgents([omp, aider, claude]).map((agent) => agent.id)).toEqual([
-      "aider",
+    expect(readyAgents([missing, ready, claude]).map((agent) => agent.id)).toEqual([
+      "custom-ready",
       "claude-acp",
     ]);
   });
@@ -31,22 +31,22 @@ describe("readyAgents", () => {
 
 describe("resolveDefaultAgentId", () => {
   it("keeps the preferred agent when it is ready", () => {
-    expect(resolveDefaultAgentId([claude, aider], "aider")).toBe("aider");
+    expect(resolveDefaultAgentId([claude, ready], "custom-ready")).toBe("custom-ready");
   });
 
   it("falls back to the first ready agent when the preferred one is not installed", () => {
-    expect(resolveDefaultAgentId([omp, aider, claude], "omp")).toBe("aider");
+    expect(resolveDefaultAgentId([missing, ready, claude], "custom")).toBe("custom-ready");
   });
 
   it("returns null when no agent is ready", () => {
-    expect(resolveDefaultAgentId([omp], null)).toBeNull();
+    expect(resolveDefaultAgentId([missing], null)).toBeNull();
   });
 });
 
 describe("resolveDefaultAgentId takes the candidates as given", () => {
   it("has no filter of its own: callers pass only the agents to choose from", () => {
     // @ts-expect-error -- there is no third parameter; the list is already filtered.
-    expect(resolveDefaultAgentId([claude, aider], "claude-acp", () => false)).toBe("claude-acp");
+    expect(resolveDefaultAgentId([claude, ready], "claude-acp", () => false)).toBe("claude-acp");
   });
 });
 
@@ -74,7 +74,7 @@ describe("noAgentNotice", () => {
   const GENERIC = "No agent is ready. Install one of your agents, then check again in Settings.";
 
   it("names one agent that needs Node.js and points at Install", () => {
-    expect(noAgentNotice([codex, omp])).toBe(`No agent is ready. Codex needs ${NODE_TAIL} Click Install to set it up.`);
+    expect(noAgentNotice([codex, missing])).toBe(`No agent is ready. Codex needs ${NODE_TAIL} Click Install to set it up.`);
   });
 
   it("asks to choose when other agents can be installed too, even if only one needs Node.js", () => {
@@ -116,14 +116,14 @@ describe("noAgentNotice", () => {
   });
 
   it("names the agents Zorvo can install when none of them needs Node.js", () => {
-    expect(noAgentNotice([opencode, omp])).toBe(
+    expect(noAgentNotice([opencode, missing])).toBe(
       "No agent is ready. OpenCode is not installed yet. Click Install to set it up.",
     );
   });
 
   it("asks to install an agent when Zorvo cannot install any of them", () => {
     const npxWithoutPlan: AgentSummary = { id: "gemini", name: "Gemini CLI", detected: false, distribution: "npx" };
-    expect(noAgentNotice([npxWithoutPlan, omp])).toBe(GENERIC);
+    expect(noAgentNotice([npxWithoutPlan, missing])).toBe(GENERIC);
   });
 
   it("asks to install an agent when there are no agents in use", () => {
@@ -163,7 +163,7 @@ describe("resolveUsableAgentId", () => {
   it("keeps a preferred agent Zorvo can install, else picks a ready one first", () => {
     expect(resolveUsableAgentId([codexToInstall, claude], "codex-acp")).toBe("codex-acp");
     expect(resolveUsableAgentId([codexToInstall, claude], null)).toBe("claude-acp");
-    expect(resolveUsableAgentId([codexToInstall, omp], "omp")).toBe("codex-acp");
-    expect(resolveUsableAgentId([omp], null)).toBeNull();
+    expect(resolveUsableAgentId([codexToInstall, missing], "custom")).toBe("codex-acp");
+    expect(resolveUsableAgentId([missing], null)).toBeNull();
   });
 });

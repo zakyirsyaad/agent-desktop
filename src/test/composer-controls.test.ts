@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { acpControls, isRiskyMode, ptyDraftControls, ptySessionControls } from "../lib/composer-controls";
-import { claudeProfile, ompProfile } from "./fixtures/agents";
+import { acpControls, isRiskyMode } from "../lib/composer-controls";
 import type { AcpSessionInfo } from "../hooks/useAcpSessions";
 
 const info: AcpSessionInfo = {
@@ -72,29 +71,5 @@ describe("composer controls", () => {
 
     expect(controls.permission?.selected).toBe("ask");
     expect(setConfig).toHaveBeenCalledWith("mode", "ask");
-  });
-
-  it("builds draft controls for a terminal agent from its profile flags", () => {
-    const onChange = vi.fn();
-    const controls = ptyDraftControls(claudeProfile, { permissionMode: "ask" }, onChange);
-
-    expect(controls.permission?.selected).toBe("ask");
-    expect(controls.model?.options[0]).toEqual({ value: undefined, label: "Default model" });
-    controls.model?.onChange("opus");
-    expect(onChange).toHaveBeenCalledWith({ permissionMode: "ask", model: "opus" });
-  });
-
-  it("omits draft controls the terminal agent has no options for", () => {
-    const controls = ptyDraftControls(ompProfile, { permissionMode: "ask" }, vi.fn());
-
-    expect(controls.model).toBeUndefined();
-    expect(controls.effort?.options.length).toBeGreaterThan(1);
-  });
-
-  it("shows a running terminal session's fixed choices", () => {
-    const controls = ptySessionControls(claudeProfile, { model: "opus", permissionMode: "plan" });
-
-    expect(controls.model?.selected).toBe("opus");
-    expect(controls.permission?.selected).toBe("plan");
   });
 });

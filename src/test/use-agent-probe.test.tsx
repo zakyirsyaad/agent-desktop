@@ -12,7 +12,6 @@ function tauriInternals(): TauriInternals {
 
 const agent = (id: string) => fakeProfiles.find((a) => a.id === id) as AgentProfile;
 const QWEN = agent("qwen-code");
-const TERMINAL_AGENT = agent("omp");
 const CWD = "/Users/test/developer/zorvo";
 
 const PROBED = {
@@ -35,9 +34,9 @@ function probeCalls(spy: { mock: { calls: unknown[][] } }) {
   return spy.mock.calls.filter(([cmd]) => cmd === "acp_probe_agent");
 }
 
-function deps(overrides: { agent?: AgentProfile; cwd?: string; isKnown?: (id: string) => boolean } = {}) {
+function deps(overrides: { agent?: AgentProfile | undefined; cwd?: string; isKnown?: (id: string) => boolean } = {}) {
   return {
-    agent: QWEN,
+    agent: QWEN as AgentProfile | undefined,
     cwd: CWD as string | undefined,
     isKnown: (_id: string) => false,
     onProbed: vi.fn(),
@@ -110,16 +109,16 @@ describe("useAgentProbe", () => {
     const { rerender } = renderHook((p) => useAgentProbe(p), { initialProps: props });
     await waitFor(() => expect(props.onProbed).toHaveBeenCalledTimes(1));
 
-    rerender({ ...props, agent: TERMINAL_AGENT });
+    rerender({ ...props, agent: undefined });
     rerender({ ...props, agent: QWEN });
 
     expect(probeCalls(spy)).toHaveLength(1);
   });
 
-  it("does not ask a terminal agent, or any agent before a folder is chosen", async () => {
+  it("does not ask when no agent is picked, or before a folder is chosen", async () => {
     const spy = vi.spyOn(tauriInternals(), "invoke").mockResolvedValue(structuredClone(PROBED));
 
-    renderHook(() => useAgentProbe(deps({ agent: TERMINAL_AGENT })));
+    renderHook(() => useAgentProbe(deps({ agent: undefined })));
     renderHook(() => useAgentProbe(deps({ cwd: undefined })));
     await new Promise((resolve) => setTimeout(resolve, 0));
 

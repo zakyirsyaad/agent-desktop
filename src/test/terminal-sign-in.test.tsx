@@ -12,7 +12,8 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit: () => Promise.resolve(),
 }));
 
-const { terminals } = vi.hoisted(() => ({ terminals: [] as { written: string[] }[] }));
+type FakeTerminal = { written: string[]; type: (data: string) => void };
+const { terminals } = vi.hoisted(() => ({ terminals: [] as FakeTerminal[] }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     written: string[] = [];
@@ -28,7 +29,10 @@ vi.mock("@xterm/xterm", () => ({
       this.written.push(data);
       callback?.();
     }
-    onData() {
+    /** Types into the terminal, as the user would: reaches the onData handler once there is one. */
+    type: (data: string) => void = () => {};
+    onData(handler: (data: string) => void) {
+      this.type = handler;
       return { dispose() {} };
     }
     dispose() {}
@@ -208,6 +212,42 @@ describe("useTerminalSignIn", () => {
     });
     expect(callsTo(spy, "send_input")[0][1]).toEqual({ sessionId: args?.terminalId, data: "y" });
     expect(callsTo(spy, "resize_session")[0][1]).toEqual({ sessionId: args?.terminalId, cols: 100, rows: 30 });
+  });
+});
+
+describe("Sign-in terminal input", () => {
+  /** The sign-in hook and its dialog, wired as the app wires them. */
+  function SignInHarness({ onReady }: { onReady: (run: ReturnType<typeof useTerminalSignIn>["run"]) => void }) {
+    const signIn = useTerminalSignIn();
+    onReady(signIn.run);
+    return signIn.dialog ? (
+      <TerminalSignInDialog
+        state={signIn.dialog}
+        output={signIn.output}
+        onClose={() => {}}
+        onInput={signIn.sendInput}
+        onResize={signIn.resize}
+      />
+    ) : null;
+  }
+
+  it("sends what you type in the sign-in terminal, and its size, to the sign-in PTY", async () => {
+    const spy = mockStart(() => Promise.resolve());
+    let run!: ReturnType<typeof useTerminalSignIn>["run"];
+    render(<SignInHarness onReady={(r) => (run = r)} />);
+    await act(async () => {
+      void run(REQUEST);
+    });
+    const [[, args]] = callsTo(spy, "acp_start_terminal_sign_in");
+    const terminalId = args?.terminalId as string;
+    expect(terminalId).toMatch(/^signin-/);
+
+    await act(async () => {
+      terminals[terminals.length - 1].type("y");
+    });
+
+    expect(spy).toHaveBeenCalledWith("send_input", { sessionId: terminalId, data: "y" }, undefined);
+    expect(spy).toHaveBeenCalledWith("resize_session", { sessionId: terminalId, cols: 80, rows: 24 }, undefined);
   });
 });
 

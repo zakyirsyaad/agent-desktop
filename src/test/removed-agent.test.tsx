@@ -47,7 +47,6 @@ const gemini = makeProfile({
   id: "gemini",
   name: "Gemini CLI",
   source: "registry",
-  transport: "acp",
   detected: true,
   availability: "ready",
 });

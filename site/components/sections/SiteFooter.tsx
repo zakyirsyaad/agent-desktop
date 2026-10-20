@@ -53,7 +53,7 @@ export function SiteFooter() {
         <div className="flex flex-wrap justify-between gap-3 border-t border-border pt-5">
           <p className="t-caption m-0">© 2026 Zorvo. All rights reserved.</p>
           <p className="t-caption m-0 max-w-[560px]">
-            Claude Code, Codex, Qwen Code, Aider and Oh-My-Pi belong to their makers. Zorvo works
+            Claude Code, Codex and Qwen Code belong to their makers. Zorvo works
             with them and is not endorsed by them.
           </p>
         </div>

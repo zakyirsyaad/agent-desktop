@@ -5,23 +5,6 @@
 import type { AgentOptions } from '../lib/acp-draft';
 import type { Appearance } from '../lib/appearance';
 
-/** A reasoning-effort choice backed by a real CLI flag or env var. */
-export interface EffortLevel {
-  label: string;
-  args: string[];
-  env: [string, string][];
-}
-
-/** A permission mode the CLI supports; `"ask"` is always first and passes no args. */
-export interface PermissionModeOption {
-  id: string;
-  label: string;
-  args: string[];
-}
-
-/** How a session can be forked: resumed natively by the CLI, or via a handoff file. */
-export type ForkSupport = 'native' | 'handoff';
-
 /** Mirrors the Rust `AgentProfile` (snake_case on the wire). */
 export interface AgentProfile {
   id: string;
@@ -29,22 +12,10 @@ export interface AgentProfile {
   command: string;
   detected: boolean;
   detected_path?: string | null;
-  models: string[];
-  model_arg?: string | null;
-  effort_levels: EffortLevel[];
-  permission_modes: PermissionModeOption[];
-  session_id_arg?: string | null;
-  fork_support: ForkSupport | string;
-  resume_fork_args: string[];
-  approval_pattern?: string | null;
-  approval_key?: string | null;
-  reject_key?: string | null;
-  /** "acp": structured Agent Client Protocol; "pty": the agent's own terminal. */
-  transport: AgentTransport;
   acp_program?: string | null;
   acp_args: string[];
   acp_program_path?: string | null;
-  source: 'registry' | 'builtin';
+  source: 'registry';
   version: string | null;
   distribution: 'npx' | 'uvx' | 'binary' | null;
   availability: AgentAvailability;
@@ -93,23 +64,14 @@ export interface AgentCatalog {
   agents: CatalogAgent[];
 }
 
-export type AgentTransport = 'acp' | 'pty';
+export type AgentTransport = 'acp';
 
 export const TRANSPORT_ACP: AgentTransport = 'acp';
 
-/** A `PermissionModeOption.id`; `"ask"` is the safe default every agent supports. */
+/** A permission mode id; `"ask"` is the safe default. */
 export type PermissionMode = string;
 
 export const DEFAULT_PERMISSION_MODE: PermissionMode = 'ask';
-
-/** What the backend's `spawn_session` accepts besides the profile id (camelCase). */
-export interface SpawnOptions {
-  model?: string;
-  effort?: string;
-  permissionMode?: PermissionMode;
-  agentSessionId?: string;
-  forkFromAgentSessionId?: string;
-}
 
 /** A project folder: `name` is shown in the UI, `path` is the absolute spawn cwd. */
 export interface Workspace {
@@ -149,8 +111,8 @@ export interface Session {
   exitCode?: number | null;
   forkedFrom?: string | null;
   agentSessionId?: string | null;
-  /** Missing on sessions saved before ACP existed: those ran in a terminal. */
-  transport?: AgentTransport;
+  /** Always `acp` now; old files may hold other values. */
+  transport?: string;
   acpSessionId?: string | null;
   /** Set when the session runs in a worktree; `cwd` is then inside it. */
   worktree?: SessionWorktree | null;
@@ -202,8 +164,6 @@ export interface ActionCard {
   commandSnippet?: string;
   toolName?: string;
   status: 'pending' | 'approved' | 'rejected';
-  approvalKey: string;
-  rejectKey: string;
   timestamp: number;
   /** ACP permission requests: the agent's own choices and the request to answer. */
   options?: PermissionChoice[];
@@ -226,22 +186,9 @@ export interface PermissionChoice {
   kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always' | string;
 }
 
-export type ParsedStreamEventType =
-  | 'text'
-  | 'tool_start'
-  | 'approval_request'
-  | 'idle';
-
-export interface ParsedStreamEvent {
-  type: ParsedStreamEventType;
-  content: string;
-  metadata?: Record<string, string>;
-}
-
 export interface ToolExecution {
   id: string;
   name: string;
-  args: string;
   status: 'running' | 'completed' | 'failed';
   /** ACP tool kind, e.g. "read", "edit", "execute". */
   kind?: string;
@@ -277,14 +224,4 @@ export interface ChatMessage {
   isComplete?: boolean;
   /** Files the user sent with the message (ACP agents). */
   attachments?: string[];
-}
-
-export interface PtyOutputPayload {
-  session_id: string;
-  data: string;
-}
-
-export interface PtyExitPayload {
-  session_id: string;
-  exit_code: number;
 }

@@ -21,7 +21,7 @@ describe("Navigation and Layout Components", () => {
     {
       id: "s-2",
       name: "Market analyzer refactor",
-      profileId: "omp",
+      profileId: "qwen-code",
       cwd: "/Users/mac/titan-investment",
       status: "idle",
       createdAt: Date.now() - 7200000,
@@ -29,41 +29,11 @@ describe("Navigation and Layout Components", () => {
   ];
 
   describe("TopBar", () => {
-    it("renders the session breadcrumb, workspace badge, and terminal toggle", () => {
-      const onToggleTerminal = vi.fn();
+    it("renders the session breadcrumb and workspace badge", () => {
+      render(<TopBar sessionName="New session (fork)" workspaceName="ai-perpetual-trading" />);
 
-      render(
-        <TopBar
-          sessionName="New session (fork)"
-          workspaceName="ai-perpetual-trading"
-          isTerminalOpen={false}
-          onToggleTerminal={onToggleTerminal}
-        />
-      );
-
-      // Breadcrumb elements
       expect(screen.getByText("New session (fork)")).toBeDefined();
       expect(screen.getByText("ai-perpetual-trading")).toBeDefined();
-
-      // Terminal toggle button
-      const terminalBtn = screen.getByRole("button", { name: /toggle terminal/i });
-      expect(terminalBtn).toBeDefined();
-      fireEvent.click(terminalBtn);
-      expect(onToggleTerminal).toHaveBeenCalledTimes(1);
-    });
-
-    it("displays active terminal state badge/indicator when open", () => {
-      render(
-        <TopBar
-          sessionName="Active Session"
-          workspaceName="my-workspace"
-          isTerminalOpen={true}
-          onToggleTerminal={() => {}}
-        />
-      );
-
-      const terminalBtn = screen.getByRole("button", { name: /toggle terminal/i });
-      expect(terminalBtn.getAttribute("aria-pressed")).toBe("true");
     });
   });
 
@@ -103,12 +73,10 @@ describe("Navigation and Layout Components", () => {
       fireEvent.click(titanSessions.getByText("Market analyzer refactor"));
       expect(onSelectSession).toHaveBeenCalledWith("s-2");
       // Which agent runs a session is in its tooltip.
-      expect(titanSessions.getByTitle("Market analyzer refactor · Oh-My-Pi")).toBeDefined();
+      expect(titanSessions.getByTitle("Market analyzer refactor · Qwen Code")).toBeDefined();
 
       const agentList = within(screen.getByRole("list", { name: "Detected agents" }));
       expect(agentList.getByText("Claude Code")).toBeDefined();
-      // Aider is not installed in the fixtures, so it is not listed at all.
-      expect(screen.queryByText("Aider")).toBeNull();
       expect(screen.getByText("footer content")).toBeDefined();
       expect(screen.queryByText(/iwang/i)).toBeNull();
     });
@@ -117,8 +85,8 @@ describe("Navigation and Layout Components", () => {
       render(
         <Sidebar
           workspaces={workspaces}
-          sessions={mockSessions}
-          agents={mockProfiles}
+          sessions={[...mockSessions, { ...mockSessions[1], id: "s-3", name: "Logoless chat", profileId: "acme" }]}
+          agents={[...mockProfiles, makeProfile({ id: "acme", name: "Acme Agent", detected: true })]}
           onNewSession={() => {}}
           onSelectSession={() => {}}
         />
@@ -127,9 +95,9 @@ describe("Navigation and Layout Components", () => {
       const claudeRow = within(screen.getByText("New session (fork)").closest("li") as HTMLElement);
       // The logo itself (small SVGs are inlined by Vite), not the generic icon.
       expect(claudeRow.getByRole("img", { name: "Claude Code" }).tagName.toLowerCase()).toBe("img");
-      // Oh-My-Pi has no official logo: a generic agent icon names it instead.
-      const ompRow = within(screen.getByText("Market analyzer refactor").closest("li") as HTMLElement);
-      expect(ompRow.getByRole("img", { name: "Oh-My-Pi" }).tagName.toLowerCase()).toBe("svg");
+      // An agent with no official logo: a generic agent icon names it instead.
+      const acmeRow = within(screen.getByText("Logoless chat").closest("li") as HTMLElement);
+      expect(acmeRow.getByRole("img", { name: "Acme Agent" }).tagName.toLowerCase()).toBe("svg");
       const detected = within(screen.getByRole("list", { name: "Detected agents" }));
       expect(detected.getByRole("img", { name: "Claude Code" })).toBeDefined();
     });
@@ -142,10 +110,10 @@ describe("Navigation and Layout Components", () => {
           sessions={mockSessions}
           agents={[
             makeProfile({ id: "claude-acp", name: "Claude Code", detected: true }),
-            makeProfile({ id: "aider", name: "Aider", detected: false }),
-            makeProfile({ id: "omp", name: "Oh-My-Pi", detected: true }),
+            makeProfile({ id: "codex-acp", name: "Codex", detected: false }),
+            makeProfile({ id: "qwen-code", name: "Qwen Code", detected: true }),
           ]}
-          defaultAgentId="omp"
+          defaultAgentId="qwen-code"
           onNewSession={() => {}}
           onSelectSession={() => {}}
           onNewSessionIn={onNewSessionIn}
@@ -158,7 +126,7 @@ describe("Navigation and Layout Components", () => {
       fireEvent.click(screen.getByRole("button", { name: "New session in empty-project" }));
       const menu = within(screen.getByRole("menu"));
       // Installed agents only, the default first.
-      expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Oh-My-PiDefault", "Claude Code"]);
+      expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Qwen CodeDefault", "Claude Code"]);
 
       fireEvent.click(menu.getByRole("menuitem", { name: "Claude Code" }));
       expect(onNewSessionIn).toHaveBeenCalledWith("/Users/mac/empty-project", "claude-acp");
@@ -383,16 +351,16 @@ describe("Navigation and Layout Components", () => {
     it("lists only detected agents, without a Not found status", () => {
       renderWithAgents([
         makeProfile({ id: "claude-acp", name: "Claude Code", detected: true }),
-        makeProfile({ id: "aider", name: "Aider", detected: false }),
-        makeProfile({ id: "omp", name: "Oh-My-Pi", detected: true }),
+        makeProfile({ id: "codex-acp", name: "Codex", detected: false }),
+        makeProfile({ id: "qwen-code", name: "Qwen Code", detected: true }),
       ]);
 
       const items = within(screen.getByRole("list", { name: "Detected agents" })).getAllByRole("listitem");
       expect(items.map((item) => item.textContent)).toEqual([
         expect.stringContaining("Claude Code"),
-        expect.stringContaining("Oh-My-Pi"),
+        expect.stringContaining("Qwen Code"),
       ]);
-      expect(screen.queryByText("Aider")).toBeNull();
+      expect(screen.queryByText("Codex")).toBeNull();
       expect(screen.queryByText("Not found")).toBeNull();
     });
 
@@ -423,7 +391,7 @@ describe("Navigation and Layout Components", () => {
     });
 
     it("hides the agents section when no agent is detected", () => {
-      renderWithAgents([makeProfile({ id: "aider", name: "Aider", detected: false })]);
+      renderWithAgents([makeProfile({ id: "codex-acp", name: "Codex", detected: false })]);
 
       expect(screen.queryByRole("region", { name: "Detected agents" })).toBeNull();
       expect(screen.queryByText(/Detected Agents/i)).toBeNull();
@@ -479,7 +447,6 @@ describe("Navigation and Layout Components", () => {
 
       expect(screen.getAllByText(/ai-perpetual-trading/i).length).toBeGreaterThan(0);
       expect(screen.getByPlaceholderText(/search/i)).toBeDefined();
-      // Terminal agents show their screen as the main view, so the main window has no drawer.
       expect(screen.queryByRole("button", { name: /toggle terminal/i })).toBeNull();
     });
   });

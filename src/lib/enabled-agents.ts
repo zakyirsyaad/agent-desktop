@@ -4,15 +4,14 @@ import type { AgentProfile, Session, Settings } from "../types";
 export const DEFAULT_ENABLED_AGENTS: readonly string[] = ["claude-acp", "codex-acp", "qwen-code"];
 
 export type EnabledSettings = Pick<Settings, "enabledAgents">;
-type UsableAgent = Pick<AgentProfile, "id" | "source" | "detected">;
+type UsableAgent = Pick<AgentProfile, "id">;
 
 export function enabledAgentIds(settings: EnabledSettings): readonly string[] {
   return settings.enabledAgents ?? DEFAULT_ENABLED_AGENTS;
 }
 
-/** Terminal agents are in use when found on this machine; registry agents when the user enabled them. */
+/** An agent is in use when the user enabled it. */
 export function isInUse(agent: UsableAgent, settings: EnabledSettings): boolean {
-  if (agent.source === "builtin") return agent.detected;
   return enabledAgentIds(settings).includes(agent.id);
 }
 
@@ -21,7 +20,7 @@ export function removedAgentName(
   agent: (UsableAgent & Pick<AgentProfile, "name">) | undefined,
   settings: EnabledSettings,
 ): string | null {
-  return agent?.source === "registry" && !isInUse(agent, settings) ? agent.name : null;
+  return agent && !isInUse(agent, settings) ? agent.name : null;
 }
 
 /**
@@ -46,7 +45,7 @@ export function withAutoEnabled(settings: Settings, agents: readonly AgentProfil
   const removed = settings.removedAgents ?? [];
   const enabled = enabledAgentIds(settings);
   const installed = agents
-    .filter((a) => a.source === "registry" && a.installed_on_system)
+    .filter((a) => a.installed_on_system)
     .map((a) => a.id)
     .filter((id) => !enabled.includes(id) && !removed.includes(id));
   const nextEnabled = installed.length > 0 ? [...new Set([...enabled, ...installed])] : enabled;
@@ -54,7 +53,7 @@ export function withAutoEnabled(settings: Settings, agents: readonly AgentProfil
   const known = settings.agentVersions ?? {};
   const newVersions = Object.fromEntries(
     agents
-      .filter((a) => a.source === "registry" && a.version && nextEnabled.includes(a.id) && !(a.id in known))
+      .filter((a) => a.version && nextEnabled.includes(a.id) && !(a.id in known))
       .map((a) => [a.id, a.version as string]),
   );
   const hasNewVersions = Object.keys(newVersions).length > 0;

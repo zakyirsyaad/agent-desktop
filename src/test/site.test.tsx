@@ -100,7 +100,7 @@ describe("landing page", () => {
   });
 
   it("names every agent and says it is not endorsed by them", () => {
-    for (const agent of ["Claude Code", "Codex", "Qwen Code", "Aider", "Oh-My-Pi"]) {
+    for (const agent of ["Claude Code", "Codex", "Qwen Code"]) {
       expect(text).toContain(agent);
     }
     expect(text).toContain("not endorsed by them");

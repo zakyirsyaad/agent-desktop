@@ -1,10 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { ChatMessage, PersistedState, Session, SessionWorktree } from '../types';
+import { TRANSPORT_ACP, type ChatMessage, type PersistedState, type Session, type SessionWorktree } from '../types';
 import { normalizeAppearance } from './appearance';
 import type { AgentOptions } from './acp-draft';
 import { toCommands, toConfigOptions, toModes } from '../hooks/useAcpSessions';
 
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 
 export function emptyPersistedState(): PersistedState {
   return {
@@ -21,6 +21,13 @@ export const LEGACY_AGENT_IDS: Readonly<Record<string, string>> = {
   qwen: 'qwen-code',
   codex: 'codex-acp',
 };
+
+/** Removed agents (Oh-My-Pi and Aider); saved settings that name them are cleaned on load. */
+export const REMOVED_AGENT_IDS: readonly string[] = ['omp', 'aider'];
+
+function isRemovedAgent(id: string): boolean {
+  return REMOVED_AGENT_IDS.includes(id);
+}
 
 export function canonicalAgentId(id: string): string {
   return Object.hasOwn(LEGACY_AGENT_IDS, id) ? LEGACY_AGENT_IDS[id] : id;
@@ -79,7 +86,11 @@ function withCanonicalKeys<T>(record: Record<string, T>): Record<string, T> {
   const entries = Object.entries(record);
   const current = entries.filter(([id]) => canonicalAgentId(id) === id);
   const legacy = entries.filter(([id]) => canonicalAgentId(id) !== id);
-  return Object.fromEntries([...legacy, ...current].map(([id, value]) => [canonicalAgentId(id), value]));
+  return Object.fromEntries(
+    [...legacy, ...current]
+      .filter(([id]) => !isRemovedAgent(canonicalAgentId(id)))
+      .map(([id, value]) => [canonicalAgentId(id), value]),
+  );
 }
 
 function toAgentOptions(raw: unknown): Record<string, AgentOptions> {
@@ -104,12 +115,18 @@ function toAgentOptions(raw: unknown): Record<string, AgentOptions> {
 /** A list of canonical agent ids without repeats, or undefined when it is not a list of strings. */
 function toAgentIdList(raw: unknown): string[] | undefined {
   if (!Array.isArray(raw) || !raw.every((id) => typeof id === 'string')) return undefined;
-  return [...new Set((raw as string[]).map(canonicalAgentId))];
+  return [...new Set((raw as string[]).map(canonicalAgentId).filter((id) => !isRemovedAgent(id)))];
 }
 
 function toAgentVersions(raw: unknown): Record<string, string> {
   if (!isObject(raw) || !Object.values(raw).every((v) => typeof v === 'string')) return {};
   return withCanonicalKeys(raw as Record<string, string>);
+}
+
+function toDefaultAgentId(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const id = canonicalAgentId(raw);
+  return isRemovedAgent(id) ? null : id;
 }
 
 /** Agent id to announced version; entries that are not strings are dropped. */
@@ -129,10 +146,10 @@ export function normalizePersistedState(raw: unknown): PersistedState {
 
   const settings = isObject(raw.settings) ? raw.settings : {};
   return {
-    version: typeof raw.version === 'number' ? raw.version : STATE_VERSION,
+    version: STATE_VERSION,
     settings: {
       appearance: normalizeAppearance(settings.appearance),
-      defaultAgentId: typeof settings.defaultAgentId === 'string' ? canonicalAgentId(settings.defaultAgentId) : null,
+      defaultAgentId: toDefaultAgentId(settings.defaultAgentId),
       onboardingCompleted: settings.onboardingCompleted === true,
       ...(toAgentIdList(settings.enabledAgents) ? { enabledAgents: toAgentIdList(settings.enabledAgents) } : {}),
       removedAgents: toAgentIdList(settings.removedAgents) ?? [],
@@ -152,8 +169,30 @@ export function normalizePersistedState(raw: unknown): PersistedState {
   };
 }
 
-export async function loadAppState(): Promise<PersistedState> {
-  return normalizePersistedState(await invoke<unknown>('load_app_state'));
+/**
+ * Terminal (PTY) sessions are gone, and sessions saved before ACP have no
+ * transport at all, so only ACP sessions survive a load. Returns the same
+ * state object when nothing is dropped.
+ */
+export function dropTerminalSessions(state: PersistedState): { state: PersistedState; droppedSessionIds: string[] } {
+  const kept = state.sessions.filter((s) => s.transport === TRANSPORT_ACP);
+  if (kept.length === state.sessions.length) return { state, droppedSessionIds: [] };
+  const droppedSessionIds = state.sessions.filter((s) => s.transport !== TRANSPORT_ACP).map((s) => s.id);
+  return { state: { ...state, sessions: kept }, droppedSessionIds };
+}
+
+export interface LoadedAppState {
+  state: PersistedState;
+  /** The file was written by an older version, so its clean-up must be saved. */
+  isOutdated: boolean;
+}
+
+export async function loadAppState(): Promise<LoadedAppState> {
+  const raw = await invoke<unknown>('load_app_state');
+  return {
+    state: normalizePersistedState(raw),
+    isOutdated: !isObject(raw) || raw.version !== STATE_VERSION,
+  };
 }
 
 export function saveAppState(state: PersistedState): Promise<void> {

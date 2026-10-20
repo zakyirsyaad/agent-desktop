@@ -16,27 +16,29 @@ const claudeCode: AgentProfile = makeProfile({
   command: "claude",
   detected: true,
   detected_path: "/opt/homebrew/bin/claude",
-  models: ["claude-sonnet-5-5"],
 });
 
-const omp: AgentProfile = makeProfile({
-  id: "omp",
-  name: "Oh-My-Pi",
-  command: "omp",
+/** Not enabled by default, so Onboarding does not list it. */
+const gemini: AgentProfile = makeProfile({
+  id: "gemini",
+  source: "registry",
+  distribution: "npx",
+  name: "Gemini CLI",
+  command: "gemini",
   detected: false,
-  models: [],
 });
 
-const aider: AgentProfile = makeProfile({
-  id: "aider",
-  name: "Aider",
-  command: "aider",
+const qwen: AgentProfile = makeProfile({
+  id: "qwen-code",
+  source: "registry",
+  distribution: "npx",
+  name: "Qwen Code",
+  command: "qwen",
   detected: true,
-  detected_path: "/usr/local/bin/aider",
-  models: ["gpt-5"],
+  detected_path: "/usr/local/bin/qwen",
 });
 
-const AGENTS = [claudeCode, omp, aider];
+const AGENTS = [claudeCode, gemini, qwen];
 
 /** Recent folders may carry persistence fields the component must not forward. */
 type FolderFixture = { name: string; path: string; lastOpenedAt?: number };
@@ -148,7 +150,7 @@ describe("Onboarding — agent step", () => {
 
   it("blocks Continue and says why when no agent is installed", () => {
     renderOnboarding({
-      agents: [notDetected(claudeCode), omp, notDetected(aider)],
+      agents: [notDetected(claudeCode), gemini, notDetected(qwen)],
     });
 
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
@@ -168,7 +170,7 @@ describe("Onboarding — agent step", () => {
       ],
     });
     const onComplete = vi.fn();
-    renderOnboarding({ agents: [installable, omp, notDetected(aider)], onComplete });
+    renderOnboarding({ agents: [installable, gemini, notDetected(qwen)], onComplete });
 
     expect(screen.queryByText("Install at least one agent to continue.")).toBeNull();
     await goToDefaultAgentStep();
@@ -363,8 +365,8 @@ describe("Onboarding — default agent step", () => {
     const group = screen.getByRole("radiogroup", { name: "Default agent" });
     expect(within(group).getAllByRole("radio")).toHaveLength(2);
     expect(within(group).getByRole("radio", { name: /Claude Code/ })).toBeChecked();
-    expect(within(group).getByRole("radio", { name: /Aider/ })).not.toBeChecked();
-    expect(within(group).queryByRole("radio", { name: /Oh-My-Pi/ })).toBeNull();
+    expect(within(group).getByRole("radio", { name: /Qwen Code/ })).not.toBeChecked();
+    expect(within(group).queryByRole("radio", { name: /Gemini CLI/ })).toBeNull();
     expect(stepItems()[2]).toHaveAttribute("aria-current", "step");
   });
 
@@ -385,12 +387,12 @@ describe("Onboarding — default agent step", () => {
     await clickButton("Continue");
 
     const group = screen.getByRole("radiogroup", { name: "Default agent" });
-    await click(within(group).getByRole("radio", { name: /Aider/ }));
+    await click(within(group).getByRole("radio", { name: /Qwen Code/ }));
     await clickButton("Start");
 
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(onComplete).toHaveBeenCalledWith({
-      defaultAgentId: "aider",
+      defaultAgentId: "qwen-code",
       folder: { name: "trading-bot", path: "/Users/test/trading-bot" },
     });
   });

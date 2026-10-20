@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canonicalAgentId, normalizePersistedState } from "../lib/persistence";
+import { canonicalAgentId, dropTerminalSessions, normalizePersistedState } from "../lib/persistence";
 
 const base = { id: "s-1", name: "Fix login", profileId: "claude-code", cwd: "/w/api", status: "terminated", createdAt: 1 };
 
@@ -87,23 +87,23 @@ describe("normalizePersistedState - catalog settings", () => {
     expect(empty.agentVersions).toEqual({});
 
     const { settings } = normalizePersistedState({
-      settings: { enabledAgents: ["omp"], removedAgents: ["aider"], agentVersions: { "codex-acp": "1.2.0" } },
+      settings: { enabledAgents: ["gemini"], removedAgents: ["goose"], agentVersions: { "codex-acp": "1.2.0" } },
     });
-    expect(settings.enabledAgents).toEqual(["omp"]);
-    expect(settings.removedAgents).toEqual(["aider"]);
+    expect(settings.enabledAgents).toEqual(["gemini"]);
+    expect(settings.removedAgents).toEqual(["goose"]);
     expect(settings.agentVersions).toEqual({ "codex-acp": "1.2.0" });
   });
 
   it("rewrites legacy ids inside the lists and version keys, deduplicating with the new key winning", () => {
     const { settings } = normalizePersistedState({
       settings: {
-        enabledAgents: ["claude-code", "claude-acp", "qwen", "omp"],
+        enabledAgents: ["claude-code", "claude-acp", "qwen", "gemini"],
         removedAgents: ["codex", "codex-acp"],
         agentVersions: { qwen: "0.1.0", "qwen-code": "0.2.0", codex: "1.0.0" },
       },
     });
 
-    expect(settings.enabledAgents).toEqual(["claude-acp", "qwen-code", "omp"]);
+    expect(settings.enabledAgents).toEqual(["claude-acp", "qwen-code", "gemini"]);
     expect(settings.removedAgents).toEqual(["codex-acp"]);
     expect(settings.agentVersions).toEqual({ "qwen-code": "0.2.0", "codex-acp": "1.0.0" });
   });
@@ -144,5 +144,53 @@ describe("normalizePersistedState — appearance", () => {
 
   it.each(["sepia", 42])("treats %j as system", (appearance) => {
     expect(normalizePersistedState({ settings: { appearance } }).settings.appearance).toBe("system");
+  });
+});
+
+describe("dropTerminalSessions", () => {
+  const session = (overrides: Record<string, unknown>) => ({ ...base, ...overrides });
+
+  it("drops pty and transport-less sessions and keeps acp ones", () => {
+    const state = normalizePersistedState({
+      sessions: [
+        session({ id: "a", transport: "acp" }),
+        session({ id: "p", transport: "pty" }),
+        session({ id: "old" }), // saved before ACP: no transport
+      ],
+    });
+
+    const { state: cleaned, droppedSessionIds } = dropTerminalSessions(state);
+
+    expect(cleaned.sessions.map((s) => s.id)).toEqual(["a"]);
+    expect(droppedSessionIds).toEqual(["p", "old"]);
+  });
+
+  it("returns the same state when there is no terminal session", () => {
+    const state = normalizePersistedState({ sessions: [session({ id: "a", transport: "acp" })] });
+
+    expect(dropTerminalSessions(state)).toEqual({ state, droppedSessionIds: [] });
+    expect(dropTerminalSessions(state).state).toBe(state);
+  });
+});
+
+describe("normalizePersistedState - removed agents", () => {
+  it("cleans omp and aider out of the settings and agent options", () => {
+    const state = normalizePersistedState({
+      version: 1,
+      settings: {
+        defaultAgentId: "omp",
+        enabledAgents: ["omp", "claude-acp", "aider"],
+        removedAgents: ["aider", "gemini"],
+        agentVersions: { omp: "1.0.0", "claude-acp": "0.5.0" },
+      },
+      agentOptions: { omp: { preferredConfig: { model: "opus" } }, "claude-acp": {} },
+    });
+
+    expect(state.version).toBe(2);
+    expect(state.settings.defaultAgentId).toBeNull();
+    expect(state.settings.enabledAgents).toEqual(["claude-acp"]);
+    expect(state.settings.removedAgents).toEqual(["gemini"]);
+    expect(state.settings.agentVersions).toEqual({ "claude-acp": "0.5.0" });
+    expect(Object.keys(state.agentOptions ?? {})).toEqual(["claude-acp"]);
   });
 });

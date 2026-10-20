@@ -7,11 +7,10 @@ const notInstalled = makeProfile({
   id: "codex-acp",
   name: "Codex",
   source: "registry",
-  transport: "acp",
   detected: false,
   install_plan: [{ kind: "agent", name: "Codex", version: "0.4.2", download_bytes: null }],
 });
-const ready = makeProfile({ id: "qwen-code", name: "Qwen Code", transport: "acp", detected: true, install_plan: null });
+const ready = makeProfile({ id: "qwen-code", name: "Qwen Code", detected: true, install_plan: null });
 
 function session(overrides: Partial<Session>): Session {
   return {
@@ -37,8 +36,7 @@ describe("installPanelAgentOf", () => {
     expect(installPanelAgentOf(session({}), ready, notInstalled)).toBeUndefined();
   });
 
-  it("shows nothing over a running chat or a terminal session", () => {
+  it("shows nothing over a running chat", () => {
     expect(installPanelAgentOf(session({ status: "running" }), notInstalled, notInstalled)).toBeUndefined();
-    expect(installPanelAgentOf(session({ transport: "pty" }), notInstalled, notInstalled)).toBeUndefined();
   });
 });

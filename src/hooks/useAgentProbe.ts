@@ -4,10 +4,10 @@ import { useLatest } from './useLatest';
 import { toCommands, toConfigOptions, toModes } from './useAcpSessions';
 import { parseAuthRequired, type AuthMethod } from '../lib/acp-auth';
 import type { ProbedOptions } from '../lib/acp-draft';
-import { TRANSPORT_ACP, type AgentProfile } from '../types';
+import type { AgentProfile } from '../types';
 
 export interface AgentProbeDeps {
-  /** The agent the next message starts; only an ACP agent is asked. */
+  /** The agent the next message starts. */
   agent: AgentProfile | undefined;
   /** The folder it would start in; nothing is asked before one is chosen. */
   cwd: string | undefined;
@@ -35,7 +35,7 @@ export function useAgentProbe({ agent, cwd, isKnown, onProbed, onAuthRequired }:
   // Bumped by `reprobe`, so the agent in view is asked again.
   const [round, setRound] = useState(0);
   const callbacksRef = useLatest({ isKnown, onProbed, onAuthRequired });
-  const agentId = agent?.transport === TRANSPORT_ACP ? agent.id : undefined;
+  const agentId = agent?.id;
   // The agent picked now: a sign-in is asked for only while it still is.
   const currentRef = useLatest(agentId);
 

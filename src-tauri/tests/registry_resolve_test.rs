@@ -195,7 +195,6 @@ fn npx_entry_runs_the_pinned_package_through_npx() {
     let profile = resolve_profile(&gemini(), &tools, true);
 
     assert_eq!(profile.id, "gemini");
-    assert_eq!(profile.transport, "acp");
     assert_eq!(profile.command, "npx");
     assert_eq!(profile.acp_program.as_deref(), Some("npx"));
     assert_eq!(

@@ -6,7 +6,6 @@ import type { Session } from '../types';
 
 export interface BackgroundTasksArgs {
   sessions: readonly Session[];
-  isAcp: (session: Session) => boolean;
   isBusy: (sessionId: string) => boolean;
   busySince: (sessionId: string) => number | undefined;
   needsApproval: (sessionId: string) => boolean;
@@ -23,8 +22,6 @@ function stopCall(task: BackgroundTask, stopAgent: BackgroundTasksArgs['stopAgen
   switch (task.kind) {
     case 'agent':
       return Promise.resolve(stopAgent(task.sessionId));
-    case 'terminal':
-      return invoke('terminate_session', { sessionId: task.sessionId });
     case 'process':
       return invoke('stop_background_process', { pid: task.pid });
   }
@@ -41,14 +38,14 @@ export interface BackgroundTasks {
 }
 
 export function useBackgroundTasks(args: BackgroundTasksArgs): BackgroundTasks {
-  const { sessions, isAcp, isBusy, busySince, needsApproval, onOpenSession, stopAgent, onError } = args;
+  const { sessions, isBusy, busySince, needsApproval, onOpenSession, stopAgent, onError } = args;
   const [isMenuOpen, setMenuOpen] = useState(false);
   const hasLiveSessions = sessions.some((s) => s.status === 'running');
   const { processes, readAt, reload } = useBackgroundProcesses(hasLiveSessions, isMenuOpen, onError);
 
   const tasks = useMemo(
-    () => backgroundTasksOf({ sessions, isAcp, isBusy, busySince, needsApproval, processes, processesReadAt: readAt }),
-    [sessions, isAcp, isBusy, busySince, needsApproval, processes, readAt],
+    () => backgroundTasksOf({ sessions, isBusy, busySince, needsApproval, processes, processesReadAt: readAt }),
+    [sessions, isBusy, busySince, needsApproval, processes, readAt],
   );
 
   const open = useCallback((task: BackgroundTask) => onOpenSession(task.sessionId), [onOpenSession]);

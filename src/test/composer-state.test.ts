@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { COMPOSER_PLACEHOLDERS, composerCommandsFor, composerPlaceholder } from "../lib/composer-state";
-import { withRewound, type AgentOptions } from "../lib/acp-draft";
+import { describe, it, expect, vi } from "vitest";
+import { COMPOSER_PLACEHOLDERS, composerCommandsFor, composerPlaceholder, composerStateFor, type ComposerInputs } from "../lib/composer-state";
+import { NO_CHOICES, withRewound, type AgentOptions } from "../lib/acp-draft";
 import { TRANSPORT_ACP, type AgentProfile, type Session, type SlashCommand } from "../types";
 
 const IDLE = { isRunning: false, isCreatingWorktree: false, isResumable: false, canStartSession: false };
@@ -37,29 +37,19 @@ describe("composerPlaceholder", () => {
 describe("composerCommandsFor", () => {
   const live: SlashCommand[] = [{ name: "init", description: "Set up" }];
   const remembered: SlashCommand[] = [{ name: "review", description: "Review" }];
-  const acpSession = { transport: TRANSPORT_ACP } as Session;
-  const acpAgent = { id: "qwen", transport: TRANSPORT_ACP } as AgentProfile;
+  const acpAgent = { id: "qwen" } as AgentProfile;
   const options = { qwen: { modes: null, configOptions: [], commands: remembered } };
 
-  it("offers a live ACP session's own commands, and a terminal session's none", () => {
-    expect(composerCommandsFor({ session: acpSession, isRunning: true, liveCommands: live, draftAgent: acpAgent, agentOptions: options })).toBe(live);
-    expect(
-      composerCommandsFor({ session: { transport: "pty" } as Session, isRunning: true, liveCommands: live, draftAgent: acpAgent, agentOptions: options }),
-    ).toBeUndefined();
+  it("offers a running session's own commands", () => {
+    expect(composerCommandsFor({ isRunning: true, liveCommands: live, draftAgent: acpAgent, agentOptions: options })).toBe(live);
   });
 
-  it("offers the commands an ACP agent reported last time before it runs, and none for a terminal agent", () => {
-    expect(composerCommandsFor({ session: undefined, isRunning: false, liveCommands: undefined, draftAgent: acpAgent, agentOptions: options })).toBe(
+  it("offers the commands an ACP agent reported last time before it runs", () => {
+    expect(composerCommandsFor({ isRunning: false, liveCommands: undefined, draftAgent: acpAgent, agentOptions: options })).toBe(
       remembered,
     );
     expect(
-      composerCommandsFor({
-        session: undefined,
-        isRunning: false,
-        liveCommands: undefined,
-        draftAgent: { id: "aider", transport: "pty" } as AgentProfile,
-        agentOptions: options,
-      }),
+      composerCommandsFor({ isRunning: false, liveCommands: undefined, draftAgent: { id: "other" } as AgentProfile, agentOptions: options }),
     ).toBeUndefined();
   });
 });
@@ -89,5 +79,58 @@ describe("withRewound", () => {
 
   it("works for an agent with nothing remembered yet", () => {
     expect(withRewound(undefined, "qwen", rewound)?.qwen).toMatchObject({ modes: null, preferredConfig: { model: "coder" } });
+  });
+});
+
+describe("composerStateFor", () => {
+  const info = {
+    modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }, { id: "plan", name: "Plan" }] },
+    configOptions: [],
+  };
+  const setMode = vi.fn();
+  const acp = { info: { "s-1": info }, setMode, setConfigOption: vi.fn() } as unknown as ComposerInputs["acp"];
+  const running = (transport: string) => ({ id: "s-1", status: "running", transport }) as Session;
+  const draftAgent = { id: "qwen" } as AgentProfile;
+  const inputs = (overrides: Partial<ComposerInputs>): ComposerInputs => ({
+    session: undefined,
+    draftAgent: undefined,
+    acpChoices: NO_CHOICES,
+    setAcpChoices: vi.fn(),
+    agentOptions: undefined,
+    acp,
+    ...overrides,
+  });
+
+  it("builds a running ACP session's controls from what its agent reported", () => {
+    const state = composerStateFor(inputs({ session: running(TRANSPORT_ACP) }));
+
+    expect(state.controls.permission?.options.map((o) => o.label)).toEqual(["Default", "Plan"]);
+    state.controls.permission?.onChange("plan");
+    expect(setMode).toHaveBeenCalledWith("s-1", "plan");
+  });
+
+  it("offers no controls while a running ACP session has reported nothing", () => {
+    const state = composerStateFor(inputs({ session: running(TRANSPORT_ACP), acp: { ...acp, info: {} } as ComposerInputs["acp"] }));
+
+    expect(state).toEqual({ controls: {} });
+  });
+
+  it("offers no controls without a draft agent", () => {
+    expect(composerStateFor(inputs({}))).toEqual({ controls: {} });
+  });
+
+  it("builds a draft agent's controls from the options it reported last time", () => {
+    const setAcpChoices = vi.fn();
+    const state = composerStateFor(
+      inputs({ draftAgent, setAcpChoices, agentOptions: { qwen: { modes: info.modes, configOptions: [] } } }),
+    );
+
+    expect(state.controls.permission?.selected).toBe("default");
+    state.controls.permission?.onChange("plan");
+    expect(setAcpChoices).toHaveBeenCalledWith({ config: {}, modeId: "plan" });
+  });
+
+  it("offers a draft agent that reported nothing no controls", () => {
+    expect(composerStateFor(inputs({ draftAgent, agentOptions: {} }))).toEqual({ controls: {} });
   });
 });

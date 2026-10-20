@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
-import { aiderProfile, claudeProfile, fakeProfiles, makeProfile } from "./fixtures/agents";
+import { claudeProfile, fakeProfiles, makeProfile } from "./fixtures/agents";
 import type { AgentProfile } from "../types";
 
 type Listener = (event: { payload: unknown }) => void;
@@ -49,7 +49,6 @@ const codex = makeProfile({
   id: "codex-acp",
   name: "Codex",
   source: "registry",
-  transport: "acp",
   detected: false,
   availability: "needs_runtime",
   distribution: "npx",
@@ -268,7 +267,6 @@ describe("Installing an agent from the new-session draft", () => {
       ...claudeProfile,
       detected: false,
       detected_path: null,
-      transport: "acp",
       availability: "needs_runtime",
       distribution: "npx",
       install_plan: [
@@ -276,7 +274,7 @@ describe("Installing an agent from the new-session draft", () => {
         { kind: "agent", name: "Claude Code", version: "0.9.0", download_bytes: null },
       ],
     });
-    const profiles: AgentProfile[] = [claude, codex, aiderProfile];
+    const profiles: AgentProfile[] = [claude, codex];
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
       cmd === "get_agent_profiles" ? Promise.resolve(structuredClone(profiles)) : fakeTauriInvoke(cmd, args)
     );
@@ -293,29 +291,6 @@ describe("Installing an agent from the new-session draft", () => {
       fireEvent.click(screen.getByRole("option", { name: "Codex (not installed)" }));
     });
     expect(screen.getByRole("region", { name: "Install Codex" })).toBeDefined();
-  });
-
-  it("shows no Install panel over an ended session that cannot continue", async () => {
-    fakeStore().state.sessions = [
-      {
-        id: "s-old",
-        name: "Session #4",
-        profileId: "omp",
-        cwd: "/Users/test/developer/ai-perpetual-trading",
-        status: "terminated",
-        createdAt: 1,
-        transport: "pty",
-      },
-    ];
-    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-      cmd === "get_agent_profiles" ? Promise.resolve([structuredClone(codex)]) : fakeTauriInvoke(cmd, args)
-    );
-    await act(async () => {
-      render(<App />);
-    });
-
-    await waitFor(() => expect(screen.getAllByText("Session #4").length).toBeGreaterThan(0));
-    expect(screen.queryByRole("region", { name: "Install Codex" })).toBeNull();
   });
 
   it("offers Install over an ended chat whose agent is not installed", async () => {

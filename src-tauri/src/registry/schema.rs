@@ -148,11 +148,12 @@ pub fn current_platform() -> &'static str {
 }
 
 /// Ids the app already uses for something else: the old built-in ACP agents
-/// (migrated to their registry ids) and the terminal agents.
-const TERMINAL_AGENT_IDS: [&str; 2] = ["omp", "aider"];
+/// (migrated to their registry ids) and the removed agents, whose ids stay
+/// reserved because the frontend still strips them from saved settings.
+const REMOVED_AGENT_IDS: [&str; 2] = ["omp", "aider"];
 
 fn is_reserved_id(id: &str) -> bool {
-    LEGACY_IDS.iter().any(|(legacy, _)| *legacy == id) || TERMINAL_AGENT_IDS.contains(&id)
+    LEGACY_IDS.iter().any(|(legacy, _)| *legacy == id) || REMOVED_AGENT_IDS.contains(&id)
 }
 
 /// A binary's version is checked too: the installer joins it into a path

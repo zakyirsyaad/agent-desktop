@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ChatMessage, Session } from "../types";
-import { ptySessionControls } from "../lib/composer-controls";
 import {
   POPOUT_ACTION_EVENT,
   POPOUT_CLOSED_EVENT,
@@ -12,13 +11,12 @@ import {
   type SessionSnapshotPayload,
   IDLE_STATUS,
 } from "../lib/popout-bridge";
-import { folderNameOf, isAcpSession } from "../lib/session-helpers";
+import { folderNameOf } from "../lib/session-helpers";
 import { useAgentProfiles } from "../hooks/useDiscovery";
 import { TopBar } from "./TopBar";
 import { ChatCanvas } from "./ChatCanvas";
 import { ComposerDock } from "./ComposerDock";
 import { RemovedAgentPanel } from "./RemovedAgentPanel";
-import { TerminalDrawer } from "./TerminalDrawer";
 
 export interface PopoutAppProps {
   sessionId: string;
@@ -34,7 +32,6 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<SessionLiveStatus>(IDLE_STATUS);
   const [removedAgentName, setRemovedAgentName] = useState<string | null>(null);
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const { agents } = useAgentProfiles(() => {});
 
   useEffect(() => {
@@ -81,25 +78,18 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
 
   const agent = agents.find((a) => a.id === session?.profileId);
   const isRunning = session?.status === "running";
-  // An ACP session's live modes belong to the main window; change them there.
-  const isAcp = isAcpSession(session);
 
   return (
     <main className="flex h-screen w-screen flex-col bg-bg text-fg-secondary">
       <TopBar
         sessionName={session?.name}
         workspaceName={session ? folderNameOf(session.cwd) : undefined}
-        isTerminalOpen={isTerminalOpen}
-        onToggleTerminal={() => setIsTerminalOpen((prev) => !prev)}
       />
       <article className="flex-1 flex flex-col bg-bg relative overflow-hidden">
         {messages.length > 0 ? (
           <ChatCanvas
             messages={messages}
             agentName={agent?.name}
-            onSendPtyInput={(key) => forward({ kind: "resolve-card", key, status: "approved" })}
-            onApproveAction={(key, cardId) => forward({ kind: "resolve-card", cardId, key, status: "approved" })}
-            onRejectAction={(key, cardId) => forward({ kind: "resolve-card", cardId, key, status: "rejected" })}
             onChooseOption={(cardId, optionId) => forward({ kind: "choose-option", cardId, optionId })}
             isWorking={status.isBusy && !status.isWaiting}
           />
@@ -113,8 +103,6 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
             <RemovedAgentPanel agentName={removedAgentName} onAdd={() => forward({ kind: "add-agent" })} />
           ) : (
             <ComposerDock
-              controls={agent && session && !isAcp ? ptySessionControls(agent, session) : undefined}
-              optionsLocked
               disabled={!isRunning}
               placeholder={isRunning ? undefined : "This session is not running"}
               onSendMessage={(text) => forward({ kind: "send", text })}
@@ -124,13 +112,6 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
             />
           )}
         </div>
-        <TerminalDrawer
-          isOpen={isTerminalOpen}
-          sessionId={sessionId}
-          sessionName={session?.name}
-          isLive={isRunning && !isAcp}
-          onClose={() => setIsTerminalOpen(false)}
-        />
       </article>
     </main>
   );

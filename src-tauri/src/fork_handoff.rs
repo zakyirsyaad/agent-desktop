@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn write_handoff_writes_the_exact_content_and_returns_an_existing_path() {
         let tmp = TempDir::new("write");
-        let content = "# Session handoff\n\n- Source session: s-1\n- Agent: Aider\n";
+        let content = "# Session handoff\n\n- Source session: s-1\n- Agent: Codex\n";
 
         let path = write_handoff(tmp.path(), VALID_ID, content).expect("the write should succeed");
 

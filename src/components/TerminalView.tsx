@@ -15,8 +15,8 @@ export interface TerminalViewProps {
 }
 
 /**
- * A terminal agent's real screen, as the session's main view. It replays the
- * output so far, then follows new output; keystrokes go straight to the agent.
+ * An agent's sign-in terminal. It replays the output so far, then follows new
+ * output; keystrokes go straight to the agent's login program.
  */
 export function TerminalView({ sessionId, output, isLive, onInput, onResize }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);

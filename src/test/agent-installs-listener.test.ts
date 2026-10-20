@@ -84,7 +84,6 @@ describe("agent installs", () => {
       id: "codex-acp",
       name: "Codex",
       source: "registry",
-      transport: "acp",
       detected: false,
       install_plan: [{ kind: "agent", name: "Codex", version: "0.4.2", download_bytes: null }],
     });

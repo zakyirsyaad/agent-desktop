@@ -13,7 +13,6 @@ pub mod profiles;
 pub mod pty_session;
 pub mod pull_requests;
 pub mod registry;
-pub mod spawn_plan;
 pub mod store;
 pub mod user_profile;
 pub mod windows;
@@ -29,11 +28,9 @@ use acp::manager::AcpManager;
 use acp::terminal_auth::{is_sign_in_terminal_id, sign_in_event_payload, SIGN_IN_TERMINAL_EVENT};
 use installer::commands::{clean_up_at_start, versions_in_use, AppInstaller};
 use installer::layout::ToolsDir;
-use profiles::{agent_profiles, get_available_agent_profiles, AgentProfile, TRANSPORT_PTY};
+use profiles::{agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
-use registry::resolve::canonical_agent_id;
 use registry::{Catalog, AGENT_PROFILES_CHANGED};
-use spawn_plan::{build_spawn_plan, SpawnOptions};
 use store::{AppStore, PersistedState};
 use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 
@@ -43,47 +40,11 @@ use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 // resolve the login-shell environment or wait on a child process are marked
 // `async` so they run on the async runtime and cannot freeze the window.
 //
-// `send_input` stays sync deliberately. It only enqueues bytes to the session's
-// writer thread, which owns the PTY and drains the queue in order, so it never
-// blocks on a full PTY input buffer. Marking it `async` would run keystrokes on
-// a thread pool, where concurrent calls could reach the PTY out of order.
-
-/// Starts an agent session for a known profile.
-///
-/// The webview picks a `profile_id` plus [`SpawnOptions`]; it never supplies a
-/// command or raw args. The backend resolves the profile, builds a validated
-/// plan, and spawns that — so an unknown profile, an undetected CLI, or an
-/// option the CLI does not support all fail here instead of reaching a shell.
-#[tauri::command(async)]
-fn spawn_session(
-    _app: AppHandle,
-    state: State<'_, PtySessionManager>,
-    session_id: String,
-    cwd: String,
-    profile_id: String,
-    options: SpawnOptions,
-) -> Result<(), String> {
-    let id = canonical_agent_id(&profile_id);
-    let profile = get_available_agent_profiles()
-        .into_iter()
-        .find(|profile| profile.id == id)
-        .ok_or_else(|| format!("Unknown agent profile '{}'", profile_id))?;
-
-    // A registry agent speaks ACP; its program (`npx`, ...) has no terminal UI.
-    if profile.transport != TRANSPORT_PTY {
-        return Err(format!("{} does not run in a terminal", profile.name));
-    }
-    if !profile.detected {
-        return Err(format!(
-            "{} is not installed ('{}' was not found on PATH)",
-            profile.name, profile.command
-        ));
-    }
-
-    let plan = build_spawn_plan(&profile, &options)?;
-
-    state.start_session(&session_id, &cwd, &plan.command, &plan.args, &plan.env)
-}
+// `send_input` stays sync deliberately. It only enqueues a sign-in terminal's
+// keystrokes to the PTY's writer thread, which drains the queue in order, so it
+// never blocks on a full PTY input buffer. Marking it `async` would run
+// keystrokes on a thread pool, where concurrent calls could reach the PTY out
+// of order.
 
 #[tauri::command]
 fn send_input(
@@ -283,35 +244,9 @@ pub fn run() {
                         session_id
                     }
                 };
+                // Only sign-in terminals start a PTY; any other id has no listener.
                 if is_sign_in_terminal_id(session_id) {
                     let _ = app.emit(SIGN_IN_TERMINAL_EVENT, sign_in_event_payload(&event));
-                    return;
-                }
-                match event {
-                    PtyEvent::Output { session_id, data } => {
-                        // Emit to session-specific event channel and global channel
-                        let _ = app.emit(&format!("pty-output-{}", session_id), &data);
-                        let _ = app.emit(
-                            "pty-output",
-                            serde_json::json!({
-                                "session_id": session_id,
-                                "data": data,
-                            }),
-                        );
-                    }
-                    PtyEvent::Exit {
-                        session_id,
-                        exit_code,
-                    } => {
-                        let _ = app.emit(&format!("pty-exit-{}", session_id), exit_code);
-                        let _ = app.emit(
-                            "pty-exit",
-                            serde_json::json!({
-                                "session_id": session_id,
-                                "exit_code": exit_code,
-                            }),
-                        );
-                    }
                 }
             }
         }
@@ -368,7 +303,6 @@ pub fn run() {
             get_agent_catalog,
             get_agent_icons,
             list_workspaces,
-            spawn_session,
             send_input,
             resize_session,
             terminate_session,

@@ -234,7 +234,6 @@ const geminiProfile = makeProfile({
   id: "gemini",
   name: "Gemini CLI",
   source: "registry",
-  transport: "acp",
   availability: "not_installed",
   install_plan: [{ kind: "agent", name: "Gemini CLI", version: "0.2.0", download_bytes: null }],
 });

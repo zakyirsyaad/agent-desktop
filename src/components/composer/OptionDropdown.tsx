@@ -17,8 +17,6 @@ export interface OptionDropdownProps {
   onToggle: () => void;
   onSelect: (value: string | undefined) => void;
   align?: "left" | "right";
-  disabled?: boolean;
-  disabledTitle?: string;
 }
 
 /**
@@ -39,8 +37,6 @@ export function OptionDropdown({
   onToggle,
   onSelect,
   align = "right",
-  disabled = false,
-  disabledTitle,
 }: OptionDropdownProps) {
   const current = options.find((o) => o.value === selected) ?? options[0];
   const valueLabel = current?.label ?? "";
@@ -53,16 +49,15 @@ export function OptionDropdown({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         onClick={onToggle}
-        disabled={disabled}
-        title={disabled ? disabledTitle : valueLabel}
-        className="flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1 text-xs text-fg-secondary hover:bg-surface-hover hover:text-fg transition-colors cursor-pointer border border-border focus-ring disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        title={valueLabel}
+        className="flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1 text-xs text-fg-secondary hover:bg-surface-hover hover:text-fg transition-colors cursor-pointer border border-border focus-ring"
       >
         {icon}
         <span className="max-w-[140px] truncate">{chipLabelOf(valueLabel)}</span>
         <ChevronDown size={11} className="text-fg-subtle" />
       </button>
 
-      {isOpen && !disabled && (
+      {isOpen && (
         <div
           role="listbox"
           aria-label={label}

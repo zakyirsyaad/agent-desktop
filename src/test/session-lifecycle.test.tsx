@@ -32,6 +32,7 @@ function seedSession(id: string, name: string, createdAt: number) {
     cwd: "/Users/test/developer/zorvo",
     status: "terminated",
     createdAt,
+    transport: "acp",
   };
 }
 
@@ -55,9 +56,18 @@ async function startNewSession(): Promise<string> {
     fireEvent.change(composer, { target: { value: FIRST_MESSAGE } });
     fireEvent.keyDown(composer, { key: "Enter" });
   });
-  const spawnCall = spy.mock.calls.find(([cmd]) => cmd === "spawn_session");
-  return (spawnCall?.[1] as { sessionId: string }).sessionId;
+  const startCall = spy.mock.calls.find(([cmd]) => cmd === "acp_start_session");
+  return (startCall?.[1] as { sessionId: string }).sessionId;
 }
+
+async function acpEvent(payload: Record<string, unknown>) {
+  await act(async () => {
+    listeners.get("acp-event")?.({ payload });
+  });
+}
+
+/** Ends the agent's current turn. */
+const endTurn = (sessionId: string) => acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
 
 function sidebar() {
   return within(screen.getByRole("complementary"));
@@ -110,32 +120,28 @@ describe("Session lifecycle", () => {
     });
   });
 
-  it("offers Stop only while the agent works, and stops its turn with Ctrl+C", async () => {
+  it("offers Stop only while the agent works, and stops its turn", async () => {
     await renderApp();
     const sessionId = await startNewSession();
     const row = () => sessionRow(FIRST_MESSAGE);
-    expect(within(row()).queryByRole("button", { name: "Stop session" })).toBeNull();
-    expect(within(row()).queryByLabelText("Agent working")).toBeNull();
-
-    await act(async () => {
-      listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Thinking...\r\n" } });
-    });
     expect(within(row()).getByLabelText("Agent working")).toBeDefined();
+
     const spy = vi.spyOn(tauriInternals(), "invoke");
     await act(async () => {
       fireEvent.click(within(row()).getByRole("button", { name: "Stop session" }));
     });
+    expect(spy).toHaveBeenCalledWith("acp_cancel", { sessionId }, undefined);
 
-    expect(spy).toHaveBeenCalledWith("send_input", { sessionId, data: "\x03" }, undefined);
+    await endTurn(sessionId);
+    expect(within(row()).queryByRole("button", { name: "Stop session" })).toBeNull();
+    expect(within(row()).queryByLabelText("Agent working")).toBeNull();
   });
 
   it("marks a session ended when its agent process exits", async () => {
     await renderApp();
     const sessionId = await startNewSession();
 
-    await act(async () => {
-      listeners.get("pty-exit")?.({ payload: { session_id: sessionId, exit_code: 0 } });
-    });
+    await acpEvent({ sessionId, kind: "exit", code: 0 });
 
     await waitFor(() => {
       const [saved] = fakeStore().state.sessions as { status: string }[];
@@ -147,6 +153,7 @@ describe("Session lifecycle", () => {
   it("stops a live session's agent before deleting it", async () => {
     await renderApp();
     const sessionId = await startNewSession();
+    await endTurn(sessionId);
     const spy = vi.spyOn(tauriInternals(), "invoke");
 
     await act(async () => {
@@ -156,48 +163,8 @@ describe("Session lifecycle", () => {
       fireEvent.click(within(sessionRow(FIRST_MESSAGE)).getByRole("button", { name: "Confirm delete" }));
     });
 
-    expect(spy).toHaveBeenCalledWith("terminate_session", { sessionId }, undefined);
+    expect(spy).toHaveBeenCalledWith("acp_stop_session", { sessionId }, undefined);
     expect(sidebar().queryByText(FIRST_MESSAGE)).toBeNull();
-  });
-
-  it("does not bring back a deleted terminal session's transcript from its last output", async () => {
-    await renderApp();
-    const sessionId = await startNewSession();
-    const spy = vi.spyOn(tauriInternals(), "invoke");
-
-    await act(async () => {
-      fireEvent.click(within(sessionRow(FIRST_MESSAGE)).getByRole("button", { name: "Delete session" }));
-    });
-    await act(async () => {
-      fireEvent.click(within(sessionRow(FIRST_MESSAGE)).getByRole("button", { name: "Confirm delete" }));
-    });
-    await act(async () => {
-      listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Goodbye\r\n" } });
-    });
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-
-    expect(spy.mock.calls.filter(([cmd, args]) => cmd === "save_transcript" && (args as { sessionId?: string })?.sessionId === sessionId)).toHaveLength(0);
-  });
-
-  it("shows a terminal agent's real screen instead of a chat, and takes input there", async () => {
-    await renderApp();
-    await startNewSession();
-
-    expect(screen.getByTestId("terminal-view")).toBeDefined();
-    const composer = screen.getByRole("textbox", { name: "Prompt" });
-    expect(composer.closest(".hidden")).not.toBeNull();
-    expect(screen.queryByRole("heading", { name: "No session yet" })).toBeNull();
-  });
-
-  it("marks a terminal agent waiting on a y/n prompt as waiting for the user", async () => {
-    await renderApp();
-    const sessionId = await startNewSession();
-
-    await act(async () => {
-      listeners.get("pty-output")?.({ payload: { session_id: sessionId, data: "Allow this action? [y/n]: " } });
-    });
-
-    expect(within(sessionRow(FIRST_MESSAGE)).getByLabelText("Waiting for your answer")).toBeDefined();
   });
 
   it("asks to confirm before deleting a session and its history", async () => {
@@ -231,27 +198,11 @@ describe("Session lifecycle", () => {
     expect(spy).toHaveBeenCalledWith("delete_transcript", { sessionId: "s-old" }, undefined);
   });
 
-  it("starts a new session from the composer when the active one has ended", async () => {
-    fakeStore().state.sessions = [seedSession("s-old", "Refactor parser", 1000)];
-    await renderApp();
-    const spy = vi.spyOn(tauriInternals(), "invoke");
-
-    const composer = screen.getByPlaceholderText(/start a new session/i) as HTMLTextAreaElement;
-    expect(composer.disabled).toBe(false);
-    await act(async () => {
-      fireEvent.change(composer, { target: { value: "run the tests" } });
-      fireEvent.keyDown(composer, { key: "Enter" });
-    });
-
-    expect(spy.mock.calls.some(([cmd]) => cmd === "spawn_session")).toBe(true);
-    expect(sidebar().getByText("run the tests")).toBeDefined();
-  });
-
   it("shows an alert and does not append the message when sending fails", async () => {
     await renderApp();
-    await startNewSession();
+    await endTurn(await startNewSession());
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-      cmd === "send_input" ? Promise.reject("Session 's-x' not found") : fakeTauriInvoke(cmd, args)
+      cmd === "acp_prompt" ? Promise.reject("Session 's-x' not found") : fakeTauriInvoke(cmd, args)
     );
 
     const composer = screen.getByRole("textbox", { name: /prompt/i });
@@ -260,7 +211,7 @@ describe("Session lifecycle", () => {
       fireEvent.keyDown(composer, { key: "Enter" });
     });
 
-    expect(screen.getByRole("alert").textContent).toContain("Failed to send input");
+    expect(screen.getByRole("alert").textContent).toContain("Failed to send the message");
     expect(screen.queryByText("please run the tests")).toBeNull();
   });
 
@@ -321,11 +272,12 @@ describe("Session lifecycle", () => {
   it("archives a running session: stops its agent, keeps its conversation, and lists it under Archived", async () => {
     await renderApp();
     const sessionId = await startNewSession();
+    await endTurn(sessionId);
     const spy = vi.spyOn(tauriInternals(), "invoke");
 
     await chooseFromMenu(FIRST_MESSAGE, "Archive");
 
-    expect(spy).toHaveBeenCalledWith("terminate_session", { sessionId }, undefined);
+    expect(spy).toHaveBeenCalledWith("acp_stop_session", { sessionId }, undefined);
     expect(spy.mock.calls.some(([cmd]) => cmd === "delete_transcript")).toBe(false);
     await waitFor(() => {
       const [saved] = fakeStore().state.sessions as { archivedAt?: number; status: string }[];
@@ -377,9 +329,9 @@ describe("Session lifecycle", () => {
 
   it("keeps a session listed when its agent cannot be stopped for archiving", async () => {
     await renderApp();
-    await startNewSession();
+    await endTurn(await startNewSession());
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-      cmd === "terminate_session" ? Promise.reject("no such session") : fakeTauriInvoke(cmd, args)
+      cmd === "acp_stop_session" ? Promise.reject("no such session") : fakeTauriInvoke(cmd, args)
     );
 
     await chooseFromMenu(FIRST_MESSAGE, "Archive");
@@ -423,7 +375,7 @@ describe("Session lifecycle", () => {
     await renderApp();
     let finishStopping: () => void = () => {};
     vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-      cmd === "terminate_session"
+      cmd === "acp_stop_session"
         ? new Promise((resolve) => {
             finishStopping = () => resolve(undefined);
           })

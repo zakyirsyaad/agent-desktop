@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The schema version written to `state.json`, bumped when the shape changes.
-pub const STATE_VERSION: u32 = 1;
+pub const STATE_VERSION: u32 = 2;
 
 /// The state file inside the store root.
 pub(crate) const STATE_FILE: &str = "state.json";

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, act, fireEvent, within } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
 import type { FakeTauriStore } from "./setup";
 
 type Listener = (event: { payload: unknown }) => void;
@@ -28,8 +28,6 @@ function fakeStore(): FakeTauriStore {
   return (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__;
 }
 
-const AGENT_SESSION_ID = "0b6f2a5e-3c1d-4f8e-9a7b-1c2d3e4f5a6b";
-
 function seedSession(profileId: string, agentSessionId: string | null = null) {
   fakeStore().state.sessions = [
     {
@@ -39,6 +37,7 @@ function seedSession(profileId: string, agentSessionId: string | null = null) {
       cwd: "/Users/test/developer/zorvo",
       status: "terminated",
       createdAt: 1,
+      transport: "acp",
       agentSessionId,
     },
   ];
@@ -80,14 +79,14 @@ describe("Chat wiring", () => {
   });
 
   it("labels replies with the agent that produced them", async () => {
-    seedSession("omp");
+    seedSession("claude-acp");
     await renderApp();
 
-    expect((await screen.findAllByText("Oh-My-Pi")).length).toBeGreaterThan(1);
+    expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(1);
   });
 
-  it("forks a non-native agent through a handoff file and sends the one-line prompt once the agent is idle", async () => {
-    seedSession("omp");
+  it("forks an ended session through a handoff file and sends the new agent a one-line prompt", async () => {
+    seedSession("claude-acp");
     const spy = vi.spyOn(tauriInternals(), "invoke");
     await renderApp();
     await screen.findByText("Plan: split it in two");
@@ -97,65 +96,27 @@ describe("Chat wiring", () => {
     const [, handoffArgs] = callsTo(spy, "write_fork_handoff")[0];
     expect(handoffArgs?.content).toContain("Plan: split it in two");
     expect(handoffArgs?.content).not.toContain("Done, tests pass");
-    const [, spawnArgs] = callsTo(spy, "spawn_session")[0];
-    expect(spawnArgs).toMatchObject({ profileId: "omp", cwd: "/Users/test/developer/zorvo" });
+    const [, startArgs] = callsTo(spy, "acp_start_session")[0];
+    expect(startArgs).toMatchObject({ profileId: "claude-acp", cwd: "/Users/test/developer/zorvo" });
     expect(within(screen.getByRole("complementary")).getByText("Parser work (fork)")).toBeDefined();
     // The fork starts from the conversation up to the chosen message.
     expect(screen.queryByText("Done, tests pass")).toBeNull();
 
-    vi.useFakeTimers();
-    await act(async () => {
-      listeners.get("pty-output")?.({ payload: { session_id: spawnArgs?.sessionId, data: "omp ready\n" } });
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(2000);
-    });
-
-    const prompt = callsTo(spy, "send_input").find(([, args]) => args?.sessionId === spawnArgs?.sessionId);
-    expect(String(prompt?.[1]?.data)).toContain(`/fake/app-data/handoffs/${spawnArgs?.sessionId}.md`);
-    expect(String(prompt?.[1]?.data).trimEnd()).not.toContain("\n");
+    await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
+    const [, promptArgs] = callsTo(spy, "acp_prompt")[0];
+    expect(promptArgs?.sessionId).toBe(startArgs?.sessionId);
+    expect(String(promptArgs?.text)).toContain(`/fake/app-data/handoffs/${startArgs?.sessionId}.md`);
+    expect(String(promptArgs?.text).trimEnd()).not.toContain("\n");
   });
 
-  it("forks Claude Code natively from its latest message", async () => {
-    seedSession("claude-code", AGENT_SESSION_ID);
-    const spy = vi.spyOn(tauriInternals(), "invoke");
-    await renderApp();
-    await screen.findByText("Done, tests pass");
-
-    await click(forkButtonFor("Done, tests pass"));
-
-    expect(callsTo(spy, "write_fork_handoff")).toHaveLength(0);
-    const [, spawnArgs] = callsTo(spy, "spawn_session")[0];
-    expect(spawnArgs?.options).toMatchObject({ forkFromAgentSessionId: AGENT_SESSION_ID });
-  });
-
-  it("inserts files picked with Attach into the prompt", async () => {
+  it("attaches files picked with Attach to the message", async () => {
     openDialog.mockResolvedValue(["/Users/test/developer/zorvo/src/App.tsx"]);
     await renderApp();
     await click(screen.getByRole("button", { name: "+ New session" }));
 
     await click(screen.getByRole("button", { name: "Add attachment" }));
 
-    const prompt = screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
-    expect(prompt.value).toContain("/Users/test/developer/zorvo/src/App.tsx");
-  });
-
-  it("marks a terminal session as working only while the agent is producing output", async () => {
-    await renderApp();
-    const spy = vi.spyOn(tauriInternals(), "invoke");
-    await click(screen.getByRole("button", { name: "+ New session" }));
-    await act(async () => {
-      fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: "get started" } });
-      fireEvent.keyDown(screen.getByRole("textbox", { name: "Prompt" }), { key: "Enter" });
-    });
-    const [, spawnArgs] = callsTo(spy, "spawn_session")[0];
-    const sidebar = within(screen.getByRole("complementary"));
-    expect(sidebar.queryByLabelText("Agent working")).toBeNull();
-
-    await act(async () => {
-      listeners.get("pty-output")?.({ payload: { session_id: spawnArgs?.sessionId, data: "working...\n" } });
-    });
-
-    expect(sidebar.getByLabelText("Agent working")).toBeDefined();
+    const attachments = within(screen.getByRole("list", { name: "Attachments" }));
+    expect(attachments.getByRole("listitem").getAttribute("title")).toBe("/Users/test/developer/zorvo/src/App.tsx");
   });
 });

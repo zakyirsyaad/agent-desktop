@@ -131,14 +131,6 @@ describe("ComposerDock", () => {
       expect(screen.queryByRole("button", { name: /^effort:/i })).toBeNull();
       expect(screen.getByRole("button", { name: /^model:/i })).toBeDefined();
     });
-
-    it("locks the controls with an explanation when asked", () => {
-      render(<ComposerDock controls={controls()} optionsLocked onSendMessage={() => {}} />);
-
-      const model = screen.getByRole("button", { name: /^model:/i }) as HTMLButtonElement;
-      expect(model.disabled).toBe(true);
-      expect(model.title).toMatch(/new session/i);
-    });
   });
 
   describe("while the agent works", () => {

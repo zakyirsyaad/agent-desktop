@@ -2,8 +2,8 @@
  * Builds the Markdown handoff document used to fork a conversation into a new
  * agent session, plus the one-line prompt that points the new agent at it.
  *
- * The prompt must stay on one line: text typed into an agent TUI through a PTY
- * is submitted at the first newline.
+ * The prompt stays on one line: it becomes the new session's first message,
+ * and a line break in the handoff path must not split it into extra text.
  */
 import type { ChatMessage } from "../types";
 
@@ -35,7 +35,7 @@ function buildHeader(meta: ForkHandoffMeta): string {
 
 function buildActivityLines(message: ChatMessage): string[] {
   const toolLines = (message.tools ?? []).map(
-    (tool) => `- Tool: ${tool.name}(${tool.args})`,
+    (tool) => `- Tool: ${tool.name}`,
   );
   const card = message.actionCard;
   const cardLines = card

@@ -15,8 +15,8 @@ function fakeStore(): FakeTauriStore {
   return (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__;
 }
 
-const kimi = makeProfile({ id: "kimi", name: "Kimi CLI", source: "registry", transport: "acp", detected: true });
-const gemini = makeProfile({ id: "gemini", name: "Gemini CLI", source: "registry", transport: "acp", detected: true });
+const kimi = makeProfile({ id: "kimi", name: "Kimi CLI", source: "registry", detected: true });
+const gemini = makeProfile({ id: "gemini", name: "Gemini CLI", source: "registry", detected: true });
 
 /** Kimi is enabled; Gemini is ready to run but the user never enabled it. */
 async function renderWithRegistryAgents() {
@@ -46,7 +46,6 @@ function notReadyProfiles() {
       id,
       name,
       source: "registry",
-      transport: "acp",
       distribution: "npx",
       availability: "needs_runtime",
       detected: false,
@@ -56,8 +55,6 @@ function notReadyProfiles() {
     needsNode("claude-acp", "Claude Code"),
     needsNode("codex-acp", "Codex"),
     needsNode("qwen-code", "Qwen Code"),
-    makeProfile({ id: "omp", name: "Oh-My-Pi", detected: false }),
-    makeProfile({ id: "aider", name: "Aider", detected: false }),
   ];
 }
 
@@ -83,7 +80,7 @@ describe("Agents in use", () => {
     await click(screen.getByRole("button", { name: "Agent: Claude Code" }));
 
     const names = screen.getAllByRole("option").map((option) => option.textContent);
-    expect(names).toEqual(expect.arrayContaining(["Claude Code", "Kimi CLI", "Oh-My-Pi"]));
+    expect(names).toEqual(expect.arrayContaining(["Claude Code", "Kimi CLI"]));
     expect(names).not.toContain("Gemini CLI");
     expect(names).not.toContain("Qwen Code");
   });
@@ -95,7 +92,7 @@ describe("Agents in use", () => {
 
     const select = within(screen.getByRole("combobox", { name: "Default agent" }));
     const names = select.getAllByRole("option").map((option) => option.textContent);
-    expect(names).toEqual(expect.arrayContaining(["Claude Code", "Kimi CLI", "Oh-My-Pi"]));
+    expect(names).toEqual(expect.arrayContaining(["Claude Code", "Kimi CLI"]));
     expect(names).not.toContain("Gemini CLI");
     expect(names).not.toContain("Qwen Code");
   });
@@ -135,7 +132,6 @@ describe("Agents in use", () => {
       id: "kimi",
       name: "Kimi CLI",
       source: "registry",
-      transport: "acp",
       distribution: "npx",
       availability: "needs_runtime",
       detected: false,
@@ -164,7 +160,6 @@ describe("Agents in use", () => {
       id: "opencode",
       name: "OpenCode",
       source: "registry",
-      transport: "acp",
       distribution: "binary",
       availability: "not_installed",
       detected: false,

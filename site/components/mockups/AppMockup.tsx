@@ -28,7 +28,7 @@ const WORKSPACES: { folder: string; sessions: SessionRow[] }[] = [
   {
     folder: "landing-site",
     sessions: [
-      { title: "Draft the hero copy", meta: "Aider" },
+      { title: "Draft the hero copy", meta: "Claude Code" },
       { title: "Set up the favicon", meta: "Codex" },
     ],
   },

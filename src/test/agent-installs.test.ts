@@ -62,8 +62,8 @@ describe("startUpdate", () => {
 
     startUpdate("codex-acp", vi.fn());
     startUpdate("codex-acp", vi.fn());
-    startInstall("aider");
-    startUpdate("aider", vi.fn());
+    startInstall("gemini");
+    startUpdate("gemini", vi.fn());
 
     await vi.waitFor(() => expect(callsTo(spy, "update_agent")).toHaveLength(1));
     await vi.waitFor(() => expect(callsTo(spy, "install_agent")).toHaveLength(1));

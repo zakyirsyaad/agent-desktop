@@ -59,7 +59,7 @@ async function answerToModeQuery({ Terminal }: XtermModule): Promise<string> {
 describe("xterm in a release build", () => {
   // xtermjs/xterm.js#5800: esbuild's syntax minifier, lowering xterm's `||=`
   // for an older target, drops a variable that DECRQM needs. The first mode query
-  // (Oh-My-Pi sends one at start) then throws, and the terminal stops drawing.
+  // (a sign-in program can send one at start) then throws, and the terminal stops drawing.
   it(
     "still answers a terminal mode query",
     async () => {
