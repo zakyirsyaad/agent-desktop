@@ -121,7 +121,7 @@ export default function App() {
   const { agents, isLoaded: areAgentsLoaded, refresh: refreshAgents } = useAgentProfiles(reportError);
   const agentCatalog = useAgentCatalog();
   const shell = useShellActions(setNotice);
-  const agentUpdates = useAgentUpdates({ catalog: agentCatalog.catalog, settings: state.settings, updateState });
+  const agentUpdates = useAgentUpdates({ catalog: agentCatalog.catalog, settings: state.settings, isLoaded, updateState });
   useAutoEnabledAgents(agents, isLoaded, updateState);
   const suggestedFolders = useSuggestedFolders();
   const userProfile = useUserProfile();

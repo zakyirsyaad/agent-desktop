@@ -78,7 +78,12 @@ describe("useAgentUpdates", () => {
     return renderHook(
       ({ catalog }) => {
         const persisted = usePersistedState(() => {});
-        const updates = useAgentUpdates({ catalog, settings: persisted.state.settings, updateState: persisted.updateState });
+        const updates = useAgentUpdates({
+          catalog,
+          settings: persisted.state.settings,
+          isLoaded: persisted.isLoaded,
+          updateState: persisted.updateState,
+        });
         return { ...updates, persisted };
       },
       { initialProps: { catalog: initial } },
@@ -104,6 +109,43 @@ describe("useAgentUpdates", () => {
 
     rerender({ catalog: catalogOf(claude("1.2.0")) });
     expect(result.current.unnotified.map((agent) => agent.updateVersion)).toEqual(["1.2.0"]);
+  });
+});
+
+describe("useAgentUpdates before the saved state loads", () => {
+  it("announces nothing and ignores acknowledge until the state is loaded, then uses the saved settings", async () => {
+    let finishLoad: (state: unknown) => void = () => {};
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (cmd: string) => Promise<unknown> } })
+      .__TAURI_INTERNALS__;
+    const realInvoke = internals.invoke.bind(internals);
+    vi.spyOn(internals, "invoke").mockImplementation((cmd: string, ...rest: unknown[]) =>
+      cmd === "load_app_state"
+        ? new Promise((resolve) => (finishLoad = resolve))
+        : (realInvoke as (...args: unknown[]) => Promise<unknown>)(cmd, ...rest),
+    );
+    const saved = structuredClone(fakeStore().state);
+    (saved.settings as Partial<Settings>).notifiedUpdates = { "claude-acp": "1.1.0" };
+    const { result } = renderHook(() => {
+      const persisted = usePersistedState(() => {});
+      const updates = useAgentUpdates({
+        catalog: catalogOf(claude("1.1.0"), codex("1.0.0")),
+        settings: persisted.state.settings,
+        isLoaded: persisted.isLoaded,
+        updateState: persisted.updateState,
+      });
+      return { ...updates, persisted };
+    });
+
+    expect(result.current.updateCount).toBe(0);
+    expect(result.current.unnotified).toEqual([]);
+    act(() => result.current.acknowledge());
+
+    await act(async () => finishLoad(saved));
+
+    expect(result.current.persisted.isLoaded).toBe(true);
+    expect(result.current.updateCount).toBe(2);
+    expect(result.current.unnotified.map((agent) => agent.id)).toEqual(["codex-acp"]);
+    expect(result.current.persisted.state.settings.notifiedUpdates).toEqual({ "claude-acp": "1.1.0" });
   });
 });
 

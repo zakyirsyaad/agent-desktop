@@ -15,15 +15,23 @@ export interface AgentUpdates {
 export interface UseAgentUpdatesOptions {
   catalog: AgentCatalog | null;
   settings: Settings;
+  /** False until the saved state is loaded: until then `settings` are the defaults, not the user's. */
+  isLoaded: boolean;
   updateState: (updater: (prev: PersistedState) => PersistedState) => void;
 }
 
-/** Which agent updates are pending, and which of them the notice still has to announce. */
-export function useAgentUpdates({ catalog, settings, updateState }: UseAgentUpdatesOptions): AgentUpdates {
+const NO_UPDATES: CatalogAgent[] = [];
+
+/**
+ * Which agent updates are pending, and which of them the notice still has to announce.
+ * Nothing is pending before the saved state loads, so the notice cannot flash for a version
+ * already announced, and a Dismiss cannot be lost to the load.
+ */
+export function useAgentUpdates({ catalog, settings, isLoaded, updateState }: UseAgentUpdatesOptions): AgentUpdates {
   const { notifiedUpdates } = settings;
   const pending = useMemo(
-    () => pendingUpdates(catalog?.agents ?? [], enabledAgentIds(settings)),
-    [catalog, settings],
+    () => (isLoaded ? pendingUpdates(catalog?.agents ?? [], enabledAgentIds(settings)) : NO_UPDATES),
+    [catalog, settings, isLoaded],
   );
   const unnotified = useMemo(
     () => pending.filter((agent) => notifiedUpdates?.[agent.id] !== agent.updateVersion),
@@ -31,6 +39,7 @@ export function useAgentUpdates({ catalog, settings, updateState }: UseAgentUpda
   );
 
   const acknowledge = useCallback(() => {
+    if (unnotified.length === 0) return;
     const announced = Object.fromEntries(unnotified.map((agent) => [agent.id, agent.updateVersion ?? '']));
     updateState((prev) => ({
       ...prev,
