@@ -27,13 +27,14 @@ export interface ElicitationActionDeps {
   acp: ElicitationTransport;
   updateMessages: (sessionId: string, change: (prev: ChatMessage[]) => ChatMessage[]) => void;
   reportError: (message: string) => void;
-  /** The session's transcript as last rendered: only a card still waiting is answered. */
-  transcriptOf: (sessionId: string) => readonly ChatMessage[];
+  /** The session's latest transcript (undefined when never loaded): only a card still waiting is answered. */
+  transcriptOf: (sessionId: string) => readonly ChatMessage[] | undefined;
   /** Answers on their way, owned by the engine so they outlive a render; an entry lives until its call settles. */
   inFlight: Map<string, InFlightAnswer>;
 }
 
 const idOf = (sessionId: string, key: string) => `${sessionId}\n${key}`;
+const textOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** What a card shows as soon as the user answers, before the agent has it. */
 function optimisticStatus(answer: ElicitationAnswer, mode: ElicitationCard['mode']): ElicitationStatus {
@@ -63,7 +64,7 @@ export function elicitationActions({ acp, updateMessages, reportError, transcrip
       });
     const errors = parseInvalidElicitation(error);
     if (errors) return restore((messages) => rejectElicitationSubmit(messages, entry.card.key, errors));
-    const text = error instanceof Error ? error.message : String(error);
+    const text = textOf(error);
     if (text === ELICITATION_GONE) {
       restore((messages) => setElicitationStatus(messages, entry.card.key, 'unanswered'));
       reportError(ELICITATION_GONE);
@@ -73,9 +74,24 @@ export function elicitationActions({ acp, updateMessages, reportError, transcrip
     reportError(`Could not answer the agent: ${text}`);
   };
 
+  /**
+   * An answer that failed after the turn was stopped or the agent ended: the
+   * card is not answerable again, but a form or page the agent never got must
+   * not read as sent. Gone is expected after a stop and is not reported.
+   */
+  const failForgotten = (sessionId: string, entry: InFlightAnswer, error: unknown) => {
+    if (entry.status !== 'submitted' && entry.status !== 'opened') return;
+    const { key } = entry.card;
+    const isStillShown = (prev: ChatMessage[]) =>
+      prev.some((m) => m.elicitation?.key === key && m.elicitation.status === entry.status);
+    updateMessages(sessionId, (prev) => (isStillShown(prev) ? setElicitationStatus(prev, key, 'unanswered') : prev));
+    const text = textOf(error);
+    if (text !== ELICITATION_GONE) reportError(`Could not answer the agent: ${text}`);
+  };
+
   const answer = (sessionId: string, key: string, reply: ElicitationAnswer) => {
     const id = idOf(sessionId, key);
-    const card = transcriptOf(sessionId).find((m) => m.elicitation?.key === key)?.elicitation;
+    const card = transcriptOf(sessionId)?.find((m) => m.elicitation?.key === key)?.elicitation;
     if (card?.status !== 'pending' || inFlight.has(id)) return;
     const entry: InFlightAnswer = { card, status: optimisticStatus(reply, card.mode) };
     inFlight.set(id, entry);
@@ -85,8 +101,8 @@ export function elicitationActions({ acp, updateMessages, reportError, transcrip
         if (inFlight.get(id) === entry) inFlight.delete(id);
       },
       (error: unknown) => {
-        // Forgotten meanwhile (Stop, or the agent ended): the failure is expected and the card stays as it is.
-        if (inFlight.get(id) !== entry) return;
+        // Forgotten meanwhile (Stop, or the agent ended): the card is not put back to be answered again.
+        if (inFlight.get(id) !== entry) return failForgotten(sessionId, entry, error);
         inFlight.delete(id);
         fail(sessionId, entry, error);
       },
@@ -95,7 +111,7 @@ export function elicitationActions({ acp, updateMessages, reportError, transcrip
 
   const reopen = (sessionId: string, key: string) => {
     acp.reopenElicitationUrl(sessionId, key).catch((error: unknown) => {
-      reportError(`Could not open the page again: ${error instanceof Error ? error.message : String(error)}`);
+      reportError(`Could not open the page again: ${textOf(error)}`);
     });
   };
 
@@ -106,10 +122,13 @@ export function elicitationActions({ acp, updateMessages, reportError, transcrip
     }
   };
 
-  /** The agent ended (or never opened): every card still open is left unanswered. */
+  /**
+   * The agent ended, never opened or was stopped: every card still open is left
+   * unanswered. A transcript never loaded holds no card, and writing to it would save over its file.
+   */
   const abandon = (sessionId: string) => {
     forget(sessionId);
-    updateMessages(sessionId, markElicitationsUnanswered);
+    if (transcriptOf(sessionId)) updateMessages(sessionId, markElicitationsUnanswered);
   };
 
   return { answer, reopen, forget, abandon };

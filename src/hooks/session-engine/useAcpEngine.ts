@@ -12,6 +12,7 @@ import { changesToApply, NO_CHOICES, type AcpChange, type AcpChoices, type Agent
 import { findCard, titleFromPrompt, userMessage, withoutMessage } from '../../lib/session-helpers';
 import { createId } from '../../lib/ids';
 import { toCommands, useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
+import { useLatest } from '../useLatest';
 import type { AgentProfile, ChatMessage, ElicitationCard, Session } from '../../types';
 import { parseAuthRequired, type AuthMethod } from '../../lib/acp-auth';
 import { isUnknownSessionError } from '../../lib/acp-load-error';
@@ -165,7 +166,9 @@ export function useAcpEngine({
     onError: reportError,
   });
 
-  const transcriptOf = (sessionId: string) => transcripts?.[sessionId] ?? [];
+  // Read when a call settles, long after the render that made it: the latest transcripts, not that render's.
+  const transcriptsRef = useLatest(transcripts);
+  const transcriptOf = (sessionId: string) => transcriptsRef.current?.[sessionId];
   const elicitations = elicitationActions({ acp, updateMessages, reportError, transcriptOf, inFlight: elicitationsInFlightRef.current });
 
   const markStarting = useCallback((sessionId: string, isStarting: boolean) => {
@@ -423,6 +426,8 @@ export function useAcpEngine({
    * the backend has done it.
    */
   const stop = (sessionId: string): Promise<boolean> => {
+    // The backend cancels the open requests, and the agent's later events (its exit) are ignored.
+    elicitations.abandon(sessionId);
     stoppedRef.current.add(sessionId);
     lastPromptRef.current.delete(sessionId);
     unsentContextRef.current.delete(sessionId);
@@ -444,7 +449,6 @@ export function useAcpEngine({
    */
   const interrupt = (sessionId: string, messages: ChatMessage[] | undefined) => {
     if (starting.has(sessionId)) {
-      elicitations.abandon(sessionId);
       void stop(sessionId);
       patchSession(sessionId, { status: 'terminated', endedAt: Date.now() });
       return;

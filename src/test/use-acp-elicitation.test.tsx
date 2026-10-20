@@ -108,6 +108,20 @@ async function submitName(key: string, name: string) {
   });
 }
 
+/** The card as the fake store holds it after the last transcript save. */
+function storedCard(sessionId: string, key: string): { status?: string } | undefined {
+  const messages = (fakeStore().transcripts[sessionId] ?? []) as { elicitation?: { key: string; status: string } }[];
+  return messages.find((m) => m.elicitation?.key === key)?.elicitation;
+}
+
+async function flushSaves() {
+  await act(async () => {
+    window.dispatchEvent(new Event("pagehide"));
+  });
+}
+
+const sidebar = () => within(screen.getByRole("complementary"));
+
 describe("Elicitations in the app", () => {
   beforeEach(() => {
     notifications.sent.length = 0;
@@ -225,6 +239,95 @@ describe("Elicitations in the app", () => {
     expect(card("el-u").queryByRole("button", { name: "Open in browser" })).toBeNull();
   });
 
+  it("leaves a sent form unanswered and says so when its answer fails after Stop", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startWorkingSession(spy);
+    let fail: (reason: unknown) => void = () => {};
+    override(spy, "acp_respond_elicitation", () => new Promise((_, reject) => (fail = reject)));
+    await askForName(sessionId);
+    await submitName("el-1", "Ada");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    });
+    await act(async () => {
+      fail("the pipe broke");
+    });
+
+    await waitFor(() => expect(card("el-1").getByText("This request was not answered.")).toBeDefined());
+    expect(screen.getByText("Could not answer the agent: the pipe broke")).toBeDefined();
+    expect(card("el-1").queryByRole("button", { name: "Submit" })).toBeNull();
+  });
+
+  it("leaves a sent form unanswered without an error when the agent exits and the request is gone", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startWorkingSession(spy);
+    let fail: (reason: unknown) => void = () => {};
+    override(spy, "acp_respond_elicitation", () => new Promise((_, reject) => (fail = reject)));
+    await askForName(sessionId);
+    await submitName("el-1", "Ada");
+
+    await acpEvent({ sessionId, kind: "exit", code: 1 });
+    await act(async () => {
+      fail(ELICITATION_GONE);
+    });
+
+    await waitFor(() => expect(card("el-1").getByText("This request was not answered.")).toBeDefined());
+    expect(screen.queryByText(ELICITATION_GONE)).toBeNull();
+  });
+
+  it("leaves open cards unanswered when the session is stopped by archiving it", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startWorkingSession(spy);
+    await askForName(sessionId);
+    // The turn ends with the request still open, so the session can be archived.
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+
+    const row = sidebar().getByText("sign me up").closest("li") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "More actions for sign me up" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+    });
+    await waitFor(() => expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toContainEqual({ sessionId }));
+    // The agent's exit after the stop is ignored; the card must not wait for it.
+    await acpEvent({ sessionId, kind: "exit", code: 0 });
+    await act(async () => {
+      fireEvent.click(sidebar().getByRole("button", { name: "Archived (1)" }));
+    });
+    await act(async () => {
+      fireEvent.click(sidebar().getByText("sign me up"));
+    });
+
+    expect(card("el-1").getByText("This request was not answered.")).toBeDefined();
+    await flushSaves();
+    await waitFor(() => expect(storedCard(sessionId, "el-1")?.status).toBe("unanswered"));
+  });
+
+  it("does not bring back a deleted session's conversation when its open cards are left unanswered", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startWorkingSession(spy);
+    await askForName(sessionId);
+    // Delete is offered once the turn ended; the request is still open.
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    const row = sidebar().getByText("sign me up").closest("li") as HTMLElement;
+
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Delete session" }));
+    });
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Confirm delete" }));
+    });
+    await flushSaves();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toContainEqual({ sessionId });
+    expect(callsTo(spy, "delete_transcript").map(([, a]) => a)).toContainEqual({ sessionId });
+    expect(callsTo(spy, "save_transcript").filter(([, a]) => a?.sessionId === sessionId)).toHaveLength(0);
+    expect(fakeStore().transcripts[sessionId]).toBeUndefined();
+  });
+
   it("exit_and_failed_start_leave_cards_unanswered: the agent exits", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startWorkingSession(spy);
@@ -324,7 +427,7 @@ describe("Elicitations in the app", () => {
     await flush();
 
     expect(callsTo(spy, "acp_respond_elicitation")[0][1]).toMatchObject({ content: { name: "secret-value" } });
-    await waitFor(() => expect(fakeStore().transcripts[sessionId]).toBeDefined());
+    await waitFor(() => expect(storedCard(sessionId, "el-1")?.status).toBe("submitted"));
     expect(JSON.stringify(fakeStore().transcripts[sessionId])).toContain("What is your name?");
     expect(JSON.stringify(window.__FAKE_TAURI_STORE__)).not.toContain("secret-value");
   });
