@@ -1,7 +1,7 @@
 import { AgentCatalog } from "./agents/AgentCatalog";
 import { SettingsPanel, type SettingsTab } from "./SettingsPanel";
 import type { FolderOption } from "./onboarding/types";
-import { useAgentCatalogActions } from "../hooks/useAgentCatalogActions";
+import type { AgentCatalogActions } from "../hooks/useAgentCatalogActions";
 import type { AgentCatalogHandle } from "../hooks/useAgentCatalog";
 import type { PersistedStateHandle } from "../hooks/usePersistedState";
 import { pendingUpdates } from "../lib/agent-catalog";
@@ -15,12 +15,12 @@ export interface AppSettingsDialogProps {
   isOpen: boolean;
   /** The tab shown when the dialog opens. */
   initialTab?: SettingsTab;
-  persisted: Pick<PersistedStateHandle, "state" | "updateState" | "saveNow">;
+  persisted: Pick<PersistedStateHandle, "state" | "updateState">;
   agents: readonly AgentProfile[];
   refreshAgents: () => Promise<void>;
   catalog: AgentCatalogHandle;
-  /** The ACP engine's stop, for the sessions of an agent being removed. */
-  stopSession: (sessionId: string) => Promise<boolean>;
+  /** What Add, Update and Remove do; the app's one instance, shared with the screens that offer Add. */
+  actions: AgentCatalogActions;
   recentFolders: readonly FolderOption[];
   onRemoveRecentFolder: (path: string) => void;
   onRunOnboarding: () => void;
@@ -31,25 +31,16 @@ export interface AppSettingsDialogProps {
 export function AppSettingsDialog({
   isOpen,
   initialTab,
-  persisted: { state, updateState, saveNow },
+  persisted: { state, updateState },
   agents,
   refreshAgents,
   catalog,
-  stopSession,
+  actions,
   recentFolders,
   onRemoveRecentFolder,
   onRunOnboarding,
   onClose,
 }: AppSettingsDialogProps) {
-  const actions = useAgentCatalogActions({
-    updateState,
-    saveNow,
-    agents,
-    sessions: state.sessions,
-    stopSession,
-    refreshAgents,
-    reloadCatalog: catalog.reload,
-  });
   if (!isOpen) return null;
 
   const { settings } = state;

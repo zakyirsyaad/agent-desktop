@@ -17,6 +17,7 @@ import { useAgentProfiles } from "../hooks/useDiscovery";
 import { TopBar } from "./TopBar";
 import { ChatCanvas } from "./ChatCanvas";
 import { ComposerDock } from "./ComposerDock";
+import { RemovedAgentPanel } from "./RemovedAgentPanel";
 import { TerminalDrawer } from "./TerminalDrawer";
 
 export interface PopoutAppProps {
@@ -32,6 +33,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<SessionLiveStatus>(IDLE_STATUS);
+  const [removedAgentName, setRemovedAgentName] = useState<string | null>(null);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const { agents } = useAgentProfiles(() => {});
 
@@ -43,6 +45,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
       setSession(payload.session);
       setMessages(payload.messages);
       setStatus(payload.status ?? IDLE_STATUS);
+      setRemovedAgentName(payload.removedAgentName ?? null);
     })
       .then((stop) => {
         if (isCancelled) stop();
@@ -106,16 +109,20 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
           </div>
         )}
         <div className="p-4 flex justify-center">
-          <ComposerDock
-            controls={agent && session && !isAcp ? ptySessionControls(agent, session) : undefined}
-            optionsLocked
-            disabled={!isRunning}
-            placeholder={isRunning ? undefined : "This session is not running"}
-            onSendMessage={(text) => forward({ kind: "send", text })}
-            isThinking={status.isBusy}
-            onStop={() => forward({ kind: "stop" })}
-            contextUsage={status.contextUsage}
-          />
+          {removedAgentName ? (
+            <RemovedAgentPanel agentName={removedAgentName} onAdd={() => forward({ kind: "add-agent" })} />
+          ) : (
+            <ComposerDock
+              controls={agent && session && !isAcp ? ptySessionControls(agent, session) : undefined}
+              optionsLocked
+              disabled={!isRunning}
+              placeholder={isRunning ? undefined : "This session is not running"}
+              onSendMessage={(text) => forward({ kind: "send", text })}
+              isThinking={status.isBusy}
+              onStop={() => forward({ kind: "stop" })}
+              contextUsage={status.contextUsage}
+            />
+          )}
         </div>
         <TerminalDrawer
           isOpen={isTerminalOpen}

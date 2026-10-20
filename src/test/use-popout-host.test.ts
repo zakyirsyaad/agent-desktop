@@ -78,5 +78,29 @@ describe("usePopoutHost", () => {
     expect(snapshotsFor("s-1")).toHaveLength(before + 1);
     expect((snapshotsFor("s-1").at(-1)?.payload as { status: { isBusy: boolean } }).status.isBusy).toBe(true);
   });
-});
 
+  it("sends the removed agent's name and adds the agent when its popout asks, without passing the action on", async () => {
+    const addAgent = vi.fn();
+    const onAction = vi.fn();
+    const props = {
+      sessions: [session("s-1")],
+      transcripts: {} as Record<string, ChatMessage[]>,
+      ensureLoaded: () => {},
+      onAction,
+      agentCatalog: {
+        agents: [{ id: "qwen", name: "Qwen Code", source: "registry", detected: true }] as never,
+        settings: { enabledAgents: [] },
+        addAgent,
+      },
+    };
+    renderHook(() => usePopoutHost(props));
+    await act(async () => {});
+    act(() => listeners.get("popout-ready")?.({ payload: { sessionId: "s-1" } }));
+    expect((snapshotsFor("s-1").at(-1)?.payload as { removedAgentName: string }).removedAgentName).toBe("Qwen Code");
+
+    act(() => listeners.get("popout-action")?.({ payload: { sessionId: "s-1", action: { kind: "add-agent" } } }));
+
+    expect(addAgent).toHaveBeenCalledWith("qwen");
+    expect(onAction).not.toHaveBeenCalled();
+  });
+});

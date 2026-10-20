@@ -16,6 +16,14 @@ export function isInUse(agent: UsableAgent, settings: EnabledSettings): boolean 
   return enabledAgentIds(settings).includes(agent.id);
 }
 
+/** The name of a registry agent that is no longer in use, whose saved sessions can only be read. */
+export function removedAgentName(
+  agent: (UsableAgent & Pick<AgentProfile, "name">) | undefined,
+  settings: EnabledSettings,
+): string | null {
+  return agent?.source === "registry" && !isInUse(agent, settings) ? agent.name : null;
+}
+
 /**
  * Enables registry agents found installed (unless the user removed them) and records the
  * version of each one in use, so it only changes when the user updates it. Returns the same

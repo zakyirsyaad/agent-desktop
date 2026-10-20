@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { ChatMessage, Session } from '../types';
+import type { AgentProfile, ChatMessage, Session } from '../types';
+import { removedAgentName, type EnabledSettings } from '../lib/enabled-agents';
 import {
   POPOUT_ACTION_EVENT,
   POPOUT_CLOSED_EVENT,
@@ -19,9 +20,18 @@ export interface PopoutHostOptions {
   sessions: readonly Session[];
   transcripts: Record<string, ChatMessage[]>;
   ensureLoaded: (sessionId: string) => void;
-  onAction: (sessionId: string, action: PopoutAction) => void;
+  onAction: (sessionId: string, action: Exclude<PopoutAction, { kind: 'add-agent' }>) => void;
   /** The agent's live status (busy, waiting, context use), sent along with each snapshot. */
   statusOf?: (sessionId: string) => SessionLiveStatus;
+  /**
+   * What a popout needs to offer Add for a session whose agent was removed: it is sent the agent's name,
+   * and its Add is performed here with `addAgent`.
+   */
+  agentCatalog?: {
+    agents: readonly AgentProfile[];
+    settings: EnabledSettings;
+    addAgent: (agentId: string) => void;
+  };
 }
 
 /**
@@ -35,7 +45,17 @@ interface SentSnapshot {
   statusKey: string;
 }
 
-const statusKeyOf = (status: SessionLiveStatus) => JSON.stringify(status);
+/** The name of the session's agent when it was removed, else null. */
+function removedAgentNameOf(
+  session: Session | undefined,
+  catalog: PopoutHostOptions['agentCatalog'],
+): string | null {
+  if (!session || !catalog) return null;
+  return removedAgentName(catalog.agents.find((a) => a.id === session.profileId), catalog.settings);
+}
+
+const statusKeyOf = (status: SessionLiveStatus, removedAgentName: string | null) =>
+  JSON.stringify([status, removedAgentName]);
 
 export function usePopoutHost({
   sessions,
@@ -43,23 +63,26 @@ export function usePopoutHost({
   ensureLoaded,
   onAction,
   statusOf = () => IDLE_STATUS,
+  agentCatalog,
 }: PopoutHostOptions): void {
   // Open popouts, with what each was last sent: a snapshot goes out only when
   // that session, its transcript (both replaced, never mutated) or its agent's
   // live status changed.
   const poppedOutRef = useRef(new Map<string, SentSnapshot>());
-  const latest = useLatest({ sessions, transcripts, ensureLoaded, onAction, statusOf });
+  const latest = useLatest({ sessions, transcripts, ensureLoaded, onAction, statusOf, agentCatalog });
 
   useEffect(() => {
     const sendSnapshot = (sessionId: string) => {
-      const { sessions: current, transcripts: messages, statusOf: liveStatusOf } = latest.current;
+      const { sessions: current, transcripts: messages, statusOf: liveStatusOf, agentCatalog: catalog } =
+        latest.current;
       const status = liveStatusOf(sessionId);
+      const removedName = removedAgentNameOf(current.find((s) => s.id === sessionId), catalog);
       poppedOutRef.current.set(sessionId, {
         session: current.find((s) => s.id === sessionId),
         messages: messages[sessionId],
-        statusKey: statusKeyOf(status),
+        statusKey: statusKeyOf(status, removedName),
       });
-      emit(SESSION_SNAPSHOT_EVENT, buildSessionSnapshot(sessionId, current, messages, status)).catch(() => {});
+      emit(SESSION_SNAPSHOT_EVENT, buildSessionSnapshot(sessionId, current, messages, status, removedName)).catch(() => {});
     };
 
     let isCancelled = false;
@@ -80,7 +103,10 @@ export function usePopoutHost({
       .catch(() => {});
 
     listen<PopoutActionPayload>(POPOUT_ACTION_EVENT, ({ payload }) => {
-      latest.current.onAction(payload.sessionId, payload.action);
+      const { action } = payload;
+      if (action.kind !== 'add-agent') return latest.current.onAction(payload.sessionId, action);
+      const session = latest.current.sessions.find((s) => s.id === payload.sessionId);
+      if (session) latest.current.agentCatalog?.addAgent(session.profileId);
     })
       .then(keep)
       .catch(() => {});
@@ -98,10 +124,11 @@ export function usePopoutHost({
       const session = sessions.find((s) => s.id === sessionId);
       const messages = transcripts[sessionId];
       const status = statusOf(sessionId);
-      const statusKey = statusKeyOf(status);
+      const removedName = removedAgentNameOf(session, agentCatalog);
+      const statusKey = statusKeyOf(status, removedName);
       if (session === last.session && messages === last.messages && statusKey === last.statusKey) return;
       poppedOutRef.current.set(sessionId, { session, messages, statusKey });
-      emit(SESSION_SNAPSHOT_EVENT, buildSessionSnapshot(sessionId, sessions, transcripts, status)).catch(() => {});
+      emit(SESSION_SNAPSHOT_EVENT, buildSessionSnapshot(sessionId, sessions, transcripts, status, removedName)).catch(() => {});
     });
   });
 }

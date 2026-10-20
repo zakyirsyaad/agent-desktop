@@ -20,7 +20,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 import App from "../App";
 import { AgentCatalog } from "../components/agents/AgentCatalog";
 import { AppSettingsDialog } from "../components/AppSettingsDialog";
-import type { AgentCatalogActions } from "../hooks/useAgentCatalogActions";
+import { useAgentCatalogActions, type AgentCatalogActions } from "../hooks/useAgentCatalogActions";
 import { useAgentCatalog } from "../hooks/useAgentCatalog";
 import { useAgentProfiles } from "../hooks/useDiscovery";
 import { usePersistedState } from "../hooks/usePersistedState";
@@ -160,6 +160,15 @@ function Harness() {
   const persisted = usePersistedState(() => {});
   const { agents, refresh } = useAgentProfiles(() => {});
   const catalog = useAgentCatalog();
+  const actions = useAgentCatalogActions({
+    updateState: persisted.updateState,
+    saveNow: persisted.saveNow,
+    agents,
+    sessions: persisted.state.sessions,
+    stopSession: () => Promise.resolve(true),
+    refreshAgents: refresh,
+    reloadCatalog: catalog.reload,
+  });
   return (
     <AppSettingsDialog
       isOpen
@@ -167,7 +176,7 @@ function Harness() {
       agents={agents}
       refreshAgents={refresh}
       catalog={catalog}
-      stopSession={() => Promise.resolve(true)}
+      actions={actions}
       recentFolders={[]}
       onRemoveRecentFolder={() => {}}
       onRunOnboarding={() => {}}

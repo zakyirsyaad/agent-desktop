@@ -4,6 +4,7 @@ import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas } from "./components/ChatCanvas";
 import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
+import { RemovedAgentPanel } from "./components/RemovedAgentPanel";
 import { FilesPanel } from "./components/FilesPanel";
 import { EmptySessionState, FileDropOverlay, NoticeBanner } from "./components/AppPlaceholders";
 import { SignInLayer } from "./components/SignInLayer";
@@ -54,6 +55,8 @@ import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
 import { Onboarding, type OnboardingResult } from "./components/Onboarding";
 import { AppSettingsDialog, type SettingsTab } from "./components/AppSettingsDialog";
 import { useAgentCatalog } from "./hooks/useAgentCatalog";
+import { useAgentCatalogActions } from "./hooks/useAgentCatalogActions";
+import { useAutoEnabledAgents } from "./hooks/useAutoEnabledAgents";
 import { useShellActions } from "./hooks/useShellActions";
 import { useAgentUpdates } from "./hooks/useAgentUpdates";
 import { UpdateNotice } from "./components/UpdateNotice";
@@ -66,7 +69,6 @@ import { useSessionActions } from "./hooks/useSessionActions";
 import { useSessionFork } from "./hooks/useSessionFork";
 import { useSessionRewind } from "./hooks/useSessionRewind";
 import { useUnreadMarks } from "./hooks/useUnreadMarks";
-import type { PopoutAction } from "./lib/popout-bridge";
 import { usePtyEngine } from "./hooks/session-engine/usePtyEngine";
 import { useAcpEngine, type AttentionReason, type FirstMessage } from "./hooks/session-engine/useAcpEngine";
 import type { AcpConfigOption } from "./hooks/useAcpSessions";
@@ -75,7 +77,7 @@ import { pickFiles } from "./lib/file-picker";
 import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
 import { isAgentReady, isAgentRunnable, noAgentNotice, resolveDraftAgentId } from "./lib/agent-readiness";
-import { isInUse, withAutoEnabled } from "./lib/enabled-agents";
+import { isInUse, removedAgentName } from "./lib/enabled-agents";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
 import {
@@ -119,14 +121,7 @@ export default function App() {
   const agentCatalog = useAgentCatalog();
   const shell = useShellActions(setNotice);
   const agentUpdates = useAgentUpdates({ catalog: agentCatalog.catalog, settings: state.settings, updateState });
-  // Installed registry agents join the ones in use, and each one's version is recorded.
-  useEffect(() => {
-    if (!isLoaded || agents.length === 0) return;
-    updateState((prev) => {
-      const settings = withAutoEnabled(prev.settings, agents);
-      return settings === prev.settings ? prev : { ...prev, settings };
-    });
-  }, [agents, isLoaded, updateState]);
+  useAutoEnabledAgents(agents, isLoaded, updateState);
   const suggestedFolders = useSuggestedFolders();
   const userProfile = useUserProfile();
   const navigation = useNavigationHistory();
@@ -146,6 +141,8 @@ export default function App() {
   const isActiveRunning = activeSession?.status === "running";
   // Only the agents in use are offered: the defaults, installed ones and the terminal agents found.
   const agentsInUse = agents.filter((agent) => isInUse(agent, state.settings));
+  // A saved session of a removed agent stays readable; its composer offers to add the agent again.
+  const activeAgentRemoved = activeSession ? removedAgentName(activeAgent, state.settings) : null;
   // A registry agent not installed yet is offered too: picking it shows its Install panel.
   const pickableAgents = agentsInUse.filter((agent) => agent.source === "registry" || agent.detected);
   const defaultAgentId = resolveDraftAgentId(agentsInUse, state.settings.defaultAgentId, pickableAgents);
@@ -257,6 +254,10 @@ export default function App() {
     rememberOptions: rememberAgentOptions,
     onAttention: (sessionId, reason) => notifyAttention(sessionId, reason),
     onAuthRequired: signIn.handBack,
+  });
+  // The one instance of Add, Update and Remove: Settings, saved sessions of a removed agent and popouts use it.
+  const catalogActions = useAgentCatalogActions({
+    updateState, saveNow, agents, sessions, stopSession: acp.stop, refreshAgents, reloadCatalog: agentCatalog.reload,
   });
 
   /** Tells a user who is away that a session needs them or is done. */
@@ -530,7 +531,8 @@ export default function App() {
       isWaiting: isSessionWaiting(sessionId),
       contextUsage: isAcp(sessionById(sessionId)) ? acp.info[sessionId]?.usage : undefined,
     }),
-    onAction: (sessionId: string, action: PopoutAction) => {
+    agentCatalog: { agents, settings: state.settings, addAgent: catalogActions.addAgent },
+    onAction: (sessionId, action) => {
       if (action.kind === "send") void sendTo(sessionId, { text: action.text });
       else if (action.kind === "stop") handleInterrupt(sessionId);
       else if (action.kind === "choose-option") chooseOption(sessionId, action.cardId, action.optionId);
@@ -696,57 +698,61 @@ export default function App() {
 
           {/* A live terminal agent takes input in its own screen. */}
           <div className={isActiveTerminal ? "hidden" : "p-4 flex justify-center"}>
-            <ComposerDock
-              controls={composer.controls}
-              optionsLocked={composer.locked}
-              isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
-              onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
-              disabled={
-                isCreatingWorktree ||
-                (!isActiveRunning && ((!isDraftAgentReady && !draftNeedsInstall) || (!isResumable && !canStartSession)))
-              }
-              sendDisabled={draftNeedsInstall}
-              placeholder={composerPlaceholder({
-                isRunning: isActiveRunning,
-                isCreatingWorktree,
-                isResumable,
-                canStartSession,
-                agentToInstall: draftNeedsInstall ? draftAgent?.name : undefined,
-                isEndedSession: Boolean(activeSession),
-              })}
-              onSendMessage={handleSendMessage}
-              attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}
-              onAttach={pickFiles}
-              handleRef={composerRef}
-              commands={composerCommands}
-              note={
-                !isActiveRunning && draftAgent && agentCheck.isProbing(draftAgent.id)
-                  ? `Loading ${draftAgent.name}'s models and commands…`
-                  : undefined
-              }
-              contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
-              mentions={filesFolder ? { root: filesFolder.path, loadFiles: () => shell.loadWorkspaceFiles(filesFolder.path) } : undefined}
-              folder={
-                isNewSessionDraft
-                  ? {
-                      folders: workspaces,
-                      selectedPath: activeWorkspacePath,
-                      onSelect: chooseFolder,
-                      onOpenFolder: () => void openFolder(),
-                      worktree: canUseWorktree ? { isOn: isWorktreeOn, onChange: setIsWorktreeOn } : undefined,
-                    }
-                  : undefined
-              }
-              agent={
-                isNewSessionDraft && newSessionAgent
-                  ? {
-                      options: pickableAgents.map((a) => ({ value: a.id, label: pickerLabelOf(a) })),
-                      selected: newSessionAgent.id,
-                      onChange: (agentId) => setPickedAgentId(agentId ?? null),
-                    }
-                  : undefined
-              }
-            />
+            {activeAgentRemoved ? (
+              <RemovedAgentPanel agentName={activeAgentRemoved} onAdd={() => activeAgent && catalogActions.addAgent(activeAgent.id)} />
+            ) : (
+              <ComposerDock
+                controls={composer.controls}
+                optionsLocked={composer.locked}
+                isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
+                onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
+                disabled={
+                  isCreatingWorktree ||
+                  (!isActiveRunning && ((!isDraftAgentReady && !draftNeedsInstall) || (!isResumable && !canStartSession)))
+                }
+                sendDisabled={draftNeedsInstall}
+                placeholder={composerPlaceholder({
+                  isRunning: isActiveRunning,
+                  isCreatingWorktree,
+                  isResumable,
+                  canStartSession,
+                  agentToInstall: draftNeedsInstall ? draftAgent?.name : undefined,
+                  isEndedSession: Boolean(activeSession),
+                })}
+                onSendMessage={handleSendMessage}
+                attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}
+                onAttach={pickFiles}
+                handleRef={composerRef}
+                commands={composerCommands}
+                note={
+                  !isActiveRunning && draftAgent && agentCheck.isProbing(draftAgent.id)
+                    ? `Loading ${draftAgent.name}'s models and commands…`
+                    : undefined
+                }
+                contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
+                mentions={filesFolder ? { root: filesFolder.path, loadFiles: () => shell.loadWorkspaceFiles(filesFolder.path) } : undefined}
+                folder={
+                  isNewSessionDraft
+                    ? {
+                        folders: workspaces,
+                        selectedPath: activeWorkspacePath,
+                        onSelect: chooseFolder,
+                        onOpenFolder: () => void openFolder(),
+                        worktree: canUseWorktree ? { isOn: isWorktreeOn, onChange: setIsWorktreeOn } : undefined,
+                      }
+                    : undefined
+                }
+                agent={
+                  isNewSessionDraft && newSessionAgent
+                    ? {
+                        options: pickableAgents.map((a) => ({ value: a.id, label: pickerLabelOf(a) })),
+                        selected: newSessionAgent.id,
+                        onChange: (agentId) => setPickedAgentId(agentId ?? null),
+                      }
+                    : undefined
+                }
+              />
+            )}
           </div>
 
         </article>
@@ -791,11 +797,11 @@ export default function App() {
       <AppSettingsDialog
         isOpen={settingsTab !== null}
         initialTab={settingsTab ?? undefined}
-        persisted={{ state, updateState, saveNow }}
+        persisted={{ state, updateState }}
         agents={agents}
         refreshAgents={refreshAgents}
         catalog={agentCatalog}
-        stopSession={acp.stop}
+        actions={catalogActions}
         recentFolders={workspaces}
         onRemoveRecentFolder={removeFolder}
         onRunOnboarding={handleRunOnboarding}
