@@ -51,7 +51,7 @@ function baseStatusLine(agent: CatalogAgent, plan: readonly InstallStep[] | null
       if (plan === null || plan.length === 0) return 'Not installed';
       return `Not installed · ${isInUse ? 'Install adds' : 'Add installs'} ${describePlan(plan)}`;
     case 'waiting':
-      return `Available from ${formatAvailableFrom(agent.availableFrom ?? 0)}`;
+      return agent.availableFrom === null ? 'Not available yet' : `Available from ${formatAvailableFrom(agent.availableFrom)}`;
     case 'unsupported':
       return 'Not available for this Mac';
   }

@@ -85,6 +85,9 @@ describe("statusLine", () => {
     expect(
       statusLine(makeCatalogAgent({ id: "a", name: "A", status: "waiting", availableFrom: Date.UTC(2026, 9, 27, 12) / 1000 }), null),
     ).toBe("Available from Oct 27");
+    expect(statusLine(makeCatalogAgent({ id: "a", name: "A", status: "waiting", availableFrom: null }), null)).toBe(
+      "Not available yet",
+    );
     expect(statusLine(makeCatalogAgent({ id: "a", name: "A", status: "unsupported" }), null)).toBe("Not available for this Mac");
   });
 
