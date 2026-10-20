@@ -90,7 +90,9 @@ pub fn refresh_icons(
     for source in sources {
         let current = index
             .get(&source.id)
-            .is_some_and(|cached| cached.url == source.url && cached.version == source.version);
+            .is_some_and(|cached| cached.url == source.url && cached.version == source.version)
+            && fs::read_to_string(dir.join(format!("{}.svg", source.id)))
+                .is_ok_and(|svg| is_svg(&svg));
         if current || !is_safe_id(&source.id) || !is_allowed_icon_url(&source.url) {
             continue;
         }

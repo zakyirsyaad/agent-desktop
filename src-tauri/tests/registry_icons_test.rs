@@ -278,3 +278,34 @@ fn every_shipped_icon_is_a_small_svg() {
     }
     assert_eq!(icon_data_urls(None, BUNDLED_ICONS).len(), icons.len());
 }
+
+#[test]
+fn a_missing_cached_file_is_downloaded_again() {
+    let dir = TempDir::new("missing");
+    let sources = [source("a", "1.0.0", URL_A)];
+    refresh_icons(&dir.0, &sources, |_| Ok(SVG.into()));
+    std::fs::remove_file(dir.0.join("a.svg")).unwrap();
+    let calls = RefCell::new(Vec::new());
+
+    assert!(refresh_icons(&dir.0, &sources, recording(&calls, Ok(SVG))));
+
+    assert_eq!(calls.borrow().len(), 1);
+    assert_eq!(
+        icon_data_urls(Some(&dir.0), "{}").get("a"),
+        Some(&data_url(SVG))
+    );
+}
+
+#[test]
+fn a_cached_file_that_is_not_svg_is_downloaded_again() {
+    let dir = TempDir::new("notsvg");
+    let sources = [source("a", "1.0.0", URL_A)];
+    refresh_icons(&dir.0, &sources, |_| Ok(SVG.into()));
+    std::fs::write(dir.0.join("a.svg"), "<html>").unwrap();
+    let calls = RefCell::new(Vec::new());
+
+    assert!(refresh_icons(&dir.0, &sources, recording(&calls, Ok(SVG))));
+
+    assert_eq!(calls.borrow().len(), 1);
+    assert_eq!(std::fs::read_to_string(dir.0.join("a.svg")).unwrap(), SVG);
+}
