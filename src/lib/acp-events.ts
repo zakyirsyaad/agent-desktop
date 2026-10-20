@@ -49,15 +49,18 @@ function toToolStatus(status: unknown): ToolExecution['status'] | undefined {
 }
 
 /** The reply new agent output belongs to: the last agent message, unless it is finished. */
-function openReplyIndex(messages: readonly ChatMessage[]): number {
+export function openReplyIndex(messages: readonly ChatMessage[]): number {
   const last = messages[messages.length - 1];
   const isOpen =
-    last?.role === 'agent' && !last.isComplete && (!last.actionCard || last.actionCard.status === 'pending');
+    last?.role === 'agent' &&
+    !last.isComplete &&
+    (!last.actionCard || last.actionCard.status === 'pending') &&
+    (!last.elicitation || last.elicitation.status === 'pending');
   return isOpen ? messages.length - 1 : -1;
 }
 
 /** Applies `change` to the open reply, creating one when needed. */
-function withOpenReply(
+export function withOpenReply(
   messages: readonly ChatMessage[],
   ctx: AcpReducerContext,
   change: (reply: ChatMessage) => ChatMessage,

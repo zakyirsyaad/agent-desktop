@@ -224,4 +224,61 @@ export interface ChatMessage {
   isComplete?: boolean;
   /** Files the user sent with the message (ACP agents). */
   attachments?: string[];
+  /** A question the agent asked the user (ACP elicitation); never holds the answer. */
+  elicitation?: ElicitationCard;
+}
+
+export interface ElicitationChoice {
+  value: string;
+  title: string;
+  description?: string;
+}
+
+export type ElicitationFieldKind =
+  | { type: 'text'; format?: string; minLength?: number; maxLength?: number }
+  | { type: 'number'; integer: boolean; minimum?: number; maximum?: number }
+  | { type: 'boolean' }
+  | { type: 'select'; options: ElicitationChoice[] }
+  | { type: 'multiSelect'; options: ElicitationChoice[]; minItems?: number; maxItems?: number }
+  | { type: 'unsupported'; rawType: string };
+
+export interface ElicitationField {
+  name: string;
+  title?: string;
+  description?: string;
+  required: boolean;
+  kind: ElicitationFieldKind;
+  default?: unknown;
+}
+
+export type ElicitationStatus =
+  | 'pending'
+  | 'submitted'
+  | 'declined'
+  | 'dismissed'
+  | 'opened'
+  | 'completed'
+  | 'unanswered';
+
+/** What the user answered; sent to the agent and never stored in the transcript. */
+export type ElicitationAnswer =
+  | { action: 'accept'; content?: Record<string, unknown> }
+  | { action: 'decline' }
+  | { action: 'cancel' };
+
+/** An agent's question in the transcript. Once answered it keeps no fields, url or typed values. */
+export interface ElicitationCard {
+  key: string;
+  sessionId: string;
+  mode: 'form' | 'url';
+  message: string;
+  status: ElicitationStatus;
+  timestamp: number;
+  fields?: ElicitationField[];
+  url?: string;
+  host?: string;
+  warnings?: ('punycode' | 'ip-address' | 'user-info')[];
+  blocked?: string;
+  /** Field errors from the last refused submit, by field name. */
+  errors?: Record<string, string>;
 }
