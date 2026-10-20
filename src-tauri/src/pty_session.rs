@@ -174,6 +174,17 @@ impl PtySessionManager {
                 .sessions
                 .lock()
                 .map_err(|e| format!("Lock poisoned: {}", e))?;
+            // Checked under the same lock as the insert: replacing a running
+            // session would orphan its process.
+            if sessions.contains_key(session_id) {
+                drop(sessions);
+                if let Ok(mut child) = shared_child.lock() {
+                    let _ = child.kill();
+                    // No reader thread waits on this one: reap it here.
+                    let _ = child.wait();
+                }
+                return Err(format!("Session '{}' is already running", session_id));
+            }
             sessions.insert(session_id.to_string(), handle);
         }
 
@@ -373,6 +384,14 @@ impl PtySessionManager {
             .collect();
         roots.sort();
         roots
+    }
+
+    /// Whether a session with this id is running.
+    pub fn has_session(&self, session_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .map(|sessions| sessions.contains_key(session_id))
+            .unwrap_or(false)
     }
 
     /// Kills the running child process and cleans up the session.

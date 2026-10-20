@@ -88,7 +88,7 @@ describe("useAgentProbe", () => {
     expect(props.onAuthRequired.mock.calls[0]).toEqual([
       "qwen-code",
       CWD,
-      [{ id: "browser", name: "Sign in with a browser", needsSecret: false }],
+      [{ id: "browser", name: "Sign in with a browser", kind: "agent" }],
     ]);
     expect(props.onProbed).not.toHaveBeenCalled();
   });

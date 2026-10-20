@@ -257,17 +257,20 @@ const DENIED_ENV_KEYS: [&str; 13] = [
 
 /// Variable names must look like `^[A-Z_][A-Z0-9_]*$` and must not be denied.
 fn is_safe_env(env: &BTreeMap<String, String>) -> bool {
-    env.keys().all(|key| {
-        let mut chars = key.chars();
-        chars
-            .next()
-            .is_some_and(|c| c.is_ascii_uppercase() || c == '_')
-            && chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
-            && !DENIED_ENV_KEYS.contains(&key.as_str())
-            && !DENIED_ENV_PREFIXES
-                .iter()
-                .any(|prefix| key.starts_with(prefix))
-    })
+    env.keys().all(|key| is_safe_env_key(key))
+}
+
+/// One variable name that passes the `is_safe_env` rules.
+pub(crate) fn is_safe_env_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_uppercase() || c == '_')
+        && chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        && !DENIED_ENV_KEYS.contains(&key)
+        && !DENIED_ENV_PREFIXES
+            .iter()
+            .any(|prefix| key.starts_with(prefix))
 }
 
 /// `^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$`

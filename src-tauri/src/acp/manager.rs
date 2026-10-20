@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 
 use super::connection::{error_message, AcpConnection, ConnectionEvent, EventSink};
 use super::prompt_blocks::prompt_blocks;
+use super::terminal_auth::{terminal_method, SignInAttempts, TerminalMethodError};
 use crate::pty_session::validate_cwd;
 
 /// ACP protocol version this client speaks.
@@ -36,6 +37,9 @@ pub struct AcpLaunch {
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
 }
+
+/// What `authenticate` says for a method that signs in through a terminal.
+const TERMINAL_METHOD_MESSAGE: &str = "This sign-in runs in a terminal";
 
 /// Why opening a session failed: the agent answered with an error (its
 /// message says it all), or the process or transport failed (the agent's
@@ -102,6 +106,8 @@ pub struct AcpManager {
     routes: Arc<Mutex<Routes>>,
     sink: Arc<AcpEventSink>,
     next_connection_key: AtomicU64,
+    /// Terminal sign-ins still starting, so a cancel can end them.
+    sign_ins: SignInAttempts,
 }
 
 impl AcpManager {
@@ -110,7 +116,13 @@ impl AcpManager {
             routes: Arc::new(Mutex::new(Routes::default())),
             sink: Arc::new(sink),
             next_connection_key: AtomicU64::new(1),
+            sign_ins: SignInAttempts::default(),
         }
+    }
+
+    /// The terminal sign-ins being started.
+    pub fn sign_ins(&self) -> &SignInAttempts {
+        &self.sign_ins
     }
 
     /// Starts an agent process, initializes ACP and opens a session in `cwd`.
@@ -213,7 +225,10 @@ impl AcpManager {
     ) -> Result<(), String> {
         validate_cwd(cwd)?;
         let connection = spawn_unrouted(cwd, launch, |_, _| {})?;
-        let result = initialize(&connection).and_then(|_| {
+        let result = initialize(&connection).and_then(|init| {
+            if is_terminal_method(&init, method_id) {
+                return Err(TERMINAL_METHOD_MESSAGE.to_string());
+            }
             connection.request(
                 "authenticate",
                 json!({ "methodId": method_id }),
@@ -562,6 +577,15 @@ pub(super) fn open_request(
     }
 }
 
+/// Whether `method_id` is a `type: "terminal"` method, which only a terminal can run.
+fn is_terminal_method(init: &Value, method_id: &str) -> bool {
+    // Refused or not, a method found here is one only a terminal can run.
+    !matches!(
+        terminal_method(init, method_id),
+        Err(TerminalMethodError::NotOffered)
+    )
+}
+
 /// The sign-in methods `initialize` reported, always as a JSON array.
 pub(super) fn auth_methods_of(init: &Value) -> Value {
     match &init["authMethods"] {
@@ -618,7 +642,7 @@ pub(super) fn initialize(connection: &AcpConnection) -> Result<Value, String> {
         "initialize",
         json!({
             "protocolVersion": PROTOCOL_VERSION,
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
+            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "auth": { "terminal": true } },
             "clientInfo": { "name": "zorvo", "version": env!("CARGO_PKG_VERSION") },
         }),
         HANDSHAKE_TIMEOUT,
