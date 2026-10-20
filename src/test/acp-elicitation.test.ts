@@ -53,9 +53,10 @@ describe('toElicitationCard', () => {
     const result = toElicitationCard('s-1', 'k1', formRequest, 5);
 
     expect(result).toMatchObject({ key: 'k1', sessionId: 's-1', mode: 'form', message: 'Which date?', status: 'pending', timestamp: 5 });
-    expect(result?.fields?.map((f) => f.name)).toEqual(['when', 'tags']);
+    expect(result?.fields?.map((f) => f.name)).toEqual(['when', 'weird', 'tags']);
     expect(result?.fields?.[0]).toEqual({ name: 'when', title: 'When', required: true, kind: { type: 'text', format: 'date' } });
-    expect(result?.fields?.[1].kind).toEqual({ type: 'multiSelect', options: [{ value: 'a', title: 'A' }], minItems: 1 });
+    expect(result?.fields?.[1].kind).toEqual({ type: 'unsupported', rawType: 'mystery' });
+    expect(result?.fields?.[2].kind).toEqual({ type: 'multiSelect', options: [{ value: 'a', title: 'A' }], minItems: 1 });
   });
 
   it('builds a card from a url payload', () => {
@@ -72,6 +73,29 @@ describe('toElicitationCard', () => {
     expect(toElicitationCard('s-1', 'k', { mode: 'form', message: 'x', fields: 'nope' }, 1)).toBeNull();
     expect(toElicitationCard('s-1', 'k', { mode: 'url', message: 'x' }, 1)).toBeNull();
     expect(toElicitationCard('s-1', 'k', null, 1)).toBeNull();
+  });
+
+  const withField = (field: unknown) => toElicitationCard('s-1', 'k', { mode: 'form', message: 'm', fields: [field] }, 1);
+
+  it('returns null when a field has no usable name', () => {
+    expect(withField({ required: true, kind: { type: 'boolean' } })).toBeNull();
+    expect(withField({ name: 3, kind: { type: 'boolean' } })).toBeNull();
+    expect(withField('nope')).toBeNull();
+  });
+
+  it('keeps a field with a malformed option list as unsupported', () => {
+    const result = withField({
+      name: 'pick',
+      required: true,
+      kind: { type: 'select', options: [{ value: 'a', title: 'A' }, { value: 1 }] },
+    });
+
+    expect(result?.fields?.[0]).toMatchObject({ name: 'pick', required: true, kind: { type: 'unsupported', rawType: 'select' } });
+  });
+
+  it('gives an unsupported kind without rawType the rawType invalid', () => {
+    expect(withField({ name: 'x', kind: { type: 'unsupported' } })?.fields?.[0].kind).toEqual({ type: 'unsupported', rawType: 'invalid' });
+    expect(withField({ name: 'x', kind: 'bad' })?.fields?.[0].kind).toEqual({ type: 'unsupported', rawType: 'invalid' });
   });
 });
 

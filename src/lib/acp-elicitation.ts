@@ -50,8 +50,13 @@ function toChoices(options: unknown): ElicitationChoice[] | undefined {
   return choices;
 }
 
-function toKind(kind: unknown): ElicitationFieldKind | undefined {
-  if (!isObject(kind)) return undefined;
+/** A kind that could not be read; the card blocks Submit rather than hide the field. */
+const unreadable = (rawType: string): ElicitationFieldKind => ({ type: 'unsupported', rawType });
+
+/** Never undefined: anything unparseable becomes an `unsupported` kind. */
+function toKind(kind: unknown): ElicitationFieldKind {
+  if (!isObject(kind)) return unreadable('invalid');
+  const rawType = str(kind.type) ?? 'invalid';
   switch (kind.type) {
     case 'text':
       return defined({
@@ -71,34 +76,32 @@ function toKind(kind: unknown): ElicitationFieldKind | undefined {
       return { type: 'boolean' };
     case 'select': {
       const options = toChoices(kind.options);
-      return options ? { type: 'select', options } : undefined;
+      return options ? { type: 'select', options } : unreadable(rawType);
     }
     case 'multiSelect': {
       const options = toChoices(kind.options);
       return options
         ? defined({ type: 'multiSelect' as const, options, minItems: num(kind.minItems), maxItems: num(kind.maxItems) })
-        : undefined;
+        : unreadable(rawType);
     }
-    case 'unsupported': {
-      const rawType = str(kind.rawType);
-      return rawType === undefined ? undefined : { type: 'unsupported', rawType };
-    }
+    case 'unsupported':
+      return unreadable(str(kind.rawType) ?? 'invalid');
     default:
-      return undefined;
+      return unreadable(rawType);
   }
 }
 
+/** A field, or undefined when it has no usable name (the whole card is then malformed). */
 function toField(field: unknown): ElicitationField | undefined {
   if (!isObject(field)) return undefined;
   const name = str(field.name);
-  const kind = toKind(field.kind);
-  if (!name || !kind) return undefined;
+  if (!name) return undefined;
   return defined({
     name,
     title: str(field.title),
     description: str(field.description),
     required: field.required === true,
-    kind,
+    kind: toKind(field.kind),
     default: field.default ?? undefined,
   });
 }
@@ -116,8 +119,9 @@ export function toElicitationCard(
   const base = { key, sessionId, message, status: 'pending' as const, timestamp: now };
   if (request.mode === 'form') {
     if (!Array.isArray(request.fields)) return null;
-    const fields = request.fields.flatMap((f) => toField(f) ?? []);
-    return { ...base, mode: 'form', fields };
+    const fields = request.fields.map(toField);
+    if (fields.some((f) => f === undefined)) return null;
+    return { ...base, mode: 'form', fields: fields as ElicitationField[] };
   }
   if (request.mode === 'url') {
     const url = str(request.url);
