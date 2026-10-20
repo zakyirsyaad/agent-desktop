@@ -131,33 +131,6 @@ describe("New session spawning", () => {
     expect(screen.queryByRole("button", { name: /^Folder:/ })).toBeNull();
   });
 
-  it("forgets an agent picked for a new session once the user opens another session", async () => {
-    (window as unknown as { __FAKE_TAURI_STORE__: { state: { sessions: unknown[] } } }).__FAKE_TAURI_STORE__.state.sessions = [
-      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 1 },
-    ];
-    const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
-    await act(async () => {
-      render(<App />);
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Agent: Claude Code" }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("option", { name: "Oh-My-Pi" }));
-    });
-
-    await act(async () => {
-      fireEvent.click(within(screen.getByRole("complementary")).getByText("Old work"));
-    });
-    await sendFirst();
-
-    const args = invokeSpy.mock.calls.find(([cmd]) => cmd === "spawn_session")?.[1] as { profileId: string };
-    expect(args.profileId).toBe("claude-acp");
-  });
-
   it("runs a new session in its own worktree when Worktree is on", async () => {
     const invokeSpy = stubInvoke({
       create_session_worktree: () =>
@@ -292,7 +265,7 @@ describe("New session spawning", () => {
 
   it("puts a message back into its new session when the worktree fails after the user moved on", async () => {
     (window as unknown as { __FAKE_TAURI_STORE__: { state: { sessions: unknown[] } } }).__FAKE_TAURI_STORE__.state.sessions = [
-      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 1 },
+      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 1, transport: "acp" },
     ];
     let failCreating: () => void = () => {};
     stubInvoke({

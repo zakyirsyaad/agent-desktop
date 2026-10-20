@@ -295,29 +295,6 @@ describe("Installing an agent from the new-session draft", () => {
     expect(screen.getByRole("region", { name: "Install Codex" })).toBeDefined();
   });
 
-  it("shows no Install panel over an ended session that cannot continue", async () => {
-    fakeStore().state.sessions = [
-      {
-        id: "s-old",
-        name: "Session #4",
-        profileId: "omp",
-        cwd: "/Users/test/developer/ai-perpetual-trading",
-        status: "terminated",
-        createdAt: 1,
-        transport: "pty",
-      },
-    ];
-    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-      cmd === "get_agent_profiles" ? Promise.resolve([structuredClone(codex)]) : fakeTauriInvoke(cmd, args)
-    );
-    await act(async () => {
-      render(<App />);
-    });
-
-    await waitFor(() => expect(screen.getAllByText("Session #4").length).toBeGreaterThan(0));
-    expect(screen.queryByRole("region", { name: "Install Codex" })).toBeNull();
-  });
-
   it("offers Install over an ended chat whose agent is not installed", async () => {
     const endedChat = (id: string, name: string, profileId: string) => ({
       id,

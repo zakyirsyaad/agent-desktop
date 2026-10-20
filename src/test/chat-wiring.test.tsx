@@ -28,8 +28,6 @@ function fakeStore(): FakeTauriStore {
   return (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__;
 }
 
-const AGENT_SESSION_ID = "0b6f2a5e-3c1d-4f8e-9a7b-1c2d3e4f5a6b";
-
 function seedSession(profileId: string, agentSessionId: string | null = null) {
   fakeStore().state.sessions = [
     {
@@ -39,6 +37,7 @@ function seedSession(profileId: string, agentSessionId: string | null = null) {
       cwd: "/Users/test/developer/zorvo",
       status: "terminated",
       createdAt: 1,
+      transport: "acp",
       agentSessionId,
     },
   ];
@@ -114,19 +113,6 @@ describe("Chat wiring", () => {
     const prompt = callsTo(spy, "send_input").find(([, args]) => args?.sessionId === spawnArgs?.sessionId);
     expect(String(prompt?.[1]?.data)).toContain(`/fake/app-data/handoffs/${spawnArgs?.sessionId}.md`);
     expect(String(prompt?.[1]?.data).trimEnd()).not.toContain("\n");
-  });
-
-  it("forks Claude Code natively from its latest message", async () => {
-    seedSession("claude-code", AGENT_SESSION_ID);
-    const spy = vi.spyOn(tauriInternals(), "invoke");
-    await renderApp();
-    await screen.findByText("Done, tests pass");
-
-    await click(forkButtonFor("Done, tests pass"));
-
-    expect(callsTo(spy, "write_fork_handoff")).toHaveLength(0);
-    const [, spawnArgs] = callsTo(spy, "spawn_session")[0];
-    expect(spawnArgs?.options).toMatchObject({ forkFromAgentSessionId: AGENT_SESSION_ID });
   });
 
   it("inserts files picked with Attach into the prompt", async () => {

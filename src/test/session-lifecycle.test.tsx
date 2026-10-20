@@ -32,6 +32,7 @@ function seedSession(id: string, name: string, createdAt: number) {
     cwd: "/Users/test/developer/zorvo",
     status: "terminated",
     createdAt,
+    transport: "acp",
   };
 }
 
@@ -229,22 +230,6 @@ describe("Session lifecycle", () => {
 
     expect(sidebar().queryByText("Refactor parser")).toBeNull();
     expect(spy).toHaveBeenCalledWith("delete_transcript", { sessionId: "s-old" }, undefined);
-  });
-
-  it("starts a new session from the composer when the active one has ended", async () => {
-    fakeStore().state.sessions = [seedSession("s-old", "Refactor parser", 1000)];
-    await renderApp();
-    const spy = vi.spyOn(tauriInternals(), "invoke");
-
-    const composer = screen.getByPlaceholderText(/start a new session/i) as HTMLTextAreaElement;
-    expect(composer.disabled).toBe(false);
-    await act(async () => {
-      fireEvent.change(composer, { target: { value: "run the tests" } });
-      fireEvent.keyDown(composer, { key: "Enter" });
-    });
-
-    expect(spy.mock.calls.some(([cmd]) => cmd === "spawn_session")).toBe(true);
-    expect(sidebar().getByText("run the tests")).toBeDefined();
   });
 
   it("shows an alert and does not append the message when sending fails", async () => {

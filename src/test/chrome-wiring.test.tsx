@@ -15,8 +15,8 @@ function fakeStore(): FakeTauriStore {
 
 function seedSessions() {
   fakeStore().state.sessions = [
-    { id: "s-a", name: "Alpha work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 1 },
-    { id: "s-b", name: "Beta work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 2 },
+    { id: "s-a", name: "Alpha work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 1, transport: "acp" },
+    { id: "s-b", name: "Beta work", profileId: "claude-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 2, transport: "acp" },
   ];
 }
 
@@ -82,7 +82,7 @@ describe("Window chrome wiring", () => {
 
   it("keeps Files for a session whose folder has left the recents", async () => {
     fakeStore().state.sessions = [
-      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/old-project", status: "terminated", createdAt: 1 },
+      { id: "s-old", name: "Old work", profileId: "claude-code", cwd: "/Users/test/developer/old-project", status: "terminated", createdAt: 1, transport: "acp" },
     ];
     const spy = vi.spyOn(tauriInternals(), "invoke");
     await renderApp();
