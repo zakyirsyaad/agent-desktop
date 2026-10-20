@@ -52,7 +52,8 @@ import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
 import { useDraftInstall } from "./hooks/useDraftInstall";
 import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
 import { Onboarding, type OnboardingResult } from "./components/Onboarding";
-import { SettingsPanel } from "./components/SettingsPanel";
+import { AppSettingsDialog } from "./components/AppSettingsDialog";
+import { useAgentCatalog } from "./hooks/useAgentCatalog";
 import { ProfileFooter } from "./components/ProfileFooter";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useUserProfile } from "./hooks/useUserProfile";
@@ -108,10 +109,11 @@ export default function App() {
   const [ptyOutput] = useState(createPtyOutputStore);
 
   const reportError = useCallback((message: string) => setNotice(message), []);
-  const { state, isLoaded, updateState } = usePersistedState(reportError);
+  const { state, isLoaded, updateState, saveNow } = usePersistedState(reportError);
   useAppearance(state.settings.appearance, isLoaded, reportError);
   const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
   const { agents, isLoaded: areAgentsLoaded, refresh: refreshAgents } = useAgentProfiles(reportError);
+  const agentCatalog = useAgentCatalog();
   // Installed registry agents join the ones in use, and each one's version is recorded.
   useEffect(() => {
     if (!isLoaded || agents.length === 0) return;
@@ -796,20 +798,18 @@ export default function App() {
           />
         )}
       </section>
-      {isSettingsOpen && (
-        <SettingsPanel
-          appearance={state.settings.appearance}
-          onChangeAppearance={(appearance) => updateSettings({ appearance })}
-          agents={agentsInUse}
-          defaultAgentId={state.settings.defaultAgentId}
-          recentFolders={workspaces}
-          onChangeDefaultAgent={(defaultAgentId) => updateSettings({ defaultAgentId })}
-          onRemoveRecentFolder={removeFolder}
-          onRunOnboarding={handleRunOnboarding}
-          onRecheckAgents={refreshAgents}
-          onClose={() => setIsSettingsOpen(false)}
-        />
-      )}
+      <AppSettingsDialog
+        isOpen={isSettingsOpen}
+        persisted={{ state, updateState, saveNow }}
+        agents={agents}
+        refreshAgents={refreshAgents}
+        catalog={agentCatalog}
+        stopSession={acp.stop}
+        recentFolders={workspaces}
+        onRemoveRecentFolder={removeFolder}
+        onRunOnboarding={handleRunOnboarding}
+        onClose={() => setIsSettingsOpen(false)}
+      />
     </main>
   );
 }

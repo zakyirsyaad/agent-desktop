@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { Folder, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
-import { RECHECK_ERROR, readyAgents, type AgentSummary } from "../lib/agent-readiness";
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Folder, RotateCcw, Trash2, X } from "lucide-react";
+import { readyAgents, type AgentSummary } from "../lib/agent-readiness";
 import type { Appearance } from "../lib/appearance";
 import { Button } from "./ui/Button";
 import type { FolderOption } from "./onboarding/types";
@@ -14,10 +14,21 @@ export interface SettingsPanelProps {
   onChangeDefaultAgent: (agentId: string) => void;
   onRemoveRecentFolder: (path: string) => void;
   onRunOnboarding: () => void;
-  /** Detects the agents again, after one was installed while the app runs. */
-  onRecheckAgents?: () => Promise<void>;
   onClose: () => void;
+  /** The tab shown when the panel opens; General unless asked. */
+  initialTab?: SettingsTab;
+  /** The Agents tab's content: the agent catalog. */
+  agentsPanel: ReactNode;
+  /** Agents in use with an update, counted on the Agents tab. */
+  updateCount: number;
 }
+
+export type SettingsTab = "general" | "agents";
+
+const TABS: readonly { id: SettingsTab; label: string }[] = [
+  { id: "general", label: "General" },
+  { id: "agents", label: "Agents" },
+];
 
 const SECTION_HEADING =
   "mb-2 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle";
@@ -68,7 +79,78 @@ function RecentFolderList({ folders, onRemove }: RecentFolderListProps) {
   );
 }
 
-export function SettingsPanel({
+interface SettingsTabsProps {
+  selected: SettingsTab;
+  onSelect: (tab: SettingsTab) => void;
+  idOf: (tab: SettingsTab, part: "tab" | "panel") => string;
+  updateCount: number;
+}
+
+/** The tab strip: a click picks a tab, Left and Right move between them (and wrap). */
+function SettingsTabs({ selected, onSelect, idOf, updateCount }: SettingsTabsProps) {
+  const tabRefs = useRef(new Map<SettingsTab, HTMLButtonElement>());
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    if (step === 0) return;
+    event.preventDefault();
+    const index = TABS.findIndex((tab) => tab.id === selected);
+    const next = TABS[(index + step + TABS.length) % TABS.length].id;
+    onSelect(next);
+    tabRefs.current.get(next)?.focus();
+  };
+
+  return (
+    <div role="tablist" aria-label="Settings sections" onKeyDown={handleKeyDown} className="flex gap-1 border-b border-border">
+      {TABS.map((tab) => {
+        const isSelected = tab.id === selected;
+        const count = tab.id === "agents" ? updateCount : 0;
+        return (
+          <button
+            key={tab.id}
+            ref={(element) => {
+              if (element) tabRefs.current.set(tab.id, element);
+              else tabRefs.current.delete(tab.id);
+            }}
+            type="button"
+            role="tab"
+            id={idOf(tab.id, "tab")}
+            aria-selected={isSelected}
+            aria-controls={idOf(tab.id, "panel")}
+            tabIndex={isSelected ? 0 : -1}
+            onClick={() => onSelect(tab.id)}
+            className={`-mb-px flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-2 text-xs font-medium transition-colors focus-ring ${
+              isSelected ? "border-primary text-fg" : "border-transparent text-fg-muted hover:text-fg-secondary"
+            }`}
+          >
+            {tab.label}
+            {count > 0 && (
+              <>
+                <span aria-hidden="true" className="rounded-full bg-primary px-1.5 text-[10px] leading-4 text-on-primary">
+                  {count}
+                </span>
+                <span className="sr-only">{`, ${count} ${count === 1 ? "update" : "updates"}`}</span>
+              </>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+interface GeneralTabProps {
+  appearance: Appearance;
+  onChangeAppearance: (appearance: Appearance) => void;
+  agents: readonly AgentSummary[];
+  defaultAgentId: string | null;
+  recentFolders: readonly FolderOption[];
+  onChangeDefaultAgent: (agentId: string) => void;
+  onRemoveRecentFolder: (path: string) => void;
+  onRunOnboarding: () => void;
+}
+
+function GeneralTab({
   appearance,
   onChangeAppearance,
   agents,
@@ -77,17 +159,81 @@ export function SettingsPanel({
   onChangeDefaultAgent,
   onRemoveRecentFolder,
   onRunOnboarding,
-  onRecheckAgents,
-  onClose,
-}: SettingsPanelProps) {
-  const [isChecking, setIsChecking] = useState(false);
-  // Shown here: the app's own notice sits behind this dialog.
-  const [checkError, setCheckError] = useState<string | null>(null);
-  const titleId = useId();
+}: GeneralTabProps) {
   const selectId = useId();
   const appearanceId = useId();
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const ready = readyAgents(agents);
+  return (
+    <div className="flex flex-col gap-5">
+      <section>
+        <label htmlFor={appearanceId} className={`block ${SECTION_HEADING}`}>
+          Appearance
+        </label>
+        <select
+          id={appearanceId}
+          value={appearance}
+          onChange={(event) => onChangeAppearance(event.target.value as Appearance)}
+          className="w-full rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-xs text-fg-secondary focus-ring"
+        >
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </section>
+
+      <section>
+        <label htmlFor={selectId} className={`block ${SECTION_HEADING}`}>
+          Default agent
+        </label>
+        {ready.length === 0 ? (
+          <p className="text-xs text-fg-subtle">No agents are installed yet.</p>
+        ) : (
+          <select
+            id={selectId}
+            value={defaultAgentId ?? ""}
+            onChange={(event) => onChangeDefaultAgent(event.target.value)}
+            className="w-full rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-xs text-fg-secondary focus-ring"
+          >
+            {defaultAgentId === null && (
+              <option value="" disabled>
+                Choose an agent
+              </option>
+            )}
+            {ready.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </section>
+
+      <section>
+        <h3 className={SECTION_HEADING}>Recent folders</h3>
+        <RecentFolderList folders={recentFolders} onRemove={onRemoveRecentFolder} />
+      </section>
+
+      <footer className="flex justify-end border-t border-border pt-4">
+        <Button onClick={onRunOnboarding} icon={<RotateCcw size={13} aria-hidden="true" />}>
+          Run setup again
+        </Button>
+      </footer>
+    </div>
+  );
+}
+
+export function SettingsPanel({
+  onClose,
+  initialTab = "general",
+  agentsPanel,
+  updateCount,
+  ...general
+}: SettingsPanelProps) {
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
+  const titleId = useId();
+  const tabsId = useId();
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const idOf = (id: SettingsTab, part: "tab" | "panel") => `${tabsId}-${id}-${part}`;
   useEscapeKey(onClose);
 
   // Move keyboard focus into the modal when it opens.
@@ -101,7 +247,7 @@ export function SettingsPanel({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex w-full max-w-md flex-col gap-5 rounded-xl border border-border bg-surface-1 p-5 text-fg-secondary shadow-dialog"
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col gap-4 rounded-xl border border-border bg-surface-1 p-5 text-fg-secondary shadow-dialog"
       >
         <header className="flex items-center justify-between">
           <h2 id={titleId} className="text-base font-semibold text-fg">
@@ -118,81 +264,16 @@ export function SettingsPanel({
           </button>
         </header>
 
-        <section>
-          <label htmlFor={appearanceId} className={`block ${SECTION_HEADING}`}>
-            Appearance
-          </label>
-          <select
-            id={appearanceId}
-            value={appearance}
-            onChange={(event) => onChangeAppearance(event.target.value as Appearance)}
-            className="w-full rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-xs text-fg-secondary focus-ring"
-          >
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </section>
+        <SettingsTabs selected={tab} onSelect={setTab} idOf={idOf} updateCount={updateCount} />
 
-        <section>
-          <label htmlFor={selectId} className={`block ${SECTION_HEADING}`}>
-            Default agent
-          </label>
-          {ready.length === 0 ? (
-            <p className="text-xs text-fg-subtle">No agents are installed yet.</p>
-          ) : (
-            <select
-              id={selectId}
-              value={defaultAgentId ?? ""}
-              onChange={(event) => onChangeDefaultAgent(event.target.value)}
-              className="w-full rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-xs text-fg-secondary focus-ring"
-            >
-              {defaultAgentId === null && (
-                <option value="" disabled>
-                  Choose an agent
-                </option>
-              )}
-              {ready.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-          )}
-          {onRecheckAgents && (
-            <Button
-              aria-label="Check again for installed agents"
-              disabled={isChecking}
-              onClick={() => {
-                setIsChecking(true);
-                setCheckError(null);
-                onRecheckAgents()
-                  .catch(() => setCheckError(RECHECK_ERROR))
-                  .finally(() => setIsChecking(false));
-              }}
-              icon={<RefreshCw size={12} className={isChecking ? "animate-spin" : undefined} aria-hidden="true" />}
-              className="mt-2"
-            >
-              Check again
-            </Button>
-          )}
-          {checkError && (
-            <p role="alert" className="mt-1.5 text-[11px] text-danger">
-              {checkError}
-            </p>
-          )}
-        </section>
-
-        <section>
-          <h3 className={SECTION_HEADING}>Recent folders</h3>
-          <RecentFolderList folders={recentFolders} onRemove={onRemoveRecentFolder} />
-        </section>
-
-        <footer className="flex justify-end border-t border-border pt-4">
-          <Button onClick={onRunOnboarding} icon={<RotateCcw size={13} aria-hidden="true" />}>
-            Run setup again
-          </Button>
-        </footer>
+        <div
+          role="tabpanel"
+          id={idOf(tab, "panel")}
+          aria-labelledby={idOf(tab, "tab")}
+          className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1"
+        >
+          {tab === "general" ? <GeneralTab {...general} /> : agentsPanel}
+        </div>
       </div>
     </div>
   );

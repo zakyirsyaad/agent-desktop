@@ -6,7 +6,14 @@ const PROGRESS_BAR =
   "h-1.5 w-full appearance-none overflow-hidden rounded-full bg-surface-2 " +
   "[&::-webkit-progress-bar]:bg-surface-2 [&::-webkit-progress-value]:bg-primary";
 
-export function InstallProgressLine({ progress, onCancel }: { progress: InstallProgress | null; onCancel: () => void }) {
+export interface InstallProgressLineProps {
+  progress: InstallProgress | null;
+  onCancel: () => void;
+  /** What the job is, for the line shown before the first progress report. */
+  action?: "install" | "update";
+}
+
+export function InstallProgressLine({ progress, onCancel, action = "install" }: InstallProgressLineProps) {
   return (
     <div className="mt-2 space-y-1.5">
       {progress && (
@@ -19,7 +26,7 @@ export function InstallProgressLine({ progress, onCancel }: { progress: InstallP
       )}
       <div className="flex items-center justify-between gap-3">
         <p className="text-fg-muted">
-          {progress ? describePhase(progress.phase, progress.name) : "Starting the install…"}
+          {progress ? describePhase(progress.phase, progress.name) : `Starting the ${action}…`}
         </p>
         <Button onClick={onCancel} className="shrink-0">
           Cancel

@@ -1,0 +1,89 @@
+import { invoke } from '@tauri-apps/api/core';
+import { startInstall, startUpdate } from '../lib/agent-installs';
+import { withAgentAdded, withAgentRemoved } from '../lib/agent-catalog';
+import { enabledAgentIds } from '../lib/enabled-agents';
+import { patchSessionIn } from '../lib/session-helpers';
+import type { PersistedStateHandle } from './usePersistedState';
+import type { AgentProfile, Session, Settings } from '../types';
+
+export interface AgentCatalogActions {
+  /** Puts the agent in use, and installs it when its profile is not ready to run. */
+  addAgent: (id: string) => void;
+  /** Updates the agent; on success records and saves its version, then reloads profiles and catalog. */
+  updateAgent: (id: string) => void;
+  /** Stops the agent's running sessions, takes it out of use and deletes Zorvo's copy of it. */
+  removeAgent: (id: string) => Promise<void>;
+  runningSessionCount: (id: string) => number;
+}
+
+export interface AgentCatalogActionsArgs {
+  updateState: PersistedStateHandle['updateState'];
+  saveNow: () => Promise<void>;
+  agents: readonly AgentProfile[];
+  sessions: readonly Session[];
+  /** The ACP engine's stop: resolves false when the agent could not be stopped (already reported). */
+  stopSession: (sessionId: string) => Promise<boolean>;
+  refreshAgents: () => Promise<void>;
+  reloadCatalog: () => Promise<void>;
+}
+
+const ignore = () => {
+  // A failed reload is reported where it happens: the profiles' notice, the catalog's own error.
+};
+
+/** What the catalog's Add, Update and Remove do to the saved settings, the sessions and the backend. */
+export function useAgentCatalogActions({
+  updateState,
+  saveNow,
+  agents,
+  sessions,
+  stopSession,
+  refreshAgents,
+  reloadCatalog,
+}: AgentCatalogActionsArgs): AgentCatalogActions {
+  const updateSettings = (change: (settings: Settings) => Settings) =>
+    updateState((prev) => ({ ...prev, settings: change(prev.settings) }));
+
+  const runningSessionsOf = (id: string) =>
+    sessions.filter((session) => session.profileId === id && session.status === 'running');
+
+  const addAgent = (id: string) => {
+    updateSettings((settings) => withAgentAdded(settings, id, enabledAgentIds(settings)));
+    const profile = agents.find((agent) => agent.id === id);
+    if (profile && profile.availability !== 'ready') startInstall(id);
+  };
+
+  const recordUpdate = async (id: string, version: string) => {
+    updateSettings((settings) => ({ ...settings, agentVersions: { ...settings.agentVersions, [id]: version } }));
+    await saveNow();
+    await Promise.all([refreshAgents().catch(ignore), reloadCatalog()]);
+  };
+
+  const updateAgent = (id: string) => {
+    // A refused update emits no `agent-profiles-changed`, so the catalog is read again here.
+    startUpdate(id, (version) => void recordUpdate(id, version), () => void reloadCatalog());
+  };
+
+  const stopRunningSessions = (id: string) =>
+    Promise.all(
+      runningSessionsOf(id).map(async (session) => {
+        if (await stopSession(session.id)) {
+          updateState((prev) => patchSessionIn(prev, session.id, { status: 'terminated', endedAt: Date.now() }));
+        }
+      }),
+    );
+
+  const removeAgent = async (id: string) => {
+    await stopRunningSessions(id);
+    updateSettings((settings) => withAgentRemoved(settings, id, enabledAgentIds(settings)));
+    // The backend keeps the prerequisites the agents still in use need, read from the saved state.
+    await saveNow();
+    try {
+      await invoke('remove_agent_install', { agentId: id });
+    } catch (error) {
+      throw new Error(`Could not delete Zorvo's copy: ${String(error)}`);
+    }
+  };
+
+  return { addAgent, updateAgent, removeAgent, runningSessionCount: (id) => runningSessionsOf(id).length };
+}

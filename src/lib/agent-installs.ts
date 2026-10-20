@@ -87,26 +87,34 @@ function ensureProgressListener(): Promise<UnlistenFn> {
  * first phase at once, so the install starts only once the progress listener is attached.
  */
 export function startInstall(agentId: string): void {
-  startJob(agentId, 'install', () => {});
+  startJob(agentId, 'install', NO_CALLBACKS);
 }
 
 /**
  * Starts updating an installed agent, unless a job for it is already running. Same entry,
- * progress and cancel handling as an install; `onUpdated` gets the version now installed.
+ * progress and cancel handling as an install; `onUpdated` gets the version now installed,
+ * and `onFailed` runs when the backend refused or stopped the update.
  */
-export function startUpdate(agentId: string, onUpdated: (version: string) => void): void {
-  startJob(agentId, 'update', onUpdated);
+export function startUpdate(agentId: string, onUpdated: (version: string) => void, onFailed: () => void = () => {}): void {
+  startJob(agentId, 'update', { onDone: onUpdated, onFailed });
 }
 
-function startJob(agentId: string, action: InstallEntry['action'], onDone: (version: string) => void): void {
+interface JobCallbacks {
+  onDone: (version: string) => void;
+  onFailed: () => void;
+}
+
+const NO_CALLBACKS: JobCallbacks = { onDone: () => {}, onFailed: () => {} };
+
+function startJob(agentId: string, action: InstallEntry['action'], callbacks: JobCallbacks): void {
   if (installEntryOf(agentId).status === 'installing') return;
   lastAttempt += 1;
   const attempt = lastAttempt;
   setEntry(agentId, { status: 'installing', progress: null, error: null, action, attempt });
-  void ensureProgressListener().then(() => runJob(agentId, attempt, action, onDone));
+  void ensureProgressListener().then(() => runJob(agentId, attempt, action, callbacks));
 }
 
-function runJob(agentId: string, attempt: number, action: InstallEntry['action'], onDone: (version: string) => void): void {
+function runJob(agentId: string, attempt: number, action: InstallEntry['action'], { onDone, onFailed }: JobCallbacks): void {
   if (cancelledAttempts.delete(attempt)) {
     // Cancelled while the listener attached: the backend never heard of it.
     settle(agentId, attempt, () => ({ ...IDLE_INSTALL, attempt }));
@@ -127,6 +135,7 @@ function runJob(agentId: string, attempt: number, action: InstallEntry['action']
             ? { ...IDLE_INSTALL, attempt }
             : { status: 'failed', progress: null, error: message, action, attempt },
         );
+        onFailed();
       },
     )
     .finally(() => cancelledAttempts.delete(attempt));
