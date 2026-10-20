@@ -1,38 +1,12 @@
 import { Download, RotateCcw } from "lucide-react";
 import { Button } from "./ui/Button";
-import { useAgentInstall, type InstallProgress } from "../hooks/useAgentInstall";
-import { describePhase, describePlan } from "../lib/install-plan";
+import { InstallProgressLine } from "./InstallProgressLine";
+import { useAgentInstall } from "../hooks/useAgentInstall";
+import { describePlan } from "../lib/install-plan";
 import type { AgentProfile } from "../types";
 
 export interface AgentInstallPanelProps {
   agent: AgentProfile;
-}
-
-const PROGRESS_BAR =
-  "h-1.5 w-full appearance-none overflow-hidden rounded-full bg-surface-2 " +
-  "[&::-webkit-progress-bar]:bg-surface-2 [&::-webkit-progress-value]:bg-primary";
-
-function InstallProgressLine({ progress, onCancel }: { progress: InstallProgress | null; onCancel: () => void }) {
-  return (
-    <div className="mt-2 space-y-1.5">
-      {progress && (
-        <progress
-          aria-label={`${progress.name} download`}
-          className={PROGRESS_BAR}
-          max={progress.totalBytes || undefined}
-          value={progress.totalBytes ? progress.receivedBytes : undefined}
-        />
-      )}
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-fg-muted">
-          {progress ? describePhase(progress.phase, progress.name) : "Starting the install…"}
-        </p>
-        <Button onClick={onCancel} className="shrink-0">
-          Cancel
-        </Button>
-      </div>
-    </div>
-  );
 }
 
 /**

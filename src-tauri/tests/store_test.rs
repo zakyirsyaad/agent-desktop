@@ -675,6 +675,8 @@ fn settings_keep_enabled_removed_and_versioned_agents() {
     state.settings.removed_agents = vec!["codex-acp".to_string()];
     state.settings.agent_versions =
         BTreeMap::from([("claude-acp".to_string(), "0.89.1".to_string())]);
+    state.settings.notified_updates =
+        BTreeMap::from([("claude-acp".to_string(), "0.90.0".to_string())]);
 
     store.save_state(&state).expect("save state");
     let loaded = store.load_state().expect("load state");
@@ -685,6 +687,7 @@ fn settings_keep_enabled_removed_and_versioned_agents() {
         "\"enabledAgents\"",
         "\"removedAgents\"",
         "\"agentVersions\"",
+        "\"notifiedUpdates\"",
     ] {
         assert!(raw.contains(key), "{key} is saved in camelCase: {raw}");
     }
@@ -705,6 +708,7 @@ fn settings_keep_enabled_removed_and_versioned_agents() {
     assert_eq!(old.settings.enabled_agents, None);
     assert!(old.settings.removed_agents.is_empty());
     assert!(old.settings.agent_versions.is_empty());
+    assert!(old.settings.notified_updates.is_empty());
     fs::remove_dir_all(&old_root).ok();
 }
 
@@ -727,4 +731,44 @@ fn enabled_agent_ids_defaults_to_the_three_built_ins() {
     }
     .enabled_agent_ids()
     .is_empty());
+}
+
+#[test]
+fn concurrent_saves_never_share_the_scratch_file_and_leave_valid_json() {
+    const WRITERS: usize = 8;
+    const SAVES_PER_WRITER: usize = 40;
+    let root = unique_temp_root("concurrent-saves");
+    let store = AppStore::new(root.clone());
+
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..WRITERS)
+            .map(|writer| {
+                let store = &store;
+                scope.spawn(move || {
+                    // Sizes differ per writer, so an interleaved write would leave broken JSON.
+                    let mut state = populated_state();
+                    state.sessions = (0..writer * 50 + 1)
+                        .map(|n| session(&format!("w{writer}-{n}"), "terminated"))
+                        .collect();
+                    (0..SAVES_PER_WRITER)
+                        .map(|_| store.save_state(&state))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle
+                .join()
+                .expect("a writer panicked")
+                .expect("a save failed");
+        }
+    });
+
+    let raw = fs::read_to_string(root.join("state.json")).expect("state.json exists");
+    serde_json::from_str::<serde_json::Value>(&raw).expect("state.json is valid JSON");
+    assert!(
+        !root.join("state.json.tmp").exists(),
+        "no scratch file is left behind"
+    );
+    let _ = fs::remove_dir_all(&root);
 }

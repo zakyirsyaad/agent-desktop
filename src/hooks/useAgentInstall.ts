@@ -4,7 +4,9 @@ import {
   IDLE_INSTALL,
   installEntryOf,
   startInstall,
+  startUpdate,
   subscribeToInstalls,
+  type InstallEntry,
   type InstallProgress,
   type InstallStatus,
 } from '../lib/agent-installs';
@@ -15,7 +17,9 @@ export interface AgentInstall {
   status: InstallStatus;
   progress: InstallProgress | null;
   error: string | null;
+  action: InstallEntry['action'];
   install: () => void;
+  update: (onUpdated: (version: string) => void | Promise<void>) => void;
   cancel: () => void;
 }
 
@@ -32,8 +36,14 @@ export function useAgentInstall(agentId: string | undefined): AgentInstall {
   const install = useCallback(() => {
     if (agentId) startInstall(agentId);
   }, [agentId]);
+  const update = useCallback(
+    (onUpdated: (version: string) => void | Promise<void>) => {
+      if (agentId) startUpdate(agentId, onUpdated);
+    },
+    [agentId],
+  );
   const cancel = useCallback(() => {
     if (agentId) cancelInstall(agentId);
   }, [agentId]);
-  return { status: entry.status, progress: entry.progress, error: entry.error, install, cancel };
+  return { status: entry.status, progress: entry.progress, error: entry.error, action: entry.action, install, update, cancel };
 }

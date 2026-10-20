@@ -171,10 +171,11 @@ fn is_valid_entry(entry: &RegistryEntry) -> bool {
             }
             Distribution::Binary { platforms } => {
                 // Only this machine's target matters; others are kept but never run.
+                // An entry without one stays in the catalog, shown as unsupported.
                 is_exact_version(&entry.version)
                     && platforms
                         .get(current_platform())
-                        .is_some_and(|t| is_valid_binary_target(t) && is_safe_env(&t.env))
+                        .is_none_or(|t| is_valid_binary_target(t) && is_safe_env(&t.env))
             }
         }
 }

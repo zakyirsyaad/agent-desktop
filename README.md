@@ -61,8 +61,8 @@ Zorvo reads the [ACP agent registry](https://agentclientprotocol.com) and runs
 its agents as chats. Zorvo checks the registry in the background at startup
 when the last check is over a day old, and when you click **Check again** in
 Settings. Only the agents in use show up: Claude Code, Codex and Qwen Code by
-default, plus any registry agent that is already installed on your Mac. Adding
-other registry agents comes in a later release. A new version of an agent is
+default, plus any registry agent that is already installed on your Mac. Add
+other registry agents from Settings → Agents. A new version of an agent is
 offered a week after it was published, and never one the registry has
 withdrawn.
 
@@ -162,7 +162,7 @@ or runs commands.
 - **A few hosts, all named.** Zorvo's backend contacts these hosts, and only
   these:
   - the ACP registry (`cdn.agentclientprotocol.com`), to list agents and
-    their versions;
+    their versions, and to fetch their logos (SVG files from the same host);
   - the download URLs the registry lists, and the HTTPS hosts they redirect
     to (for example `release-assets.githubusercontent.com`), when you
     install a binary agent;

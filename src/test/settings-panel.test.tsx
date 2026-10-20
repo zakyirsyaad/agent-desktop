@@ -1,8 +1,8 @@
 import "@testing-library/jest-dom/vitest";
+import type { ReactNode } from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within, fireEvent, act } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import { SettingsPanel } from "../components/SettingsPanel";
-import { RECHECK_ERROR } from "../lib/agent-readiness";
 import type { Appearance } from "../lib/appearance";
 import type { AgentProfile } from "../types";
 import { makeProfile } from "./fixtures/agents";
@@ -46,8 +46,10 @@ type SettingsPanelProps = {
   onChangeDefaultAgent: (id: string) => void;
   onRemoveRecentFolder: (path: string) => void;
   onRunOnboarding: () => void;
-  onRecheckAgents?: () => Promise<void>;
   onClose: () => void;
+  initialTab?: "general" | "agents";
+  agentsPanel: ReactNode;
+  updateCount: number;
 };
 
 function renderSettings(overrides: Partial<SettingsPanelProps> = {}): SettingsPanelProps {
@@ -61,6 +63,8 @@ function renderSettings(overrides: Partial<SettingsPanelProps> = {}): SettingsPa
     onRemoveRecentFolder: vi.fn(),
     onRunOnboarding: vi.fn(),
     onClose: vi.fn(),
+    agentsPanel: <p>The agent catalog</p>,
+    updateCount: 0,
     ...overrides,
   };
   render(<SettingsPanel {...props} />);
@@ -183,38 +187,95 @@ describe("SettingsPanel — setup", () => {
   });
 });
 
-describe("SettingsPanel — agents", () => {
-  it("checks for agents again, an install made while the app runs included", async () => {
-    let finish: () => void = () => {};
-    const onRecheckAgents = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
-    renderSettings({ onRecheckAgents });
+describe("SettingsPanel — tabs", () => {
+  it("opens on General, with its sections and no catalog", () => {
+    renderSettings();
 
-    fireEvent.click(screen.getByRole("button", { name: "Check again for installed agents" }));
-
-    expect(onRecheckAgents).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Check again for installed agents" })).toBeDisabled();
-    await act(async () => finish());
-    expect(screen.getByRole("button", { name: "Check again for installed agents" })).toBeEnabled();
+    expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Agents" })).toHaveAttribute("aria-selected", "false");
+    const panel = screen.getByRole("tabpanel", { name: "General" });
+    expect(within(panel).getByRole("combobox", { name: "Appearance" })).toBeInTheDocument();
+    expect(within(panel).getByRole("combobox", { name: "Default agent" })).toBeInTheDocument();
+    expect(within(panel).getByRole("list", { name: "Recent folders" })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Run setup again" })).toBeInTheDocument();
+    expect(screen.queryByText("The agent catalog")).toBeNull();
   });
 
-  it("offers the check after the default agent field, not inside it", () => {
-    renderSettings({ onRecheckAgents: () => Promise.resolve() });
+  it("switches to the catalog on a click", () => {
+    renderSettings();
 
-    const field = defaultAgentSelect();
-    const check = screen.getByRole("button", { name: "Check again for installed agents" });
-    expect(check.textContent).toContain("Check again");
-    expect(field.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Agents" }));
+
+    expect(screen.getByRole("tab", { name: "Agents" })).toHaveAttribute("aria-selected", "true");
+    expect(within(screen.getByRole("tabpanel", { name: "Agents" })).getByText("The agent catalog")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Appearance" })).toBeNull();
   });
 
-  it("says in the dialog when a check failed, and stays usable", async () => {
-    renderSettings({ onRecheckAgents: () => Promise.reject(new Error("no shell")) });
+  it("moves between the tabs with the arrow keys, wrapping around", () => {
+    renderSettings();
+    const general = screen.getByRole("tab", { name: "General" });
+    const agents = screen.getByRole("tab", { name: "Agents" });
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Check again for installed agents" }));
-    });
+    fireEvent.keyDown(general, { key: "ArrowRight" });
+    expect(agents).toHaveAttribute("aria-selected", "true");
+    expect(agents).toHaveFocus();
 
-    expect(screen.getByRole("alert")).toHaveTextContent(RECHECK_ERROR);
-    expect(screen.getByRole("button", { name: "Check again for installed agents" })).toBeEnabled();
+    fireEvent.keyDown(agents, { key: "ArrowRight" });
+    expect(general).toHaveAttribute("aria-selected", "true");
+    expect(general).toHaveFocus();
+
+    fireEvent.keyDown(general, { key: "ArrowLeft" });
+    expect(agents).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps only the selected tab in the Tab order", () => {
+    renderSettings();
+
+    expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tab", { name: "Agents" })).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("points each tab's aria-controls only at a panel that is shown", () => {
+    renderSettings();
+    const general = screen.getByRole("tab", { name: "General" });
+    const agents = screen.getByRole("tab", { name: /Agents/ });
+
+    expect(document.getElementById(general.getAttribute("aria-controls") ?? "")).toBe(
+      screen.getByRole("tabpanel", { name: "General" }),
+    );
+    expect(agents).not.toHaveAttribute("aria-controls");
+
+    fireEvent.click(agents);
+    expect(document.getElementById(agents.getAttribute("aria-controls") ?? "")).toBe(
+      screen.getByRole("tabpanel", { name: "Agents" }),
+    );
+    expect(general).not.toHaveAttribute("aria-controls");
+  });
+
+  it("opens on the catalog when asked", () => {
+    renderSettings({ initialTab: "agents" });
+
+    expect(screen.getByRole("tab", { name: "Agents" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("The agent catalog")).toBeInTheDocument();
+  });
+
+  it("counts the agents with updates on the Agents tab", () => {
+    renderSettings({ updateCount: 2 });
+
+    const tab = screen.getByRole("tab", { name: "Agents, 2 updates" });
+    expect(tab).toHaveTextContent("2");
+  });
+
+  it("says one update in the singular", () => {
+    renderSettings({ updateCount: 1 });
+
+    expect(screen.getByRole("tab", { name: "Agents, 1 update" })).toBeInTheDocument();
+  });
+
+  it("no longer offers Check again in General", () => {
+    renderSettings();
+
+    expect(screen.queryByRole("button", { name: /Check again/ })).toBeNull();
   });
 });
 

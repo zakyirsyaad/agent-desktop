@@ -8,8 +8,8 @@ use zorvo_lib::installer::runtimes::{
     parse_manifest, InstalledRuntime, RuntimeKind, RuntimeManifest, BUNDLED_RUNTIMES,
 };
 use zorvo_lib::registry::resolve::{
-    canonical_agent_id, is_system_tool_path, missing_reason, planned_steps, resolve_profile,
-    SystemTools,
+    canonical_agent_id, is_supported, is_system_tool_path, missing_reason, planned_steps,
+    resolve_profile, SystemTools,
 };
 use zorvo_lib::registry::schema::{current_platform, BinaryTarget, Distribution, RegistryEntry};
 
@@ -804,4 +804,38 @@ fn a_binary_found_only_among_system_tools_is_not_installed() {
         matches!(&planned_steps(&lister, &tools)[..], [PlannedStep::Agent { cmd, .. }] if cmd == "./ls"),
         "the agent's archive is planned"
     );
+}
+
+fn elsewhere_only() -> RegistryEntry {
+    let mut entry = binary_entry("linux-only", "Linux Only", "./linux-only");
+    entry.distribution = Distribution::Binary {
+        platforms: BTreeMap::from([(
+            "linux-x86_64".to_string(),
+            BinaryTarget {
+                archive: "https://example.com/linux-only.tar.gz".to_string(),
+                cmd: "./linux-only".to_string(),
+                args: Vec::new(),
+                sha256: "a".repeat(64),
+                env: BTreeMap::new(),
+            },
+        )]),
+    };
+    entry
+}
+
+#[test]
+fn binary_entry_without_this_macs_target_is_unsupported() {
+    let globals = BTreeSet::new();
+    let none = InstalledTools::none();
+    let tools = system("", &globals, &none);
+    let entry = elsewhere_only();
+
+    let profile = resolve_profile(&entry, &tools, true);
+
+    assert_eq!(profile.availability, "unsupported");
+    assert_eq!(profile.install_plan, None);
+    assert!(!profile.detected);
+    assert!(!is_supported(&entry));
+    assert!(is_supported(&opencode()));
+    assert!(is_supported(&gemini()));
 }

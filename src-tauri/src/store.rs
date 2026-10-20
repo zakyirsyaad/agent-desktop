@@ -84,6 +84,8 @@ pub struct Settings {
     pub removed_agents: Vec<String>,
     /// The registry version in use for each agent id.
     pub agent_versions: BTreeMap<String, String>,
+    /// The update version already announced for each agent id.
+    pub notified_updates: BTreeMap<String, String>,
 }
 
 /// The registry agents in use until the user changes the list; matches
@@ -185,6 +187,9 @@ pub struct AppStore {
     /// loaded on first use and kept current by `save_state` and
     /// `remember_workspace`, so the Files panel never re-reads the state file.
     known_workspaces: Mutex<Option<HashSet<PathBuf>>>,
+    /// Held for each write of the state file: two saves run on separate
+    /// threads would otherwise share `state.json.tmp` and could interleave.
+    state_write: Mutex<()>,
     /// The worktrees folder of the pre-rename data dir, whose worktrees saved
     /// sessions still use in place and may need to remove.
     legacy_worktrees_root: Option<PathBuf>,
@@ -240,6 +245,7 @@ impl AppStore {
         Self {
             root,
             known_workspaces: Mutex::new(None),
+            state_write: Mutex::new(()),
             legacy_worktrees_root: None,
         }
     }
@@ -328,12 +334,18 @@ impl AppStore {
     }
 
     /// Writes the state as pretty JSON, replacing any previous file atomically.
+    /// Saves run one at a time, so two writes never mix in the scratch file.
     pub fn save_state(&self, state: &PersistedState) -> Result<(), String> {
         self.ensure_dir(&self.root)?;
 
         let json = serde_json::to_string_pretty(state)
             .map_err(|e| format!("Failed to serialize app state: {}", e))?;
 
+        // A writer that panicked left no lock-protected data behind, only a file the next write replaces.
+        let _writing = self
+            .state_write
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         atomic_write(
             &self.root.join(STATE_FILE),
             &self.root.join(STATE_TMP_FILE),

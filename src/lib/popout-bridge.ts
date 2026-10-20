@@ -31,12 +31,15 @@ export interface SessionSnapshotPayload {
   session: Session | null;
   messages: ChatMessage[];
   status: SessionLiveStatus;
+  /** The session's agent when it was removed from use: the popout offers to add it again instead of a composer. */
+  removedAgentName: string | null;
 }
 
 export type PopoutAction =
   | { kind: 'send'; text: string }
   | { kind: 'choose-option'; cardId: string; optionId: string }
-  | { kind: 'stop' };
+  | { kind: 'stop' }
+  | { kind: 'add-agent' };
 
 export interface PopoutActionPayload {
   sessionId: string;
@@ -48,11 +51,13 @@ export function buildSessionSnapshot(
   sessions: readonly Session[],
   transcripts: Record<string, ChatMessage[]>,
   status: SessionLiveStatus = IDLE_STATUS,
+  removedAgentName: string | null = null,
 ): SessionSnapshotPayload {
   return {
     sessionId,
     session: sessions.find((s) => s.id === sessionId) ?? null,
     messages: transcripts[sessionId] ?? [],
     status,
+    removedAgentName,
   };
 }

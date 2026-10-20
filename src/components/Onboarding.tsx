@@ -17,7 +17,8 @@ export interface OnboardingProps {
   settings?: EnabledSettings;
   recentFolders: readonly FolderOption[];
   suggestedFolders: readonly FolderOption[];
-  onRecheckAgents: () => void | Promise<void>;
+  /** The agent catalog for the Agents step. */
+  agentsPanel: ReactNode;
   onPickFolder: () => Promise<FolderOption | null>;
   onComplete: (result: OnboardingResult) => void;
 }
@@ -26,7 +27,7 @@ const STEPS = [
   {
     label: "Agents",
     title: "Check your agents",
-    description: "Zorvo drives coding agents installed on this machine.",
+    description: "Zorvo drives coding agents. Add the ones you use and install them here.",
   },
   {
     label: "Folder",
@@ -106,7 +107,7 @@ export function Onboarding({
   settings = {},
   recentFolders,
   suggestedFolders,
-  onRecheckAgents,
+  agentsPanel,
   onPickFolder,
   onComplete,
 }: OnboardingProps) {
@@ -144,7 +145,7 @@ export function Onboarding({
             <h2 className="text-base font-semibold text-fg">{current.title}</h2>
             <p className="mt-1 text-xs text-fg-subtle">{current.description}</p>
           </div>
-          {step === 0 && <AgentsStep agents={agents} onRecheckAgents={onRecheckAgents} />}
+          {step === 0 && <AgentsStep agentsPanel={agentsPanel} />}
           {step === 1 && (
             <FolderStep
               recentFolders={recentFolders}

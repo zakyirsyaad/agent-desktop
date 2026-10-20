@@ -88,7 +88,7 @@ describe("Agents in use", () => {
   it("offers only the agents in use as the default agent in Settings", async () => {
     await renderWithRegistryAgents();
 
-    await click(within(screen.getByRole("complementary")).getByRole("button", { name: "Settings" }));
+    await click(within(screen.getByRole("complementary")).getByRole("button", { name: /^Settings/ }));
 
     const select = within(screen.getByRole("combobox", { name: "Default agent" }));
     const names = select.getAllByRole("option").map((option) => option.textContent);

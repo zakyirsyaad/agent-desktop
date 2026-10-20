@@ -1,5 +1,6 @@
 import { Bot } from "lucide-react";
 import { canonicalAgentId } from "../lib/persistence";
+import { useAgentIcon } from "../lib/agent-icons";
 import claudeCodeLogo from "../assets/agents/claude-code.svg";
 import qwenLogo from "../assets/agents/qwen.svg";
 import codexLogo from "../assets/agents/codex.svg";
@@ -21,7 +22,28 @@ export interface AgentLogoProps {
 
 /** An agent's own logo, or a generic agent icon for one without an official logo. */
 export function AgentLogo({ profileId, name, size = 13, className = "" }: AgentLogoProps) {
-  const logo = LOGOS[canonicalAgentId(profileId)];
+  const id = canonicalAgentId(profileId);
+  const logo = LOGOS[id];
+  const registryIcon = useAgentIcon(id);
+  if (!logo && registryIcon) {
+    const label = name ? { role: "img", "aria-label": name } : { "aria-hidden": true };
+    const mask = `url("${registryIcon}")`;
+    return (
+      <span
+        {...label}
+        className={`inline-block shrink-0 bg-fg-muted ${className}`}
+        style={{
+          maskImage: mask,
+          WebkitMaskImage: mask,
+          maskSize: "contain",
+          maskRepeat: "no-repeat",
+          maskPosition: "center",
+          width: size,
+          height: size,
+        }}
+      />
+    );
+  }
   if (!logo) {
     const label = name ? { role: "img", "aria-label": name } : { "aria-hidden": true };
     return <Bot size={size} {...label} className={`shrink-0 text-fg-muted ${className}`} />;

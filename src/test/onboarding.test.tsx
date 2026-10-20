@@ -1,9 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ReactNode } from "react";
 import { render, screen, within, fireEvent, act } from "@testing-library/react";
 import { Onboarding } from "../components/Onboarding";
 import type { AgentProfile } from "../types";
-import { makeProfile } from "./fixtures/agents";
+import { fakeProfiles, makeProfile } from "./fixtures/agents";
+import { fakeCatalog } from "./fixtures/catalog";
+import { AgentCatalog } from "../components/agents/AgentCatalog";
 
 const claudeCode: AgentProfile = makeProfile({
   id: "claude-acp",
@@ -54,7 +57,7 @@ type OnboardingProps = {
   settings?: { enabledAgents?: string[] };
   recentFolders: FolderFixture[];
   suggestedFolders: FolderFixture[];
-  onRecheckAgents: () => void | Promise<void>;
+  agentsPanel: ReactNode;
   onPickFolder: () => Promise<{ name: string; path: string } | null>;
   onComplete: (result: OnboardingResult) => void;
 };
@@ -68,7 +71,7 @@ function renderOnboarding(overrides: Partial<OnboardingProps> = {}): OnboardingP
     agents: AGENTS,
     recentFolders: RECENT_FOLDERS,
     suggestedFolders: SUGGESTED_FOLDERS,
-    onRecheckAgents: vi.fn(),
+    agentsPanel: <p>The agent catalog</p>,
     onPickFolder: vi.fn(async () => null),
     onComplete: vi.fn(),
     ...overrides,
@@ -89,16 +92,6 @@ async function clickButton(name: string): Promise<void> {
 
 function stepItems(): HTMLElement[] {
   return within(screen.getByRole("list", { name: "Setup progress" })).getAllByRole("listitem");
-}
-
-function agentItem(agentName: string): HTMLElement {
-  const item = within(screen.getByRole("list", { name: "Agents" }))
-    .getAllByRole("listitem")
-    .find((candidate) => candidate.textContent?.includes(agentName));
-  if (!item) {
-    throw new Error(`No agent list item for "${agentName}"`);
-  }
-  return item;
 }
 
 function folderButton(listLabel: string, namePattern: RegExp): HTMLElement {
@@ -145,32 +138,14 @@ describe("Onboarding — agent step", () => {
     ).toBeInTheDocument();
   });
 
-  it("lists every agent with its readiness status and detected path", () => {
-    renderOnboarding();
-
-    const items = within(screen.getByRole("list", { name: "Agents" })).getAllByRole("listitem");
-    expect(items).toHaveLength(2);
-
-    const claude = agentItem("Claude Code");
-    expect(claude).toHaveTextContent("Ready");
-    expect(claude).toHaveTextContent("/opt/homebrew/bin/claude");
-
-    const qwenItem = agentItem("Qwen Code");
-    expect(qwenItem).toHaveTextContent("Ready");
-    expect(qwenItem).toHaveTextContent("/usr/local/bin/qwen");
-
-    expect(screen.queryByText("Gemini CLI")).toBeNull();
-  });
-
-  it("lists only the agents in use", () => {
+  it("counts only the agents in use toward Continue", () => {
     const gemini = makeProfile({ id: "gemini", name: "Gemini CLI", source: "registry", detected: true });
     renderOnboarding({
-      agents: [claudeCode, gemini],
+      agents: [notDetected(claudeCode), gemini],
       settings: { enabledAgents: ["claude-acp"] },
     });
 
-    expect(agentItem("Claude Code")).toBeInTheDocument();
-    expect(screen.queryByText("Gemini CLI")).toBeNull();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
   });
 
   it("blocks Continue and says why when no agent is installed", () => {
@@ -216,36 +191,33 @@ describe("Onboarding — agent step", () => {
     expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
 
-  it("points a missing registry agent at Node.js", () => {
-    const withoutNode = makeProfile({
-      ...notDetected(claudeCode),
-      install_plan: [{ kind: "node", name: "Node.js", version: "24.11.1", download_bytes: null }],
+  it("shows the agent panel it is given instead of copy-paste install commands", () => {
+    renderOnboarding({ agentsPanel: <input type="search" aria-label="Search agents" /> });
+
+    expect(screen.getByRole("searchbox", { name: "Search agents" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy install command/ })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Agents" })).toBeNull();
+  });
+
+  it("shows the agent catalog, with search and Add", () => {
+    const actions = { addAgent: vi.fn(), updateAgent: vi.fn(), removeAgent: vi.fn(), runningSessionCount: () => 0 };
+    renderOnboarding({
+      agentsPanel: (
+        <AgentCatalog
+          catalog={{ lastChecked: null, agents: fakeCatalog }}
+          error={null}
+          agents={fakeProfiles}
+          enabledIds={["claude-acp"]}
+          actions={actions}
+          onCheckAgain={() => Promise.resolve()}
+          onRetryLoad={() => {}}
+        />
+      ),
     });
-    renderOnboarding({ agents: [withoutNode, gemini, qwen] });
 
-    const item = agentItem("Claude Code");
-    expect(item).toHaveTextContent("Not installed");
-    expect(item).toHaveTextContent(/Node\.js 22/);
-    expect(within(item).queryByRole("button", { name: /Copy install command/ })).toBeNull();
-  });
-
-  it("re-runs agent detection when Check again is clicked", async () => {
-    const onRecheckAgents = vi.fn().mockResolvedValue(undefined);
-    renderOnboarding({ onRecheckAgents });
-
-    await clickButton("Check again");
-
-    expect(onRecheckAgents).toHaveBeenCalledTimes(1);
-  });
-
-  it("explains when re-running agent detection fails", async () => {
-    const onRecheckAgents = vi.fn().mockRejectedValue(new Error("detection failed"));
-    renderOnboarding({ onRecheckAgents });
-
-    await clickButton("Check again");
-
-    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't check your agents.");
-    expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled();
+    expect(screen.getByRole("searchbox", { name: "Search agents" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Add" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /Copy install command/ })).toBeNull();
   });
 });
 
