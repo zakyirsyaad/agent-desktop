@@ -155,9 +155,10 @@ impl PendingElicitations {
         self.take_where(|pending| pending.app_session_id == app_session_id)
     }
 
-    /// Takes a session's unanswered requests; accepted URL requests stay.
-    pub fn take_open_of_session(&mut self, app_session_id: &str) -> Vec<Pending> {
-        self.take_where(|pending| {
+    /// Takes a session's unanswered requests with their keys; accepted URL
+    /// requests stay.
+    pub fn take_open_of_session(&mut self, app_session_id: &str) -> Vec<(String, Pending)> {
+        self.take_keyed_where(|pending| {
             pending.app_session_id == app_session_id && pending.state == PendingState::Open
         })
     }
@@ -168,14 +169,21 @@ impl PendingElicitations {
     }
 
     fn take_where(&mut self, matches: impl Fn(&Pending) -> bool) -> Vec<Pending> {
+        self.take_keyed_where(matches)
+            .into_iter()
+            .map(|(_, pending)| pending)
+            .collect()
+    }
+
+    fn take_keyed_where(&mut self, matches: impl Fn(&Pending) -> bool) -> Vec<(String, Pending)> {
         let keys: Vec<String> = self
             .requests
             .iter()
             .filter(|(_, pending)| matches(pending))
             .map(|(key, _)| key.clone())
             .collect();
-        keys.iter()
-            .filter_map(|key| self.requests.remove(key))
+        keys.into_iter()
+            .filter_map(|key| self.requests.remove(&key).map(|pending| (key, pending)))
             .collect()
     }
 }

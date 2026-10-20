@@ -27,7 +27,10 @@ pub fn validate(fields: &[Field], content: &Value) -> Result<Value, FieldErrors>
             errors.insert(field.name.clone(), UNSUPPORTED.to_string());
             continue;
         }
-        match content.get(&field.name).filter(|value| !is_blank(value)) {
+        match content
+            .get(&field.name)
+            .filter(|value| !is_blank(&field.kind, value))
+        {
             None if field.required => {
                 errors.insert(field.name.clone(), REQUIRED.to_string());
             }
@@ -49,9 +52,13 @@ pub fn validate(fields: &[Field], content: &Value) -> Result<Value, FieldErrors>
     }
 }
 
-/// Null, `""` and an empty selection count as not filled in.
-fn is_blank(value: &Value) -> bool {
-    value.is_null() || value.as_str() == Some("") || value.as_array().is_some_and(Vec::is_empty)
+/// Null and `""` count as not filled in, and so does an empty selection of a
+/// multi-select; an empty list for any other field is a wrong type.
+fn is_blank(kind: &FieldKind, value: &Value) -> bool {
+    value.is_null()
+        || value.as_str() == Some("")
+        || (matches!(kind, FieldKind::MultiSelect { .. })
+            && value.as_array().is_some_and(Vec::is_empty))
 }
 
 fn check(kind: &FieldKind, value: &Value) -> Result<(), String> {
@@ -483,6 +490,10 @@ mod tests {
         let required = [field("tags", true, multi(None, None))];
         let errors = validate(&required, &json!({ "tags": [] })).unwrap_err();
         assert_eq!(errors["tags"], "This field is required.");
+
+        let note = [field("note", false, text(None, None, None, None))];
+        let errors = validate(&note, &json!({ "note": [] })).unwrap_err();
+        assert_eq!(errors["note"], "Use the format the agent asked for.");
 
         let optional = [field("tags", false, multi(Some(1), None))];
         assert_eq!(

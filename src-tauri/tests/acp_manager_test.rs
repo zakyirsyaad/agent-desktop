@@ -7,6 +7,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use zorvo_lib::acp::manager::{
     AcpEvent, AcpLaunch, AcpManager, ELICITATION_GONE, ELICITATION_INVALID_PREFIX,
+    ELICITATION_UNDELIVERED,
 };
 use zorvo_lib::acp::terminal_auth::SignInAttempts;
 
@@ -1365,6 +1366,31 @@ fn opens_the_backends_url_on_accept() {
         vec!["https://agent.example.com/connect".to_string()]
     );
     assert_eq!(elicited(&rx), r#"elicited:{"action":"accept"}"#);
+    manager.stop("s-1");
+}
+
+#[test]
+fn ends_a_url_request_whose_accept_cannot_reach_the_agent() {
+    let (manager, _rx, opened, key) = started_with("elicit-url-deaf");
+
+    let error = manager
+        .respond_elicitation("s-1", &key, "accept", None)
+        .unwrap_err();
+
+    // The page opened once, and the request is over: it is not offered again.
+    assert_eq!(error, ELICITATION_UNDELIVERED);
+    assert_eq!(opened.lock().unwrap().len(), 1);
+    assert_eq!(
+        manager.reopen_elicitation_url("s-1", &key).unwrap_err(),
+        ELICITATION_GONE
+    );
+    assert_eq!(
+        manager
+            .respond_elicitation("s-1", &key, "accept", None)
+            .unwrap_err(),
+        ELICITATION_GONE
+    );
+    assert_eq!(opened.lock().unwrap().len(), 1);
     manager.stop("s-1");
 }
 

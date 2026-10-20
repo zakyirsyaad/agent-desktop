@@ -21,7 +21,9 @@ use crate::pty_session::validate_cwd;
 mod elicitation_routes;
 mod routing;
 
-pub use elicitation_routes::{UrlOpener, ELICITATION_GONE, ELICITATION_INVALID_PREFIX};
+pub use elicitation_routes::{
+    UrlOpener, ELICITATION_GONE, ELICITATION_INVALID_PREFIX, ELICITATION_UNDELIVERED,
+};
 use routing::{answer, route_event};
 
 /// ACP protocol version this client speaks.
@@ -173,7 +175,7 @@ impl AcpManager {
                 init,
                 "session/new",
                 json!({ "cwd": cwd, "mcpServers": [] }),
-                self.route_on_answer(key, app_session_id, None),
+                self.route_on_answer(key, app_session_id, None, true),
             )?;
             started_session(session, init["agentCapabilities"].clone()).map_err(OpenError::Agent)
         })
@@ -203,7 +205,7 @@ impl AcpManager {
                 init,
                 "session/load",
                 json!({ "sessionId": acp_session_id, "cwd": cwd, "mcpServers": [] }),
-                self.route_on_answer(key, app_session_id, Some(acp_session_id)),
+                self.route_on_answer(key, app_session_id, Some(acp_session_id), true),
             )?;
             Ok(StartedSession {
                 acp_session_id: acp_session_id.to_string(),
@@ -325,7 +327,7 @@ impl AcpManager {
             "session/fork",
             json!({ "sessionId": acp_id, "cwd": cwd, "mcpServers": [] }),
             SESSION_REQUEST_TIMEOUT,
-            self.route_on_answer(connection_key, new_app_id, None),
+            self.route_on_answer(connection_key, new_app_id, None, false),
         )?;
         let started = started_session(response, capabilities)?;
         self.register(
@@ -382,11 +384,13 @@ impl AcpManager {
         )
     }
 
-    /// Cancels the turn, after answering the session's open elicitations `cancel`.
-    pub fn cancel(&self, app_session_id: &str) -> Result<(), String> {
-        self.cancel_open_elicitations(app_session_id);
+    /// Cancels the turn, after answering the session's open elicitations
+    /// `cancel`; returns their keys, so the UI dismisses exactly those.
+    pub fn cancel(&self, app_session_id: &str) -> Result<Vec<String>, String> {
+        let cancelled = self.cancel_open_elicitations(app_session_id);
         let (connection, acp_id) = self.connection_for(app_session_id)?;
-        connection.notify("session/cancel", json!({ "sessionId": acp_id }))
+        connection.notify("session/cancel", json!({ "sessionId": acp_id }))?;
+        Ok(cancelled)
     }
 
     /// Answers a permission request; `None` cancels it.
@@ -575,12 +579,14 @@ impl AcpManager {
     /// Routes the session an answer opens (`acp_session_id`, else the
     /// answer's `sessionId`) as the answer arrives, on the reader thread: an
     /// agent may ask about its new session in its very next message, before
-    /// [`register`](Self::register) runs.
+    /// [`register`](Self::register) runs. For a session being opened
+    /// (`while_opening`), nothing is routed once it was stopped meanwhile.
     fn route_on_answer(
         &self,
         connection_key: u64,
         app_session_id: &str,
         acp_session_id: Option<&str>,
+        while_opening: bool,
     ) -> impl FnOnce(&Value) + Send + 'static {
         let routes = Arc::clone(&self.routes);
         let app_session_id = app_session_id.to_string();
@@ -591,9 +597,13 @@ impl AcpManager {
                 return;
             };
             if let Ok(mut routes) = routes.lock() {
-                routes
-                    .by_acp_id
-                    .insert((connection_key, acp_id), app_session_id);
+                let stopped =
+                    while_opening && routes.opening.get(&connection_key) != Some(&app_session_id);
+                if !stopped {
+                    routes
+                        .by_acp_id
+                        .insert((connection_key, acp_id), app_session_id);
+                }
             }
         }
     }

@@ -16,9 +16,10 @@
 //   "elicit-complete" -> sends elicitation/complete for "gh-1" and "nope", then says "completed-sent"
 //   "elicit-url-done-on-accept" -> as "elicit-url", but sends elicitation/complete for "gh-1"
 //     the moment the accept arrives, before anything else
+//   "elicit-url-deaf" -> closes its stdin, then asks as "elicit-url", so no answer can reach it
 //   --login      -> the terminal sign-in: prints a greeting and exits
 //   anything else -> echoes the text back as an agent message chunk
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 let nextSession = 1;
@@ -73,6 +74,17 @@ function handlePrompt(id, params) {
   }
   if (text === "elicit-url-done-on-accept") {
     elicit(id, params.sessionId, elicitations["elicit-url"](params.sessionId), "gh-1");
+    return;
+  }
+  if (text === "elicit-url-deaf") {
+    // Close the pipe itself, not only Node's stream, before asking, so the client's answer fails.
+    process.stdin.destroy();
+    try {
+      closeSync(0);
+    } catch {
+      // Already closed by the stream.
+    }
+    elicit(id, params.sessionId, elicitations["elicit-url"](params.sessionId));
     return;
   }
   if (text === "elicit-complete") {

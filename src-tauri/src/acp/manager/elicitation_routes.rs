@@ -18,6 +18,9 @@ const INVALID_PARAMS: i64 = -32602;
 pub const ELICITATION_INVALID_PREFIX: &str = "ELICITATION_INVALID:";
 /// The error for a request that was answered, finished, or belongs to a stopped session.
 pub const ELICITATION_GONE: &str = "This request can no longer be answered.";
+/// The error for a URL request whose page opened but whose accept never reached the agent.
+pub const ELICITATION_UNDELIVERED: &str =
+    "The page opened, but the agent could not be told. Its request was cancelled.";
 
 /// Opens an accepted URL request's link in the browser.
 pub type UrlOpener = Box<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
@@ -94,7 +97,11 @@ impl AcpManager {
             state: PendingState::AwaitingCompletion,
             ..pending
         };
-        self.put_back(key, awaiting);
+        if !self.put_back(key, awaiting) {
+            // Its session stopped meanwhile: no completion could reach the card.
+            cancel_request(&connection, request_id);
+            return Err(ELICITATION_GONE.to_string());
+        }
         if send(&connection, &request_id, reply).is_ok() {
             return Ok(());
         }
@@ -105,7 +112,7 @@ impl AcpManager {
             .ok()
             .and_then(|mut routes| routes.elicitations.take_awaiting(&app_session_id, key));
         cancel_request(&connection, request_id);
-        Err(ELICITATION_GONE.to_string())
+        Err(ELICITATION_UNDELIVERED.to_string())
     }
 
     /// Opens the link of an accepted URL request again.
@@ -128,15 +135,16 @@ impl AcpManager {
         (self.url_opener)(&url)
     }
 
-    /// Answers `cancel` to a session's unanswered requests, in order, before
-    /// its turn is cancelled. Accepted URL requests stay.
-    pub(super) fn cancel_open_elicitations(&self, app_session_id: &str) {
+    /// Answers `cancel` to a session's unanswered requests before its turn is
+    /// cancelled, and returns their keys. Accepted URL requests stay.
+    pub(super) fn cancel_open_elicitations(&self, app_session_id: &str) -> Vec<String> {
         let open = self
             .routes
             .lock()
             .map(|mut routes| routes.elicitations.take_open_of_session(app_session_id))
             .unwrap_or_default();
-        for pending in open {
+        let mut keys = Vec::with_capacity(open.len());
+        for (key, pending) in open {
             // Written here, not on a thread through `cancel_request`/`answer`,
             // so these replies reach the agent before `session/cancel`. Best
             // effort, like every answer Zorvo sends unasked: a write fails
@@ -146,7 +154,9 @@ impl AcpManager {
                 &pending.request_id,
                 json!({ "action": "cancel" }),
             );
+            keys.push(key);
         }
+        keys
     }
 
     /// Builds the agent's answer. Nothing is to be sent when the agent is
@@ -182,11 +192,11 @@ impl AcpManager {
     /// Keeps a request taken out to answer again, unless its session stopped
     /// or its agent exited meanwhile (they already dropped its requests). An
     /// unanswered request of a stopped session is answered `cancel`, as stop
-    /// does, once the lock is released.
-    fn put_back(&self, key: &str, pending: Pending) {
+    /// does, once the lock is released. Returns whether it was kept.
+    fn put_back(&self, key: &str, pending: Pending) -> bool {
         let dropped = {
             let Ok(mut routes) = self.routes.lock() else {
-                return;
+                return false;
             };
             let id = &pending.app_session_id;
             let session_known = routes.sessions.contains_key(id)
@@ -194,11 +204,12 @@ impl AcpManager {
                 || routes.by_acp_id.values().any(|routed| routed == id);
             if session_known && pending.connection.strong_count() > 0 {
                 routes.elicitations.put_back(key.to_string(), pending);
-                return;
+                return true;
             }
             pending
         };
         cancel_open(vec![dropped]);
+        false
     }
 }
 
