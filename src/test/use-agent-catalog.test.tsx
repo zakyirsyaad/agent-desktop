@@ -88,4 +88,15 @@ describe("useAgentCatalog", () => {
     expect(result.current.catalog).not.toBeNull();
     expect(result.current.error).toBe("Could not watch for agent changes: no event bridge");
   });
+
+  it("shows a load error before the could-not-watch warning", async () => {
+    listenFailure.current = "no event bridge";
+    vi.spyOn(internals(), "invoke").mockRejectedValue(new Error("registry unreachable"));
+    const { result } = renderHook(() => useAgentCatalog());
+
+    await waitFor(() => expect(result.current.error).toBe("registry unreachable"));
+    await act(async () => {});
+
+    expect(result.current.error).toBe("registry unreachable");
+  });
 });

@@ -375,13 +375,16 @@ fn update_target_refuses_unsupported_and_waiting_agents() {
         installed: &installed,
     };
     let catalog = Catalog::bundled(&bundle_of(&[
+        // Recorded 1.0.0 has no build for this Mac, and a newer 1.1.0 that does is offered:
+        // only the unsupported guard keeps Update from moving to it.
         (
             binary_entry("linux-only", "1.0.0", "linux-x86_64", "./x"),
             T0,
         ),
+        (current_binary("linux-only", "1.1.0", "./x"), NOW - 8 * DAY),
         (npx_entry("fresh", "1.0.0"), NOW - 2 * DAY),
     ]));
-    let versions = BTreeMap::new();
+    let versions = BTreeMap::from([("linux-only".to_string(), "1.0.0".to_string())]);
 
     assert_eq!(
         catalog
@@ -391,7 +394,7 @@ fn update_target_refuses_unsupported_and_waiting_agents() {
     );
     assert_eq!(
         catalog
-            .update_target("fresh", &tools, &versions, NOW)
+            .update_target("fresh", &tools, &BTreeMap::new(), NOW)
             .unwrap_err(),
         "No newer version of Agent fresh is offered"
     );

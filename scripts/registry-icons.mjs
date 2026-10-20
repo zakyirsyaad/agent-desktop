@@ -6,8 +6,11 @@ export const MAX_ICON_BYTES = 64 * 1024;
 
 export const isAllowedIconUrl = (url) => typeof url === "string" && url.startsWith(ICON_URL_PREFIX);
 
-// Same rule as `is_svg` in icons.rs: after whitespace and an optional XML prolog, an `<svg` tag.
-export const isSvg = (text) => typeof text === "string" && /^\s*(<\?xml[\s\S]*?\?>\s*)?<svg[\s>/]/i.test(text);
+// Same rule as `is_svg` in icons.rs: after Unicode whitespace and an optional (lowercase) XML prolog,
+// an `<svg` tag in any case. JS `\s` also matches U+FEFF and misses U+0085, so spell Rust's set out.
+const WS = "[\\t\\n\\v\\f\\r \\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]";
+const SVG_START = new RegExp(`^${WS}*(<\\?xml[\\s\\S]*?\\?>${WS}*)?<[sS][vV][gG](${WS}|>|/)`);
+export const isSvg = (text) => typeof text === "string" && SVG_START.test(text);
 
 /**
  * `{ [id]: svg }` for the entries whose icon downloads as a small SVG; keys sorted.

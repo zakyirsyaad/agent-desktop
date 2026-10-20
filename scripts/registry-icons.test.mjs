@@ -29,6 +29,13 @@ describe("isSvg", () => {
     expect(isSvg('<?xml version="1.0"?><!-- logo --><svg></svg>')).toBe(false);
   });
 
+  it("matches Rust on a capitalised prolog and a byte order mark", () => {
+    expect(isSvg("<?XML version='1.0'?><svg></svg>")).toBe(false);
+    expect(isSvg("\uFEFF<svg></svg>")).toBe(false);
+    expect(isSvg("\u00A0<svg></svg>")).toBe(true);
+    expect(isSvg("<SVG></SVG>")).toBe(true);
+  });
+
   it("accepts a self-closing <svg/ tag, as the Rust check does", () => {
     expect(isSvg("<svg/>")).toBe(true);
     expect(isSvg("<svgx>")).toBe(false);

@@ -84,6 +84,10 @@ fn is_svg_agrees_with_the_script_on_comments_and_self_closing_tags() {
     assert!(is_svg("<svg/>"));
     assert!(!is_svg("<svgx>"));
     assert!(!is_svg("<!-- logo --><svg></svg>"));
+    assert!(!is_svg("<?XML version=\"1.0\"?><svg></svg>"));
+    assert!(!is_svg("\u{FEFF}<svg></svg>"));
+    assert!(is_svg("\u{A0}<svg></svg>"));
+    assert!(is_svg("<SVG></SVG>"));
     assert!(!is_svg("<?xml version=\"1.0\"?><!-- logo --><svg></svg>"));
 }
 
