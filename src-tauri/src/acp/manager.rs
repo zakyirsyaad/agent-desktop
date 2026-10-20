@@ -505,11 +505,10 @@ impl AcpManager {
             .opening
             .retain(|_, opening| opening != app_session_id);
         let entry = routes.sessions.remove(app_session_id);
-        if let Some(entry) = &entry {
-            routes
-                .by_acp_id
-                .remove(&(entry.connection_key, entry.acp_session_id.clone()));
-        }
+        // Also the route an answer made for a session still opening, not registered yet.
+        routes
+            .by_acp_id
+            .retain(|_, routed| routed != app_session_id);
         let unused = entry.filter(|entry| {
             !routes
                 .sessions

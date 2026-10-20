@@ -83,7 +83,9 @@ impl AcpManager {
     /// Sends the accept of a URL request whose link is open. The request
     /// already waits for completion when the accept goes out, since the agent
     /// may say it is done the moment the accept arrives. When the accept
-    /// cannot be sent, the request is open again.
+    /// cannot be sent, the request ends: its page is already open, so offering
+    /// it again would open a second one. The agent is told `cancel` if it can
+    /// still hear it.
     fn send_url_accept(&self, key: &str, pending: Pending, reply: Value) -> Result<(), String> {
         let app_session_id = pending.app_session_id.clone();
         let connection = pending.connection.clone();
@@ -93,27 +95,17 @@ impl AcpManager {
             ..pending
         };
         self.put_back(key, awaiting);
-        let Err(error) = send(&connection, &request_id, reply) else {
+        if send(&connection, &request_id, reply).is_ok() {
             return Ok(());
-        };
-        let taken = self
+        }
+        // Taken out, if still there, so no completion or reopen finds it.
+        let _ = self
             .routes
             .lock()
             .ok()
             .and_then(|mut routes| routes.elicitations.take_awaiting(&app_session_id, key));
-        match taken {
-            Some(pending) => {
-                let open = Pending {
-                    state: PendingState::Open,
-                    ..pending
-                };
-                self.put_back(key, open);
-            }
-            // Its session stopped meanwhile and, seeing it accepted, sent no
-            // answer: it is answered `cancel` as stop does.
-            None => cancel_request(&connection, request_id),
-        }
-        Err(error)
+        cancel_request(&connection, request_id);
+        Err(ELICITATION_GONE.to_string())
     }
 
     /// Opens the link of an accepted URL request again.

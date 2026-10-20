@@ -19,6 +19,7 @@ pub enum UrlWarning {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UrlCheck {
     /// The link as parsed and normalised, or `None` when it did not parse.
+    /// `parse_request` moves it into `Elicitation::Url`, so it is kept once.
     pub url: Option<String>,
     /// The host in its ASCII form, or empty when the link has none.
     pub host: String,
