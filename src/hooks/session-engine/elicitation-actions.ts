@@ -5,6 +5,7 @@ import {
   parseInvalidElicitation,
   rejectElicitationSubmit,
   setElicitationStatus,
+  withoutKeys,
 } from '../../lib/acp-elicitation';
 import type { ChatMessage, ElicitationAnswer, ElicitationCard, ElicitationStatus } from '../../types';
 
@@ -53,8 +54,7 @@ function optimisticStatus(answer: ElicitationAnswer, mode: ElicitationCard['mode
 function putBack(messages: ChatMessage[], { card, status }: InFlightAnswer): ChatMessage[] | null {
   const index = findElicitationIndex(messages, card.key, status);
   if (index < 0) return null;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { errors, ...waiting } = card;
+  const waiting = withoutKeys(card, ['errors']);
   return messages.map((m, i) => (i === index ? { ...m, elicitation: waiting } : m));
 }
 

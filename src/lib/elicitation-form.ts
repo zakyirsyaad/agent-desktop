@@ -64,11 +64,10 @@ export function checkForm(
 
 function checkField(field: ElicitationField, value: unknown): string | undefined {
   if (field.kind.type === 'unsupported') return undefined;
-  if (value === undefined || value === null || value === '') {
+  // Nothing picked counts as not filled in, as the backend sees it: an optional one is left out.
+  if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) {
     return field.required ? REQUIRED : undefined;
   }
-  // Nothing picked in an optional multi-select is left out of the answer, so its counts do not apply.
-  if (Array.isArray(value) && value.length === 0 && !field.required) return undefined;
   const { kind } = field;
   switch (kind.type) {
     case 'text':
@@ -199,7 +198,7 @@ export function toContent(
     const value = values[field.name];
     if (value === undefined || field.kind.type === 'unsupported') continue;
     if (typeof value === 'boolean' || Array.isArray(value)) {
-      if (Array.isArray(value) && value.length === 0 && !field.required) continue;
+      if (Array.isArray(value) && value.length === 0) continue;
       content[field.name] = value;
     } else if (value !== '') {
       content[field.name] = convert(field, value, offsetMinutes);

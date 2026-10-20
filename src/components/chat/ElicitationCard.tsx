@@ -1,8 +1,8 @@
-import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "../ui/Button";
 import { ElicitationFields } from "./ElicitationFields";
-import { canSubmit, checkForm, initialValues, toContent, type FormValue } from "../../lib/elicitation-form";
+import { canSubmit } from "../../lib/elicitation-form";
+import { useElicitationForm } from "../../hooks/useElicitationForm";
 import type {
   ElicitationAnswer,
   ElicitationCard as ElicitationCardData,
@@ -35,50 +35,11 @@ const SUMMARIES: Record<Exclude<ElicitationStatus, "pending">, string> = {
   unanswered: "This request was not answered.",
 };
 
-/** Typed values are kept only while the card can still be sent or sent back. */
-const KEEPS_VALUES: ElicitationStatus[] = ["pending", "submitted"];
-
 export function ElicitationCard({ card, agentName, onAnswer, onReopen, disabled = false }: ElicitationCardProps) {
-  const [values, setValues] = useState<Record<string, FormValue>>(() => initialValues(card.fields ?? []));
-  const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
-  // Fields edited since the backend's errors came, by their content: a popout
-  // gets the same errors as a new object with every snapshot.
-  const errorsKey = JSON.stringify(card.errors ?? {});
-  const [editedSince, setEditedSince] = useState({ errorsKey, names: [] as string[] });
-  const edited = editedSince.errorsKey === errorsKey ? editedSince.names : [];
-  const backendErrors = Object.fromEntries(
-    Object.entries(card.errors ?? {}).filter(([name]) => !edited.includes(name)),
-  );
-
-  // Drop what the user typed once the card is answered for good.
-  if (!KEEPS_VALUES.includes(card.status) && (Object.keys(values).length > 0 || Object.keys(clientErrors).length > 0)) {
-    setValues({});
-    setClientErrors({});
-  }
-
-  const summary = card.status === "pending" ? null : SUMMARIES[card.status];
-  const pending = summary === null;
-  const fields = card.fields ?? [];
-  const isForm = card.mode === "form";
   const answer = (a: ElicitationAnswer) => onAnswer?.(card.key, a);
-
-  const submit = () => {
-    const errors = checkForm(fields, values);
-    setClientErrors(errors);
-    if (Object.keys(errors).length > 0) return;
-    // The backend's next errors show in full, even when they read the same.
-    setEditedSince({ errorsKey, names: [] });
-    answer({ action: "accept", content: toContent(fields, values) });
-  };
-
-  const change = (name: string, value: FormValue) => {
-    setValues((prev) => ({ ...prev, [name]: value }));
-    setClientErrors(({ [name]: _cleared, ...rest }) => rest);
-    setEditedSince((prev) => {
-      const names = prev.errorsKey === errorsKey ? prev.names : [];
-      return names.includes(name) ? prev : { errorsKey, names: [...names, name] };
-    });
-  };
+  const form = useElicitationForm(card, answer);
+  const summary = card.status === "pending" ? null : SUMMARIES[card.status];
+  const isForm = card.mode === "form";
 
   return (
     <div
@@ -93,34 +54,8 @@ export function ElicitationCard({ card, agentName, onAnswer, onReopen, disabled 
       </div>
       <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-fg-secondary">{card.message}</p>
 
-      {isForm && pending && (
-        <form
-          noValidate
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (canSubmit(fields) && !disabled) submit();
-          }}
-        >
-          <ElicitationFields
-            fields={fields}
-            values={values}
-            errors={{ ...backendErrors, ...clientErrors }}
-            onChange={change}
-            disabled={disabled}
-          />
-          {!canSubmit(fields) && <p className="mt-3 text-xs text-fg-muted">{CANNOT_SHOW_MESSAGE}</p>}
-          <Actions>
-            {canSubmit(fields) && (
-              <Button type="submit" variant="primary" disabled={disabled}>
-                Submit
-              </Button>
-            )}
-            <AnswerButtons disabled={disabled} onAnswer={answer} />
-          </Actions>
-        </form>
-      )}
-
-      {!isForm && pending && <UrlRequest card={card} disabled={disabled} onAnswer={answer} />}
+      {isForm && summary === null && <FormRequest form={form} disabled={disabled} onAnswer={answer} />}
+      {!isForm && summary === null && <UrlRequest card={card} disabled={disabled} onAnswer={answer} />}
 
       {summary !== null && (
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-2">
@@ -133,6 +68,38 @@ export function ElicitationCard({ card, agentName, onAnswer, onReopen, disabled 
         </div>
       )}
     </div>
+  );
+}
+
+function FormRequest({
+  form,
+  disabled,
+  onAnswer,
+}: {
+  form: ReturnType<typeof useElicitationForm>;
+  disabled: boolean;
+  onAnswer: (a: ElicitationAnswer) => void;
+}) {
+  const sendable = canSubmit(form.fields);
+  return (
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (sendable && !disabled) form.submit();
+      }}
+    >
+      <ElicitationFields fields={form.fields} values={form.values} errors={form.errors} onChange={form.change} disabled={disabled} />
+      {!sendable && <p className="mt-3 text-xs text-fg-muted">{CANNOT_SHOW_MESSAGE}</p>}
+      <Actions>
+        {sendable && (
+          <Button type="submit" variant="primary" disabled={disabled}>
+            Submit
+          </Button>
+        )}
+        <AnswerButtons disabled={disabled} onAnswer={onAnswer} />
+      </Actions>
+    </form>
   );
 }
 

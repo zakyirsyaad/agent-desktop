@@ -80,77 +80,112 @@ function Help({ id, field, error, errorId }: { id: string; field: ElicitationFie
   );
 }
 
+/** What every control of a field shares: its id, help and accessible links. */
+interface Control {
+  id: string;
+  describedBy?: string;
+  shared: {
+    id: string;
+    disabled: boolean;
+    "aria-describedby"?: string;
+    "aria-invalid"?: true;
+    "aria-required"?: true;
+  };
+  help: ReactNode;
+}
+
 function FieldRow({ field, value, error, onChange, disabled }: FieldRowProps) {
   const id = useId();
   const helpId = `${id}-help`;
   const errorId = `${id}-error`;
   const describedBy = [field.description ? helpId : null, error ? errorId : null].filter(Boolean).join(" ") || undefined;
-  const shared = {
+  const control: Control = {
     id,
-    disabled,
-    "aria-describedby": describedBy,
-    "aria-invalid": error ? true : undefined,
-    "aria-required": field.required || undefined,
+    describedBy,
+    shared: {
+      id,
+      disabled,
+      "aria-describedby": describedBy,
+      "aria-invalid": error ? true : undefined,
+      "aria-required": field.required || undefined,
+    },
+    help: <Help id={helpId} field={field} error={error} errorId={errorId} />,
   };
   const { kind } = field;
-  const labelClass = "block text-xs font-medium text-fg-secondary";
-  const help = <Help id={helpId} field={field} error={error} errorId={errorId} />;
+  const props = { field, value, onChange, disabled, control };
 
   if (kind.type === "unsupported") return null;
+  if (kind.type === "boolean") return <BooleanField {...props} />;
+  if (kind.type === "select" && kind.options.length <= MAX_RADIO_OPTIONS) return <RadioField {...props} options={kind.options} />;
+  if (kind.type === "multiSelect") return <MultiField {...props} options={kind.options} />;
+  return <InputField {...props} />;
+}
 
-  if (kind.type === "boolean") {
-    return (
-      <div>
-        <label className="flex items-center gap-2 text-xs font-medium text-fg-secondary">
-          <input
-            type="checkbox"
-            {...shared}
-            className="focus-ring h-3.5 w-3.5"
-            checked={value === true}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          <span>
-            <Caption field={field} />
-          </span>
-        </label>
-        {help}
-      </div>
-    );
-  }
+interface ControlProps {
+  field: ElicitationField;
+  value: FormValue | undefined;
+  onChange: (value: FormValue) => void;
+  disabled: boolean;
+  control: Control;
+}
 
-  if (kind.type === "select" && kind.options.length <= MAX_RADIO_OPTIONS) {
-    return (
-      <Group id={id} field={field} role="radiogroup" describedBy={describedBy}>
-        {kind.options.map((option) => (
-          <Choice key={option.value} option={option} type="radio" name={id} checked={value === option.value} disabled={disabled} onChange={() => onChange(option.value)} />
-        ))}
-        {help}
-      </Group>
-    );
-  }
-
-  if (kind.type === "multiSelect") {
-    const picked = Array.isArray(value) ? value : [];
-    const toggle = (optionValue: string) =>
-      onChange(picked.includes(optionValue) ? picked.filter((v) => v !== optionValue) : [...picked, optionValue]);
-    return (
-      <Group id={id} field={field} role="group" describedBy={describedBy}>
-        {kind.options.map((option) => (
-          <Choice key={option.value} option={option} type="checkbox" checked={picked.includes(option.value)} disabled={disabled} onChange={() => toggle(option.value)} />
-        ))}
-        {help}
-      </Group>
-    );
-  }
-
+function BooleanField({ field, value, onChange, control }: ControlProps) {
   return (
     <div>
-      <label htmlFor={id} className={labelClass}>
+      <label className="flex items-center gap-2 text-xs font-medium text-fg-secondary">
+        <input
+          type="checkbox"
+          {...control.shared}
+          className="focus-ring h-3.5 w-3.5"
+          checked={value === true}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span>
+          <Caption field={field} />
+        </span>
+      </label>
+      {control.help}
+    </div>
+  );
+}
+
+function RadioField({ field, value, onChange, disabled, control, options }: ControlProps & { options: ElicitationChoice[] }) {
+  return (
+    <Group id={control.id} field={field} role="radiogroup" describedBy={control.describedBy}>
+      {options.map((option) => (
+        <Choice key={option.value} option={option} type="radio" name={control.id} checked={value === option.value} disabled={disabled} onChange={() => onChange(option.value)} />
+      ))}
+      {control.help}
+    </Group>
+  );
+}
+
+function MultiField({ field, value, onChange, disabled, control, options }: ControlProps & { options: ElicitationChoice[] }) {
+  const picked = Array.isArray(value) ? value : [];
+  const toggle = (optionValue: string) =>
+    onChange(picked.includes(optionValue) ? picked.filter((v) => v !== optionValue) : [...picked, optionValue]);
+  return (
+    <Group id={control.id} field={field} role="group" describedBy={control.describedBy}>
+      {options.map((option) => (
+        <Choice key={option.value} option={option} type="checkbox" checked={picked.includes(option.value)} disabled={disabled} onChange={() => toggle(option.value)} />
+      ))}
+      {control.help}
+    </Group>
+  );
+}
+
+/** A text, number or date input, or a select with more options than a radio group holds. */
+function InputField({ field, value, onChange, control }: ControlProps) {
+  const text = typeof value === "string" ? value : "";
+  const { kind } = field;
+  return (
+    <div>
+      <label htmlFor={control.id} className="block text-xs font-medium text-fg-secondary">
         <Caption field={field} />
       </label>
       <div className="mt-1">
         {kind.type === "select" ? (
-          <select {...shared} className={INPUT} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)}>
+          <select {...control.shared} className={INPUT} value={text} onChange={(e) => onChange(e.target.value)}>
             <option value="">Choose one</option>
             {kind.options.map((option) => (
               <option key={option.value} value={option.value}>
@@ -159,16 +194,10 @@ function FieldRow({ field, value, error, onChange, disabled }: FieldRowProps) {
             ))}
           </select>
         ) : (
-          <input
-            {...shared}
-            className={INPUT}
-            {...inputProps(field)}
-            value={typeof value === "string" ? value : ""}
-            onChange={(e) => onChange(e.target.value)}
-          />
+          <input {...control.shared} className={INPUT} {...inputProps(field)} value={text} onChange={(e) => onChange(e.target.value)} />
         )}
       </div>
-      {help}
+      {control.help}
     </div>
   );
 }

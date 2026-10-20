@@ -3,6 +3,7 @@ import {
   applyElicitation,
   completeElicitation,
   dismissPendingElicitations,
+  pendingElicitationKeys,
   hasPendingElicitation,
   isAwaitingUser,
   markElicitationsUnanswered,
@@ -181,10 +182,20 @@ describe('status changes', () => {
 
   it('dismissPendingElicitations dismisses only pending cards', () => {
     const messages = [reply({ id: 'a', elicitation: card('k1') }), reply({ id: 'b', elicitation: card('k2', { status: 'opened' }) })];
-    const result = dismissPendingElicitations(messages);
+    const result = dismissPendingElicitations(messages, pendingElicitationKeys(messages));
 
     expect(result[0].elicitation?.status).toBe('dismissed');
     expect(result[1].elicitation?.status).toBe('opened');
+  });
+
+  it('dismissPendingElicitations leaves a card that came after the stop', () => {
+    const before = [reply({ id: 'a', elicitation: card('k1') })];
+    const cancelled = pendingElicitationKeys(before);
+    const after = [...before, reply({ id: 'b', elicitation: card('k2') })];
+    const result = dismissPendingElicitations(after, cancelled);
+
+    expect(result[0].elicitation?.status).toBe('dismissed');
+    expect(result[1].elicitation?.status).toBe('pending');
   });
 
   it('markElicitationsUnanswered settles pending and opened cards', () => {

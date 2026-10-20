@@ -59,6 +59,20 @@ describe("isWaitingForAnswer", () => {
     expect(isWaitingForAnswer(acp, [], () => true)).toBe(false);
   });
 
+  it("waits on an elicitation even between turns", () => {
+    const asking = [
+      {
+        id: "m-2",
+        role: "agent",
+        content: "",
+        timestamp: 2,
+        elicitation: { key: "el-1", sessionId: "s-1", mode: "form", message: "Name?", status: "pending", timestamp: 2 },
+      } as ChatMessage,
+    ];
+    expect(isWaitingForAnswer(acp, asking, () => false)).toBe(true);
+    expect(isWaitingForAnswer({ ...acp, status: "terminated" }, asking, () => false)).toBe(false);
+  });
+
   it("asks whether the agent is busy only for a running session", () => {
     const isBusy = vi.fn(() => true);
 

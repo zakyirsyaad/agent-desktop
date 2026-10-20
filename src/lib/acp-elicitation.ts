@@ -166,11 +166,19 @@ export function applyElicitation(
   return withOpenReply(messages, ctx, withCard);
 }
 
+/** What a card may hold only while it waits: the agent's fields and url, and the last refusal. */
+type WaitingOnly = 'fields' | 'url' | 'errors';
+
+/** A copy of `card` without the waiting-only `keys`. */
+export function withoutKeys(card: ElicitationCard, keys: readonly WaitingOnly[]): ElicitationCard {
+  const copy = { ...card };
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
 /** The card as it is kept once it is no longer waiting: no fields, url or errors; the host stays. */
 function settled(card: ElicitationCard, status: ElicitationStatus): ElicitationCard {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { fields, url, errors, ...rest } = card;
-  return { ...rest, status };
+  return { ...withoutKeys(card, ['fields', 'url', 'errors']), status };
 }
 
 function mapCard(
@@ -239,9 +247,21 @@ export function completeElicitation(messages: ChatMessage[], key: string): ChatM
   return changeCard(messages, key, 'opened', (card) => settled(card, 'completed'));
 }
 
-/** Dismisses every card still waiting, e.g. when the user stops the turn. */
-export function dismissPendingElicitations(messages: ChatMessage[]): ChatMessage[] {
-  return mapCard(messages, (card) => card.status === 'pending', (card) => settled(card, 'dismissed'));
+/** The keys of the cards still waiting. */
+export function pendingElicitationKeys(messages: readonly ChatMessage[]): Set<string> {
+  return new Set(messages.flatMap((m) => (m.elicitation?.status === 'pending' ? [m.elicitation.key] : [])));
+}
+
+/**
+ * Dismisses the waiting cards among `keys`, e.g. the ones the backend
+ * cancelled when the user stopped the turn. A card that came later stays.
+ */
+export function dismissPendingElicitations(messages: ChatMessage[], keys: ReadonlySet<string>): ChatMessage[] {
+  return mapCard(
+    messages,
+    (card) => card.status === 'pending' && keys.has(card.key),
+    (card) => settled(card, 'dismissed'),
+  );
 }
 
 /** Cards that were open when the app closed can no longer be answered. */

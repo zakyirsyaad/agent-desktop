@@ -39,6 +39,19 @@ const checkedOf = (el: HTMLElement) => (el as HTMLInputElement).checked;
 const choices = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ value: `v${i}`, title: `Option ${i}` }));
 
+describe("ElicitationCard mounted while its answer is on its way", () => {
+  it("shows the agent's defaults once the card is put back", () => {
+    const fields: ElicitationField[] = [
+      { name: "name", title: "Name", required: true, kind: { type: "text" }, default: "Ada" },
+    ];
+    const { rerender } = render(
+      <ElicitationCard card={formCard(fields, { status: "submitted", fields: undefined })} agentName="A" />,
+    );
+    rerender(<ElicitationCard card={formCard(fields)} agentName="A" />);
+    expect(valueOf(screen.getByLabelText(/Name/))).toBe("Ada");
+  });
+});
+
 describe("ElicitationCard", () => {
   it("renders every field kind with defaults", () => {
     const fields: ElicitationField[] = [

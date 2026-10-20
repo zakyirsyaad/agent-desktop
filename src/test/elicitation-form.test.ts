@@ -119,10 +119,11 @@ describe('checkForm', () => {
     expect(msg(kind({ maxItems: 1 }), ['a', 'b'])).toBe('Pick at most 1.');
     expect(msg(kind(), ['a', 'a'])).toBeUndefined();
   });
-  it('lets an optional multi-select with a minimum stay empty; a required one still needs the minimum', () => {
+  it('lets an optional multi-select with a minimum stay empty; a required one counts nothing picked as missing', () => {
     const kind: ElicitationFieldKind = { type: 'multiSelect', options: choices, minItems: 1 };
     expect(msg(kind, [])).toBeUndefined();
-    expect(msg(kind, [], true)).toBe('Pick at least 1.');
+    expect(msg(kind, [], true)).toBe('This field is required.');
+    expect(msg({ type: 'multiSelect', options: choices }, [], true)).toBe('This field is required.');
     expect(toContent([field('f', kind)], { f: [] })).toEqual({});
   });
   it('keeps typed values out of messages', () => {
