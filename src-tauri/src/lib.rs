@@ -124,6 +124,19 @@ fn get_agent_profiles(
     Ok(agent_profiles(&versions_in_use(&store)))
 }
 
+/// Every agent in the registry with where it stands on this Mac, for the
+/// catalog screen. Unlike the profiles it includes agents that are waiting out
+/// the seven-day wait or have no build for this Mac.
+#[tauri::command(async)]
+fn get_agent_catalog(
+    store: State<'_, AppStore>,
+) -> Result<registry::catalog_view::AgentCatalog, String> {
+    let versions = versions_in_use(&store);
+    Ok(profiles::with_system_tools(|catalog, tools| {
+        catalog.catalog_view(tools, &versions, registry::unix_now())
+    }))
+}
+
 /// Reads the global npm packages and, when the last fetch is a day old,
 /// the registry, on its own thread so startup never waits on `npm` or the
 /// network. The UI is told to reload its profiles only when they changed.
@@ -345,6 +358,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_agent_profiles,
+            get_agent_catalog,
             list_workspaces,
             spawn_session,
             send_input,

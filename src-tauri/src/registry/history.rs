@@ -150,6 +150,15 @@ impl VersionHistory {
         self.agents.get(id)?.get(version).map(|r| r.first_seen)
     }
 
+    /// Every recorded version of `id` with its record, in version-string order.
+    pub fn records(&self, id: &str) -> impl Iterator<Item = (&str, &HistoryRecord)> {
+        self.agents
+            .get(id)
+            .into_iter()
+            .flat_map(|versions| versions.iter())
+            .map(|(version, record)| (version.as_str(), record))
+    }
+
     pub fn ids(&self) -> impl Iterator<Item = &str> {
         self.agents.keys().map(String::as_str)
     }

@@ -6,6 +6,7 @@
 //! never touches the disk or the network.
 
 mod cache;
+pub mod catalog_view;
 pub mod fetch;
 pub mod history;
 pub mod npm_globals;
@@ -24,11 +25,19 @@ use crate::installer::{
 };
 use crate::profiles::AgentProfile;
 use cache::RegistryCache;
+use catalog_view::{
+    AgentCatalog, CatalogAgent, STATUS_BY_ZORVO, STATUS_NOT_INSTALLED, STATUS_ON_YOUR_MAC,
+    STATUS_READY, STATUS_UNSUPPORTED, STATUS_WAITING,
+};
 use fetch::{fetch_registry, FETCH_TIMEOUT, MAX_REGISTRY_BYTES, REGISTRY_URL};
-use history::{is_within, VersionHistory, MIN_AGE_SECS};
+use history::{compare_versions, is_within, VersionHistory, MIN_AGE_SECS};
 use npm_globals::{npm_globals, NPM_TIMEOUT};
-use resolve::{is_supported, planned_steps, registry_env, resolve_profile, SystemTools};
+use resolve::{
+    install_status, is_supported, planned_steps, registry_env, resolve_profile, InstallStatus,
+    SystemTools,
+};
 use schema::{parse_registry, RegistryEntry};
+use std::cmp::Ordering;
 
 /// Emitted when a refresh changed the agent profiles; the UI reloads them.
 pub const AGENT_PROFILES_CHANGED: &str = "agent-profiles-changed";
@@ -113,6 +122,81 @@ impl CatalogState {
         self.history
             .first_seen(id, version)
             .is_some_and(|seen| now.saturating_sub(seen) >= MIN_AGE_SECS)
+    }
+
+    /// The catalog row for `id`, which is in the history.
+    fn catalog_agent(
+        &self,
+        id: &str,
+        tools: &SystemTools,
+        versions: &BTreeMap<String, String>,
+        now: u64,
+    ) -> CatalogAgent {
+        let listed = self.is_listed(id);
+        let Some(entry) = self.entry_for(id, versions, now) else {
+            return self.waiting_agent(id, listed);
+        };
+        let (status, location) = match install_status(entry, tools) {
+            InstallStatus::ByZorvo => (STATUS_BY_ZORVO, None),
+            InstallStatus::OnYourMac { location } => (STATUS_ON_YOUR_MAC, location),
+            InstallStatus::Ready => (STATUS_READY, None),
+            InstallStatus::NotInstalled => (STATUS_NOT_INSTALLED, None),
+            InstallStatus::Unsupported => (STATUS_UNSUPPORTED, None),
+        };
+        let update_version = if status == STATUS_UNSUPPORTED
+            || (status == STATUS_ON_YOUR_MAC && location.is_some())
+        {
+            None
+        } else {
+            self.newer_offered(id, &entry.version, now)
+                .map(|offered| offered.version.clone())
+        };
+        CatalogAgent {
+            id: id.to_string(),
+            name: entry.name.clone(),
+            description: entry.description.clone(),
+            distribution: distribution_name(entry).to_string(),
+            listed,
+            version: Some(entry.version.clone()),
+            update_version,
+            status: status.to_string(),
+            available_from: None,
+            location,
+        }
+    }
+
+    /// The offered entry when it is newer than `version`.
+    fn newer_offered(&self, id: &str, version: &str, now: u64) -> Option<&RegistryEntry> {
+        self.offered(id, now)
+            .filter(|offered| compare_versions(&offered.version, version) == Ordering::Greater)
+    }
+
+    /// A row for an agent whose every version is still younger than the wait.
+    fn waiting_agent(&self, id: &str, listed: bool) -> CatalogAgent {
+        let newest = self
+            .history
+            .records(id)
+            .max_by(|(a, _), (b, _)| compare_versions(a, b))
+            .map(|(_, record)| &record.entry);
+        let available_from = self
+            .history
+            .records(id)
+            .filter(|(version, _)| !self.is_withdrawn(id, version))
+            .map(|(_, record)| record.first_seen)
+            .min()
+            .map(|seen| seen + MIN_AGE_SECS);
+        CatalogAgent {
+            id: id.to_string(),
+            name: newest.map_or_else(|| id.to_string(), |entry| entry.name.clone()),
+            description: newest.and_then(|entry| entry.description.clone()),
+            distribution: newest.map_or("npx", distribution_name).to_string(),
+            listed,
+            version: None,
+            update_version: None,
+            status: STATUS_WAITING.to_string(),
+            available_from,
+            location: None,
+        }
     }
 
     fn profile(
@@ -306,6 +390,48 @@ impl Catalog {
             .map(|entry| entry.name.clone())
     }
 
+    /// One row per agent in the history, sorted by id, with where it stands on
+    /// this Mac and the newer version Update would move to.
+    pub fn catalog_view(
+        &self,
+        tools: &SystemTools,
+        versions: &BTreeMap<String, String>,
+        now: u64,
+    ) -> AgentCatalog {
+        let state = self.read_state();
+        AgentCatalog {
+            last_checked: state.cache.as_ref().map(|cache| cache.last_fetch),
+            agents: state
+                .history
+                .ids()
+                .map(|id| state.catalog_agent(id, tools, versions, now))
+                .collect(),
+        }
+    }
+
+    /// The entry Update moves `id` to; the error is the message to show when
+    /// there is nothing to move to.
+    pub fn update_target(
+        &self,
+        id: &str,
+        tools: &SystemTools,
+        versions: &BTreeMap<String, String>,
+        now: u64,
+    ) -> Result<RegistryEntry, String> {
+        let state = self.read_state();
+        if !state.history.ids().any(|known| known == id) {
+            return Err(format!("Unknown agent '{id}'"));
+        }
+        let row = state.catalog_agent(id, tools, versions, now);
+        if row.status == STATUS_ON_YOUR_MAC && row.location.is_some() {
+            return Err(format!("{} is managed outside Zorvo", row.name));
+        }
+        row.update_version
+            .and_then(|version| state.history.version(id, &version))
+            .cloned()
+            .ok_or_else(|| format!("No newer version of {} is offered", row.name))
+    }
+
     /// The registry's environment variables for `id` at `version`; empty when unknown.
     pub fn launch_env(&self, id: &str, version: &str) -> BTreeMap<String, String> {
         self.read_state()
@@ -353,6 +479,14 @@ impl Catalog {
         self.state
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+fn distribution_name(entry: &RegistryEntry) -> &'static str {
+    match entry.distribution {
+        schema::Distribution::Npx { .. } => "npx",
+        schema::Distribution::Uvx { .. } => "uvx",
+        schema::Distribution::Binary { .. } => "binary",
     }
 }
 

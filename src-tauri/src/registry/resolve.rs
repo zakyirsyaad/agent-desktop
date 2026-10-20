@@ -337,6 +337,47 @@ pub fn is_supported(entry: &RegistryEntry) -> bool {
     }
 }
 
+/// Where an agent stands on this Mac, for the catalog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallStatus {
+    /// Installed by Zorvo, or run on Zorvo's own Node.js or uv.
+    ByZorvo,
+    /// Found outside Zorvo: `location` is the program for a binary agent and
+    /// `None` for a globally installed npm package.
+    OnYourMac {
+        location: Option<String>,
+    },
+    /// Runs on the user's own tools; nothing to install.
+    Ready,
+    NotInstalled,
+    /// A binary agent with no build for this Mac.
+    Unsupported,
+}
+
+/// [`InstallStatus`] of `entry` on the machine described by `tools`.
+pub fn install_status(entry: &RegistryEntry, tools: &SystemTools) -> InstallStatus {
+    let resolution = resolve(entry, tools);
+    match resolution.availability() {
+        AVAILABILITY_UNSUPPORTED => return InstallStatus::Unsupported,
+        AVAILABILITY_READY => {}
+        _ => return InstallStatus::NotInstalled,
+    }
+    let program = match &resolution.program {
+        Program::Found(located) => Some(located.path.clone()),
+        _ => None,
+    };
+    if resolution.installed_on_system {
+        let location = (resolution.kind == "binary").then_some(program).flatten();
+        return InstallStatus::OnYourMac { location };
+    }
+    let from_zorvo_tools = resolution.kind == "binary" && program.is_some();
+    if resolution.zorvo_runtime.is_some() || from_zorvo_tools {
+        InstallStatus::ByZorvo
+    } else {
+        InstallStatus::Ready
+    }
+}
+
 pub fn resolve_profile(entry: &RegistryEntry, tools: &SystemTools, listed: bool) -> AgentProfile {
     let resolution = resolve(entry, tools);
     let availability = resolution.availability();
