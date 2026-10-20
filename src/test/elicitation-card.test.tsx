@@ -293,6 +293,22 @@ describe("ElicitationCard", () => {
     expect(screen.queryByRole("button", { name: "Open again" })).toBeNull();
   });
 
+  it("marks a required radio group and names a required checkbox group as required", () => {
+    const fields: ElicitationField[] = [
+      { name: "few", title: "Few", required: true, kind: { type: "select", options: choices(2) } },
+      { name: "pick", title: "Pick", required: false, kind: { type: "select", options: choices(2) } },
+      { name: "tags", title: "Tags", required: true, kind: { type: "multiSelect", options: choices(2) } },
+      { name: "more", title: "More", required: false, kind: { type: "multiSelect", options: choices(2) } },
+    ];
+    render(<ElicitationCard card={formCard(fields)} agentName="A" />);
+    expect(screen.getByRole("radiogroup", { name: "Few" }).getAttribute("aria-required")).toBe("true");
+    expect(screen.getByRole("radiogroup", { name: "Pick" }).hasAttribute("aria-required")).toBe(false);
+    // The name joins "Tags" and the hidden " (required)"; jsdom's name drops the space.
+    const tags = screen.getByRole("group", { name: /^Tags ?\(required\)$/ });
+    expect(tags.hasAttribute("aria-required")).toBe(false);
+    expect(screen.getByRole("group", { name: "More" })).toBeTruthy();
+  });
+
   it("offers no Open again on an opened card without onReopen", () => {
     render(<ElicitationCard card={urlCard({ status: "opened" })} agentName="A" />);
     expect(screen.queryByRole("button", { name: "Open again" })).toBeNull();

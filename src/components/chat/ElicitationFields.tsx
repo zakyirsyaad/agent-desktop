@@ -44,7 +44,12 @@ interface FieldRowProps {
   disabled: boolean;
 }
 
-function Caption({ field }: { field: ElicitationField }) {
+/**
+ * A field's name, with a star when it is required. The star is hidden from
+ * screen readers, which hear `aria-required` instead; `sayRequired` puts the
+ * word in the name for a control that cannot carry `aria-required`.
+ */
+function Caption({ field, sayRequired = false }: { field: ElicitationField; sayRequired?: boolean }) {
   return (
     <>
       {field.title ?? field.name}
@@ -53,6 +58,7 @@ function Caption({ field }: { field: ElicitationField }) {
           *
         </span>
       )}
+      {field.required && sayRequired && <span className="sr-only">{" (required)"}</span>}
     </>
   );
 }
@@ -177,11 +183,18 @@ function inputProps(field: ElicitationField): { type: string; step?: string } {
   return { type: "text" };
 }
 
-function Group({ id, field, role, describedBy, children }: { id: string; field: ElicitationField; role: string; describedBy?: string; children: ReactNode }) {
+/** A radio group carries `aria-required`; a checkbox group (`group`) cannot, so its name says it. */
+function Group({ id, field, role, describedBy, children }: { id: string; field: ElicitationField; role: "radiogroup" | "group"; describedBy?: string; children: ReactNode }) {
+  const isRadio = role === "radiogroup";
   return (
-    <div role={role} aria-labelledby={`${id}-label`} aria-describedby={describedBy}>
+    <div
+      role={role}
+      aria-labelledby={`${id}-label`}
+      aria-describedby={describedBy}
+      aria-required={isRadio && field.required ? true : undefined}
+    >
       <span id={`${id}-label`} className="block text-xs font-medium text-fg-secondary">
-        <Caption field={field} />
+        <Caption field={field} sayRequired={!isRadio} />
       </span>
       <div className="mt-1 space-y-1">{children}</div>
     </div>
