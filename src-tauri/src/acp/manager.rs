@@ -13,10 +13,12 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use super::connection::{error_message, AcpConnection, ConnectionEvent, EventSink};
+use super::elicitation::PendingElicitations;
 use super::prompt_blocks::prompt_blocks;
 use super::terminal_auth::{terminal_method, SignInAttempts, TerminalMethodError};
 use crate::pty_session::validate_cwd;
 
+mod elicitation_routes;
 mod routing;
 
 use routing::{answer, route_event};
@@ -86,6 +88,17 @@ pub enum AcpEvent {
         session_id: String,
         code: Option<i32>,
     },
+    /// The agent asks the user for input; `key` names the request in answers.
+    Elicitation {
+        session_id: String,
+        key: String,
+        view: Value,
+    },
+    /// The agent says the URL request `key` is done.
+    ElicitationComplete {
+        session_id: String,
+        key: String,
+    },
 }
 
 pub type AcpEventSink = Box<dyn Fn(AcpEvent) + Send + Sync>;
@@ -108,6 +121,11 @@ struct Routes {
     /// (connection key, acp session id) -> app session id. Keyed by connection
     /// too: two agent processes may give their sessions the same id.
     by_acp_id: HashMap<(u64, String), String>,
+    /// connection key -> the app session `open()` is starting on it, for
+    /// requests sent before the answer that routes the session.
+    opening: HashMap<u64, String>,
+    /// Elicitation requests not yet answered or finished.
+    elicitations: PendingElicitations,
 }
 
 pub struct AcpManager {
@@ -207,14 +225,25 @@ impl AcpManager {
             &launch.env,
             |connection| self.connection_sink(connection_key, connection),
         )?;
+        self.set_opening(connection_key, Some(app_session_id));
 
-        let (started, auth_methods) = initialize(&connection)
+        let opened = initialize(&connection)
             .map_err(OpenError::Transport)
             .and_then(|init| {
                 open_session(&connection, &init, connection_key)
                     .map(|started| (started, auth_methods_of(&init)))
-            })
-            .map_err(|error| failure_message(&connection, error))?;
+            });
+        let (started, auth_methods) = match opened {
+            Ok(opened) => opened,
+            Err(error) => {
+                // Its requests can no longer be answered.
+                self.set_opening(connection_key, None);
+                if let Ok(mut routes) = self.routes.lock() {
+                    routes.elicitations.take_session(app_session_id);
+                }
+                return Err(failure_message(&connection, error));
+            }
+        };
         self.register(
             app_session_id,
             connection,
@@ -223,7 +252,18 @@ impl AcpManager {
             auth_methods,
             cwd,
         );
+        self.set_opening(connection_key, None);
         Ok(started)
+    }
+
+    /// Marks connection `connection_key` as opening `app_session_id`, or no longer opening.
+    fn set_opening(&self, connection_key: u64, app_session_id: Option<&str>) {
+        if let Ok(mut routes) = self.routes.lock() {
+            match app_session_id {
+                Some(id) => routes.opening.insert(connection_key, id.to_string()),
+                None => routes.opening.remove(&connection_key),
+            };
+        }
     }
 
     /// Signs in to the agent with one of the methods it reported, in a
@@ -447,6 +487,7 @@ impl AcpManager {
         let Ok(mut routes) = self.routes.lock() else {
             return;
         };
+        routes.elicitations.take_session(app_session_id);
         let Some(entry) = routes.sessions.remove(app_session_id) else {
             return;
         };
@@ -624,8 +665,8 @@ pub(super) fn failure_message(connection: &AcpConnection, error: OpenError) -> S
 }
 
 /// Spawns an agent that hosts no app session (a sign-in or a probe). Its
-/// requests are refused here, so the agent never waits on us; its
-/// notifications go to `on_notification`.
+/// requests are refused here (an elicitation is cancelled), so the agent
+/// never waits on us; its notifications go to `on_notification`.
 pub(super) fn spawn_unrouted(
     cwd: &str,
     launch: &AcpLaunch,
@@ -638,6 +679,9 @@ pub(super) fn spawn_unrouted(
         &launch.env,
         |connection| -> EventSink {
             Arc::new(move |event| match event {
+                ConnectionEvent::Request { id, method, .. } if method == "elicitation/create" => {
+                    elicitation_routes::cancel_request(&connection, id)
+                }
                 ConnectionEvent::Request { id, .. } => answer(&connection, move |c| {
                     c.respond_error(&id, METHOD_NOT_FOUND, "Not available here")
                 }),
@@ -656,7 +700,7 @@ pub(super) fn initialize(connection: &AcpConnection) -> Result<Value, String> {
         "initialize",
         json!({
             "protocolVersion": PROTOCOL_VERSION,
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "auth": { "terminal": true } },
+            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "auth": { "terminal": true }, "elicitation": { "form": {}, "url": {} } },
             "clientInfo": { "name": "zorvo", "version": env!("CARGO_PKG_VERSION") },
         }),
         HANDSHAKE_TIMEOUT,

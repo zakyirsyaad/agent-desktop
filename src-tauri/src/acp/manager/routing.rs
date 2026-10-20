@@ -6,6 +6,7 @@ use std::thread;
 
 use serde_json::{json, Value};
 
+use super::elicitation_routes::{route_complete, route_create};
 use super::{AcpEvent, AcpEventSink, Routes, METHOD_NOT_FOUND};
 use crate::acp::connection::{AcpConnection, ConnectionEvent};
 
@@ -25,7 +26,13 @@ pub(super) fn route_event(
                 });
             }
         }
+        ConnectionEvent::Notification { method, params } if method == "elicitation/complete" => {
+            route_complete(routes, sink, connection_key, &params)
+        }
         ConnectionEvent::Notification { .. } => {}
+        ConnectionEvent::Request { id, method, params } if method == "elicitation/create" => {
+            route_create(routes, sink, connection, connection_key, id, params)
+        }
         ConnectionEvent::Request { id, method, params } => {
             let session_id = app_id_for(routes, connection_key, &params);
             route_request(sink, connection, session_id, id, &method, params)
@@ -43,6 +50,9 @@ pub(super) fn route_event(
                     r.sessions.retain(|_, e| e.connection_key != connection_key);
                     // Also drops a session routed by its answer that never registered.
                     r.by_acp_id.retain(|(key, _), _| *key != connection_key);
+                    // Nobody is left to answer: covers a session that never registered.
+                    r.elicitations.take_connection(connection_key);
+                    r.opening.remove(&connection_key);
                     ids
                 })
                 .unwrap_or_default();

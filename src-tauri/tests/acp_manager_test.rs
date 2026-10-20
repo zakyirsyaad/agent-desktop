@@ -1004,3 +1004,156 @@ fn lists_the_folder_of_every_open_session_until_it_stops() {
     manager.stop("s-2");
     assert!(manager.session_folders().is_empty());
 }
+
+#[test]
+fn advertises_form_and_url_elicitation() {
+    let (manager, _rx) = manager();
+    let log = method_log("init-capabilities");
+    let launch = with_env(fake_agent(), "FAKE_ACP_INIT_LOG", log.to_str().unwrap());
+
+    manager.start("s-1", &cwd(), &launch).expect("start");
+
+    let capabilities: Value =
+        serde_json::from_str(&std::fs::read_to_string(&log).expect("init log")).unwrap();
+    assert_eq!(
+        capabilities["elicitation"],
+        serde_json::json!({ "form": {}, "url": {} })
+    );
+    manager.stop("s-1");
+}
+
+fn is_elicitation(event: &AcpEvent) -> bool {
+    matches!(event, AcpEvent::Elicitation { .. })
+}
+
+/// The first `elicited:<reply>` the fake agent says.
+fn elicited(rx: &Receiver<AcpEvent>) -> String {
+    let said = wait_for(rx, |e| {
+        agent_text(e).is_some_and(|text| text.starts_with("elicited:"))
+    });
+    agent_text(&said).unwrap()
+}
+
+#[test]
+fn routes_a_form_request_to_its_session() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "elicit-form", &[]).unwrap();
+
+    let AcpEvent::Elicitation {
+        session_id,
+        key,
+        view,
+    } = wait_for(&rx, is_elicitation)
+    else {
+        unreachable!()
+    };
+    assert_eq!(session_id, "s-1");
+    assert!(key.starts_with("el-"), "unexpected key {key}");
+    assert_eq!(view["mode"], "form");
+    assert_eq!(view["fields"][0]["name"], "name");
+    manager.stop("s-1");
+}
+
+#[test]
+fn refuses_an_unknown_mode_with_invalid_params() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "elicit-voice", &[]).unwrap();
+
+    let said = elicited(&rx);
+    assert!(said.contains(r#""code":-32602"#), "unexpected reply {said}");
+    assert!(rx.try_iter().all(|e| !is_elicitation(&e)));
+    manager.stop("s-1");
+}
+
+#[test]
+fn shows_a_request_sent_while_the_session_opens() {
+    let (manager, rx) = manager();
+    let log = method_log("elicit-on-new");
+    let launch = with_env(
+        fake_agent(),
+        "FAKE_ACP_ELICIT_ON_NEW",
+        log.to_str().unwrap(),
+    );
+
+    let starting = {
+        let manager = Arc::clone(&manager);
+        std::thread::spawn(move || manager.start("s-1", &cwd(), &launch))
+    };
+
+    let event = wait_for(&rx, is_elicitation);
+    assert!(matches!(event, AcpEvent::Elicitation { ref session_id, .. } if session_id == "s-1"));
+    manager.stop("s-1");
+    // Nobody answers the form here, so the agent gives up on the session.
+    let _ = starting.join();
+}
+
+#[test]
+fn cancels_requests_from_unrouted_agents() {
+    let (manager, rx) = manager();
+    let log = method_log("elicit-on-probe");
+    let launch = with_env(
+        fake_agent(),
+        "FAKE_ACP_ELICIT_ON_NEW",
+        log.to_str().unwrap(),
+    );
+
+    manager.probe(&cwd(), &launch, true).expect("probe");
+
+    let reply: Value =
+        serde_json::from_str(std::fs::read_to_string(&log).expect("reply").trim()).unwrap();
+    assert_eq!(reply["result"], serde_json::json!({ "action": "cancel" }));
+    assert!(rx.try_iter().all(|e| !is_elicitation(&e)));
+}
+
+#[test]
+fn keeps_two_requests_apart() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "elicit-twice", &[]).unwrap();
+
+    let key_of = |event: AcpEvent| match event {
+        AcpEvent::Elicitation {
+            session_id, key, ..
+        } if session_id == "s-1" => key,
+        other => panic!("unexpected event {other:?}"),
+    };
+    let first = key_of(wait_for(&rx, is_elicitation));
+    let second = key_of(wait_for(&rx, is_elicitation));
+    assert_ne!(first, second);
+    manager.stop("s-1");
+}
+
+#[test]
+fn ignores_unknown_completions() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "elicit-complete", &[]).unwrap();
+
+    let mut seen = Vec::new();
+    loop {
+        let event = rx
+            .recv_timeout(WAIT)
+            .expect("timed out waiting for the turn");
+        let ended = matches!(event, AcpEvent::TurnEnded { .. });
+        seen.push(event);
+        if ended {
+            break;
+        }
+    }
+    assert!(seen
+        .iter()
+        .any(|e| agent_text(e).as_deref() == Some("completed-sent")));
+    assert!(
+        !seen
+            .iter()
+            .any(|e| matches!(e, AcpEvent::ElicitationComplete { .. })),
+        "{seen:?}"
+    );
+    manager.stop("s-1");
+}

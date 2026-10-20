@@ -1,8 +1,10 @@
 //! ACP elicitation: an agent asks the user for input mid-turn.
 
+mod pending;
 mod url_check;
 mod validate;
 
+pub use pending::{Pending, PendingElicitations, PendingState};
 pub use url_check::{check_url, UrlCheck, UrlWarning};
 pub use validate::{validate, FieldErrors};
 
