@@ -369,3 +369,30 @@ fn catalog_serialises_in_camel_case() {
     assert_eq!(gemini["updateVersion"], "1.1.0");
     assert!(gemini.get("availableFrom").is_some());
 }
+
+#[test]
+fn a_new_binary_without_this_macs_target_is_unsupported_not_waiting() {
+    let bundle = bundle_of(&[
+        (
+            binary_entry("fresh-linux", "1.0.0", "linux-x86_64", "./x"),
+            NOW - 2 * DAY,
+        ),
+        (current_binary("fresh-mac", "1.0.0", "./x"), NOW - 2 * DAY),
+    ]);
+    let catalog = Catalog::bundled(&bundle);
+    let dir = BinDir::new(&[]);
+
+    let result = view(
+        &catalog,
+        &dir.path_var(),
+        &BTreeSet::new(),
+        &InstalledTools::none(),
+        &BTreeMap::new(),
+    );
+
+    let fresh_linux = agent(&result, "fresh-linux");
+    assert_eq!(fresh_linux.status, "unsupported");
+    assert_eq!(fresh_linux.available_from, None);
+    assert_eq!(fresh_linux.distribution, "binary");
+    assert_eq!(agent(&result, "fresh-mac").status, "waiting");
+}

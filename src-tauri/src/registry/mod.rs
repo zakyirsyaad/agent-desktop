@@ -177,19 +177,30 @@ impl CatalogState {
     }
 
     /// A row for an agent whose every version is still younger than the wait.
+    /// When the newest is a binary with no build for this Mac, the wait would
+    /// end in "unsupported", so that is what the row says from the start.
     fn waiting_agent(&self, id: &str, listed: bool) -> CatalogAgent {
         let newest = self
             .history
             .records(id)
             .max_by(|(a, _), (b, _)| compare_versions(a, b))
             .map(|(_, record)| &record.entry);
-        let available_from = self
-            .history
-            .records(id)
-            .filter(|(version, _)| !self.is_withdrawn(id, version))
-            .map(|(_, record)| record.first_seen)
-            .min()
-            .map(|seen| seen + MIN_AGE_SECS);
+        let is_unsupported = newest.is_some_and(|entry| !is_supported(entry));
+        let available_from = if is_unsupported {
+            None
+        } else {
+            self.history
+                .records(id)
+                .filter(|(version, _)| !self.is_withdrawn(id, version))
+                .map(|(_, record)| record.first_seen)
+                .min()
+                .map(|seen| seen + MIN_AGE_SECS)
+        };
+        let status = if is_unsupported {
+            STATUS_UNSUPPORTED
+        } else {
+            STATUS_WAITING
+        };
         CatalogAgent {
             id: id.to_string(),
             name: newest.map_or_else(|| id.to_string(), |entry| entry.name.clone()),
@@ -198,7 +209,7 @@ impl CatalogState {
             listed,
             version: None,
             update_version: None,
-            status: STATUS_WAITING.to_string(),
+            status: status.to_string(),
             available_from,
             location: None,
         }
