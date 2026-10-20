@@ -60,6 +60,7 @@ import { ProfileFooter } from "./components/ProfileFooter";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useUserProfile } from "./hooks/useUserProfile";
 import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
+import { useBranchPicker } from "./hooks/useBranchPicker";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
 import { useSessionFork } from "./hooks/useSessionFork";
@@ -147,6 +148,13 @@ export default function App() {
   // every saved session's folder, so one gone from the recents keeps them.
   const isRepository = Boolean(workspaceDetails?.branch);
   const canUseWorktree = isNewSessionDraft && isRepository;
+  const branchPicker = useBranchPicker({
+    folderPath: isNewSessionDraft ? activeWorkspacePath : undefined,
+    checkedOut: workspaceDetails?.branch ?? undefined,
+    isWorktreeOn: isWorktreeOn && canUseWorktree,
+    onSwitched: () => setBranchCheck((n) => n + 1),
+    onNotice: setNotice,
+  });
   const filesFolder =
     workspaces.find((ws) => ws.path === shownFolderPath) ??
     (activeSession ? { name: folderNameOf(activeSession.cwd), path: activeSession.cwd } : undefined);
@@ -355,7 +363,7 @@ export default function App() {
     if (isWorktreeOn && canUseWorktree) {
       setIsCreatingWorktree(true);
       try {
-        ({ worktree, cwd } = await createSessionWorktree(activeWorkspace.path, name));
+        ({ worktree, cwd } = await createSessionWorktree(activeWorkspace.path, name, branchPicker.baseBranch));
       } catch (error) {
         setNotice(`Could not create a worktree: ${String(error)}`);
         // The user may have opened another session meanwhile: the message goes
@@ -688,6 +696,7 @@ export default function App() {
                         onSelect: chooseFolder,
                         onOpenFolder: () => void openFolder(),
                         worktree: canUseWorktree ? { isOn: isWorktreeOn, onChange: setIsWorktreeOn } : undefined,
+                        branch: branchPicker.control,
                       }
                     : undefined
                 }

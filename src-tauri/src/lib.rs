@@ -1,6 +1,7 @@
 pub mod acp;
 pub mod appearance;
 pub mod background_processes;
+pub mod branches;
 pub mod changes;
 pub mod data_migration;
 pub mod diff_stats;
@@ -322,6 +323,8 @@ pub fn run() {
             files::remember_workspace,
             workspace_files::workspace_files,
             git_info::workspace_details,
+            branches::list_branches,
+            branches::switch_branch,
             pull_requests::session_pull_request,
             pull_requests::repo_pull_requests,
             changes::session_changes,

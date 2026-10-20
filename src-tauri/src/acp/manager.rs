@@ -5,7 +5,7 @@
 //! last app session using them stops.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
@@ -93,6 +93,8 @@ struct SessionEntry {
     agent_capabilities: Value,
     /// The sign-in methods the agent reported, offered again when it refuses a prompt.
     auth_methods: Value,
+    /// The folder the session works in.
+    cwd: PathBuf,
 }
 
 #[derive(Default)]
@@ -211,6 +213,7 @@ impl AcpManager {
             connection_key,
             &started,
             auth_methods,
+            cwd,
         );
         Ok(started)
     }
@@ -269,6 +272,7 @@ impl AcpManager {
             connection_key,
             &started,
             auth_methods,
+            cwd,
         );
         Ok(started)
     }
@@ -392,6 +396,20 @@ impl AcpManager {
         roots
     }
 
+    /// The folder of every open session, one entry per session.
+    pub fn session_folders(&self) -> Vec<PathBuf> {
+        // Read even a poisoned map: answering "none" could switch a branch under a live agent.
+        let routes = self
+            .routes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        routes
+            .sessions
+            .values()
+            .map(|entry| entry.cwd.clone())
+            .collect()
+    }
+
     /// True while a session's agent was started from a program under `dir`,
     /// or with a `PATH` entry under it (a prerequisite, Zorvo's uv or Node),
     /// so its files must not be deleted yet.
@@ -436,6 +454,7 @@ impl AcpManager {
         key: u64,
         started: &StartedSession,
         auth_methods: Value,
+        cwd: &str,
     ) {
         if let Ok(mut routes) = self.routes.lock() {
             routes
@@ -449,6 +468,7 @@ impl AcpManager {
                     acp_session_id: started.acp_session_id.clone(),
                     agent_capabilities: started.agent_capabilities.clone(),
                     auth_methods,
+                    cwd: PathBuf::from(cwd),
                 },
             );
         }

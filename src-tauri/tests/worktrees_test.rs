@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use zorvo_lib::worktrees::{branch_slug, create_worktree, remove_worktree};
+use zorvo_lib::worktrees::{branch_slug, create_worktree, create_worktree_from, remove_worktree};
 
 fn unique_temp_root(tag: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -239,5 +239,66 @@ fn refuses_a_worktree_outside_every_given_root() {
 
     assert!(error.contains("not a session worktree"), "{error}");
     assert!(Path::new(&worktree.path).exists());
+    fs::remove_dir_all(base).ok();
+}
+
+#[test]
+fn creates_a_worktree_from_a_chosen_branch() {
+    let (base, repo, root) = repo("from-branch");
+    git(&repo, &["switch", "-q", "-c", "release"]);
+    fs::write(repo.join("RELEASE.md"), "v1\n").expect("write file");
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "release"]);
+    git(&repo, &["switch", "-q", "main"]);
+
+    let worktree = create_worktree_from(&git_path(), &repo, &root, "Ship it", Some("release"))
+        .expect("create worktree");
+
+    assert_eq!(worktree.branch, "agent/ship-it");
+    assert!(Path::new(&worktree.path).join("RELEASE.md").is_file());
+    assert_eq!(
+        git(&repo, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "main",
+        "the folder itself stays on its branch"
+    );
+    fs::remove_dir_all(base).ok();
+}
+
+#[test]
+fn checks_the_subfolder_against_the_chosen_branch() {
+    let (base, repo, root) = repo("branch-subfolder");
+    git(&repo, &["switch", "-q", "-c", "bare"]);
+    git(&repo, &["rm", "-q", "-r", "packages"]);
+    git(&repo, &["commit", "-q", "-m", "drop packages"]);
+    git(&repo, &["switch", "-q", "main"]);
+
+    let error = create_worktree_from(
+        &git_path(),
+        &repo.join("packages/web"),
+        &root,
+        "Docs",
+        Some("bare"),
+    )
+    .unwrap_err();
+
+    assert!(error.contains("bare"), "{error}");
+    fs::remove_dir_all(base).ok();
+}
+
+#[test]
+fn refuses_a_base_that_is_not_a_local_branch() {
+    let (base, repo, root) = repo("bad-base");
+
+    for name in ["nope", "--detach", "-b", ""] {
+        assert!(
+            create_worktree_from(&git_path(), &repo, &root, "X", Some(name)).is_err(),
+            "accepted {name:?}"
+        );
+    }
+    assert_eq!(
+        git(&repo, &["branch", "--list", "agent/*"]),
+        "",
+        "no branch is left behind"
+    );
     fs::remove_dir_all(base).ok();
 }
