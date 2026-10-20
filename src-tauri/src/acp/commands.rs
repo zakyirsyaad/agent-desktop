@@ -511,6 +511,22 @@ mod tests {
     }
 
     #[test]
+    fn a_remembered_workspace_passes_the_folder_check() {
+        let scratch = Scratch::new("remembered");
+        let store = scratch.store();
+        store
+            .remember_workspace(&scratch.folder())
+            .expect("remember the folder");
+
+        let err = launch_in_workspace(&store, &scratch.folder(), "no-such-agent").unwrap_err();
+
+        assert!(
+            err.contains("Unknown agent profile 'no-such-agent'"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
     fn a_sign_in_with_a_bad_terminal_id_is_refused() {
         let scratch = Scratch::new("signin-bad-id");
 
