@@ -639,6 +639,95 @@ fn a_signed_out_probe_returns_without_waiting_for_the_agent_to_delete_its_sessio
     );
 }
 
+/// A data dir unique to one test, removed when dropped.
+struct AgentDir(std::path::PathBuf);
+
+impl Drop for AgentDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The fake agent copied under a fresh dir, started by a script there, as a
+/// binary agent Zorvo installed is.
+fn agent_copied_under(tag: &str) -> (AgentDir, AcpLaunch) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = std::env::temp_dir().join(format!("zorvo-acp-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::copy(
+        format!(
+            "{}/tests/fixtures/fake_acp_agent.mjs",
+            env!("CARGO_MANIFEST_DIR")
+        ),
+        dir.join("agent.mjs"),
+    )
+    .unwrap();
+    let script = dir.join("agent");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nexec node \"$(dirname \"$0\")/agent.mjs\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let launch = AcpLaunch {
+        program: script.to_string_lossy().to_string(),
+        args: vec![],
+        env: vec![],
+    };
+    (AgentDir(dir), launch)
+}
+
+#[test]
+fn is_running_under_sees_a_session_started_from_that_dir() {
+    let (manager, _rx) = manager();
+    let (dir, launch) = agent_copied_under("running-under");
+    let sibling = std::path::PathBuf::from(format!("{}-2", dir.0.display()));
+    assert!(!manager.is_running_under(&dir.0));
+
+    manager.start("s-1", &cwd(), &launch).expect("start");
+
+    assert!(manager.is_running_under(&dir.0));
+    assert!(
+        !manager.is_running_under(&sibling),
+        "a dir whose name only starts the same is another dir"
+    );
+    manager.start("s-2", &cwd(), &fake_agent()).expect("start");
+    manager.stop("s-1");
+    assert!(
+        !manager.is_running_under(&dir.0),
+        "no session of that agent is left"
+    );
+    manager.stop("s-2");
+}
+
+#[test]
+fn is_running_under_sees_a_session_whose_path_reaches_into_that_dir() {
+    let (manager, _rx) = manager();
+    // A dir the agent only reaches through PATH, as a prerequisite or Zorvo's uv is.
+    let dir =
+        AgentDir(std::env::temp_dir().join(format!("zorvo-acp-path-under-{}", std::process::id())));
+    let bin = dir.0.join("pi").join("1.0.0").join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let sibling = std::path::PathBuf::from(format!("{}-2", dir.0.display()));
+    let user_path = std::env::var("PATH").unwrap_or_default();
+    let launch = AcpLaunch {
+        env: vec![("PATH".to_string(), format!("{}:{user_path}", bin.display()))],
+        ..fake_agent()
+    };
+
+    manager.start("s-1", &cwd(), &launch).expect("start");
+
+    assert!(manager.is_running_under(&dir.0));
+    assert!(
+        !manager.is_running_under(&sibling),
+        "a dir whose name only starts the same is another dir"
+    );
+    manager.stop("s-1");
+    assert!(!manager.is_running_under(&dir.0));
+}
+
 #[test]
 fn builds_the_login_from_the_agent_launch_and_its_terminal_method() {
     let (manager, _rx) = manager();

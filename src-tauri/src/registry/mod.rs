@@ -17,12 +17,17 @@ use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::installer::{
+    self,
+    plan::PlannedStep,
+    runtimes::{probe_user_node, NodeProbe, NODE_VERSION_TIMEOUT},
+};
 use crate::profiles::AgentProfile;
 use cache::RegistryCache;
 use fetch::{fetch_registry, FETCH_TIMEOUT, MAX_REGISTRY_BYTES, REGISTRY_URL};
 use history::{is_within, VersionHistory};
 use npm_globals::{npm_globals, NPM_TIMEOUT};
-use resolve::{registry_env, resolve_profile, SystemTools};
+use resolve::{planned_steps, registry_env, resolve_profile, SystemTools};
 use schema::{parse_registry, RegistryEntry};
 
 /// Emitted when a refresh changed the agent profiles; the UI reloads them.
@@ -246,6 +251,35 @@ impl Catalog {
         self.read_state().profile(id, tools, versions, now)
     }
 
+    /// The agent's name and what an install of it would do, for the same
+    /// entry [`Self::profiles`] shows, so the plan that runs is the plan the
+    /// UI saw. `None` when the catalog has no version of `id` to offer.
+    pub fn planned_steps_for(
+        &self,
+        id: &str,
+        tools: &SystemTools,
+        versions: &BTreeMap<String, String>,
+        now: u64,
+    ) -> Option<(String, Vec<PlannedStep>)> {
+        let state = self.read_state();
+        let entry = state.entry_for(id, versions, now)?;
+        Some((entry.name.clone(), planned_steps(entry, tools)))
+    }
+
+    /// The agent's name at the entry [`Self::planned_steps_for`] would plan,
+    /// without looking at what the machine has; `None` for the same ids.
+    pub fn agent_name(
+        &self,
+        id: &str,
+        versions: &BTreeMap<String, String>,
+        now: u64,
+    ) -> Option<String> {
+        let state = self.read_state();
+        state
+            .entry_for(id, versions, now)
+            .map(|entry| entry.name.clone())
+    }
+
     /// The registry's environment variables for `id` at `version`; empty when unknown.
     pub fn launch_env(&self, id: &str, version: &str) -> BTreeMap<String, String> {
         self.read_state()
@@ -319,28 +353,36 @@ fn withdrawn_after(
     withdrawn
 }
 
-/// Re-reads the global npm packages with the user's environment `env` and,
-/// when `force` or the last fetch is stale, the registry; the two run at the
-/// same time. A failed fetch is logged and otherwise ignored. Returns whether
-/// the profiles changed.
+/// Re-reads the user's Node version and the global npm packages with the
+/// user's environment `env` and, when `force` or the last fetch is stale, the
+/// registry; the local reads and the fetch run at the same time. A failed
+/// fetch is logged and otherwise ignored. Returns whether the profiles changed.
 ///
-/// It runs `npm` and may fetch, so call it off the main thread.
+/// It runs `node` and `npm` and may fetch, so call it off the main thread.
 pub fn refresh_catalog(catalog: &Catalog, env: &HashMap<String, String>, force: bool) -> bool {
     let now = unix_now();
     let should_fetch = force || catalog.needs_refresh(now);
-    let (found, fetched) = std::thread::scope(|scope| {
-        let npm = scope.spawn(|| npm_globals(env, NPM_TIMEOUT));
-        let fetched = should_fetch.then(|| catalog.refresh_from_registry(now));
-        let found = npm.join().unwrap_or_else(|_| {
-            eprintln!("Reading the global npm packages panicked");
-            BTreeSet::new()
+    let ((node, found), fetched) = std::thread::scope(|scope| {
+        let local = scope.spawn(|| {
+            (
+                probe_user_node(env, NODE_VERSION_TIMEOUT),
+                npm_globals(env, NPM_TIMEOUT),
+            )
         });
-        (found, fetched)
+        let fetched = should_fetch.then(|| catalog.refresh_from_registry(now));
+        let local = local.join().unwrap_or_else(|_| {
+            eprintln!("Reading the user's Node.js and npm packages panicked");
+            (NodeProbe::Inconclusive, BTreeSet::new())
+        });
+        (local, fetched)
     });
 
+    // A probe that cannot answer (empty env, timeout) keeps the known major.
+    let node_changed = installer::record_node_probe(node);
     // A working `npm ls -g` always lists npm itself, so an empty set means
     // detection failed (no npm, an error, the timeout): keep what was found.
     let npm_changed = !found.is_empty() && catalog.set_npm_globals(found);
+    let local_changed = npm_changed || node_changed;
     let fetch_changed = match fetched {
         Some(Ok(changed)) => changed,
         Some(Err(error)) => {
@@ -349,7 +391,7 @@ pub fn refresh_catalog(catalog: &Catalog, env: &HashMap<String, String>, force: 
         }
         None => false,
     };
-    npm_changed || fetch_changed
+    local_changed || fetch_changed
 }
 
 static INSTALLED: OnceLock<Catalog> = OnceLock::new();

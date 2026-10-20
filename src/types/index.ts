@@ -48,12 +48,24 @@ export interface AgentProfile {
   version: string | null;
   distribution: 'npx' | 'uvx' | 'binary' | null;
   availability: AgentAvailability;
+  /** What Install would do; null when the agent is ready. */
+  install_plan: InstallStep[] | null;
   description: string | null;
   installed_on_system: boolean;
   listed: boolean;
 }
 
 export type AgentAvailability = 'ready' | 'needs_runtime' | 'not_installed';
+
+/** One step of an agent's install plan, in the order the installer runs them. */
+export interface InstallStep {
+  kind: 'node' | 'uv' | 'agent' | 'prerequisite';
+  /** "Node.js", "uv", the agent's name, or the prerequisite's command. */
+  name: string;
+  version: string;
+  /** Known for runtimes only. */
+  download_bytes: number | null;
+}
 
 export type AgentTransport = 'acp' | 'pty';
 

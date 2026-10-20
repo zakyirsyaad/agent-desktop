@@ -7,6 +7,9 @@ import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { FilesPanel } from "./components/FilesPanel";
 import { EmptySessionState, FileDropOverlay, NoticeBanner } from "./components/AppPlaceholders";
 import { SignInLayer } from "./components/SignInLayer";
+import { AgentInstallPanel } from "./components/AgentInstallPanel";
+import { pickerLabelOf } from "./lib/install-plan";
+import { installPanelAgentOf } from "./lib/install-panel";
 import { TerminalView } from "./components/TerminalView";
 import { NewSessionView } from "./components/workspace/NewSessionView";
 import { WorkspaceSummary } from "./components/workspace/WorkspaceSummary";
@@ -46,6 +49,7 @@ import { usePersistedState } from "./hooks/usePersistedState";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useTranscripts } from "./hooks/useTranscripts";
 import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
+import { useDraftInstall } from "./hooks/useDraftInstall";
 import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
 import { Onboarding, type OnboardingResult } from "./components/Onboarding";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -66,7 +70,7 @@ import { attentionBody, notifyIfAway } from "./lib/notify";
 import { pickFiles } from "./lib/file-picker";
 import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
-import { noAgentNotice, resolveDefaultAgentId } from "./lib/agent-readiness";
+import { isAgentReady, isAgentRunnable, noAgentNotice, resolveDraftAgentId } from "./lib/agent-readiness";
 import { isInUse, withAutoEnabled } from "./lib/enabled-agents";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
@@ -135,9 +139,10 @@ export default function App() {
   const isActiveRunning = activeSession?.status === "running";
   // Only the agents in use are offered: the defaults, installed ones and the terminal agents found.
   const agentsInUse = agents.filter((agent) => isInUse(agent, state.settings));
-  const readyAgentsInUse = agentsInUse.filter((agent) => agent.detected);
-  const defaultAgentId = resolveDefaultAgentId(agentsInUse, state.settings.defaultAgentId);
-  const newSessionAgentId = readyAgentsInUse.find((a) => a.id === pickedAgentId)?.id ?? defaultAgentId;
+  // A registry agent not installed yet is offered too: picking it shows its Install panel.
+  const pickableAgents = agentsInUse.filter((agent) => agent.source === "registry" || agent.detected);
+  const defaultAgentId = resolveDraftAgentId(agentsInUse, state.settings.defaultAgentId, pickableAgents);
+  const newSessionAgentId = pickableAgents.find((a) => a.id === pickedAgentId)?.id ?? defaultAgentId;
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
   // No session is selected: the window shows a new one, not started until its first message.
   const isNewSessionDraft = !activeSession;
@@ -157,6 +162,9 @@ export default function App() {
   const isResumable =
     isAcp(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
   const draftAgent = isResumable ? activeAgent : newSessionAgent;
+  const isDraftAgentReady = draftAgent ? isAgentRunnable(draftAgent) : false;
+  const installPanelAgent = installPanelAgentOf(activeSession, activeAgent, newSessionAgent);
+  const draftNeedsInstall = useDraftInstall(agents, installPanelAgent, draftAgent);
 
   // A model or effort chosen for one agent means nothing to another one.
   useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
@@ -223,7 +231,7 @@ export default function App() {
 
   // A draft asks its ACP agent what it offers, and whether it needs a sign-in, before the first message.
   const agentCheck = useDraftAgentCheck({
-    agent: isActiveRunning ? undefined : draftAgent,
+    agent: isActiveRunning || !isDraftAgentReady ? undefined : draftAgent,
     cwd: shownFolderPath ?? undefined,
     agentOptions: state.agentOptions,
     rememberProbed: (profileId, probed) =>
@@ -652,6 +660,7 @@ export default function App() {
           {isDraggingFiles && <FileDropOverlay />}
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
           <SignInLayer signIn={signIn} agents={agents} />
+          {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
           {showsTerminal ? (
             <TerminalView
               sessionId={activeSessionId}
@@ -687,7 +696,7 @@ export default function App() {
               workspace={activeWorkspace}
               details={workspaceDetails}
               agentName={newSessionAgent?.name}
-              unavailableReason={areAgentsLoaded && !newSessionAgent ? noAgentNotice(agentsInUse) : undefined}
+              unavailableReason={areAgentsLoaded && !agentsInUse.some(isAgentReady) ? noAgentNotice(agentsInUse) : undefined}
             />
           ) : (
             <EmptySessionState />
@@ -700,12 +709,18 @@ export default function App() {
               optionsLocked={composer.locked}
               isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
               onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
-              disabled={isCreatingWorktree || (!isActiveRunning && !isResumable && !canStartSession)}
+              disabled={
+                isCreatingWorktree ||
+                (!isActiveRunning && ((!isDraftAgentReady && !draftNeedsInstall) || (!isResumable && !canStartSession)))
+              }
+              sendDisabled={draftNeedsInstall}
               placeholder={composerPlaceholder({
                 isRunning: isActiveRunning,
                 isCreatingWorktree,
                 isResumable,
                 canStartSession,
+                agentToInstall: draftNeedsInstall ? draftAgent?.name : undefined,
+                isEndedSession: Boolean(activeSession),
               })}
               onSendMessage={handleSendMessage}
               attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}
@@ -733,7 +748,7 @@ export default function App() {
               agent={
                 isNewSessionDraft && newSessionAgent
                   ? {
-                      options: readyAgentsInUse.map((a) => ({ value: a.id, label: a.name })),
+                      options: pickableAgents.map((a) => ({ value: a.id, label: pickerLabelOf(a) })),
                       selected: newSessionAgent.id,
                       onChange: (agentId) => setPickedAgentId(agentId ?? null),
                     }

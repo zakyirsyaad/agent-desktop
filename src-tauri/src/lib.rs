@@ -8,6 +8,7 @@ pub mod env_resolver;
 pub mod files;
 pub mod fork_handoff;
 pub mod git_info;
+pub mod installer;
 pub mod profiles;
 pub mod pty_session;
 pub mod pull_requests;
@@ -20,13 +21,14 @@ pub mod workspace_files;
 pub mod workspaces;
 pub mod worktrees;
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use acp::commands::{event_payload, ACP_EVENT};
 use acp::manager::AcpManager;
 use acp::terminal_auth::{is_sign_in_terminal_id, sign_in_event_payload, SIGN_IN_TERMINAL_EVENT};
+use installer::commands::{clean_up_at_start, versions_in_use, AppInstaller};
+use installer::layout::ToolsDir;
 use profiles::{agent_profiles, get_available_agent_profiles, AgentProfile, TRANSPORT_PTY};
 use pty_session::{PtyEvent, PtySessionManager};
 use registry::resolve::canonical_agent_id;
@@ -119,19 +121,13 @@ fn get_agent_profiles(
         });
         registry::refresh_catalog(registry::catalog(), &env, true);
     }
-    let versions = store
-        .load_state()
-        .map(|state| state.settings.agent_versions)
-        .unwrap_or_else(|error| {
-            eprintln!("Could not read the agent versions in use: {error}");
-            BTreeMap::new()
-        });
-    Ok(agent_profiles(&versions))
+    Ok(agent_profiles(&versions_in_use(&store)))
 }
 
 /// Reads the global npm packages and, when the last fetch is a day old,
 /// the registry, on its own thread so startup never waits on `npm` or the
 /// network. The UI is told to reload its profiles only when they changed.
+/// Then deletes the installs no enabled agent uses any more.
 fn refresh_catalog_in_background(app: AppHandle) {
     std::thread::spawn(move || {
         // Also warms the login-shell environment for the first session spawn.
@@ -142,6 +138,7 @@ fn refresh_catalog_in_background(app: AppHandle) {
         if registry::refresh_catalog(registry::catalog(), &env, false) {
             let _ = app.emit(AGENT_PROFILES_CHANGED, ());
         }
+        clean_up_at_start(&app);
     });
 }
 
@@ -325,6 +322,9 @@ pub fn run() {
                     e
                 )
             })?;
+            // Before anything resolves a profile, so Zorvo's installs are seen.
+            installer::set_tools_dir(ToolsDir::new(&data_dir));
+            app.manage(AppInstaller::new(ToolsDir::new(&data_dir)));
             // Reads two small files; fetching and `npm` wait for the thread below.
             registry::install(Catalog::open(data_dir.clone(), registry::BUNDLED_HISTORY));
             let (store, migration) = data_migration::open_store(data_dir);
@@ -389,7 +389,11 @@ pub fn run() {
             acp::commands::acp_respond_permission,
             acp::commands::acp_set_mode,
             acp::commands::acp_set_config_option,
-            acp::commands::acp_stop_session
+            acp::commands::acp_stop_session,
+            installer::commands::install_agent,
+            installer::commands::install_runtime,
+            installer::commands::cancel_agent_install,
+            installer::commands::remove_agent_install
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

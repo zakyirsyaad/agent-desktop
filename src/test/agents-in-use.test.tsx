@@ -34,7 +34,10 @@ async function renderWithRegistryAgents() {
 }
 
 const NO_AGENT_NOTICE =
-  "No agent is ready. Claude Code, Codex and Qwen Code need Node.js 22 or later: install it from https://nodejs.org, then check again in Settings.";
+  "No agent is ready. Claude Code, Codex and Qwen Code need Node.js 22 or newer, which Zorvo installs for you. Choose one and click Install.";
+
+/** What Install does for an npx agent on a Mac without Node.js 22: Zorvo's Node.js first. */
+const NODE_PLAN = [{ kind: "node" as const, name: "Node.js", version: "24.11.1", download_bytes: null }];
 
 /** The default registry agents without Node.js, and no terminal agent found. */
 function notReadyProfiles() {
@@ -47,6 +50,7 @@ function notReadyProfiles() {
       distribution: "npx",
       availability: "needs_runtime",
       detected: false,
+      install_plan: NODE_PLAN,
     });
   return [
     needsNode("claude-acp", "Claude Code"),
@@ -96,7 +100,7 @@ describe("Agents in use", () => {
     expect(names).not.toContain("Qwen Code");
   });
 
-  it("says Node.js is what the default agents need when no agent is ready", async () => {
+  it("says Node.js is what the default agents need and offers Install when no agent is ready", async () => {
     const notReady = notReadyProfiles();
     const originalInvoke = tauriInternals().invoke;
     const invokeSpy = vi
@@ -110,12 +114,17 @@ describe("Agents in use", () => {
     await click(screen.getByRole("button", { name: "+ New session" }));
 
     expect(newSessionView()).toHaveTextContent(NO_AGENT_NOTICE);
+    expect(newSessionView()).not.toHaveTextContent("nodejs.org");
+    expect(screen.getByRole("region", { name: "Install Claude Code" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Install" })).toBeDefined();
+    // The prompt can be written while the agent is missing; only Send waits for the install.
     const prompt = screen.getByRole("textbox", { name: "Prompt" });
-    expect(prompt).toBeDisabled();
+    expect(prompt).toBeEnabled();
     await act(async () => {
       fireEvent.change(prompt, { target: { value: "get started" } });
       fireEvent.keyDown(prompt, { key: "Enter" });
     });
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")).toBeUndefined();
   });
 
@@ -130,6 +139,7 @@ describe("Agents in use", () => {
       distribution: "npx",
       availability: "needs_runtime",
       detected: false,
+      install_plan: NODE_PLAN,
     });
     const notReady = [...notReadyProfiles(), kimiWithoutNode];
     const originalInvoke = tauriInternals().invoke;
@@ -143,11 +153,11 @@ describe("Agents in use", () => {
     await click(screen.getByRole("button", { name: "+ New session" }));
 
     expect(newSessionView()).toHaveTextContent(
-      "No agent is ready. Codex and Kimi CLI need Node.js 22 or later: install it from https://nodejs.org, then check again in Settings.",
+      "No agent is ready. Codex and Kimi CLI need Node.js 22 or newer, which Zorvo installs for you. Choose one and click Install.",
     );
   });
 
-  it("asks to install an agent when no agent in use needs Node.js", async () => {
+  it("names the agent to install when no agent in use needs Node.js", async () => {
     const settings = fakeStore().state.settings as FakeTauriStore["state"]["settings"] & { enabledAgents?: string[] };
     settings.enabledAgents = ["opencode"];
     const opencode = makeProfile({
@@ -158,6 +168,7 @@ describe("Agents in use", () => {
       distribution: "binary",
       availability: "not_installed",
       detected: false,
+      install_plan: [{ kind: "agent", name: "OpenCode", version: "1.19.3", download_bytes: null }],
     });
     const notReady = [...notReadyProfiles(), opencode];
     const originalInvoke = tauriInternals().invoke;
@@ -171,8 +182,9 @@ describe("Agents in use", () => {
     await click(screen.getByRole("button", { name: "+ New session" }));
 
     expect(newSessionView()).toHaveTextContent(
-      "No agent is ready. Install one of your agents, then check again in Settings.",
+      "No agent is ready. OpenCode is not installed yet. Click Install to set it up.",
     );
+    expect(screen.getByRole("region", { name: "Install OpenCode" })).toBeDefined();
   });
 
   it("waits for the agent list before saying no agent is ready", async () => {

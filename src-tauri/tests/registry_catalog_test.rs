@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
+use zorvo_lib::installer::plan::InstalledTools;
 use zorvo_lib::profiles::AgentProfile;
 use zorvo_lib::registry::history::{VersionHistory, MIN_AGE_SECS};
 use zorvo_lib::registry::npm_globals::npm_globals;
@@ -80,6 +81,7 @@ fn no_tools_profiles(
     let tools = SystemTools {
         path_var: Some(""),
         npm_globals: &npm,
+        installed: &InstalledTools::none(),
     };
     catalog.profiles(&tools, versions, now)
 }
@@ -334,6 +336,7 @@ fn marks_an_agent_installed_globally_with_npm() {
     let tools = SystemTools {
         path_var: Some(""),
         npm_globals: &catalog.npm_globals(),
+        installed: &InstalledTools::none(),
     };
     let profiles = catalog.profiles(&tools, &BTreeMap::new(), T0 + 30 * DAY);
 
@@ -456,6 +459,72 @@ fn loads_a_cache_written_before_listed_versions_were_recorded() {
     assert_eq!(gemini.version.as_deref(), Some("2.0.0"));
 }
 
+fn binary_entry(id: &str, version: &str) -> RegistryEntry {
+    let target = zorvo_lib::registry::schema::BinaryTarget {
+        archive: format!("https://example.com/{id}-{version}.tar.gz"),
+        cmd: format!("./{id}"),
+        args: Vec::new(),
+        sha256: "a".repeat(64),
+        env: BTreeMap::new(),
+    };
+    RegistryEntry {
+        distribution: Distribution::Binary {
+            platforms: BTreeMap::from([(
+                zorvo_lib::registry::schema::current_platform().to_string(),
+                target,
+            )]),
+        },
+        ..npx_entry(id, version)
+    }
+}
+
+#[test]
+fn plans_the_install_of_the_version_in_use() {
+    use zorvo_lib::installer::plan::PlannedStep;
+
+    let dir = TempDir::new("plan");
+    let bundle = bundle_of(&[
+        (binary_entry("opencode", "1.0.0"), T0),
+        (binary_entry("opencode", "2.0.0"), T0 + DAY),
+    ]);
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+    let npm = BTreeSet::new();
+    let installed = InstalledTools::none();
+    let tools = SystemTools {
+        path_var: Some(""),
+        npm_globals: &npm,
+        installed: &installed,
+    };
+    let now = T0 + 30 * DAY;
+    let in_use = BTreeMap::from([("opencode".to_string(), "1.0.0".to_string())]);
+
+    let (name, steps) = catalog
+        .planned_steps_for("opencode", &tools, &in_use, now)
+        .expect("opencode is in the catalog");
+    let (_, offered) = catalog
+        .planned_steps_for("opencode", &tools, &BTreeMap::new(), now)
+        .expect("opencode is in the catalog");
+
+    assert_eq!(name, "Agent opencode");
+    assert!(
+        matches!(&steps[..], [PlannedStep::Agent { version, .. }] if version == "1.0.0"),
+        "{steps:?}"
+    );
+    assert!(
+        matches!(&offered[..], [PlannedStep::Agent { version, .. }] if version == "2.0.0"),
+        "{offered:?}"
+    );
+    assert!(catalog
+        .planned_steps_for("unknown", &tools, &in_use, now)
+        .is_none());
+    // The name alone, read without planning, for the same entry.
+    assert_eq!(
+        catalog.agent_name("opencode", &in_use, now).as_deref(),
+        Some("Agent opencode")
+    );
+    assert!(catalog.agent_name("unknown", &in_use, now).is_none());
+}
+
 /// A catalog of gemini 1.0.0 and 2.0.0 (both old enough) after a fetch listing `listed`.
 fn catalog_listing(dir: &TempDir, listed: &str, now: u64) -> Catalog {
     let bundle = bundle_of(&[
@@ -520,6 +589,7 @@ fn profile_resolves_one_agent_like_profiles_does() {
     let tools = SystemTools {
         path_var: Some(""),
         npm_globals: &npm,
+        installed: &InstalledTools::none(),
     };
 
     for versions in [
@@ -663,4 +733,45 @@ fn loads_a_cache_written_before_withdrawn_versions_were_recorded() {
     assert_eq!(catalog.last_fetch(), Some(T0));
     let profiles = no_tools_profiles(&catalog, &BTreeMap::new(), T0 + 30 * DAY);
     assert_eq!(find(&profiles, "gemini").version.as_deref(), Some("1.0.0"));
+}
+
+#[test]
+fn plans_the_offered_version_when_the_one_in_use_was_withdrawn() {
+    use zorvo_lib::installer::plan::PlannedStep;
+
+    let dir = TempDir::new("plan-withdrawn");
+    let bundle = bundle_of(&[
+        (binary_entry("opencode", "1.0.0"), T0),
+        (binary_entry("opencode", "2.0.0"), T0 + DAY),
+    ]);
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+    let now = T0 + 30 * DAY;
+    catalog
+        .refresh(
+            || Ok(registry_of(&[binary_entry("opencode", "1.0.0")])),
+            now,
+        )
+        .expect("refresh succeeds");
+    let npm = BTreeSet::new();
+    let installed = InstalledTools::none();
+    let tools = SystemTools {
+        path_var: Some(""),
+        npm_globals: &npm,
+        installed: &installed,
+    };
+    let in_use = BTreeMap::from([("opencode".to_string(), "2.0.0".to_string())]);
+
+    let (_, steps) = catalog
+        .planned_steps_for("opencode", &tools, &in_use, now)
+        .expect("opencode is in the catalog");
+
+    // The plan installs the version the profile shows, not the withdrawn one.
+    let shown = catalog
+        .profile("opencode", &tools, &in_use, now)
+        .and_then(|p| p.version);
+    assert_eq!(shown.as_deref(), Some("1.0.0"));
+    assert!(
+        matches!(&steps[..], [PlannedStep::Agent { version, .. }] if version == "1.0.0"),
+        "{steps:?}"
+    );
 }

@@ -13,6 +13,7 @@ use super::probe::ProbedAgent;
 use super::terminal_auth::{is_sign_in_terminal_id, CANCELLED_MESSAGE};
 use crate::env_resolver::cached_user_env;
 use crate::files::ensure_known_workspace;
+use crate::installer::commands::versions_in_use;
 use crate::profiles::{agent_profile_from, with_system_tools, AgentProfile, TRANSPORT_ACP};
 use crate::pty_session::PtySessionManager;
 use crate::registry::{
@@ -69,7 +70,9 @@ fn launch_for(profile_id: &str, versions: &BTreeMap<String, String>) -> Result<A
             .map(|m| m.into_iter().collect())
             .unwrap_or_default()
     };
-    launch_from(profile, user_env, |id, version| {
+    // Stands in for the login shell's PATH when that could not be read.
+    let process_path = std::env::var("PATH").ok();
+    launch_from(profile, user_env, process_path.as_deref(), |id, version| {
         registry::catalog().launch_env(id, version)
     })
 }
@@ -94,11 +97,13 @@ fn profile_to_launch(
 }
 
 /// How to launch `profile` over ACP, or why it cannot run. The agent gets
-/// `user_env` and then the variables `registry_env` gives for its id and
-/// version; both are read only once the profile can run.
+/// `user_env` with the profile's dirs around its `PATH` (`process_path` when
+/// `user_env` has none), and then the variables `registry_env` gives for its
+/// id and version; both are read only once the profile can run.
 fn launch_from(
     profile: AgentProfile,
     user_env: impl FnOnce() -> BTreeMap<String, String>,
+    process_path: Option<&str>,
     registry_env: impl FnOnce(&str, &str) -> BTreeMap<String, String>,
 ) -> Result<AcpLaunch, String> {
     if profile.transport != TRANSPORT_ACP {
@@ -117,6 +122,17 @@ fn launch_from(
         .acp_program_path
         .ok_or_else(|| format!("Could not locate the program that runs {}", profile.name))?;
     let mut env = user_env();
+    // Zorvo's runtime and prerequisite dirs go around the user's PATH. Without
+    // the login shell's env, the process PATH stands in (as in
+    // `agent_profiles`) rather than leave the agent only Zorvo's dirs.
+    if let Some(path) = agent_path(
+        &profile.acp_path_prepend,
+        env.get("PATH").map(String::as_str),
+        process_path,
+        &profile.acp_path_append,
+    ) {
+        env.insert("PATH".to_string(), path);
+    }
     if let Some(version) = &profile.version {
         env.extend(registry_env(&profile.id, version));
     }
@@ -127,16 +143,36 @@ fn launch_from(
     })
 }
 
+/// `prepend`, the user's `PATH` entries, then `append`, joined with `:`;
+/// `None` when there is nothing to add, so the user's `PATH` is left alone.
+/// Without the login shell's `PATH` the process `PATH` stands in (as in
+/// `agent_profiles`), so the agent still finds `git` and `sh`.
+fn agent_path(
+    prepend: &[String],
+    login_path: Option<&str>,
+    process_path: Option<&str>,
+    append: &[String],
+) -> Option<String> {
+    if prepend.is_empty() && append.is_empty() {
+        return None;
+    }
+    let user_entries = login_path
+        .or(process_path)
+        .unwrap_or_default()
+        .split(':')
+        .filter(|entry| !entry.is_empty());
+    let entries: Vec<&str> = prepend
+        .iter()
+        .map(String::as_str)
+        .chain(user_entries)
+        .chain(append.iter().map(String::as_str))
+        .collect();
+    Some(entries.join(":"))
+}
+
 /// [`launch_for`] at the versions the user has in use.
 fn launch_with_store(store: &AppStore, profile_id: &str) -> Result<AcpLaunch, String> {
-    let versions = store
-        .load_state()
-        .map(|state| state.settings.agent_versions)
-        .unwrap_or_else(|error| {
-            eprintln!("Could not read the agent versions in use: {error}");
-            BTreeMap::new()
-        });
-    launch_for(profile_id, &versions)
+    launch_for(profile_id, &versions_in_use(store))
 }
 
 /// [`launch_with_store`] for an agent that runs in `cwd`, which must be one of
@@ -362,6 +398,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
+    use crate::installer::{plan::InstalledTools, runtimes::MIN_USER_NODE_MAJOR};
     use crate::registry::{resolve::SystemTools, Catalog, BUNDLED_HISTORY};
 
     #[test]
@@ -404,6 +441,32 @@ mod tests {
         });
         assert_eq!(failed["error"], "boom");
         assert!(failed.get("stopReason").is_none());
+    }
+
+    #[test]
+    fn agent_path_puts_zorvos_dirs_around_the_users_path() {
+        let node = vec!["/zorvo/node/bin".to_string()];
+        let extras = vec!["/zorvo/uv".to_string(), "/zorvo/pi/bin".to_string()];
+
+        assert_eq!(agent_path(&[], Some("/usr/bin:/bin"), None, &[]), None);
+        assert_eq!(
+            agent_path(&node, Some("/usr/bin:/bin"), Some("/ignored"), &extras).as_deref(),
+            Some("/zorvo/node/bin:/usr/bin:/bin:/zorvo/uv:/zorvo/pi/bin")
+        );
+        assert_eq!(
+            agent_path(&[], None, None, &extras).as_deref(),
+            Some("/zorvo/uv:/zorvo/pi/bin")
+        );
+    }
+
+    #[test]
+    fn without_the_login_shell_env_the_agent_keeps_the_process_path() {
+        let node = vec!["/zorvo/node/bin".to_string()];
+
+        assert_eq!(
+            agent_path(&node, None, Some("/usr/bin:/bin"), &[]).as_deref(),
+            Some("/zorvo/node/bin:/usr/bin:/bin")
+        );
     }
 
     #[test]
@@ -574,6 +637,56 @@ mod tests {
         );
     }
 
+    /// A ready registry agent run through Zorvo's Node, whose `bin` goes first on `PATH`.
+    fn agent_on_zorvos_node() -> AgentProfile {
+        let mut profile = AgentProfile::new(
+            "gemini".to_string(),
+            "Gemini CLI".to_string(),
+            "npx".to_string(),
+        );
+        profile.transport = TRANSPORT_ACP.to_string();
+        profile.detected = true;
+        profile.acp_program_path = Some("/zorvo/node/bin/npx".to_string());
+        profile.acp_path_prepend = vec!["/zorvo/node/bin".to_string()];
+        profile
+    }
+
+    fn path_of(launch: &AcpLaunch) -> Option<&str> {
+        launch
+            .env
+            .iter()
+            .find(|(key, _)| key == "PATH")
+            .map(|(_, value)| value.as_str())
+    }
+
+    #[test]
+    fn a_launch_puts_the_prepend_dir_first_on_the_users_path() {
+        let user_env = || BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]);
+
+        let launch = launch_from(
+            agent_on_zorvos_node(),
+            user_env,
+            Some("/ignored"),
+            |_, _| BTreeMap::new(),
+        )
+        .expect("it launches");
+
+        assert_eq!(path_of(&launch), Some("/zorvo/node/bin:/usr/bin:/bin"));
+    }
+
+    #[test]
+    fn a_launch_without_the_login_path_falls_back_to_the_process_path() {
+        let launch = launch_from(
+            agent_on_zorvos_node(),
+            BTreeMap::new,
+            Some("/usr/bin:/bin"),
+            |_, _| BTreeMap::new(),
+        )
+        .expect("it launches");
+
+        assert_eq!(path_of(&launch), Some("/zorvo/node/bin:/usr/bin:/bin"));
+    }
+
     /// Later than every version in the bundle, so each one is old enough.
     const FIXED_NOW: u64 = 4_000_000_000;
 
@@ -588,16 +701,22 @@ mod tests {
         let catalog = Catalog::bundled(BUNDLED_HISTORY);
         let npm = BTreeSet::new();
         let path = bin.to_string_lossy().to_string();
+        // The user's own Node is new enough, so their `npx` runs the agent.
+        let installed = InstalledTools {
+            user_node_major: Some(MIN_USER_NODE_MAJOR),
+            ..InstalledTools::none()
+        };
         let tools = SystemTools {
             path_var: Some(&path),
             npm_globals: &npm,
+            installed: &installed,
         };
 
         let profile =
             profile_to_launch(&catalog, &tools, "claude-code", &BTreeMap::new(), FIXED_NOW)
                 .expect("claude-code is known");
         assert_eq!(profile.id, "claude-acp");
-        let launch = launch_from(profile, BTreeMap::new, |id, version| {
+        let launch = launch_from(profile, BTreeMap::new, None, |id, version| {
             catalog.launch_env(id, version)
         })
         .expect("it launches");
@@ -618,9 +737,11 @@ mod tests {
     fn an_unknown_profile_id_is_named_in_the_error() {
         let catalog = Catalog::bundled(BUNDLED_HISTORY);
         let npm = BTreeSet::new();
+        let installed = InstalledTools::none();
         let tools = SystemTools {
             path_var: Some(""),
             npm_globals: &npm,
+            installed: &installed,
         };
 
         let err = profile_to_launch(

@@ -707,3 +707,24 @@ fn settings_keep_enabled_removed_and_versioned_agents() {
     assert!(old.settings.agent_versions.is_empty());
     fs::remove_dir_all(&old_root).ok();
 }
+
+#[test]
+fn enabled_agent_ids_defaults_to_the_three_built_ins() {
+    let never_set = Settings::default();
+    let chosen = Settings {
+        enabled_agents: Some(vec!["opencode".to_string()]),
+        ..Settings::default()
+    };
+
+    assert_eq!(
+        never_set.enabled_agent_ids(),
+        vec!["claude-acp", "codex-acp", "qwen-code"]
+    );
+    assert_eq!(chosen.enabled_agent_ids(), vec!["opencode"]);
+    assert!(Settings {
+        enabled_agents: Some(Vec::new()),
+        ..Settings::default()
+    }
+    .enabled_agent_ids()
+    .is_empty());
+}

@@ -1,0 +1,38 @@
+{
+  "node": {
+    "version": "24.21.0",
+    "released": "2026-09-07",
+    "targets": {
+      "darwin-aarch64": {
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz",
+        "sha256": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
+        "size": 52909993,
+        "bin": "node-v24.21.0-darwin-arm64/bin"
+      },
+      "darwin-x86_64": {
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.gz",
+        "sha256": "1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097",
+        "size": 54203979,
+        "bin": "node-v24.21.0-darwin-x64/bin"
+      }
+    }
+  },
+  "uv": {
+    "version": "0.13.0",
+    "released": "2026-10-09",
+    "targets": {
+      "darwin-aarch64": {
+        "url": "https://github.com/astral-sh/uv/releases/download/0.13.0/uv-aarch64-apple-darwin.tar.gz",
+        "sha256": "a9c1b29002cf3c83f07fa9cd8a887a3be0107d90e23189721221e7257db8e3d6",
+        "size": 14692549,
+        "bin": "uv-aarch64-apple-darwin"
+      },
+      "darwin-x86_64": {
+        "url": "https://github.com/astral-sh/uv/releases/download/0.13.0/uv-x86_64-apple-darwin.tar.gz",
+        "sha256": "5f44dcbde809b632f47c36fadb241cb4d6f9af71d0c8f172b5d2026d3dde742c",
+        "size": 18138509,
+        "bin": "uv-x86_64-apple-darwin"
+      }
+    }
+  }
+}

@@ -277,7 +277,11 @@ fn test_fork_support_is_declared_honestly() {
 
 #[test]
 fn test_detection_flags_match_system_binaries() {
-    let profiles = get_available_agent_profiles();
+    // Registry agents also count Zorvo's runtimes and the user's Node version,
+    // so only the terminal agents are found by `PATH` alone.
+    let profiles = get_available_agent_profiles()
+        .into_iter()
+        .filter(|p| p.source == "builtin");
 
     for profile in profiles {
         if profile.command.is_empty() {
@@ -359,6 +363,31 @@ fn test_agents_without_acp_stay_on_the_terminal() {
         let profile = find(&profiles, id);
         assert_eq!(profile.transport, "pty", "{id}");
         assert_eq!(profile.acp_program, None, "{id}");
+    }
+}
+
+#[test]
+fn test_registry_profiles_are_detected_exactly_when_ready_and_plan_otherwise() {
+    let profiles = get_available_agent_profiles();
+    let registry: Vec<&AgentProfile> = profiles.iter().filter(|p| p.source == "registry").collect();
+    assert!(!registry.is_empty());
+
+    for profile in registry {
+        let ready = profile.availability == "ready";
+        assert_eq!(profile.detected, ready, "{}", profile.id);
+        assert_eq!(profile.install_plan.is_none(), ready, "{}", profile.id);
+        if ready {
+            assert!(profile.acp_program_path.is_some(), "{}", profile.id);
+        }
+    }
+}
+
+#[test]
+fn test_terminal_profiles_carry_no_install_plan() {
+    for profile in get_default_profiles() {
+        assert_eq!(profile.install_plan, None, "{}", profile.id);
+        assert!(profile.acp_path_prepend.is_empty(), "{}", profile.id);
+        assert!(profile.acp_path_append.is_empty(), "{}", profile.id);
     }
 }
 

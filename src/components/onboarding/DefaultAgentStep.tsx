@@ -1,4 +1,4 @@
-import { readyAgents, type AgentSummary } from "../../lib/agent-readiness";
+import { isAgentReady, isAgentUsable, type AgentSummary } from "../../lib/agent-readiness";
 
 export interface DefaultAgentStepProps {
   agents: readonly AgentSummary[];
@@ -11,7 +11,7 @@ const RADIO_GROUP_NAME = "default-agent";
 export function DefaultAgentStep({ agents, selectedAgentId, onSelectAgent }: DefaultAgentStepProps) {
   return (
     <div role="radiogroup" aria-label="Default agent" className="flex flex-col gap-1.5">
-      {readyAgents(agents).map((agent) => {
+      {agents.filter(isAgentUsable).map((agent) => {
         const checked = agent.id === selectedAgentId;
         return (
           <label
@@ -36,6 +36,9 @@ export function DefaultAgentStep({ agents, selectedAgentId, onSelectAgent }: Def
                 <span className="block truncate font-mono text-[11px] text-fg-muted">
                   {agent.detected_path}
                 </span>
+              )}
+              {!isAgentReady(agent) && (
+                <span className="block text-[11px] text-fg-muted">Not installed yet. Install it from a new session.</span>
               )}
             </span>
           </label>

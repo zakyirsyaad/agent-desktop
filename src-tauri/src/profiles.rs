@@ -3,6 +3,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::env_resolver;
+use crate::installer::{
+    self,
+    plan::{InstallStep, PlannedStep},
+};
 use crate::registry::{self, resolve::SystemTools};
 
 /// A thinking/effort level the agent's CLI can actually be told to use.
@@ -85,6 +89,8 @@ pub struct AgentProfile {
     pub name: String,
     pub command: String,
     pub detected: bool,
+    /// Where `command` was found, even when it cannot run the agent (an `npx`
+    /// whose Node is too old).
     pub detected_path: Option<String>,
     /// Model aliases this profile is willing to pass. Empty means "no verified
     /// list", which makes `build_spawn_plan` reject every model instead of
@@ -110,6 +116,12 @@ pub struct AgentProfile {
     pub acp_args: Vec<String>,
     /// Absolute path of `acp_program` on this machine, once detected.
     pub acp_program_path: Option<String>,
+    /// Dirs put before the user's `PATH` at launch (Zorvo's Node).
+    #[serde(skip)]
+    pub acp_path_prepend: Vec<String>,
+    /// Dirs put after the user's `PATH` at launch (Zorvo's uv, prerequisites).
+    #[serde(skip)]
+    pub acp_path_append: Vec<String>,
     /// `"registry"` or `"builtin"`.
     pub source: String,
     pub version: Option<String>,
@@ -117,6 +129,8 @@ pub struct AgentProfile {
     pub distribution: Option<String>,
     /// `"ready"`, `"needs_runtime"` or `"not_installed"`.
     pub availability: String,
+    /// What an install would do; `None` when the agent is ready.
+    pub install_plan: Option<Vec<InstallStep>>,
     pub description: Option<String>,
     /// The agent's own CLI is already installed on this machine.
     pub installed_on_system: bool,
@@ -146,10 +160,13 @@ impl AgentProfile {
             acp_program: None,
             acp_args: Vec::new(),
             acp_program_path: None,
+            acp_path_prepend: Vec::new(),
+            acp_path_append: Vec::new(),
             source: "builtin".to_string(),
             version: None,
             distribution: None,
             availability: "ready".to_string(),
+            install_plan: None,
             description: None,
             installed_on_system: false,
             listed: true,
@@ -279,9 +296,10 @@ pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
     agent_profiles(&BTreeMap::new())
 }
 
-/// Every agent the app can run, detected against the user's `PATH`: the
-/// registry agents first (at the version in `versions` when the catalog has
-/// it, else the offered one), then the built-in terminal agents.
+/// Every agent the app can run, detected against the user's `PATH` and what
+/// Zorvo installed: the registry agents first (at the version in `versions`
+/// when the catalog has it, else the offered one), then the built-in terminal
+/// agents.
 ///
 /// Uses the cached user environment to avoid launching the login shell multiple times.
 pub fn agent_profiles(versions: &BTreeMap<String, String>) -> Vec<AgentProfile> {
@@ -321,21 +339,42 @@ pub fn agent_profile_from(
 }
 
 /// Runs `f` with the catalog and what this machine has: the user's login-shell
-/// `PATH` (this process's as a fallback) and the global npm packages.
+/// `PATH` (this process's as a fallback), the global npm packages and what
+/// Zorvo installed.
 pub(crate) fn with_system_tools<R>(f: impl FnOnce(&registry::Catalog, &SystemTools) -> R) -> R {
-    let path_var = match env_resolver::cached_user_env() {
-        Ok(env_map) => env_map.get("PATH").cloned(),
-        Err(_) => None,
-    }
-    .or_else(|| std::env::var("PATH").ok());
+    let path_var = env_resolver::cached_user_env()
+        .ok()
+        .and_then(|env_map| env_map.get("PATH").cloned())
+        .or_else(|| std::env::var("PATH").ok());
 
     let catalog = registry::catalog();
     let npm_globals = catalog.npm_globals();
+    let installed = installer::installed_tools();
     let tools = SystemTools {
         path_var: path_var.as_deref(),
         npm_globals: &npm_globals,
+        installed: &installed,
     };
     f(catalog, &tools)
+}
+
+/// The registry agent's name at the version [`install_steps_for`] would plan,
+/// read without probing the machine; `None` for an id the catalog cannot offer.
+pub fn agent_name(id: &str, versions: &BTreeMap<String, String>) -> Option<String> {
+    registry::catalog().agent_name(id, versions, registry::unix_now())
+}
+
+/// The registry agent's name and what an install of it would do, at the
+/// version in `versions` when the catalog has it, else the offered one: the
+/// same entry and machine [`agent_profiles`] resolve. `None` for an id the
+/// catalog cannot offer.
+pub fn install_steps_for(
+    id: &str,
+    versions: &BTreeMap<String, String>,
+) -> Option<(String, Vec<PlannedStep>)> {
+    with_system_tools(|catalog, tools| {
+        catalog.planned_steps_for(id, tools, versions, registry::unix_now())
+    })
 }
 
 /// Marks a profile detected when its CLI is on PATH and, for ACP agents, the

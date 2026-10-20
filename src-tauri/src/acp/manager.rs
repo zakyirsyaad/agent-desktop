@@ -5,6 +5,7 @@
 //! last app session using them stops.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
@@ -389,6 +390,25 @@ impl AcpManager {
             .unwrap_or_default();
         roots.sort();
         roots
+    }
+
+    /// True while a session's agent was started from a program under `dir`,
+    /// or with a `PATH` entry under it (a prerequisite, Zorvo's uv or Node),
+    /// so its files must not be deleted yet.
+    pub fn is_running_under(&self, dir: &Path) -> bool {
+        // Read even a poisoned map: answering "not running" could delete a live agent.
+        let routes = self
+            .routes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        routes.sessions.values().any(|entry| {
+            let connection = &entry.connection;
+            Path::new(connection.program()).starts_with(dir)
+                || connection
+                    .path_entries()
+                    .iter()
+                    .any(|path| Path::new(path).starts_with(dir))
+        })
     }
 
     /// Forgets the session; kills the agent once no other session uses it.

@@ -89,9 +89,11 @@ the new agent is asked to read it.
 ## Requirements
 
 - macOS (Apple Silicon or Intel).
-- **Node.js 22+ with `npx`** on your login shell's `PATH` (nvm, Homebrew…).
-  Claude Code, Codex, Qwen Code and any other registry agent that runs with
-  `npx` need it. The first start downloads the agent's pinned package.
+- **Node.js 22+, yours or Zorvo's,** for Claude Code, Codex, Qwen Code and
+  any other registry agent that runs with `npx`. Zorvo uses yours when it is
+  on your login shell's `PATH` (nvm, Homebrew…) and is 22 or newer. Otherwise
+  it installs Node.js when you click **Install** on an agent that needs it. The
+  first start downloads the agent's pinned package.
 - **At least one agent, signed in.** Agents sign in with their own tools. A
   global install is optional: it only makes an agent show up as installed
   before you first use it.
@@ -159,13 +161,26 @@ or runs commands.
 - **Sign-in stays with the agents.** The app never asks for or stores API
   keys or tokens. Agents sign in with their own tools, and pull request data
   comes from your own `gh` login.
-- **One host of its own.** Zorvo itself contacts only the ACP registry
-  (`cdn.agentclientprotocol.com`), to list agents and their versions. It does
-  this from the backend, never from the window, and sends no telemetry. The
-  window makes no network requests: its Content Security Policy only allows
-  the local IPC bridge. Your agents talk to their own services as they always
-  do, and `npx` fetches an agent's pinned package from npm when that agent
-  starts.
+- **A few hosts, all named.** Zorvo's backend contacts these hosts, and only
+  these:
+  - the ACP registry (`cdn.agentclientprotocol.com`), to list agents and
+    their versions;
+  - the download URLs the registry lists, and the HTTPS hosts they redirect
+    to (for example `release-assets.githubusercontent.com`), when you
+    install a binary agent;
+  - `nodejs.org`, when you install an agent that needs Node.js and yours is
+    missing or older than 22;
+  - `uv`'s releases on GitHub, when you install an agent that runs with
+    `uvx` and you have no `uvx`.
+
+  Every download is checked against a SHA-256 hash that was pinned before
+  the download, and nothing downloads until you click **Install**. Zorvo
+  sends no telemetry, and the window makes no network requests: its Content
+  Security Policy only allows the local IPC bridge. The tools your agents
+  run make their own requests. `npm` and `npx` fetch packages from the npm
+  registry (this includes `pi`, which Zorvo installs with `npm` for the Pi
+  agent), and `uvx` can download Python and PyPI packages. Your agents talk
+  to their own services as they always do.
 - **Where your data lives.** Sessions and transcripts are stored in
   `~/Library/Application Support/xyz.zorvo.desktop/`, as `state.json` and
   `transcripts/`. Session worktrees live in `worktrees/` there. On first
@@ -178,9 +193,9 @@ or runs commands.
 
 | Problem | What to try |
 |---|---|
-| An agent shows as not installed | A registry agent counts as installed when its binary is on your `PATH` or its npm package is installed globally. Agents that run with `npx` also work without that, as long as Node.js is on your `PATH`. For Oh-My-Pi and Aider, check that `which omp` (or `aider`) works in a new terminal. Then click **Check again** in Settings. |
+| An agent shows as not installed | Choose it in a new session's agent picker (it is labelled "(not installed)") and click **Install**. Zorvo brings Node.js when yours is missing or older than 22, and `uv` for agents that need it. A registry agent also counts as installed when its binary is on your `PATH` or its npm package is installed globally. For Oh-My-Pi and Aider, check that `which omp` (or `aider`) works in a new terminal. Then click **Check again** in Settings. |
 | "Sign in to *agent*": the agent needs you to sign in before it can start | Use a sign-in method the panel offers, or sign in once in a terminal (see [Requirements](#requirements)), then send your message again. |
-| Claude Code, Codex or Qwen Code does not start | They need `npx` (Node.js 22+). The first start downloads the agent's pinned package, so it can take a moment. |
+| Claude Code, Codex or Qwen Code does not start | When you click **Install** and your Node.js is missing or older than 22, Zorvo installs Node.js for them. The first start downloads the agent's pinned package, so it can take a moment. |
 | No pull request status | Install `gh` and run `gh auth login`. A repository without a GitHub remote has none to show. |
 | "is not in the last commit, so a worktree would not have it" | A worktree checks out the last commit. Commit the folder first, or start the session without Worktree. |
 | The app is blocked on first open | See [Install](#install). |

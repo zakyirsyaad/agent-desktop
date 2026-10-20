@@ -155,6 +155,8 @@ fn is_reserved_id(id: &str) -> bool {
     LEGACY_IDS.iter().any(|(legacy, _)| *legacy == id) || TERMINAL_AGENT_IDS.contains(&id)
 }
 
+/// A binary's version is checked too: the installer joins it into a path
+/// under `tools/`. An npx or uvx version is only shown; its package is pinned.
 fn is_valid_entry(entry: &RegistryEntry) -> bool {
     is_valid_id(&entry.id)
         && !is_reserved_id(&entry.id)
@@ -168,9 +170,10 @@ fn is_valid_entry(entry: &RegistryEntry) -> bool {
             }
             Distribution::Binary { platforms } => {
                 // Only this machine's target matters; others are kept but never run.
-                platforms
-                    .get(current_platform())
-                    .is_some_and(|t| is_valid_binary_target(t) && is_safe_env(&t.env))
+                is_exact_version(&entry.version)
+                    && platforms
+                        .get(current_platform())
+                        .is_some_and(|t| is_valid_binary_target(t) && is_safe_env(&t.env))
             }
         }
 }
