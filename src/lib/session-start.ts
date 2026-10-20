@@ -1,7 +1,7 @@
 import { titleFromPrompt } from './session-helpers';
 import { fileNameOf } from './attachments';
 import type { FirstMessage } from '../hooks/session-engine/useAcpEngine';
-import { isAwaitingPermission } from './acp-events';
+import { isAwaitingUser } from './acp-elicitation';
 import { createId } from './ids';
 import {
   TRANSPORT_ACP,
@@ -53,5 +53,5 @@ export function isWaitingForAnswer(
   isBusy: () => boolean,
 ): boolean {
   if (session?.status !== 'running') return false;
-  return isBusy() && isAwaitingPermission(messages);
+  return isBusy() && isAwaitingUser(messages);
 }

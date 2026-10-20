@@ -8,15 +8,21 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::thread;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
 use super::connection::{error_message, AcpConnection, ConnectionEvent, EventSink};
+use super::elicitation::PendingElicitations;
 use super::prompt_blocks::prompt_blocks;
 use super::terminal_auth::{terminal_method, SignInAttempts, TerminalMethodError};
 use crate::pty_session::validate_cwd;
+
+mod elicitation_routes;
+mod routing;
+
+pub use elicitation_routes::{UrlOpener, ELICITATION_GONE, ELICITATION_INVALID_PREFIX};
+use routing::{answer, route_event};
 
 /// ACP protocol version this client speaks.
 pub const PROTOCOL_VERSION: u64 = 1;
@@ -83,6 +89,17 @@ pub enum AcpEvent {
         session_id: String,
         code: Option<i32>,
     },
+    /// The agent asks the user for input; `key` names the request in answers.
+    Elicitation {
+        session_id: String,
+        key: String,
+        view: Value,
+    },
+    /// The agent says the URL request `key` is done.
+    ElicitationComplete {
+        session_id: String,
+        key: String,
+    },
 }
 
 pub type AcpEventSink = Box<dyn Fn(AcpEvent) + Send + Sync>;
@@ -105,6 +122,11 @@ struct Routes {
     /// (connection key, acp session id) -> app session id. Keyed by connection
     /// too: two agent processes may give their sessions the same id.
     by_acp_id: HashMap<(u64, String), String>,
+    /// connection key -> the app session `open()` is starting on it, for
+    /// requests sent before the answer that routes the session.
+    opening: HashMap<u64, String>,
+    /// Elicitation requests not yet answered or finished.
+    elicitations: PendingElicitations,
 }
 
 pub struct AcpManager {
@@ -113,15 +135,23 @@ pub struct AcpManager {
     next_connection_key: AtomicU64,
     /// Terminal sign-ins still starting, so a cancel can end them.
     sign_ins: SignInAttempts,
+    /// Opens the link of an accepted URL elicitation.
+    url_opener: UrlOpener,
 }
 
 impl AcpManager {
     pub fn new(sink: AcpEventSink) -> Self {
+        Self::with_url_opener(sink, Box::new(crate::windows::open_url))
+    }
+
+    /// A manager that opens elicitation links with `opener` (tests record them).
+    pub fn with_url_opener(sink: AcpEventSink, opener: UrlOpener) -> Self {
         Self {
             routes: Arc::new(Mutex::new(Routes::default())),
             sink: Arc::new(sink),
             next_connection_key: AtomicU64::new(1),
             sign_ins: SignInAttempts::default(),
+            url_opener: opener,
         }
     }
 
@@ -204,14 +234,25 @@ impl AcpManager {
             &launch.env,
             |connection| self.connection_sink(connection_key, connection),
         )?;
+        self.set_opening(connection_key, Some(app_session_id));
 
-        let (started, auth_methods) = initialize(&connection)
+        let opened = initialize(&connection)
             .map_err(OpenError::Transport)
             .and_then(|init| {
                 open_session(&connection, &init, connection_key)
                     .map(|started| (started, auth_methods_of(&init)))
-            })
-            .map_err(|error| failure_message(&connection, error))?;
+            });
+        let (started, auth_methods) = match opened {
+            Ok(opened) => opened,
+            Err(error) => {
+                // Its requests can no longer be answered.
+                self.set_opening(connection_key, None);
+                if let Ok(mut routes) = self.routes.lock() {
+                    routes.elicitations.take_session(app_session_id);
+                }
+                return Err(failure_message(&connection, error));
+            }
+        };
         self.register(
             app_session_id,
             connection,
@@ -220,7 +261,18 @@ impl AcpManager {
             auth_methods,
             cwd,
         );
+        self.set_opening(connection_key, None);
         Ok(started)
+    }
+
+    /// Marks connection `connection_key` as opening `app_session_id`, or no longer opening.
+    fn set_opening(&self, connection_key: u64, app_session_id: Option<&str>) {
+        if let Ok(mut routes) = self.routes.lock() {
+            match app_session_id {
+                Some(id) => routes.opening.insert(connection_key, id.to_string()),
+                None => routes.opening.remove(&connection_key),
+            };
+        }
     }
 
     /// Signs in to the agent with one of the methods it reported, in a
@@ -330,7 +382,9 @@ impl AcpManager {
         )
     }
 
+    /// Cancels the turn, after answering the session's open elicitations `cancel`.
     pub fn cancel(&self, app_session_id: &str) -> Result<(), String> {
+        self.cancel_open_elicitations(app_session_id);
         let (connection, acp_id) = self.connection_for(app_session_id)?;
         connection.notify("session/cancel", json!({ "sessionId": acp_id }))
     }
@@ -439,22 +493,32 @@ impl AcpManager {
         })
     }
 
-    /// Forgets the session; kills the agent once no other session uses it.
+    /// Forgets the session and answers its open elicitations `cancel`; kills
+    /// the agent once no other session uses it.
     pub fn stop(&self, app_session_id: &str) {
         let Ok(mut routes) = self.routes.lock() else {
             return;
         };
-        let Some(entry) = routes.sessions.remove(app_session_id) else {
-            return;
-        };
+        let requests = routes.elicitations.take_session(app_session_id);
+        // A session stopped while it opens: later requests are cancelled.
         routes
-            .by_acp_id
-            .remove(&(entry.connection_key, entry.acp_session_id.clone()));
-        let still_used = routes
-            .sessions
-            .values()
-            .any(|e| e.connection_key == entry.connection_key);
-        if !still_used {
+            .opening
+            .retain(|_, opening| opening != app_session_id);
+        let entry = routes.sessions.remove(app_session_id);
+        if let Some(entry) = &entry {
+            routes
+                .by_acp_id
+                .remove(&(entry.connection_key, entry.acp_session_id.clone()));
+        }
+        let unused = entry.filter(|entry| {
+            !routes
+                .sessions
+                .values()
+                .any(|e| e.connection_key == entry.connection_key)
+        });
+        drop(routes);
+        elicitation_routes::cancel_open(requests);
+        if let Some(entry) = unused {
             entry.connection.kill();
         }
     }
@@ -543,113 +607,6 @@ impl AcpManager {
     }
 }
 
-fn route_event(
-    routes: &Arc<Mutex<Routes>>,
-    sink: &Arc<AcpEventSink>,
-    connection: &Weak<AcpConnection>,
-    connection_key: u64,
-    event: ConnectionEvent,
-) {
-    match event {
-        ConnectionEvent::Notification { method, params } if method == "session/update" => {
-            if let Some(session_id) = app_id_for(routes, connection_key, &params) {
-                sink(AcpEvent::Update {
-                    session_id,
-                    update: params["update"].clone(),
-                });
-            }
-        }
-        ConnectionEvent::Notification { .. } => {}
-        ConnectionEvent::Request { id, method, params } => {
-            let session_id = app_id_for(routes, connection_key, &params);
-            route_request(sink, connection, session_id, id, &method, params)
-        }
-        ConnectionEvent::Exited { code } => {
-            let gone: Vec<String> = routes
-                .lock()
-                .map(|mut r| {
-                    let ids: Vec<String> = r
-                        .sessions
-                        .iter()
-                        .filter(|(_, e)| e.connection_key == connection_key)
-                        .map(|(id, _)| id.clone())
-                        .collect();
-                    r.sessions.retain(|_, e| e.connection_key != connection_key);
-                    // Also drops a session routed by its answer that never registered.
-                    r.by_acp_id.retain(|(key, _), _| *key != connection_key);
-                    ids
-                })
-                .unwrap_or_default();
-            for session_id in gone {
-                sink(AcpEvent::Exited { session_id, code });
-            }
-        }
-    }
-}
-
-/// The app session a message's `sessionId` belongs to on this connection.
-fn app_id_for(routes: &Arc<Mutex<Routes>>, connection_key: u64, params: &Value) -> Option<String> {
-    let acp_id = params["sessionId"].as_str()?;
-    routes
-        .lock()
-        .ok()?
-        .by_acp_id
-        .get(&(connection_key, acp_id.to_string()))
-        .cloned()
-}
-
-/// Answers a request from the agent or hands it to the app session it is for.
-fn route_request(
-    sink: &Arc<AcpEventSink>,
-    connection: &Weak<AcpConnection>,
-    session_id: Option<String>,
-    id: Value,
-    method: &str,
-    params: Value,
-) {
-    match (method, session_id) {
-        ("session/request_permission", Some(session_id)) => sink(AcpEvent::PermissionRequest {
-            session_id,
-            request_id: id,
-            params,
-        }),
-        // No app session to ask: the agent asked before answering the
-        // `session/new`, `session/load` or `session/fork` that opens it (its
-        // answer routes it), or the session is unknown. It can't wait for
-        // the session to open, since the agent may finish opening only after
-        // this answer. `cancelled` rather than an error: it is a valid answer
-        // every agent handles (ACP sends it when a turn is cancelled), it
-        // grants nothing the user never saw, and it does not make the agent
-        // fail the session it is opening.
-        ("session/request_permission", None) => answer(connection, move |c| {
-            c.respond(&id, json!({ "outcome": { "outcome": "cancelled" } }))
-        }),
-        // We advertise no fs/terminal capabilities, so anything else is refused.
-        _ => refuse(connection, id),
-    }
-}
-
-/// Answers a request from the agent, whether or not it hosts an app session
-/// yet. The reply is written on its own thread, so the reader keeps reading
-/// even while the agent's stdin is full. Nothing to do once the connection is
-/// gone: the agent is being killed.
-fn answer(
-    connection: &Weak<AcpConnection>,
-    reply: impl FnOnce(&AcpConnection) -> Result<(), String> + Send + 'static,
-) {
-    if let Some(connection) = connection.upgrade() {
-        thread::spawn(move || {
-            let _ = reply(&connection);
-        });
-    }
-}
-
-fn refuse(connection: &Weak<AcpConnection>, id: Value) {
-    answer(connection, move |c| {
-        c.respond_error(&id, METHOD_NOT_FOUND, "Method not supported by Zorvo")
-    });
-}
-
 /// `-32000` is also JSON-RPC's generic server error, so the message must say it is about signing in.
 fn is_auth_required(error: &Value) -> bool {
     // Letters only, so "Not logged in", "log-in" and "signed in" all match.
@@ -728,8 +685,8 @@ pub(super) fn failure_message(connection: &AcpConnection, error: OpenError) -> S
 }
 
 /// Spawns an agent that hosts no app session (a sign-in or a probe). Its
-/// requests are refused here, so the agent never waits on us; its
-/// notifications go to `on_notification`.
+/// requests are refused here (an elicitation is cancelled), so the agent
+/// never waits on us; its notifications go to `on_notification`.
 pub(super) fn spawn_unrouted(
     cwd: &str,
     launch: &AcpLaunch,
@@ -742,6 +699,9 @@ pub(super) fn spawn_unrouted(
         &launch.env,
         |connection| -> EventSink {
             Arc::new(move |event| match event {
+                ConnectionEvent::Request { id, method, .. } if method == "elicitation/create" => {
+                    elicitation_routes::cancel_request(&connection, id)
+                }
                 ConnectionEvent::Request { id, .. } => answer(&connection, move |c| {
                     c.respond_error(&id, METHOD_NOT_FOUND, "Not available here")
                 }),
@@ -760,7 +720,7 @@ pub(super) fn initialize(connection: &AcpConnection) -> Result<Value, String> {
         "initialize",
         json!({
             "protocolVersion": PROTOCOL_VERSION,
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "auth": { "terminal": true } },
+            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "auth": { "terminal": true }, "elicitation": { "form": {}, "url": {} } },
             "clientInfo": { "name": "zorvo", "version": env!("CARGO_PKG_VERSION") },
         }),
         HANDSHAKE_TIMEOUT,

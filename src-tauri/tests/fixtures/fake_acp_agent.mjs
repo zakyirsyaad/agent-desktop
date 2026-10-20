@@ -5,15 +5,28 @@
 //   "crash"      -> exits with code 3 mid-turn
 //   "needs-login" -> refuses the prompt until the user signs in
 //   "stray-permission" -> asks permission for a session that does not exist, reports the answer
+//   "elicit-form" -> asks for a name (at most five characters) through a form
+//   "elicit-url"  -> asks the user to open https://agent.example.com/connect (elicitationId "gh-1")
+//   "elicit-voice" -> asks in a mode no client knows
+//   "elicit-twice" -> asks for two forms at once, "elic-1" and "elic-2"
+//   "elicit-blocked-url" -> asks the user to open http://agent.example.com/connect, which Zorvo blocks
+//   "stray-elicit" -> asks for a form for session "nope", which does not exist
+//     (each elicit-* prompt says "elicited:<reply as JSON>" per reply, then ends the turn;
+//     FAKE_ACP_ELICIT_LOG names a file each reply is appended to, as one JSON line)
+//   "elicit-complete" -> sends elicitation/complete for "gh-1" and "nope", then says "completed-sent"
 //   --login      -> the terminal sign-in: prints a greeting and exits
 //   anything else -> echoes the text back as an agent message chunk
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 let nextSession = 1;
 let pendingPermission = null;
 let pendingSlow = null;
 let pendingStray = null;
+// The elicit-* prompt waiting on its elicitation/create replies.
+let pendingElicit = null;
+// The session/new waiting on its FAKE_ACP_ELICIT_ON_NEW form.
+let elicitOnNew = null;
 // Replies to the requests sent while a session/new waits, by request id.
 let earlyRequests = null;
 
@@ -23,8 +36,45 @@ const update = (sessionId, update) => send({ method: "session/update", params: {
 const say = (sessionId, text) =>
   update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
 
+const nameForm = (target) => ({
+  ...target,
+  mode: "form",
+  message: "What should I call you?",
+  requestedSchema: { type: "object", properties: { name: { type: "string", maxLength: 5 } }, required: ["name"] },
+});
+
+const elicitations = {
+  "elicit-form": (sessionId) => [nameForm({ sessionId })],
+  "elicit-url": (sessionId) => [
+    { sessionId, mode: "url", message: "Connect your account", elicitationId: "gh-1", url: "https://agent.example.com/connect" },
+  ],
+  "elicit-voice": (sessionId) => [{ sessionId, mode: "voice", message: "Say something" }],
+  "elicit-twice": (sessionId) => [nameForm({ sessionId }), nameForm({ sessionId })],
+  "elicit-blocked-url": (sessionId) => [
+    { sessionId, mode: "url", message: "Connect your account", elicitationId: "gh-2", url: "http://agent.example.com/connect" },
+  ],
+  "stray-elicit": () => [nameForm({ sessionId: "nope" })],
+};
+
+// Sends each request as elicitation/create with ids "elic-1", "elic-2", ...
+function elicit(promptId, sessionId, requests) {
+  pendingElicit = { promptId, sessionId, waiting: new Set(requests.map((_, i) => `elic-${i + 1}`)) };
+  requests.forEach((params, i) => send({ id: `elic-${i + 1}`, method: "elicitation/create", params }));
+}
+
 function handlePrompt(id, params) {
   const text = params.prompt.map((block) => block.text ?? "").join("");
+  if (elicitations[text]) {
+    elicit(id, params.sessionId, elicitations[text](params.sessionId));
+    return;
+  }
+  if (text === "elicit-complete") {
+    send({ method: "elicitation/complete", params: { elicitationId: "gh-1" } });
+    send({ method: "elicitation/complete", params: { elicitationId: "nope" } });
+    say(params.sessionId, "completed-sent");
+    reply(id, { stopReason: "end_turn" });
+    return;
+  }
   if (text === "permission") {
     pendingPermission = { promptId: id, sessionId: params.sessionId };
     send({
@@ -79,6 +129,8 @@ const handlers = {
       setTimeout(() => handlers.initialize(id, { ...params, slowInitDone: true }), 10000);
       return;
     }
+    // FAKE_ACP_INIT_LOG: writes the client's capabilities to the file it names, as JSON.
+    if (process.env.FAKE_ACP_INIT_LOG) writeFileSync(process.env.FAKE_ACP_INIT_LOG, JSON.stringify(params?.clientCapabilities));
     // FAKE_ACP_AUTH_STATUS: pushes who is signed in, like Claude Code's adapter.
     const authStatus = process.env.FAKE_ACP_AUTH_STATUS;
     reply(id, {
@@ -139,6 +191,13 @@ const handlers = {
     // line per reply.
     if (process.env.FAKE_ACP_EARLY_REQUESTS && !params?.earlyDone) {
       askBeforeTheSessionExists("session/new", id, params);
+      return;
+    }
+    // FAKE_ACP_ELICIT_ON_NEW: asks for a form (by requestId) before the session exists and
+    // answers session/new only once the client replies, or with an error after three
+    // seconds. The reply goes to the file FAKE_ACP_ELICIT_ON_NEW names, as one JSON line.
+    if (process.env.FAKE_ACP_ELICIT_ON_NEW && !params?.elicitDone) {
+      elicitBeforeTheSessionExists(id, params);
       return;
     }
     if (process.env.FAKE_ACP_STDERR) process.stderr.write("warming up the model cache\n");
@@ -212,6 +271,20 @@ function askBeforeTheSessionExists(method, id, params) {
   send({ id: "early-permission", method: "session/request_permission", params: permissionFor("not-yet") });
 }
 
+function elicitBeforeTheSessionExists(id, params) {
+  const timer = setTimeout(() => {
+    elicitOnNew = null;
+    send({ id, error: { code: -32603, message: "The client never answered the form" } });
+  }, 3000);
+  elicitOnNew = (answer) => {
+    clearTimeout(timer);
+    elicitOnNew = null;
+    appendFileSync(process.env.FAKE_ACP_ELICIT_ON_NEW, `${JSON.stringify(answer)}\n`);
+    handlers["session/new"](id, { ...params, elicitDone: true });
+  };
+  send({ id: "elic-new", method: "elicitation/create", params: nameForm({ requestId: id }) });
+}
+
 // Started as the terminal login (--login): print a greeting and exit, FAKE_LOGIN_EXIT is the exit code.
 if (process.argv.includes("--login")) {
   process.stdout.write(`signed in: ${process.env.FAKE_LOGIN_GREETING ?? ""}\n`);
@@ -231,6 +304,20 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     appendFileSync(process.env.FAKE_ACP_EARLY_REQUESTS, `${JSON.stringify(message)}\n`);
     earlyRequests.waiting.delete(message.id);
     if (earlyRequests.waiting.size === 0) earlyRequests.done();
+    return;
+  }
+  if (message.id === "elic-new" && elicitOnNew && message.method === undefined) {
+    elicitOnNew(message);
+    return;
+  }
+  if (pendingElicit?.waiting.has(message.id) && message.method === undefined) {
+    if (process.env.FAKE_ACP_ELICIT_LOG) appendFileSync(process.env.FAKE_ACP_ELICIT_LOG, `${JSON.stringify(message)}\n`);
+    say(pendingElicit.sessionId, `elicited:${JSON.stringify(message.result ?? message.error)}`);
+    pendingElicit.waiting.delete(message.id);
+    if (pendingElicit.waiting.size === 0) {
+      reply(pendingElicit.promptId, { stopReason: "end_turn" });
+      pendingElicit = null;
+    }
     return;
   }
   if (message.id === "stray" && pendingStray) {

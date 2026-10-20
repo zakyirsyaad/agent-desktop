@@ -30,7 +30,7 @@ import {
   titleFor,
   type SessionSpec,
 } from "./lib/session-start";
-import { isAwaitingPermission } from "./lib/acp-events";
+import { isAwaitingUser } from "./lib/acp-elicitation";
 import {
   folderNameOf,
   isListed,
@@ -427,7 +427,7 @@ export default function App() {
     sessions,
     isBusy: acp.isBusy,
     busySince: acp.busySinceOf,
-    needsApproval: (id) => isAwaitingPermission(transcripts[id] ?? []),
+    needsApproval: (id) => isAwaitingUser(transcripts[id] ?? []),
     onOpenSession: handleSelectSession,
     stopAgent: handleInterrupt,
     onError: reportError,
@@ -514,6 +514,8 @@ export default function App() {
     onAction: (sessionId, action) => {
       if (action.kind === "send") void sendTo(sessionId, { text: action.text });
       else if (action.kind === "stop") handleInterrupt(sessionId);
+      else if (action.kind === "answer-elicitation") acp.answerElicitation(sessionId, action.key, action.answer);
+      else if (action.kind === "reopen-elicitation-url") acp.reopenElicitationUrl(sessionId, action.key);
       else chooseOption(sessionId, action.cardId, action.optionId);
     },
   });
@@ -642,7 +644,9 @@ export default function App() {
                 </div>
               }
               onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
-              isWorking={isSessionBusy(activeSessionId) && !isAwaitingPermission(currentMessages)}
+              onAnswerElicitation={(key, answer) => acp.answerElicitation(activeSessionId, key, answer)}
+              onReopenElicitationUrl={(key) => acp.reopenElicitationUrl(activeSessionId, key)}
+              isWorking={isSessionBusy(activeSessionId) && !isAwaitingUser(currentMessages)}
             />
           ) : isNewSessionDraft ? (
             <NewSessionView

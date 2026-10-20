@@ -54,6 +54,14 @@ pub fn event_payload(event: &AcpEvent) -> Value {
         AcpEvent::Exited { session_id, code } => {
             json!({ "sessionId": session_id, "kind": "exit", "code": code })
         }
+        AcpEvent::Elicitation {
+            session_id,
+            key,
+            view,
+        } => json!({ "sessionId": session_id, "kind": "elicitation", "key": key, "request": view }),
+        AcpEvent::ElicitationComplete { session_id, key } => {
+            json!({ "sessionId": session_id, "kind": "elicitation-complete", "key": key })
+        }
     }
 }
 
@@ -361,6 +369,28 @@ pub fn acp_respond_permission(
     manager.respond_permission(&session_id, &request_id, option_id.as_deref())
 }
 
+/// Answers an elicitation: `accept` (with the form's `content`), `decline` or `cancel`.
+#[tauri::command(async)]
+pub fn acp_respond_elicitation(
+    manager: State<'_, AcpManager>,
+    session_id: String,
+    key: String,
+    action: String,
+    content: Option<Value>,
+) -> Result<(), String> {
+    manager.respond_elicitation(&session_id, &key, &action, content)
+}
+
+/// Opens the link of an accepted URL elicitation again.
+#[tauri::command(async)]
+pub fn acp_reopen_elicitation_url(
+    manager: State<'_, AcpManager>,
+    session_id: String,
+    key: String,
+) -> Result<(), String> {
+    manager.reopen_elicitation_url(&session_id, &key)
+}
+
 #[tauri::command(async)]
 pub fn acp_set_mode(
     manager: State<'_, AcpManager>,
@@ -434,6 +464,29 @@ mod tests {
         });
         assert_eq!(failed["error"], "boom");
         assert!(failed.get("stopReason").is_none());
+    }
+
+    #[test]
+    fn elicitation_events_carry_the_key_and_view() {
+        let request = event_payload(&AcpEvent::Elicitation {
+            session_id: "s-1".into(),
+            key: "el-3".into(),
+            view: json!({ "mode": "form", "message": "Name?", "fields": [] }),
+        });
+        assert_eq!(
+            request,
+            json!({ "sessionId": "s-1", "kind": "elicitation", "key": "el-3",
+                    "request": { "mode": "form", "message": "Name?", "fields": [] } })
+        );
+
+        let complete = event_payload(&AcpEvent::ElicitationComplete {
+            session_id: "s-1".into(),
+            key: "el-4".into(),
+        });
+        assert_eq!(
+            complete,
+            json!({ "sessionId": "s-1", "kind": "elicitation-complete", "key": "el-4" })
+        );
     }
 
     #[test]

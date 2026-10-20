@@ -1,3 +1,6 @@
+/** The main window's label (`tauri.conf.json`); popouts send it their actions. */
+export const MAIN_WINDOW_LABEL = 'main';
+
 export type WindowMode = { kind: 'main' } | { kind: 'popout'; sessionId: string };
 
 /** Same rule the backend uses for ids that end up in window labels and file names. */

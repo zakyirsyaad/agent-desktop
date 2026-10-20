@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canonicalAgentId, dropTerminalSessions, normalizePersistedState } from "../lib/persistence";
+import { canonicalAgentId, dropTerminalSessions, loadTranscript, normalizePersistedState } from "../lib/persistence";
 
 const base = { id: "s-1", name: "Fix login", profileId: "claude-code", cwd: "/w/api", status: "terminated", createdAt: 1 };
 
@@ -192,5 +192,26 @@ describe("normalizePersistedState - removed agents", () => {
     expect(state.settings.removedAgents).toEqual(["gemini"]);
     expect(state.settings.agentVersions).toEqual({ "claude-acp": "0.5.0" });
     expect(Object.keys(state.agentOptions ?? {})).toEqual(["claude-acp"]);
+  });
+});
+
+describe("loadTranscript", () => {
+  it("settles open elicitations", async () => {
+    const store = (window as unknown as { __FAKE_TAURI_STORE__: { transcripts: Record<string, unknown[]> } }).__FAKE_TAURI_STORE__;
+    const card = { sessionId: "s-1", message: "m", timestamp: 1, host: "example.com" };
+    store.transcripts["s-1"] = [
+      { id: "a", role: "agent", content: "", timestamp: 1, elicitation: { ...card, key: "k1", mode: "form", status: "pending", fields: [{ name: "x", required: false, kind: { type: "boolean" } }], errors: { x: "bad" } } },
+      { id: "b", role: "agent", content: "", timestamp: 1, elicitation: { ...card, key: "k2", mode: "url", status: "opened", url: "https://example.com/auth" } },
+    ];
+
+    const messages = await loadTranscript("s-1");
+
+    for (const message of messages) {
+      expect(message.elicitation?.status).toBe("unanswered");
+      expect(message.elicitation).not.toHaveProperty("fields");
+      expect(message.elicitation).not.toHaveProperty("url");
+      expect(message.elicitation).not.toHaveProperty("errors");
+      expect(message.elicitation?.host).toBe("example.com");
+    }
   });
 });

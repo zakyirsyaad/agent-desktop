@@ -179,7 +179,9 @@ or runs commands.
   run make their own requests. `npm` and `npx` fetch packages from the npm
   registry (this includes `pi`, which Zorvo installs with `npm` for the Pi
   agent), and `uvx` can download Python and PyPI packages. Your agents talk
-  to their own services as they always do.
+  to their own services as they always do. When an agent asks you to sign
+  in on a web page, the page opens in your default browser after you click
+  **Open in browser**; Zorvo makes no request for it.
 - **Where your data lives.** Sessions and transcripts are stored in
   `~/Library/Application Support/xyz.zorvo.desktop/`, as `state.json` and
   `transcripts/`. Session worktrees live in `worktrees/` there. On first

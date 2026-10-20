@@ -1,4 +1,4 @@
-import type { ChatMessage, ContextUsage, Session } from '../types';
+import type { ChatMessage, ContextUsage, ElicitationAnswer, Session } from '../types';
 
 /**
  * Events between the main window and session popouts.
@@ -38,6 +38,8 @@ export interface SessionSnapshotPayload {
 export type PopoutAction =
   | { kind: 'send'; text: string }
   | { kind: 'choose-option'; cardId: string; optionId: string }
+  | { kind: 'answer-elicitation'; key: string; answer: ElicitationAnswer }
+  | { kind: 'reopen-elicitation-url'; key: string }
   | { kind: 'stop' }
   | { kind: 'add-agent' };
 

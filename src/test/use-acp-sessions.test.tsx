@@ -55,7 +55,14 @@ function stubInvoke(overrides: Record<string, (args?: Record<string, unknown>) =
 }
 
 function handlers(): AcpHandlers {
-  return { onUpdate: vi.fn(), onPermission: vi.fn(), onTurnEnd: vi.fn(), onExit: vi.fn() };
+  return {
+    onUpdate: vi.fn(),
+    onPermission: vi.fn(),
+    onElicitation: vi.fn(),
+    onElicitationComplete: vi.fn(),
+    onTurnEnd: vi.fn(),
+    onExit: vi.fn(),
+  };
 }
 
 async function emit(payload: unknown) {

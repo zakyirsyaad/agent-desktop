@@ -4,6 +4,9 @@ import { render, screen, act, fireEvent, waitFor } from "@testing-library/react"
 type Listener = (event: { payload: unknown }) => void;
 const listeners = new Map<string, Listener[]>();
 const emitted: { event: string; payload: unknown }[] = [];
+/** Events sent to one window by label, and events broadcast to every window. */
+const sentTo: { target: string; event: string }[] = [];
+const broadcast: string[] = [];
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (event: string, cb: Listener) => {
@@ -14,6 +17,12 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
   emit: (event: string, payload: unknown) => {
     emitted.push({ event, payload });
+    broadcast.push(event);
+    return Promise.resolve();
+  },
+  emitTo: (target: string, event: string, payload: unknown) => {
+    emitted.push({ event, payload });
+    sentTo.push({ target, event });
     return Promise.resolve();
   },
 }));
@@ -63,6 +72,8 @@ describe("Popout windows", () => {
     vi.restoreAllMocks();
     listeners.clear();
     emitted.length = 0;
+    sentTo.length = 0;
+    broadcast.length = 0;
   });
 
   it("reads the popout session from the window URL and rejects unsafe ids", () => {
@@ -147,6 +158,75 @@ describe("Popout windows", () => {
       event: "popout-action",
       payload: { sessionId: "s-1", action: { kind: "choose-option", cardId: "act-1", optionId: "allow" } },
     });
+  });
+
+  it("forwards an answer to an agent's form request", async () => {
+    await act(async () => {
+      render(<PopoutApp sessionId="s-1" />);
+    });
+    await deliver("session-snapshot", {
+      sessionId: "s-1",
+      session: runningSession,
+      messages: [
+        {
+          id: "m-1",
+          role: "agent",
+          content: "",
+          timestamp: 1,
+          elicitation: {
+            key: "el-1",
+            sessionId: "s-1",
+            mode: "form",
+            message: "What is your name?",
+            status: "pending",
+            timestamp: 1,
+            fields: [{ name: "name", title: "Name", required: true, kind: { type: "text" } }],
+          },
+        },
+      ],
+    });
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "Ada" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    });
+
+    expect(emitted).toContainEqual({
+      event: "popout-action",
+      payload: {
+        sessionId: "s-1",
+        action: { kind: "answer-elicitation", key: "el-1", answer: { action: "accept", content: { name: "Ada" } } },
+      },
+    });
+    // What the user typed goes to the main window only, never to the other popouts.
+    expect(sentTo).toContainEqual({ target: "main", event: "popout-action" });
+    expect(broadcast).not.toContain("popout-action");
+  });
+
+  it("main window answers an agent's request when its popout asks", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+    const sessionId = await startSessionInMainWindow(spy);
+    await deliver("acp-event", {
+      sessionId,
+      kind: "elicitation",
+      key: "el-1",
+      request: { mode: "url", message: "Sign in", url: "https://acme.example/login", host: "acme.example" },
+    });
+
+    await deliver("popout-action", {
+      sessionId,
+      action: { kind: "answer-elicitation", key: "el-1", answer: { action: "accept" } },
+    });
+    await deliver("popout-action", { sessionId, action: { kind: "reopen-elicitation-url", key: "el-1" } });
+
+    expect(spy).toHaveBeenCalledWith(
+      "acp_respond_elicitation",
+      { sessionId, key: "el-1", action: "accept", content: null },
+      undefined,
+    );
+    expect(spy).toHaveBeenCalledWith("acp_reopen_elicitation_url", { sessionId, key: "el-1" }, undefined);
   });
 
   it("shows the agent working and stops it from the popout", async () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ChatMessage, Session } from "../types";
 import {
   POPOUT_ACTION_EVENT,
@@ -12,6 +12,7 @@ import {
   IDLE_STATUS,
 } from "../lib/popout-bridge";
 import { folderNameOf } from "../lib/session-helpers";
+import { MAIN_WINDOW_LABEL } from "../lib/window-mode";
 import { useAgentProfiles } from "../hooks/useDiscovery";
 import { TopBar } from "./TopBar";
 import { ChatCanvas } from "./ChatCanvas";
@@ -48,7 +49,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
         if (isCancelled) stop();
         else unlisten = stop;
         // Ask for the first snapshot only once we are listening for it.
-        return emit(POPOUT_READY_EVENT, { sessionId });
+        return emitTo(MAIN_WINDOW_LABEL, POPOUT_READY_EVENT, { sessionId });
       })
       .catch(() => {});
     return () => {
@@ -60,7 +61,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
   // Tell the main window to stop syncing this session once the window goes away.
   useEffect(() => {
     const announceClosed = () => {
-      emit(POPOUT_CLOSED_EVENT, { sessionId }).catch(() => {});
+      emitTo(MAIN_WINDOW_LABEL, POPOUT_CLOSED_EVENT, { sessionId }).catch(() => {});
     };
     window.addEventListener('pagehide', announceClosed);
     return () => {
@@ -71,7 +72,8 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
 
   const forward = useCallback(
     (action: PopoutAction) => {
-      emit(POPOUT_ACTION_EVENT, { sessionId, action }).catch(() => {});
+      // Only the main window gets it: an answer can hold what the user typed.
+      emitTo(MAIN_WINDOW_LABEL, POPOUT_ACTION_EVENT, { sessionId, action }).catch(() => {});
     },
     [sessionId],
   );
@@ -91,6 +93,8 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
             messages={messages}
             agentName={agent?.name}
             onChooseOption={(cardId, optionId) => forward({ kind: "choose-option", cardId, optionId })}
+            onAnswerElicitation={(key, answer) => forward({ kind: "answer-elicitation", key, answer })}
+            onReopenElicitationUrl={(key) => forward({ kind: "reopen-elicitation-url", key })}
             isWorking={status.isBusy && !status.isWaiting}
           />
         ) : (

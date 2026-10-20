@@ -3,7 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useLatest } from './useLatest';
 import type { PermissionRequestPayload } from '../lib/acp-events';
-import type { ContextUsage, SlashCommand } from '../types';
+import { toElicitationCard } from '../lib/acp-elicitation';
+import type { ContextUsage, ElicitationAnswer, ElicitationCard, SlashCommand } from '../types';
 
 /** The one event channel the backend emits ACP traffic on. */
 export const ACP_EVENT = 'acp-event';
@@ -50,6 +51,10 @@ export interface TurnResult {
 export interface AcpHandlers {
   onUpdate: (sessionId: string, update: unknown) => void;
   onPermission: (sessionId: string, request: PermissionRequestPayload) => void;
+  /** The agent asks the user for input, or to open a page; a malformed request is never passed on. */
+  onElicitation: (sessionId: string, card: ElicitationCard) => void;
+  /** The agent reports a page it sent the user to as done. */
+  onElicitationComplete: (sessionId: string, key: string) => void;
   onTurnEnd: (sessionId: string, result: TurnResult) => void;
   onExit: (sessionId: string, code: number | null) => void;
   /** Failures that would otherwise go unnoticed, e.g. not being able to listen for agent events. */
@@ -187,6 +192,14 @@ export function useAcpSessions(handlers: AcpHandlers) {
             options: payload.options,
           });
           break;
+        case 'elicitation': {
+          const card = toElicitationCard(sessionId, payload.key, payload.request, Date.now());
+          if (card) h.onElicitation(sessionId, card);
+          break;
+        }
+        case 'elicitation-complete':
+          if (isString(payload.key)) h.onElicitationComplete(sessionId, payload.key);
+          break;
         case 'turn-end':
           setBusy(sessionId, false);
           h.onTurnEnd(
@@ -265,6 +278,23 @@ export function useAcpSessions(handlers: AcpHandlers) {
     [],
   );
 
+  /** Only the answer's action and content go out; nothing of it is kept here. */
+  const respondElicitation = useCallback(
+    (sessionId: string, key: string, answer: ElicitationAnswer) =>
+      invoke<void>('acp_respond_elicitation', {
+        sessionId,
+        key,
+        action: answer.action,
+        content: answer.action === 'accept' ? (answer.content ?? null) : null,
+      }),
+    [],
+  );
+
+  const reopenElicitationUrl = useCallback(
+    (sessionId: string, key: string) => invoke<void>('acp_reopen_elicitation_url', { sessionId, key }),
+    [],
+  );
+
   const setMode = useCallback(
     async (sessionId: string, modeId: string) => {
       await invoke('acp_set_mode', { sessionId, modeId });
@@ -297,5 +327,21 @@ export function useAcpSessions(handlers: AcpHandlers) {
   const busySinceOf = useCallback((sessionId: string): number | undefined => busySince[sessionId], [busySince]);
   const canFork = useCallback((sessionId: string) => info[sessionId]?.canFork ?? false, [info]);
 
-  return { info, start, load, fork, prompt, cancel, respondPermission, setMode, setConfigOption, stop, isBusy, busySinceOf, canFork };
+  return {
+    info,
+    start,
+    load,
+    fork,
+    prompt,
+    cancel,
+    respondPermission,
+    respondElicitation,
+    reopenElicitationUrl,
+    setMode,
+    setConfigOption,
+    stop,
+    isBusy,
+    busySinceOf,
+    canFork,
+  };
 }

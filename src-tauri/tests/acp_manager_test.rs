@@ -1,10 +1,13 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::Value;
-use zorvo_lib::acp::manager::{AcpEvent, AcpLaunch, AcpManager};
+use serde_json::{json, Value};
+use zorvo_lib::acp::manager::{
+    AcpEvent, AcpLaunch, AcpManager, ELICITATION_GONE, ELICITATION_INVALID_PREFIX,
+};
 use zorvo_lib::acp::terminal_auth::SignInAttempts;
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -1003,4 +1006,651 @@ fn lists_the_folder_of_every_open_session_until_it_stops() {
     manager.stop("s-1");
     manager.stop("s-2");
     assert!(manager.session_folders().is_empty());
+}
+
+#[test]
+fn advertises_form_and_url_elicitation() {
+    let (manager, _rx) = manager();
+    let log = method_log("init-capabilities");
+    let launch = with_env(fake_agent(), "FAKE_ACP_INIT_LOG", log.to_str().unwrap());
+
+    manager.start("s-1", &cwd(), &launch).expect("start");
+
+    let capabilities: Value =
+        serde_json::from_str(&std::fs::read_to_string(&log).expect("init log")).unwrap();
+    assert_eq!(
+        capabilities["elicitation"],
+        serde_json::json!({ "form": {}, "url": {} })
+    );
+    manager.stop("s-1");
+}
+
+fn is_elicitation(event: &AcpEvent) -> bool {
+    matches!(event, AcpEvent::Elicitation { .. })
+}
+
+/// The first `elicited:<reply>` the fake agent says.
+fn elicited(rx: &Receiver<AcpEvent>) -> String {
+    let said = wait_for(rx, |e| {
+        agent_text(e).is_some_and(|text| text.starts_with("elicited:"))
+    });
+    agent_text(&said).unwrap()
+}
+
+#[test]
+fn routes_a_form_request_to_its_session() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "elicit-form", &[]).unwrap();
+
+    let AcpEvent::Elicitation {
+        session_id,
+        key,
+        view,
+    } = wait_for(&rx, is_elicitation)
+    else {
+        unreachable!()
+    };
+    assert_eq!(session_id, "s-1");
+    assert!(key.starts_with("el-"), "unexpected key {key}");
+    assert_eq!(view["mode"], "form");
+    assert_eq!(view["fields"][0]["name"], "name");
+    manager.stop("s-1");
+}
+
+#[test]
+fn refuses_an_unknown_mode_with_invalid_params() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "elicit-voice", &[]).unwrap();
+
+    let seen = events_through(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
+    let said = said_elicited(&seen);
+    assert_eq!(said.len(), 1, "{seen:?}");
+    assert!(
+        said[0].contains(r#""code":-32602"#),
+        "unexpected reply {said:?}"
+    );
+    assert!(!seen.iter().any(is_elicitation), "{seen:?}");
+    manager.stop("s-1");
+}
+
+#[test]
+fn shows_a_request_sent_while_the_session_opens() {
+    let (manager, rx) = manager();
+    let log = method_log("elicit-on-new");
+    let launch = with_env(
+        fake_agent(),
+        "FAKE_ACP_ELICIT_ON_NEW",
+        log.to_str().unwrap(),
+    );
+
+    let starting = {
+        let manager = Arc::clone(&manager);
+        std::thread::spawn(move || manager.start("s-1", &cwd(), &launch))
+    };
+
+    let event = wait_for(&rx, is_elicitation);
+    assert!(matches!(event, AcpEvent::Elicitation { ref session_id, .. } if session_id == "s-1"));
+    manager.stop("s-1");
+    // Nobody answers the form here, so the agent gives up on the session.
+    let _ = starting.join();
+}
+
+#[test]
+fn cancels_requests_from_unrouted_agents() {
+    let (manager, _rx) = manager();
+    let log = method_log("elicit-on-probe");
+    let launch = with_env(
+        fake_agent(),
+        "FAKE_ACP_ELICIT_ON_NEW",
+        log.to_str().unwrap(),
+    );
+
+    manager.probe(&cwd(), &launch, true).expect("probe");
+
+    let reply: Value =
+        serde_json::from_str(std::fs::read_to_string(&log).expect("reply").trim()).unwrap();
+    assert_eq!(reply["result"], serde_json::json!({ "action": "cancel" }));
+    // No event check: a probe's agent is never routed to the sink at all.
+}
+
+#[test]
+fn keeps_two_requests_apart() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "elicit-twice", &[]).unwrap();
+
+    let key_of = |event: AcpEvent| match event {
+        AcpEvent::Elicitation {
+            session_id, key, ..
+        } if session_id == "s-1" => key,
+        other => panic!("unexpected event {other:?}"),
+    };
+    let first = key_of(wait_for(&rx, is_elicitation));
+    let second = key_of(wait_for(&rx, is_elicitation));
+    assert_ne!(first, second);
+    manager.stop("s-1");
+}
+
+#[test]
+fn ignores_unknown_completions() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "elicit-complete", &[]).unwrap();
+
+    let mut seen = Vec::new();
+    loop {
+        let event = rx
+            .recv_timeout(WAIT)
+            .expect("timed out waiting for the turn");
+        let ended = matches!(event, AcpEvent::TurnEnded { .. });
+        seen.push(event);
+        if ended {
+            break;
+        }
+    }
+    assert!(seen
+        .iter()
+        .any(|e| agent_text(e).as_deref() == Some("completed-sent")));
+    assert!(
+        !seen
+            .iter()
+            .any(|e| matches!(e, AcpEvent::ElicitationComplete { .. })),
+        "{seen:?}"
+    );
+    manager.stop("s-1");
+}
+
+/// Every event up to and including the first that matches `predicate`.
+fn events_through(rx: &Receiver<AcpEvent>, predicate: impl Fn(&AcpEvent) -> bool) -> Vec<AcpEvent> {
+    let mut seen = Vec::new();
+    loop {
+        let event = rx
+            .recv_timeout(WAIT)
+            .expect("timed out waiting for an ACP event");
+        let done = predicate(&event);
+        seen.push(event);
+        if done {
+            return seen;
+        }
+    }
+}
+
+/// Every event that arrives within `window`.
+fn events_within(rx: &Receiver<AcpEvent>, window: Duration) -> Vec<AcpEvent> {
+    let until = std::time::Instant::now() + window;
+    let mut seen = Vec::new();
+    while let Some(left) = until.checked_duration_since(std::time::Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(event) => seen.push(event),
+            Err(_) => break,
+        }
+    }
+    seen
+}
+
+/// The `elicited:<reply>` texts among `events`, without the prefix.
+fn said_elicited(events: &[AcpEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(agent_text)
+        .filter_map(|text| text.strip_prefix("elicited:").map(str::to_string))
+        .collect()
+}
+
+type Opened = Arc<Mutex<Vec<String>>>;
+
+/// A manager whose URL opener records each link instead of opening a browser.
+fn recording_manager() -> (Arc<AcpManager>, Receiver<AcpEvent>, Opened) {
+    let (tx, rx) = mpsc::channel();
+    let opened: Opened = Arc::default();
+    let record = Arc::clone(&opened);
+    let manager = AcpManager::with_url_opener(
+        Box::new(move |event| {
+            let _ = tx.send(event);
+        }),
+        Box::new(move |url| {
+            record.lock().unwrap().push(url.to_string());
+            Ok(())
+        }),
+    );
+    (Arc::new(manager), rx, opened)
+}
+
+/// The key of the next elicitation shown for `app_id`.
+fn next_key(rx: &Receiver<AcpEvent>, app_id: &str) -> String {
+    match wait_for(rx, is_elicitation) {
+        AcpEvent::Elicitation {
+            session_id, key, ..
+        } if session_id == app_id => key,
+        other => panic!("unexpected event {other:?}"),
+    }
+}
+
+/// Starts `s-1`, sends `prompt` and returns the key of the request it shows.
+fn started_with(prompt: &str) -> (Arc<AcpManager>, Receiver<AcpEvent>, Opened, String) {
+    let (manager, rx, opened) = recording_manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+    manager.prompt("s-1", prompt, &[]).unwrap();
+    let key = next_key(&rx, "s-1");
+    (manager, rx, opened, key)
+}
+
+/// Waits up to two seconds for the fake agent to log `count` elicitation replies.
+fn replies_logged(path: &std::path::Path, count: usize) -> Vec<Value> {
+    let until = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        let replies: Vec<Value> = std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("a JSON reply"))
+            .collect();
+        if replies.len() >= count || std::time::Instant::now() >= until {
+            return replies;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn sends_a_valid_form_to_the_agent() {
+    let (manager, rx, _opened, key) = started_with("elicit-form");
+
+    manager
+        .respond_elicitation("s-1", &key, "accept", Some(json!({"name": "Ada"})))
+        .expect("accept");
+
+    assert_eq!(
+        elicited(&rx),
+        r#"elicited:{"action":"accept","content":{"name":"Ada"}}"#
+    );
+    manager.stop("s-1");
+}
+
+#[test]
+fn keeps_an_invalid_form_open() {
+    let (manager, rx, _opened, key) = started_with("elicit-form");
+
+    let error = manager
+        .respond_elicitation("s-1", &key, "accept", Some(json!({"name": "Adalovelace"})))
+        .unwrap_err();
+
+    let errors = error
+        .strip_prefix(ELICITATION_INVALID_PREFIX)
+        .unwrap_or_else(|| panic!("unexpected error {error}"));
+    assert_eq!(
+        serde_json::from_str::<Value>(errors).unwrap(),
+        json!({"name": "Use at most 5 characters."})
+    );
+    assert!(!error.contains("Adalovelace"));
+    let seen = events_within(&rx, Duration::from_millis(500));
+    assert!(said_elicited(&seen).is_empty(), "{seen:?}");
+    manager
+        .respond_elicitation("s-1", &key, "accept", Some(json!({"name": "Ada"})))
+        .expect("accept");
+    assert_eq!(
+        elicited(&rx),
+        r#"elicited:{"action":"accept","content":{"name":"Ada"}}"#
+    );
+    manager.stop("s-1");
+}
+
+#[test]
+fn declines_and_dismisses() {
+    let (manager, rx, _opened, key) = started_with("elicit-form");
+    manager
+        .respond_elicitation("s-1", &key, "decline", None)
+        .expect("decline");
+    assert_eq!(elicited(&rx), r#"elicited:{"action":"decline"}"#);
+    manager.stop("s-1");
+
+    let (manager, rx, _opened) = recording_manager();
+    let log = method_log("elicit-twice-replies");
+    let launch = with_env(fake_agent(), "FAKE_ACP_ELICIT_LOG", log.to_str().unwrap());
+    manager.start("s-1", &cwd(), &launch).unwrap();
+    manager.prompt("s-1", "elicit-twice", &[]).unwrap();
+    let first = next_key(&rx, "s-1");
+    next_key(&rx, "s-1");
+
+    manager
+        .respond_elicitation("s-1", &first, "cancel", None)
+        .expect("cancel");
+
+    assert_eq!(elicited(&rx), r#"elicited:{"action":"cancel"}"#);
+    let seen = events_within(&rx, Duration::from_millis(500));
+    assert!(said_elicited(&seen).is_empty(), "{seen:?}");
+    let replies = replies_logged(&log, 1);
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    assert_eq!(replies[0]["id"], "elic-1");
+    assert_eq!(replies[0]["result"], json!({"action": "cancel"}));
+    manager.stop("s-1");
+}
+
+#[test]
+fn refuses_an_unknown_answer() {
+    let (manager, rx, _opened, key) = started_with("elicit-form");
+
+    let error = manager
+        .respond_elicitation("s-1", &key, "maybe", None)
+        .unwrap_err();
+
+    assert_eq!(error, "Unknown answer");
+    manager
+        .respond_elicitation("s-1", &key, "decline", None)
+        .expect("still open");
+    assert_eq!(elicited(&rx), r#"elicited:{"action":"decline"}"#);
+    manager.stop("s-1");
+}
+
+#[test]
+fn opens_the_backends_url_on_accept() {
+    let (manager, rx, opened, key) = started_with("elicit-url");
+
+    manager
+        .respond_elicitation(
+            "s-1",
+            &key,
+            "accept",
+            Some(json!({"url": "https://evil.example"})),
+        )
+        .expect("accept");
+
+    assert_eq!(
+        *opened.lock().unwrap(),
+        vec!["https://agent.example.com/connect".to_string()]
+    );
+    assert_eq!(elicited(&rx), r#"elicited:{"action":"accept"}"#);
+    manager.stop("s-1");
+}
+
+#[test]
+fn refuses_to_open_a_blocked_url() {
+    let (manager, rx, opened, key) = started_with("elicit-blocked-url");
+
+    let error = manager
+        .respond_elicitation("s-1", &key, "accept", None)
+        .unwrap_err();
+
+    assert_eq!(error, "Zorvo opens only https links, or http on this Mac.");
+    assert!(opened.lock().unwrap().is_empty());
+    manager
+        .respond_elicitation("s-1", &key, "decline", None)
+        .expect("still open");
+    assert_eq!(elicited(&rx), r#"elicited:{"action":"decline"}"#);
+    manager.stop("s-1");
+}
+
+#[test]
+fn does_not_answer_when_the_url_cannot_open() {
+    let (tx, rx) = mpsc::channel();
+    let can_open = Arc::new(AtomicBool::new(false));
+    let browser = Arc::clone(&can_open);
+    let manager = AcpManager::with_url_opener(
+        Box::new(move |event| {
+            let _ = tx.send(event);
+        }),
+        Box::new(move |_| {
+            if browser.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err("no browser".to_string())
+            }
+        }),
+    );
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+    manager.prompt("s-1", "elicit-url", &[]).unwrap();
+    let key = next_key(&rx, "s-1");
+
+    let error = manager
+        .respond_elicitation("s-1", &key, "accept", None)
+        .unwrap_err();
+
+    assert_eq!(error, "no browser");
+    let seen = events_within(&rx, Duration::from_millis(500));
+    assert!(said_elicited(&seen).is_empty(), "{seen:?}");
+    can_open.store(true, Ordering::SeqCst);
+    manager
+        .respond_elicitation("s-1", &key, "accept", None)
+        .expect("accept");
+    assert_eq!(elicited(&rx), r#"elicited:{"action":"accept"}"#);
+    manager.stop("s-1");
+}
+
+#[test]
+fn reopens_and_completes_a_url_request() {
+    let (manager, rx, opened, key) = started_with("elicit-url");
+    manager
+        .respond_elicitation("s-1", &key, "accept", None)
+        .expect("accept");
+    events_through(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
+
+    manager.reopen_elicitation_url("s-1", &key).expect("reopen");
+    assert_eq!(opened.lock().unwrap().len(), 2);
+
+    manager.prompt("s-1", "elicit-complete", &[]).unwrap();
+    let seen = events_through(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
+    let completed: Vec<&AcpEvent> = seen
+        .iter()
+        .filter(|e| matches!(e, AcpEvent::ElicitationComplete { .. }))
+        .collect();
+    assert_eq!(completed.len(), 1, "{seen:?}");
+    assert!(
+        matches!(completed[0], AcpEvent::ElicitationComplete { session_id, key: done } if session_id == "s-1" && *done == key)
+    );
+    assert_eq!(
+        manager.reopen_elicitation_url("s-1", &key),
+        Err(ELICITATION_GONE.to_string())
+    );
+    assert_eq!(opened.lock().unwrap().len(), 2);
+    manager.stop("s-1");
+}
+
+#[test]
+fn reopens_only_an_accepted_url_request() {
+    let (manager, _rx, opened, key) = started_with("elicit-url");
+
+    assert_eq!(
+        manager.reopen_elicitation_url("s-1", &key),
+        Err(ELICITATION_GONE.to_string())
+    );
+    assert_eq!(
+        manager.reopen_elicitation_url("s-2", &key),
+        Err(ELICITATION_GONE.to_string())
+    );
+    assert!(opened.lock().unwrap().is_empty());
+    manager.stop("s-1");
+}
+
+#[test]
+fn refuses_a_second_answer() {
+    let (manager, rx, _opened, key) = started_with("elicit-form");
+    manager
+        .respond_elicitation("s-1", &key, "accept", Some(json!({"name": "Ada"})))
+        .expect("accept");
+    elicited(&rx);
+
+    for action in ["accept", "decline"] {
+        assert_eq!(
+            manager.respond_elicitation("s-1", &key, action, Some(json!({"name": "Ada"}))),
+            Err(ELICITATION_GONE.to_string())
+        );
+    }
+    manager.stop("s-1");
+}
+
+#[test]
+fn refuses_an_answer_from_another_session() {
+    let (manager, rx, _opened, key) = started_with("elicit-form");
+    manager.fork("s-1", "s-2", &cwd()).unwrap();
+
+    assert_eq!(
+        manager.respond_elicitation("s-2", &key, "decline", None),
+        Err(ELICITATION_GONE.to_string())
+    );
+    manager
+        .respond_elicitation("s-1", &key, "decline", None)
+        .expect("still open for s-1");
+    assert_eq!(elicited(&rx), r#"elicited:{"action":"decline"}"#);
+    manager.stop("s-2");
+    manager.stop("s-1");
+}
+
+#[test]
+fn stop_answers_open_requests_with_cancel() {
+    let (manager, rx, _opened, key) = started_with("elicit-form");
+
+    manager.cancel("s-1").expect("cancel");
+
+    let seen = events_through(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
+    assert_eq!(
+        said_elicited(&seen),
+        vec![r#"{"action":"cancel"}"#],
+        "{seen:?}"
+    );
+    assert_eq!(
+        manager.respond_elicitation("s-1", &key, "decline", None),
+        Err(ELICITATION_GONE.to_string())
+    );
+    manager.stop("s-1");
+}
+
+#[test]
+fn cancel_keeps_an_accepted_url_request() {
+    let (manager, rx, opened, key) = started_with("elicit-url");
+    manager
+        .respond_elicitation("s-1", &key, "accept", None)
+        .expect("accept");
+    events_through(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
+
+    manager.cancel("s-1").expect("cancel");
+
+    manager
+        .reopen_elicitation_url("s-1", &key)
+        .expect("still awaiting completion");
+    assert_eq!(opened.lock().unwrap().len(), 2);
+    manager.stop("s-1");
+}
+
+#[test]
+fn stop_answers_open_requests_with_cancel_too() {
+    // The fork shares s-1's agent, so stopping it leaves the agent running.
+    let (manager, rx, _opened) = recording_manager();
+    let log = method_log("elicit-stop-fork");
+    let launch = with_env(fake_agent(), "FAKE_ACP_ELICIT_LOG", log.to_str().unwrap());
+    manager.start("s-1", &cwd(), &launch).unwrap();
+    manager.fork("s-1", "s-2", &cwd()).unwrap();
+    manager.prompt("s-2", "elicit-form", &[]).unwrap();
+    next_key(&rx, "s-2");
+
+    manager.stop("s-2");
+
+    let replies = replies_logged(&log, 1);
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    assert_eq!(replies[0]["result"], json!({"action": "cancel"}));
+    manager.prompt("s-1", "hi", &[]).unwrap();
+    let chunk = wait_for(&rx, |e| agent_text(e).is_some());
+    assert_eq!(agent_text(&chunk).as_deref(), Some("echo: hi"));
+    manager.stop("s-1");
+}
+
+#[test]
+fn answers_cancel_when_the_session_stops_while_an_answer_fails() {
+    // The fork shares s-1's agent, so the agent still runs after s-2 stops.
+    let (tx, rx) = mpsc::channel();
+    let this: Arc<std::sync::OnceLock<std::sync::Weak<AcpManager>>> = Arc::default();
+    let in_opener = Arc::clone(&this);
+    let manager = Arc::new(AcpManager::with_url_opener(
+        Box::new(move |event| {
+            let _ = tx.send(event);
+        }),
+        Box::new(move |_| {
+            if let Some(manager) = in_opener.get().and_then(std::sync::Weak::upgrade) {
+                manager.stop("s-2");
+            }
+            Err("no browser".to_string())
+        }),
+    ));
+    this.set(Arc::downgrade(&manager)).unwrap();
+    let log = method_log("elicit-put-back-gone");
+    let launch = with_env(fake_agent(), "FAKE_ACP_ELICIT_LOG", log.to_str().unwrap());
+    manager.start("s-1", &cwd(), &launch).unwrap();
+    manager.fork("s-1", "s-2", &cwd()).unwrap();
+    manager.prompt("s-2", "elicit-url", &[]).unwrap();
+    let key = next_key(&rx, "s-2");
+
+    let error = manager.respond_elicitation("s-2", &key, "accept", None);
+
+    assert_eq!(error, Err("no browser".to_string()));
+    let replies = replies_logged(&log, 1);
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    assert_eq!(replies[0]["result"], json!({"action": "cancel"}));
+    assert_eq!(
+        manager.respond_elicitation("s-2", &key, "decline", None),
+        Err(ELICITATION_GONE.to_string())
+    );
+    manager.stop("s-1");
+}
+
+#[test]
+fn cancels_a_request_for_an_unknown_session_on_a_routed_connection() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "stray-elicit", &[]).unwrap();
+
+    let seen = events_through(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
+    assert_eq!(
+        said_elicited(&seen),
+        vec![r#"{"action":"cancel"}"#],
+        "{seen:?}"
+    );
+    assert!(!seen.iter().any(is_elicitation), "{seen:?}");
+    manager.stop("s-1");
+}
+
+#[test]
+fn answers_a_request_sent_while_the_session_opens() {
+    let (manager, rx, _opened) = recording_manager();
+    let log = method_log("elicit-on-new-answer");
+    let launch = with_env(
+        fake_agent(),
+        "FAKE_ACP_ELICIT_ON_NEW",
+        log.to_str().unwrap(),
+    );
+    let starting = {
+        let manager = Arc::clone(&manager);
+        std::thread::spawn(move || manager.start("s-1", &cwd(), &launch))
+    };
+
+    let key = next_key(&rx, "s-1");
+    manager
+        .respond_elicitation("s-1", &key, "accept", Some(json!({"name": "Ada"})))
+        .expect("accept");
+
+    let started = starting.join().unwrap().expect("start");
+    assert_eq!(started.acp_session_id, "fake-1");
+    let reply: Value =
+        serde_json::from_str(std::fs::read_to_string(&log).expect("reply").trim()).unwrap();
+    assert_eq!(
+        reply["result"],
+        json!({"action": "accept", "content": {"name": "Ada"}})
+    );
+    manager.stop("s-1");
+}
+
+#[test]
+fn drops_requests_when_the_session_stops() {
+    let (manager, _rx, _opened, key) = started_with("elicit-form");
+
+    manager.stop("s-1");
+
+    assert_eq!(
+        manager.respond_elicitation("s-1", &key, "decline", None),
+        Err(ELICITATION_GONE.to_string())
+    );
 }

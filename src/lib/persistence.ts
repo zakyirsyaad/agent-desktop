@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { TRANSPORT_ACP, type ChatMessage, type PersistedState, type Session, type SessionWorktree } from '../types';
+import { markElicitationsUnanswered } from './acp-elicitation';
 import { normalizeAppearance } from './appearance';
 import type { AgentOptions } from './acp-draft';
 import { toCommands, toConfigOptions, toModes } from '../hooks/useAcpSessions';
@@ -201,7 +202,7 @@ export function saveAppState(state: PersistedState): Promise<void> {
 
 export async function loadTranscript(sessionId: string): Promise<ChatMessage[]> {
   const messages = await invoke<unknown>('load_transcript', { sessionId });
-  return Array.isArray(messages) ? (messages as ChatMessage[]) : [];
+  return Array.isArray(messages) ? markElicitationsUnanswered(messages as ChatMessage[]) : [];
 }
 
 export function saveTranscript(sessionId: string, messages: ChatMessage[]): Promise<void> {
