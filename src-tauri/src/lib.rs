@@ -405,6 +405,7 @@ pub fn run() {
             acp::commands::acp_set_config_option,
             acp::commands::acp_stop_session,
             installer::commands::install_agent,
+            installer::commands::update_agent,
             installer::commands::install_runtime,
             installer::commands::cancel_agent_install,
             installer::commands::remove_agent_install

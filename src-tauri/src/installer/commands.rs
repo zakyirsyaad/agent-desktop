@@ -16,10 +16,10 @@ use super::runtimes::RuntimeKind;
 use super::{bundled_manifest, user_node_major};
 use crate::acp::manager::AcpManager;
 use crate::env_resolver::cached_user_env;
-use crate::profiles::{agent_name, agent_profiles, install_steps_for};
+use crate::profiles::{agent_name, agent_profiles, install_steps_for, with_system_tools};
 use crate::registry::resolve::canonical_agent_id;
 use crate::registry::schema::current_platform;
-use crate::registry::AGENT_PROFILES_CHANGED;
+use crate::registry::{unix_now, AGENT_PROFILES_CHANGED};
 use crate::store::AppStore;
 
 /// Carries an [`InstallProgress`] for each phase of each step.
@@ -85,6 +85,45 @@ pub fn install_agent(
         |steps| run_with_user_env(&app, installer, &job, steps),
         || profiles_changed(&app),
     )
+}
+
+/// Moves an agent to the version the catalog offers it, installing it when
+/// Zorvo manages the install, and returns that version. The webview records
+/// it in settings; the backend never writes settings. As in `install_agent`,
+/// the job begins before planning so a Cancel meanwhile finds it.
+#[tauri::command(async)]
+pub fn update_agent(
+    app: AppHandle,
+    store: State<'_, AppStore>,
+    installer: State<'_, AppInstaller>,
+    agent_id: String,
+) -> Result<String, String> {
+    let installer = installer.get()?;
+    let id = canonical_agent_id(&agent_id);
+    let versions = versions_in_use(&store);
+    let target = with_system_tools(|catalog, tools| {
+        catalog.update_target(id, tools, &versions, unix_now())
+    })?;
+    let job = installer.begin(id, &target.name)?;
+    let (_, steps) = install_steps_for(id, &versions_with(&versions, id, &target.version))
+        .ok_or_else(|| format!("Unknown agent '{agent_id}'"))?;
+    run_plan(
+        &steps,
+        |steps| run_with_user_env(&app, installer, &job, steps),
+        || profiles_changed(&app),
+    )?;
+    Ok(target.version)
+}
+
+/// A copy of `versions` with `id` moved to `version`.
+fn versions_with(
+    versions: &BTreeMap<String, String>,
+    id: &str,
+    version: &str,
+) -> BTreeMap<String, String> {
+    let mut moved = versions.clone();
+    moved.insert(id.to_string(), version.to_string());
+    moved
 }
 
 /// Runs the plan with `run`, then calls `notify` however it ended: a failed
@@ -221,6 +260,21 @@ mod tests {
     use std::cell::Cell;
 
     use super::super::install::INSTALL_CANCELLED;
+
+    fn versions(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn versions_with_moves_only_the_one_agent() {
+        let before = versions(&[("a", "1.0.0"), ("b", "2.0.0")]);
+        let after = versions_with(&before, "a", "1.1.0");
+        assert_eq!(after, versions(&[("a", "1.1.0"), ("b", "2.0.0")]));
+        assert_eq!(before["a"], "1.0.0");
+    }
 
     fn node() -> Vec<PlannedStep> {
         vec![PlannedStep::Runtime(RuntimeKind::Node)]
