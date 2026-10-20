@@ -2,6 +2,7 @@
 
 import { afterEach } from "vitest";
 import { fakeProfiles } from "./fixtures/agents";
+import { fakeCatalog } from "./fixtures/catalog";
 
 /**
  * In-memory stand-in for the backend store commands. Tests seed it through
@@ -137,6 +138,19 @@ export function fakeTauriInvoke(cmd: string, args?: unknown): Promise<unknown> {
   }
   if (cmd === "get_agent_profiles") {
     return Promise.resolve(structuredClone(fakeProfiles));
+  }
+  if (cmd === "get_agent_catalog") {
+    return Promise.resolve({ lastChecked: null, agents: structuredClone(fakeCatalog) });
+  }
+  if (cmd === "get_agent_icons") {
+    return Promise.resolve({});
+  }
+  if (cmd === "update_agent") {
+    const agentId = (args as { agentId?: string } | undefined)?.agentId;
+    return Promise.resolve(fakeCatalog.find((a) => a.id === agentId)?.updateVersion ?? null);
+  }
+  if (cmd === "remove_agent_install") {
+    return Promise.resolve(undefined);
   }
   if (cmd === "workspace_details") {
     return Promise.resolve({ location: "~/developer", branch: "main" });
