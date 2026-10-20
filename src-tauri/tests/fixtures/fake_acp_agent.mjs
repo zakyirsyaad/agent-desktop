@@ -12,6 +12,8 @@ import { createInterface } from "node:readline";
 let nextSession = 1;
 let pendingPermission = null;
 let pendingSlow = null;
+// Replies to the requests sent while a session/new waits, by request id.
+let earlyRequests = null;
 
 const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
 const reply = (id, result) => send({ id, result });
@@ -63,7 +65,8 @@ const handlers = {
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: !process.env.FAKE_ACP_NO_LOAD,
-        sessionCapabilities: { fork: {}, delete: {} },
+        // FAKE_ACP_NO_FORK: cannot fork a session.
+        sessionCapabilities: process.env.FAKE_ACP_NO_FORK ? { delete: {} } : { fork: {}, delete: {} },
         ...(authStatus ? { _meta: { authStatus: {} } } : {}),
       },
       authMethods: [
@@ -105,7 +108,14 @@ const handlers = {
       },
     });
   },
-  "session/new": (id) => {
+  "session/new": (id, params) => {
+    // FAKE_ACP_EARLY_REQUESTS: asks the client things before the session exists and answers
+    // session/new only once both are answered (or with an error after two seconds). Each
+    // reply goes to the file FAKE_ACP_EARLY_REQUESTS names, one JSON line per reply.
+    if (process.env.FAKE_ACP_EARLY_REQUESTS && !params?.earlyDone) {
+      askBeforeTheSessionExists(id, params);
+      return;
+    }
     if (process.env.FAKE_ACP_STDERR) process.stderr.write("warming up the model cache\n");
     if (process.env.FAKE_ACP_SERVER_ERROR) {
       send({ id, error: { code: -32000, message: "Internal error: disk full" } });
@@ -155,6 +165,31 @@ const handlers = {
   },
 };
 
+function askBeforeTheSessionExists(id, params) {
+  const timer = setTimeout(() => {
+    earlyRequests = null;
+    send({ id, error: { code: -32603, message: "The client never answered early requests" } });
+  }, 2000);
+  earlyRequests = {
+    waiting: new Set(["early-fs", "early-permission"]),
+    done: () => {
+      clearTimeout(timer);
+      earlyRequests = null;
+      handlers["session/new"](id, { ...params, earlyDone: true });
+    },
+  };
+  send({ id: "early-fs", method: "fs/read_text_file", params: { sessionId: "not-yet", path: "/etc/hosts" } });
+  send({
+    id: "early-permission",
+    method: "session/request_permission",
+    params: {
+      sessionId: "not-yet",
+      toolCall: { toolCallId: "t-0", title: "Warm up", kind: "execute", status: "pending" },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    },
+  });
+}
+
 // Started as the terminal login (--login): print a greeting and exit, FAKE_LOGIN_EXIT is the exit code.
 if (process.argv.includes("--login")) {
   process.stdout.write(`signed in: ${process.env.FAKE_LOGIN_GREETING ?? ""}\n`);
@@ -168,6 +203,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (message.method === "session/cancel" && pendingSlow) {
     reply(pendingSlow.promptId, { stopReason: "cancelled" });
     pendingSlow = null;
+    return;
+  }
+  if (earlyRequests?.waiting.has(message.id) && message.method === undefined) {
+    appendFileSync(process.env.FAKE_ACP_EARLY_REQUESTS, `${JSON.stringify(message)}\n`);
+    earlyRequests.waiting.delete(message.id);
+    if (earlyRequests.waiting.size === 0) earlyRequests.done();
     return;
   }
   if (message.id === "perm-1" && pendingPermission) {

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::time::Duration;
@@ -138,6 +139,59 @@ fn forks_into_a_new_app_session_on_the_same_agent() {
     assert!(matches!(&chunk, AcpEvent::Update { session_id, .. } if session_id == "s-2"));
     manager.stop("s-1");
     manager.stop("s-2");
+}
+
+#[test]
+fn refuses_to_fork_when_the_agent_cannot() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_NO_FORK", "1");
+    let log = method_log("no-fork");
+    let launch = with_env(launch, "FAKE_ACP_METHOD_LOG", log.to_str().unwrap());
+    manager.start("s-1", &cwd(), &launch).unwrap();
+
+    let error = manager.fork("s-1", "s-2", &cwd()).unwrap_err();
+
+    assert!(error.contains("cannot fork"), "unexpected error: {error}");
+    assert!(!methods_in(&log).iter().any(|m| m == "session/fork"));
+    assert!(manager.prompt("s-2", "hi", &[]).is_err());
+    manager.stop("s-1");
+}
+
+/// The replies the fake agent got to the requests it sent while `session/new`
+/// waited, by request id.
+fn early_replies(path: &std::path::Path) -> HashMap<String, Value> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("a JSON reply"))
+        .map(|reply| (reply["id"].as_str().unwrap_or_default().to_string(), reply))
+        .collect()
+}
+
+#[test]
+fn answers_agent_requests_sent_before_the_session_is_registered() {
+    let (manager, rx) = manager();
+    let log = method_log("early-requests");
+    let launch = with_env(
+        fake_agent(),
+        "FAKE_ACP_EARLY_REQUESTS",
+        log.to_str().unwrap(),
+    );
+
+    let started = manager.start("s-1", &cwd(), &launch).expect("start");
+
+    assert_eq!(started.acp_session_id, "fake-1");
+    let replies = early_replies(&log);
+    assert_eq!(replies["early-fs"]["error"]["code"], -32601);
+    assert_eq!(
+        replies["early-permission"]["result"]["outcome"]["outcome"],
+        "cancelled"
+    );
+    // Nobody was asked: the request belonged to no session the app knows.
+    assert!(rx
+        .try_iter()
+        .all(|e| !matches!(e, AcpEvent::PermissionRequest { .. })));
+    manager.stop("s-1");
 }
 
 #[test]

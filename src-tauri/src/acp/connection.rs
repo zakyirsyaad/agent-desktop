@@ -4,7 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::thread;
 use std::time::Duration;
 
@@ -54,13 +54,16 @@ pub struct AcpConnection {
 
 impl AcpConnection {
     /// Starts the agent. Its stdout is read on a background thread; every
-    /// message that is not a response to us goes to `sink`.
+    /// message that is not a response to us goes to the sink `make_sink`
+    /// builds. It gets the connection before the first message can arrive, so
+    /// the sink can answer every request; held weakly, it never keeps the
+    /// agent alive.
     pub fn spawn(
         program: &str,
         args: &[String],
         cwd: &str,
         env: &[(String, String)],
-        sink: EventSink,
+        make_sink: impl FnOnce(Weak<Self>) -> EventSink,
     ) -> Result<Arc<Self>, String> {
         let mut child = Command::new(program)
             .args(args)
@@ -95,6 +98,7 @@ impl AcpConnection {
             stderr_tail: Arc::new(Mutex::new(VecDeque::new())),
         });
 
+        let sink = make_sink(Arc::downgrade(&connection));
         connection.spawn_stderr_reader(stderr);
         connection.spawn_stdout_reader(stdout, sink);
         Ok(connection)

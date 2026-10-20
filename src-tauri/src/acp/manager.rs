@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -198,7 +198,7 @@ impl AcpManager {
             &launch.args,
             cwd,
             &launch.env,
-            self.connection_sink(connection_key),
+            |connection| self.connection_sink(connection_key, connection),
         )?;
 
         let (started, auth_methods) = initialize(&connection)
@@ -260,6 +260,10 @@ impl AcpManager {
                     e.auth_methods.clone(),
                 )
             })?;
+        // The UI offers fork only when the agent can, but don't rely on it.
+        if !capabilities["sessionCapabilities"]["fork"].is_object() {
+            return Err("This agent cannot fork sessions".to_string());
+        }
         let response = connection.request(
             "session/fork",
             json!({ "sessionId": acp_id, "cwd": cwd, "mcpServers": [] }),
@@ -497,16 +501,17 @@ impl AcpManager {
     }
 
     /// Routes one connection's events to the app sessions it hosts.
-    fn connection_sink(&self, connection_key: u64) -> EventSink {
+    fn connection_sink(&self, connection_key: u64, connection: Weak<AcpConnection>) -> EventSink {
         let routes = Arc::clone(&self.routes);
         let sink = Arc::clone(&self.sink);
-        Arc::new(move |event| route_event(&routes, &sink, connection_key, event))
+        Arc::new(move |event| route_event(&routes, &sink, &connection, connection_key, event))
     }
 }
 
 fn route_event(
     routes: &Arc<Mutex<Routes>>,
     sink: &Arc<AcpEventSink>,
+    connection: &Weak<AcpConnection>,
     connection_key: u64,
     event: ConnectionEvent,
 ) {
@@ -536,8 +541,17 @@ fn route_event(
                         params,
                     })
                 }
+                // No app session to ask: the session is still opening (an agent
+                // may ask during `session/new` or `session/load`) or is unknown.
+                // `cancelled` rather than an error: it is a valid answer every
+                // agent handles (ACP sends it when a turn is cancelled), it
+                // grants nothing the user never saw, and it does not make the
+                // agent fail the session it is opening.
+                ("session/request_permission", None) => answer(connection, |c| {
+                    c.respond(&id, json!({ "outcome": { "outcome": "cancelled" } }))
+                }),
                 // We advertise no fs/terminal capabilities, so anything else is refused.
-                _ => refuse(routes, connection_key, &id),
+                _ => refuse(connection, &id),
             }
         }
         ConnectionEvent::Exited { code } => {
@@ -565,16 +579,21 @@ fn route_event(
     }
 }
 
-fn refuse(routes: &Arc<Mutex<Routes>>, connection_key: u64, id: &Value) {
-    let connection = routes.lock().ok().and_then(|r| {
-        r.sessions
-            .values()
-            .find(|e| e.connection_key == connection_key)
-            .map(|e| Arc::clone(&e.connection))
-    });
-    if let Some(connection) = connection {
-        let _ = connection.respond_error(id, METHOD_NOT_FOUND, "Method not supported by Zorvo");
+/// Answers a request from the agent, whether or not it hosts an app session
+/// yet. Nothing to do once the connection is gone: the agent is being killed.
+fn answer(
+    connection: &Weak<AcpConnection>,
+    reply: impl FnOnce(&AcpConnection) -> Result<(), String>,
+) {
+    if let Some(connection) = connection.upgrade() {
+        let _ = reply(&connection);
     }
+}
+
+fn refuse(connection: &Weak<AcpConnection>, id: &Value) {
+    answer(connection, |c| {
+        c.respond_error(id, METHOD_NOT_FOUND, "Method not supported by Zorvo")
+    });
 }
 
 /// `-32000` is also JSON-RPC's generic server error, so the message must say it is about signing in.
@@ -652,28 +671,31 @@ pub(super) fn failure_message(connection: &AcpConnection, error: OpenError) -> S
     }
 }
 
-/// Spawns an agent that hosts no app session (a sign-in or a probe). Routing
-/// cannot answer its requests, so they are refused here and the agent never
-/// waits on us; its notifications go to `on_notification`.
+/// Spawns an agent that hosts no app session (a sign-in or a probe). Its
+/// requests are refused here, so the agent never waits on us; its
+/// notifications go to `on_notification`.
 pub(super) fn spawn_unrouted(
     cwd: &str,
     launch: &AcpLaunch,
     on_notification: impl Fn(&str, &Value) + Send + Sync + 'static,
 ) -> Result<Arc<AcpConnection>, String> {
-    let connection_slot: Arc<OnceLock<Weak<AcpConnection>>> = Arc::new(OnceLock::new());
-    let sink_slot = Arc::clone(&connection_slot);
-    let sink: EventSink = Arc::new(move |event| match event {
-        ConnectionEvent::Request { id, .. } => {
-            if let Some(connection) = sink_slot.get().and_then(Weak::upgrade) {
-                let _ = connection.respond_error(&id, METHOD_NOT_FOUND, "Not available here");
-            }
-        }
-        ConnectionEvent::Notification { method, params } => on_notification(&method, &params),
-        ConnectionEvent::Exited { .. } => {}
-    });
-    let connection = AcpConnection::spawn(&launch.program, &launch.args, cwd, &launch.env, sink)?;
-    let _ = connection_slot.set(Arc::downgrade(&connection));
-    Ok(connection)
+    AcpConnection::spawn(
+        &launch.program,
+        &launch.args,
+        cwd,
+        &launch.env,
+        |connection| -> EventSink {
+            Arc::new(move |event| match event {
+                ConnectionEvent::Request { id, .. } => answer(&connection, |c| {
+                    c.respond_error(&id, METHOD_NOT_FOUND, "Not available here")
+                }),
+                ConnectionEvent::Notification { method, params } => {
+                    on_notification(&method, &params)
+                }
+                ConnectionEvent::Exited { .. } => {}
+            })
+        },
+    )
 }
 
 /// Initializes ACP and returns the agent's answer: capabilities and auth methods.
