@@ -344,10 +344,13 @@ Rust, unit:
 - `icons`: host and scheme filter, size cap, SVG check, no re-download when
   URL and version are unchanged, bundled fallback, data URL encoding.
 
-Rust, integration (local HTTP server, never the real network):
+Rust, integration (never the real network):
 
-- an icon download succeeds and is cached; another host, an oversized body,
-  a redirect off-host and a non-SVG body each keep the old copy.
+- an icon refresh with an injected fetch succeeds and is cached; another
+  host, a fetch error (oversized body, redirect, timeout) and a non-SVG body
+  each keep the old copy. Icons are fetched with `fetch_registry`, whose
+  timeout, size cap and no-redirect rule already have local-HTTP-server
+  integration tests.
 
 Frontend (Vitest):
 
