@@ -7,7 +7,7 @@ import "./globals.css";
 
 const TITLE = "Zorvo — every coding agent, one desktop";
 const DESCRIPTION =
-  "Claude Code, Codex, Qwen and every agent in the ACP registry in one native app. Bring the agent you already use. No lock-in, no API keys.";
+  "Claude Code, Codex and Qwen Code in one native app. Bring the agent you already use. No lock-in, no API keys.";
 
 export const metadata: Metadata = {
   title: TITLE,

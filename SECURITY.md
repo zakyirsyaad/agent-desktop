@@ -29,5 +29,5 @@ are in scope:
 - secrets leaking from the app;
 - the web view running content it should not.
 
-How an agent itself behaves (Qwen Code, Claude Code, Codex, Oh-My-Pi or Aider)
+How an agent itself behaves (Qwen Code, Claude Code or Codex)
 is a matter for that agent's own project.

@@ -8,8 +8,7 @@
 **Every coding agent. One desktop.**
 
 A desktop app for the coding agents you already use. Qwen Code, Claude Code
-and Codex run in a real chat UI, and so does every other agent in the ACP
-registry. It is like Claude Code Desktop, but for whichever agent
+and Codex run in a real chat UI. It is like Claude Code Desktop, but for whichever agent
 you have.
 
 - [Highlights](#highlights)

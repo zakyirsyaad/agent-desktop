@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Zorvo (formerly Agent Desktop) is a macOS Tauri 2 app that hosts other coding agents. Qwen Code, Claude Code, Codex and every other agent come from the ACP registry and are driven over the Agent Client Protocol (ACP, JSON-RPC over stdio) and shown as a chat UI. Pi comes through the registry's `pi-acp` adapter. A PTY is used only to run an agent's own terminal sign-in. React 19 + Tailwind 4 frontend in `src/`, Rust backend in `src-tauri/` (crate `zorvo`, lib `zorvo_lib`). Package manager is pnpm.
+Zorvo (formerly Agent Desktop) is a macOS Tauri 2 app that hosts other coding agents. Qwen Code, Claude Code, Codex and the other agents come from the ACP registry and are driven over the Agent Client Protocol (ACP, JSON-RPC over stdio) and shown as a chat UI. Pi comes through the registry's `pi-acp` adapter. A PTY is used only to run an agent's own terminal sign-in. React 19 + Tailwind 4 frontend in `src/`, Rust backend in `src-tauri/` (crate `zorvo`, lib `zorvo_lib`). Package manager is pnpm.
 
 ## Commands
 

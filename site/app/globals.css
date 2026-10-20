@@ -39,7 +39,6 @@
 
   /* Site only: a terminal stays dark in both themes, like the real one. */
   --color-terminal-border: #27272a;
-  --color-terminal-tab: #18181b;
   --color-terminal-fg: #d4d4d8;
   --color-terminal-fg-strong: #fafafa;
   --color-terminal-fg-muted: #a1a1aa;
