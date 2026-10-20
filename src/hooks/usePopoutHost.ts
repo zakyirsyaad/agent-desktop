@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { AgentProfile, ChatMessage, Session } from '../types';
-import { removedAgentName, type EnabledSettings } from '../lib/enabled-agents';
+import { removedAgentNameFor, type EnabledSettings } from '../lib/enabled-agents';
 import {
   POPOUT_ACTION_EVENT,
   POPOUT_CLOSED_EVENT,
@@ -45,13 +45,12 @@ interface SentSnapshot {
   statusKey: string;
 }
 
-/** The name of the session's agent when it was removed, else null. */
+/** The name of the session's agent when it was removed and the session is not running, else null. */
 function removedAgentNameOf(
   session: Session | undefined,
   catalog: PopoutHostOptions['agentCatalog'],
 ): string | null {
-  if (!session || !catalog) return null;
-  return removedAgentName(catalog.agents.find((a) => a.id === session.profileId), catalog.settings);
+  return catalog ? removedAgentNameFor(session, catalog.agents, catalog.settings) : null;
 }
 
 const statusKeyOf = (status: SessionLiveStatus, removedAgentName: string | null) =>

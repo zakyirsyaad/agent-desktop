@@ -83,7 +83,8 @@ describe("usePopoutHost", () => {
     const addAgent = vi.fn();
     const onAction = vi.fn();
     const props = {
-      sessions: [session("s-1")],
+      // A stopped session: a running one keeps its composer, with Stop.
+      sessions: [{ ...session("s-1"), status: "terminated" as const }],
       transcripts: {} as Record<string, ChatMessage[]>,
       ensureLoaded: () => {},
       onAction,

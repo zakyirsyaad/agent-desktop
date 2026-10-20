@@ -125,6 +125,16 @@ describe("A saved session of a removed agent", () => {
     );
   });
 
+  it("keeps the composer, with Stop, while the session still runs", async () => {
+    seedRemovedAgentSession();
+    fakeStore().state.sessions = [{ ...geminiSession, status: "running" }];
+    await openRemovedAgentSession();
+
+    expect(await screen.findByText("Earlier answer")).toBeInTheDocument();
+    expect(screen.queryByText(REMOVED_NOTICE)).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Prompt" })).toBeInTheDocument();
+  });
+
   it("shows the composer for a session whose agent is in use", async () => {
     seedRemovedAgentSession();
     (fakeStore().state.settings as Partial<Settings>).enabledAgents = ["claude-acp", "gemini"];
@@ -167,6 +177,18 @@ describe("A popout of a removed agent's session", () => {
       event: "popout-action",
       payload: { sessionId: "s-gem", action: { kind: "add-agent" } },
     });
+  });
+
+  it("is sent no name by the main window while the session still runs", async () => {
+    seedRemovedAgentSession();
+    fakeStore().state.sessions = [{ ...geminiSession, status: "running" }];
+    await act(async () => {
+      render(<App />);
+    });
+
+    await deliver("popout-ready", { sessionId: "s-gem" });
+    const snapshot = emitted.find((e) => e.event === "session-snapshot")?.payload as { removedAgentName: string | null };
+    expect(snapshot.removedAgentName).toBeNull();
   });
 
   it("is sent the agent's name by the main window, which adds the agent when asked", async () => {

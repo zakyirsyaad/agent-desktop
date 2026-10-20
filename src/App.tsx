@@ -78,7 +78,7 @@ import { pickFiles } from "./lib/file-picker";
 import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
 import { isAgentReady, isAgentRunnable, noAgentNotice, resolveDraftAgentId } from "./lib/agent-readiness";
-import { isInUse, removedAgentName } from "./lib/enabled-agents";
+import { isInUse, removedAgentNameFor } from "./lib/enabled-agents";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
 import {
@@ -142,8 +142,8 @@ export default function App() {
   const isActiveRunning = activeSession?.status === "running";
   // Only the agents in use are offered: the defaults, installed ones and the terminal agents found.
   const agentsInUse = agents.filter((agent) => isInUse(agent, state.settings));
-  // A saved session of a removed agent stays readable; its composer offers to add the agent again.
-  const activeAgentRemoved = activeSession ? removedAgentName(activeAgent, state.settings) : null;
+  // A saved session of a removed agent stays readable; once it stops, its composer offers to add the agent again.
+  const activeAgentRemoved = removedAgentNameFor(activeSession, agents, state.settings);
   // A registry agent not installed yet is offered too: picking it shows its Install panel.
   const pickableAgents = agentsInUse.filter((agent) => agent.source === "registry" || agent.detected);
   const defaultAgentId = resolveDraftAgentId(agentsInUse, state.settings.defaultAgentId, pickableAgents);
