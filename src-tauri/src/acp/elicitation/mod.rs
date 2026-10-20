@@ -81,22 +81,26 @@ fn text(value: &Value, key: &str) -> Option<String> {
     value.get(key)?.as_str().map(str::to_string)
 }
 
-/// Options from a plain `enum` list, where each title is its value.
-fn enum_choices(list: &[Value]) -> Vec<Choice> {
+/// Options from a plain `enum` list, where each title is its value. `None`
+/// when any entry is not a string.
+fn enum_choices(list: &[Value]) -> Option<Vec<Choice>> {
     list.iter()
-        .filter_map(Value::as_str)
-        .map(|value| Choice {
-            value: value.to_string(),
-            title: value.to_string(),
-            description: None,
+        .map(|entry| {
+            let value = entry.as_str()?;
+            Some(Choice {
+                value: value.to_string(),
+                title: value.to_string(),
+                description: None,
+            })
         })
         .collect()
 }
 
-/// Options from `oneOf` or `anyOf` entries with `const` and `title`.
-fn titled_choices(list: &[Value]) -> Vec<Choice> {
+/// Options from `oneOf` or `anyOf` entries with `const` and `title`. `None`
+/// when any entry has no string `const`.
+fn titled_choices(list: &[Value]) -> Option<Vec<Choice>> {
     list.iter()
-        .filter_map(|entry| {
+        .map(|entry| {
             let value = text(entry, "const")?;
             Some(Choice {
                 title: text(entry, "title").unwrap_or_else(|| value.clone()),
@@ -107,28 +111,45 @@ fn titled_choices(list: &[Value]) -> Vec<Choice> {
         .collect()
 }
 
-/// Reads the options a schema node lists, by whichever keyword it uses.
-fn choices(node: &Value) -> Option<Vec<Choice>> {
-    if let Some(list) = node.get("enum").and_then(Value::as_array) {
-        return Some(enum_choices(list));
-    }
-    ["oneOf", "anyOf"]
+/// Whether a schema node lists options at all, usable or not.
+fn lists_choices(node: &Value) -> bool {
+    ["enum", "oneOf", "anyOf"]
         .iter()
-        .find_map(|key| node.get(*key)?.as_array())
-        .map(|list| titled_choices(list))
+        .any(|key| node.get(*key).is_some_and(Value::is_array))
+}
+
+/// Reads the options a schema node lists. `None` when an entry is unusable or
+/// no option is left, so a field never shows fewer options than offered.
+fn choices(node: &Value) -> Option<Vec<Choice>> {
+    let options = if let Some(list) = node.get("enum").and_then(Value::as_array) {
+        enum_choices(list)?
+    } else {
+        let list = ["oneOf", "anyOf"]
+            .iter()
+            .find_map(|key| node.get(*key)?.as_array())?;
+        titled_choices(list)?
+    };
+    (!options.is_empty()).then_some(options)
+}
+
+fn unsupported(raw_type: &str) -> FieldKind {
+    FieldKind::Unsupported {
+        raw_type: raw_type.to_string(),
+    }
 }
 
 fn parse_kind(schema: &Value) -> FieldKind {
     let raw_type = text(schema, "type");
     match raw_type.as_deref() {
-        Some("string") => match choices(schema) {
+        Some("string") if lists_choices(schema) => match choices(schema) {
             Some(options) => FieldKind::Select { options },
-            None => FieldKind::Text {
-                format: text(schema, "format"),
-                min_length: schema.get("minLength").and_then(Value::as_u64),
-                max_length: schema.get("maxLength").and_then(Value::as_u64),
-                pattern: text(schema, "pattern"),
-            },
+            None => unsupported("string"),
+        },
+        Some("string") => FieldKind::Text {
+            format: text(schema, "format"),
+            min_length: schema.get("minLength").and_then(Value::as_u64),
+            max_length: schema.get("maxLength").and_then(Value::as_u64),
+            pattern: text(schema, "pattern"),
         },
         Some(kind @ ("number" | "integer")) => FieldKind::Number {
             integer: kind == "integer",
@@ -142,9 +163,7 @@ fn parse_kind(schema: &Value) -> FieldKind {
                 min_items: schema.get("minItems").and_then(Value::as_u64),
                 max_items: schema.get("maxItems").and_then(Value::as_u64),
             },
-            None => FieldKind::Unsupported {
-                raw_type: "array".to_string(),
-            },
+            None => unsupported("array"),
         },
         other => FieldKind::Unsupported {
             raw_type: other.unwrap_or("unknown").to_string(),
@@ -215,11 +234,13 @@ fn parse_url(params: &Value) -> Result<Elicitation, String> {
     let elicitation_id =
         text(params, "elicitationId").ok_or("The request has no elicitationId.")?;
     let url = text(params, "url").ok_or("The request has no url.")?;
+    let check = check_url(&url);
     Ok(Elicitation::Url {
         message: text(params, "message").unwrap_or_default(),
-        check: check_url(&url),
+        // Keep the link that was checked, not the agent's raw text.
+        url: check.url.clone().unwrap_or(url),
+        check,
         elicitation_id,
-        url,
     })
 }
 
@@ -460,5 +481,45 @@ mod tests {
             json!({"mode": "url", "message": "Go", "url": "https://xn--pple-43d.com/",
                    "host": "xn--pple-43d.com", "warnings": ["punycode"], "blocked": null})
         );
+    }
+
+    #[test]
+    fn marks_unusable_options_unsupported() {
+        let fields = form(json!({"properties": {
+            "a": {"type": "string", "enum": [1, 2]},
+            "b": {"type": "string", "enum": []},
+            "c": {"type": "string", "oneOf": [
+                {"const": "x", "title": "X"}, {"title": "no const"}]},
+            "d": {"type": "array", "items": {"enum": [1]}},
+            "e": {"type": "string", "enum": ["a", 2]}
+        }}));
+        let raw: Vec<_> = fields
+            .iter()
+            .map(|f| match &f.kind {
+                FieldKind::Unsupported { raw_type } => raw_type.as_str(),
+                other => panic!("not unsupported: {other:?}"),
+            })
+            .collect();
+        assert_eq!(raw, ["string", "string", "string", "array", "string"]);
+    }
+
+    #[test]
+    fn keeps_the_checked_url_not_the_raw_one() {
+        for raw in [
+            " https://agent.example.com/a",
+            "https://agent.example.com\\a",
+        ] {
+            let params = json!({"mode": "url", "elicitationId": "i", "message": "m", "url": raw});
+            let Elicitation::Url { url, .. } = parse_request(&params).unwrap() else {
+                panic!("not a url request")
+            };
+            assert_eq!(url, "https://agent.example.com/a", "{raw:?}");
+            assert_eq!(parse_request(&params).unwrap().view()["url"], url);
+        }
+        let bad = parse_request(&json!({"mode": "url", "elicitationId": "i",
+                                        "message": "m", "url": "not a url"}))
+        .unwrap();
+        assert_eq!(bad.view()["url"], "not a url");
+        assert!(bad.view()["blocked"].is_string());
     }
 }

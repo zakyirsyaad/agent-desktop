@@ -18,6 +18,8 @@ pub enum UrlWarning {
 /// What Zorvo found out about a link before showing it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UrlCheck {
+    /// The link as parsed and normalised, or `None` when it did not parse.
+    pub url: Option<String>,
     /// The host in its ASCII form, or empty when the link has none.
     pub host: String,
     /// Why the link may not be opened, or `None` when it may.
@@ -33,6 +35,7 @@ fn is_loopback(host: &str) -> bool {
 pub fn check_url(url: &str) -> UrlCheck {
     let Ok(parsed) = Url::parse(url) else {
         return UrlCheck {
+            url: None,
             host: String::new(),
             blocked: Some(BLOCKED_MESSAGE.to_string()),
             warnings: Vec::new(),
@@ -62,6 +65,7 @@ pub fn check_url(url: &str) -> UrlCheck {
     }
 
     UrlCheck {
+        url: Some(parsed.to_string()),
         host,
         blocked: (!allowed).then(|| BLOCKED_MESSAGE.to_string()),
         warnings,
