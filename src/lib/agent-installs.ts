@@ -28,11 +28,13 @@ export interface InstallEntry {
   status: InstallStatus;
   progress: InstallProgress | null;
   error: string | null;
+  /** What the job is: an install or an update, so a failure can say which. */
+  action: 'install' | 'update';
   /** The install this entry is about; an older install's answer does not land on a newer one. */
   attempt: number;
 }
 
-export const IDLE_INSTALL: InstallEntry = { status: 'idle', progress: null, error: null, attempt: 0 };
+export const IDLE_INSTALL: InstallEntry = { status: 'idle', progress: null, error: null, action: 'install', attempt: 0 };
 
 let entries: ReadonlyMap<string, InstallEntry> = new Map();
 const subscribers = new Set<() => void>();
@@ -85,29 +87,45 @@ function ensureProgressListener(): Promise<UnlistenFn> {
  * first phase at once, so the install starts only once the progress listener is attached.
  */
 export function startInstall(agentId: string): void {
+  startJob(agentId, 'install', () => {});
+}
+
+/**
+ * Starts updating an installed agent, unless a job for it is already running. Same entry,
+ * progress and cancel handling as an install; `onUpdated` gets the version now installed.
+ */
+export function startUpdate(agentId: string, onUpdated: (version: string) => void): void {
+  startJob(agentId, 'update', onUpdated);
+}
+
+function startJob(agentId: string, action: InstallEntry['action'], onDone: (version: string) => void): void {
   if (installEntryOf(agentId).status === 'installing') return;
   lastAttempt += 1;
   const attempt = lastAttempt;
-  setEntry(agentId, { status: 'installing', progress: null, error: null, attempt });
-  void ensureProgressListener().then(() => runInstall(agentId, attempt));
+  setEntry(agentId, { status: 'installing', progress: null, error: null, action, attempt });
+  void ensureProgressListener().then(() => runJob(agentId, attempt, action, onDone));
 }
 
-function runInstall(agentId: string, attempt: number): void {
+function runJob(agentId: string, attempt: number, action: InstallEntry['action'], onDone: (version: string) => void): void {
   if (cancelledAttempts.delete(attempt)) {
     // Cancelled while the listener attached: the backend never heard of it.
     settle(agentId, attempt, () => ({ ...IDLE_INSTALL, attempt }));
     return;
   }
-  invoke('install_agent', { agentId })
+  const command = action === 'update' ? 'update_agent' : 'install_agent';
+  invoke<unknown>(command, { agentId })
     .then(
       // The backend emits `agent-profiles-changed`, which reloads the profiles.
-      () => settle(agentId, attempt, () => ({ ...IDLE_INSTALL, attempt })),
+      (result) => {
+        settle(agentId, attempt, () => ({ ...IDLE_INSTALL, attempt }));
+        if (action === 'update') onDone(String(result));
+      },
       (error: unknown) => {
         const message = String(error);
         settle(agentId, attempt, () =>
           message === INSTALL_CANCELLED
             ? { ...IDLE_INSTALL, attempt }
-            : { status: 'failed', progress: null, error: message, attempt },
+            : { status: 'failed', progress: null, error: message, action, attempt },
         );
       },
     )

@@ -10,6 +10,8 @@ export interface PersistedStateHandle {
   state: PersistedState;
   isLoaded: boolean;
   updateState: (updater: (prev: PersistedState) => PersistedState) => void;
+  /** Writes the latest state now instead of after the debounce; resolves once it is on disk. */
+  saveNow: () => Promise<void>;
 }
 
 /**
@@ -59,27 +61,34 @@ export function usePersistedState(onError: (message: string) => void): Persisted
 
   // A change made just before the window closes must not wait for the debounce.
   const latestStateRef = useLatest(state);
+  const saveNow = useCallback((): Promise<void> => {
+    const current = latestStateRef.current;
+    if (!canSaveRef.current || current === lastSavedRef.current) return Promise.resolve();
+    lastSavedRef.current = current;
+    return saveAppState(current).catch((error) => {
+      onErrorRef.current(`Failed to save sessions: ${String(error)}`);
+    });
+  }, [latestStateRef, onErrorRef]);
+
   useEffect(() => {
-    const flush = () => {
-      const current = latestStateRef.current;
-      if (!canSaveRef.current || current === lastSavedRef.current) return;
-      lastSavedRef.current = current;
-      saveAppState(current).catch((error) => {
-        onErrorRef.current(`Failed to save sessions: ${String(error)}`);
-      });
-    };
+    const flush = () => void saveNow();
     window.addEventListener('pagehide', flush);
     window.addEventListener('beforeunload', flush);
     return () => {
       window.removeEventListener('pagehide', flush);
       window.removeEventListener('beforeunload', flush);
     };
-  }, [latestStateRef, onErrorRef]);
+  }, [saveNow]);
 
+  // The ref moves on at once, so a `saveNow` right after an update already sees it.
   const updateState = useCallback(
-    (updater: (prev: PersistedState) => PersistedState) => setState((prev) => updater(prev)),
-    [],
+    (updater: (prev: PersistedState) => PersistedState) => {
+      const next = updater(latestStateRef.current);
+      latestStateRef.current = next;
+      setState(next);
+    },
+    [latestStateRef],
   );
 
-  return { state, isLoaded, updateState };
+  return { state, isLoaded, updateState, saveNow };
 }
