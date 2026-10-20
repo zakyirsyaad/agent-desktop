@@ -117,12 +117,14 @@ describe("Agents in use", () => {
     expect(newSessionView()).not.toHaveTextContent("nodejs.org");
     expect(screen.getByRole("region", { name: "Install Claude Code" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Install" })).toBeDefined();
+    // The prompt can be written while the agent is missing; only Send waits for the install.
     const prompt = screen.getByRole("textbox", { name: "Prompt" });
-    expect(prompt).toBeDisabled();
+    expect(prompt).toBeEnabled();
     await act(async () => {
       fireEvent.change(prompt, { target: { value: "get started" } });
       fireEvent.keyDown(prompt, { key: "Enter" });
     });
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "acp_start_session")).toBeUndefined();
   });
 

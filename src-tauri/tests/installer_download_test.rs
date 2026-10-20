@@ -252,6 +252,26 @@ fn follows_a_redirect_to_another_port() {
 }
 
 #[test]
+fn follows_exactly_max_redirects() {
+    // Five redirects in a row, then the server that answers: the limit itself is allowed.
+    let body = b"five hops away".to_vec();
+    let listeners: Vec<TcpListener> = (0..6).map(|_| bind()).collect();
+    let urls: Vec<String> = listeners.iter().map(|l| url_of(l, "/hop")).collect();
+    let mut listeners = listeners.into_iter();
+    for next in &urls[1..] {
+        serve(listeners.next().unwrap(), vec![redirect(next)]);
+    }
+    serve(listeners.next().unwrap(), vec![ok(&body)]);
+    let dir = temp_dir();
+    let dest = dir.join("file");
+
+    let result = run(&urls[0], &sha256_hex(&body), &dest, &limits(1024));
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(fs::read(&dest).unwrap(), body);
+}
+
+#[test]
 fn fails_after_more_than_max_redirects() {
     // Six redirects in a row, then a server that would answer: one hop too many.
     let listeners: Vec<TcpListener> = (0..7).map(|_| bind()).collect();
@@ -274,7 +294,7 @@ fn fails_after_more_than_max_redirects() {
 #[test]
 fn rejects_an_http_url_when_https_is_required() {
     let listener = bind();
-    let url = url_of(&listener, "/file");
+    let url = url_of(&listener, "/file?token=secret");
     let dir = temp_dir();
     let dest = dir.join("file");
     let strict = DownloadLimits {
@@ -284,7 +304,12 @@ fn rejects_an_http_url_when_https_is_required() {
 
     let result = run(&url, &sha256_hex(b""), &dest, &strict);
 
-    assert_eq!(result, Err(DownloadError::InsecureUrl { url: url.clone() }));
+    assert_eq!(
+        result,
+        Err(DownloadError::InsecureUrl {
+            origin: "http://127.0.0.1".to_string()
+        })
+    );
     assert_never_contacted(&listener);
 }
 

@@ -31,7 +31,8 @@ const GIB: u64 = 1 << 30;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DownloadLimits {
     pub max_bytes: u64,
-    /// Applies to connecting (with TLS) and, separately, to receiving the response headers.
+    /// Applies to the DNS lookup, to connecting (with TLS) and, separately, to
+    /// receiving the response headers.
     pub connect_timeout: Duration,
     /// Fails the download after this long without a byte of body.
     pub stall_timeout: Duration,
@@ -54,11 +55,21 @@ impl DownloadLimits {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadError {
     Cancelled,
-    Network { host: String, reason: String },
+    Network {
+        host: String,
+        reason: String,
+    },
     Stalled,
-    TooLarge { max: u64 },
+    TooLarge {
+        max: u64,
+    },
     ChecksumMismatch,
-    InsecureUrl { url: String },
+    /// `origin` is the refused address's scheme and host only, since its path
+    /// or query may carry a signed token. That holds for an address that does
+    /// not parse too: a registry agent's archive URL comes from the registry.
+    InsecureUrl {
+        origin: String,
+    },
     TooManyRedirects,
     DiskFull,
     Io(String),
@@ -77,8 +88,8 @@ impl DownloadError {
                 format!("{name} is larger than Zorvo allows ({})", format_size(*max))
             }
             Self::ChecksumMismatch => format!("The download of {name} did not match its checksum"),
-            Self::InsecureUrl { url } => {
-                format!("Zorvo downloads {name} only over HTTPS, not from {url}")
+            Self::InsecureUrl { origin } => {
+                format!("Zorvo downloads {name} only over HTTPS, not from {origin}")
             }
             Self::TooManyRedirects => format!("Could not download {name} (too many redirects)"),
             Self::DiskFull => format!("Not enough disk space to install {name}"),
@@ -121,7 +132,7 @@ fn fetch_to(
         return Err(DownloadError::ChecksumMismatch);
     }
     let start = Url::parse(url).map_err(|_| DownloadError::InsecureUrl {
-        url: url.to_string(),
+        origin: origin_of_text(url),
     })?;
     let (final_url, response) = open(check_scheme(start, limits.require_https)?, limits, cancel)?;
     let total = response.body().content_length();
@@ -146,6 +157,7 @@ fn build_agent(limits: &DownloadLimits) -> ureq::Agent {
         .https_only(limits.require_https)
         .max_redirects(0)
         .http_status_as_error(false)
+        .timeout_resolve(Some(limits.connect_timeout))
         .timeout_connect(Some(limits.connect_timeout))
         .timeout_recv_response(Some(limits.connect_timeout))
         .build()
@@ -208,7 +220,7 @@ fn check_scheme(url: Url, require_https: bool) -> Result<Url, DownloadError> {
         Ok(url)
     } else {
         Err(DownloadError::InsecureUrl {
-            url: url.to_string(),
+            origin: format!("{}://{}", url.scheme(), host_of(&url)),
         })
     }
 }
@@ -365,6 +377,19 @@ fn network_host(host: &str, reason: String) -> DownloadError {
     }
 }
 
+/// The scheme and host of an address `Url` cannot parse, cut by hand: the
+/// text before the path, query or fragment, without any user info.
+fn origin_of_text(text: &str) -> String {
+    let (scheme, rest) = text.split_once("://").unwrap_or(("", text));
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    if scheme.is_empty() {
+        host.to_string()
+    } else {
+        format!("{scheme}://{host}")
+    }
+}
+
 fn host_of(url: &Url) -> String {
     url.host_str().unwrap_or_default().to_string()
 }
@@ -393,12 +418,41 @@ mod tests {
 
     #[test]
     fn rejects_a_redirect_to_http_when_https_is_required() {
+        // Only the scheme and host are kept: a signed query token never reaches the UI.
         assert_eq!(
-            next_location(&url("https://a/x"), "http://b/y", true),
+            next_location(&url("https://a/x"), "http://b:8080/y?token=secret", true),
             Err(DownloadError::InsecureUrl {
-                url: "http://b/y".to_string()
+                origin: "http://b".to_string()
             })
         );
+    }
+
+    #[test]
+    fn an_unparsable_url_is_refused_without_its_path_or_query() {
+        let limits = DownloadLimits::production();
+        let dest = std::env::temp_dir().join("zorvo-download-unparsable-test");
+        let result = fetch_to(
+            "https://user:pw@exa mple.com/dist/agent.tar.gz?token=secret",
+            &"0".repeat(64),
+            &dest,
+            &limits,
+            &AtomicBool::new(false),
+            &mut |_, _| {},
+        );
+        assert_eq!(
+            result,
+            Err(DownloadError::InsecureUrl {
+                origin: "https://exa mple.com".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn every_hop_has_a_dns_timeout() {
+        let limits = DownloadLimits::production();
+        let timeouts = build_agent(&limits).config().timeouts();
+        assert_eq!(timeouts.resolve, Some(limits.connect_timeout));
+        assert_eq!(timeouts.connect, Some(limits.connect_timeout));
     }
 
     #[test]
@@ -423,10 +477,12 @@ mod tests {
 
     #[test]
     fn rejects_a_redirect_to_a_non_http_scheme() {
-        assert!(matches!(
+        assert_eq!(
             next_location(&url("http://a/x"), "file:///etc/passwd", false),
-            Err(DownloadError::InsecureUrl { .. })
-        ));
+            Err(DownloadError::InsecureUrl {
+                origin: "file://".to_string()
+            })
+        );
     }
 
     #[test]

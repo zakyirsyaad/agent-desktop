@@ -11,6 +11,14 @@ export function isAgentReady(agent: AgentSummary): boolean {
   return agent.detected;
 }
 
+/**
+ * Zorvo can start the agent now: installed, with the runtime it needs. Stricter than
+ * `isAgentReady`, which only says the agent was found.
+ */
+export function isAgentRunnable(agent: Pick<AgentProfile, "availability">): boolean {
+  return agent.availability === "ready";
+}
+
 /** Zorvo can install the agent: its plan says what Install would do. */
 export function canInstall(agent: AgentSummary): boolean {
   return (agent.install_plan?.length ?? 0) > 0;

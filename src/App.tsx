@@ -49,6 +49,7 @@ import { usePersistedState } from "./hooks/usePersistedState";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useTranscripts } from "./hooks/useTranscripts";
 import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
+import { useDraftInstall } from "./hooks/useDraftInstall";
 import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
 import { Onboarding, type OnboardingResult } from "./components/Onboarding";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -69,7 +70,7 @@ import { attentionBody, notifyIfAway } from "./lib/notify";
 import { pickFiles } from "./lib/file-picker";
 import { formatAttachmentPath } from "./lib/attachments";
 import { useFileDrop } from "./hooks/useFileDrop";
-import { isAgentReady, noAgentNotice, resolveDraftAgentId } from "./lib/agent-readiness";
+import { isAgentReady, isAgentRunnable, noAgentNotice, resolveDraftAgentId } from "./lib/agent-readiness";
 import { isInUse, withAutoEnabled } from "./lib/enabled-agents";
 import type { SessionDraft } from "./lib/composer-controls";
 import { composerCommandsFor, composerPlaceholder, composerStateFor } from "./lib/composer-state";
@@ -163,8 +164,9 @@ export default function App() {
   const isResumable =
     isAcp(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
   const draftAgent = isResumable ? activeAgent : newSessionAgent;
-  const isDraftAgentReady = draftAgent?.availability === "ready";
+  const isDraftAgentReady = draftAgent ? isAgentRunnable(draftAgent) : false;
   const installPanelAgent = installPanelAgentOf(activeSession, activeAgent, newSessionAgent);
+  const draftNeedsInstall = useDraftInstall(agents, installPanelAgent, draftAgent);
 
   // A model or effort chosen for one agent means nothing to another one.
   useEffect(() => setDraft(EMPTY_DRAFT), [newSessionAgentId]);
@@ -712,12 +714,18 @@ export default function App() {
               optionsLocked={composer.locked}
               isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
               onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
-              disabled={isCreatingWorktree || (!isActiveRunning && (!isDraftAgentReady || (!isResumable && !canStartSession)))}
+              disabled={
+                isCreatingWorktree ||
+                (!isActiveRunning && ((!isDraftAgentReady && !draftNeedsInstall) || (!isResumable && !canStartSession)))
+              }
+              sendDisabled={draftNeedsInstall}
               placeholder={composerPlaceholder({
                 isRunning: isActiveRunning,
                 isCreatingWorktree,
                 isResumable,
                 canStartSession,
+                agentToInstall: draftNeedsInstall ? draftAgent?.name : undefined,
+                isEndedSession: Boolean(activeSession),
               })}
               onSendMessage={handleSendMessage}
               attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}

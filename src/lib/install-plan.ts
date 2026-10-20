@@ -1,4 +1,5 @@
 import type { AgentProfile, InstallStep } from '../types';
+import { isAgentRunnable } from './agent-readiness';
 
 const BYTES_PER_MB = 1_048_576;
 
@@ -31,5 +32,5 @@ export function describePhase(phase: InstallPhase, name: string): string {
 
 /** How the new-session agent picker names an agent: one not ready yet says so. */
 export function pickerLabelOf(agent: Pick<AgentProfile, 'name' | 'availability'>): string {
-  return agent.availability === 'ready' ? agent.name : `${agent.name} (not installed)`;
+  return isAgentRunnable(agent) ? agent.name : `${agent.name} (not installed)`;
 }

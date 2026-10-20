@@ -1,5 +1,6 @@
 //! Deletes, at start, what no enabled agent uses any more: unfinished
-//! installs, agent versions not in use, superseded runtimes and prerequisites.
+//! installs, agent versions not in use, and superseded runtimes and
+//! prerequisites (versions included).
 //! Every failure is logged and skipped, so a clean-up never blocks start.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -7,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::layout::{read_record, remove_path, ToolsDir};
-use super::prerequisites::prerequisites_for;
+use super::prerequisites::{all_prerequisites, prerequisites_for};
 use super::runtimes::{RuntimeKind, RuntimeManifest};
 use crate::profiles::AgentProfile;
 use crate::store::Settings;
@@ -128,19 +129,36 @@ fn unused_runtime(
     if !used {
         return vec![root.to_path_buf()];
     }
-    if read_record(&pinned).is_none() {
+    superseded_versions(root, &pinned)
+}
+
+/// Prerequisites no enabled agent needs, and the versions of needed ones
+/// other than the pinned one once that is installed.
+fn unused_prereqs(tools: &ToolsDir, needed: &BTreeSet<String>) -> Vec<PathBuf> {
+    entries(&tools.root().join("prereqs"))
+        .into_iter()
+        .flat_map(|prereq| {
+            let command = name_of(&prereq);
+            if !needed.contains(&command) {
+                return vec![prereq];
+            }
+            all_prerequisites()
+                .find(|p| p.command == command)
+                .map(|p| superseded_versions(&prereq, &tools.prereq_dir(p.command, p.version)))
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+/// The version dirs in `root` other than `pinned`, once `pinned` is
+/// installed; none before, since until then an older one is what runs.
+fn superseded_versions(root: &Path, pinned: &Path) -> Vec<PathBuf> {
+    if read_record(pinned).is_none() {
         return Vec::new();
     }
     entries(root)
         .into_iter()
-        .filter(|dir| *dir != pinned)
-        .collect()
-}
-
-fn unused_prereqs(tools: &ToolsDir, needed: &BTreeSet<String>) -> Vec<PathBuf> {
-    entries(&tools.root().join("prereqs"))
-        .into_iter()
-        .filter(|dir| !needed.contains(&name_of(dir)))
+        .filter(|dir| dir != pinned)
         .collect()
 }
 

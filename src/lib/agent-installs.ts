@@ -114,6 +114,14 @@ function runInstall(agentId: string, attempt: number): void {
     .finally(() => cancelledAttempts.delete(attempt));
 }
 
+/** Forgets the failed installs of agents now ready, so a later missing agent offers Install, not an old failure. */
+export function forgetFailedInstalls(readyAgentIds: readonly string[]): void {
+  const stale = readyAgentIds.filter((agentId) => entries.get(agentId)?.status === 'failed');
+  if (stale.length === 0) return;
+  entries = new Map([...entries].filter(([agentId]) => !stale.includes(agentId)));
+  subscribers.forEach((notify) => notify());
+}
+
 /**
  * Asks the backend to stop an agent's install; the install's own answer then says how it
  * ended. An install not yet sent to the backend is not sent at all.

@@ -3,6 +3,7 @@ import {
   INSTALLABLE_HINT,
   NODE_HINT,
   installHintFor,
+  isAgentRunnable,
   noAgentNotice,
   readyAgents,
   resolveDefaultAgentId,
@@ -14,6 +15,13 @@ import {
 const claude: AgentSummary = { id: "claude-acp", name: "Claude Code", detected: true, distribution: "npx" };
 const omp: AgentSummary = { id: "omp", name: "Oh-My-Pi", detected: false, distribution: null };
 const aider: AgentSummary = { id: "aider", name: "Aider", detected: true, distribution: null };
+
+describe("isAgentRunnable", () => {
+  it("is true only when the backend says the agent can start now", () => {
+    expect(isAgentRunnable({ availability: "ready" })).toBe(true);
+    expect(isAgentRunnable({ availability: "needs_runtime" })).toBe(false);
+  });
+});
 
 describe("readyAgents", () => {
   it("keeps only detected agents in their original order", () => {
