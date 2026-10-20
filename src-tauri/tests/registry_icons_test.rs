@@ -80,6 +80,14 @@ fn is_svg_accepts_svg_with_an_xml_prolog() {
 }
 
 #[test]
+fn is_svg_agrees_with_the_script_on_comments_and_self_closing_tags() {
+    assert!(is_svg("<svg/>"));
+    assert!(!is_svg("<svgx>"));
+    assert!(!is_svg("<!-- logo --><svg></svg>"));
+    assert!(!is_svg("<?xml version=\"1.0\"?><!-- logo --><svg></svg>"));
+}
+
+#[test]
 fn a_new_icon_is_downloaded_and_cached() {
     let dir = TempDir::new("new");
     let calls = RefCell::new(Vec::new());
