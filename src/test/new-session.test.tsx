@@ -203,6 +203,68 @@ describe("Starting a new session", () => {
     expect(sessions.getByTitle(/agent\/get-started/)).toBeDefined();
   });
 
+  it("starts the worktree from the branch picked in the folder list", async () => {
+    const invokeSpy = stubInvoke({
+      list_branches: () => Promise.resolve(["release", "main"]),
+      create_session_worktree: () =>
+        Promise.resolve({
+          path: "/data/worktrees/ai-perpetual-trading/get-started",
+          cwd: "/data/worktrees/ai-perpetual-trading/get-started",
+          branch: "agent/get-started",
+        }),
+    });
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("switch", { name: "Worktree" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
+    });
+
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("option", { name: "release" }));
+    });
+    await sendFirst();
+
+    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "switch_branch")).toBeUndefined();
+    const created = invokeSpy.mock.calls.find(([cmd]) => cmd === "create_session_worktree")?.[1];
+    expect(created).toEqual({
+      repoPath: "/Users/test/developer/ai-perpetual-trading",
+      title: "get started",
+      baseBranch: "release",
+    });
+  });
+
+  it("switches the folder to the branch picked while Worktree is off", async () => {
+    const invokeSpy = stubInvoke({ list_branches: () => Promise.resolve(["release", "main"]) });
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Branch: main" }));
+    });
+    const readsBefore = invokeSpy.mock.calls.filter(([cmd]) => cmd === "workspace_details").length;
+
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("option", { name: "release" }));
+    });
+
+    expect(invokeSpy.mock.calls.find(([cmd]) => cmd === "switch_branch")?.[1]).toEqual({
+      path: "/Users/test/developer/ai-perpetual-trading",
+      branch: "release",
+    });
+    // The top bar and the Branch row read the folder's branch again.
+    expect(invokeSpy.mock.calls.filter(([cmd]) => cmd === "workspace_details").length).toBeGreaterThan(readsBefore);
+  });
+
   it("keeps the message and starts nothing when the worktree cannot be made", async () => {
     const invokeSpy = stubInvoke({
       create_session_worktree: () => Promise.reject("ai-perpetual-trading is not a git repository"),

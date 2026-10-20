@@ -14,6 +14,7 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 - **Agent update notice.** When an agent you use has a new version, the Settings button in the sidebar shows a dot, the Agents tab shows a count, and a notice tells you once per version. **Show** opens the Agents tab.
 - **Landing page.** A marketing site for Zorvo in `site/` (Next.js, exported as static HTML): the hero with a picture of the app, the supported agents, features, approvals and diffs, privacy, and the download. It follows the design system, dark by default and light when your system is, with self-hosted fonts and no requests to other sites.
 - **Sign in from Zorvo.** Agents that sign in through their own login, such as Claude Agent's Claude subscription or Anthropic Console, now offer it in the sign-in panel. The login runs in a terminal inside Zorvo, and your message is sent once you are signed in. Zorvo never sees or stores your keys.
+- **Pick a branch for a new session.** The folder list has a **Branch** row with the repository's local branches and a search. With **Worktree** off, picking one switches your folder to it, as `git switch` would, and Zorvo leaves the folder alone while a session's agent still runs there. With **Worktree** on, the new worktree starts from the branch you pick and your folder stays as it is.
 
 ### Changed
 

@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { createRef } from "react";
 import { ComposerDock, type ComposerHandle } from "../components/ComposerDock";
 import type { ComposerControls } from "../lib/composer-controls";
+import type { BranchControl } from "../components/composer/FolderPicker";
 
 function prompt(): HTMLTextAreaElement {
   return screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement;
@@ -216,6 +217,90 @@ describe("ComposerDock", () => {
 
     expect((screen.getByRole("textbox", { name: "Search folders" }) as HTMLInputElement).value).toBe("");
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["api", "web"]);
+  });
+
+  describe("branch picker", () => {
+    const folders = [{ name: "api", path: "/w/api" }];
+    const branchControl = (overrides: Partial<BranchControl> = {}): BranchControl => ({
+      current: "main",
+      branches: ["feature/login", "main", "release"],
+      onOpen: vi.fn(),
+      onPick: vi.fn(),
+      ...overrides,
+    });
+    const renderWith = (branch?: BranchControl) =>
+      render(
+        <ComposerDock onSendMessage={() => {}} folder={{ folders, selectedPath: "/w/api", onSelect: () => {}, branch }} />,
+      );
+    const openFolderList = () => fireEvent.click(screen.getByRole("button", { name: "Folder: api" }));
+
+    it("has no Branch row outside a repository", () => {
+      renderWith(undefined);
+      openFolderList();
+
+      expect(screen.queryByRole("button", { name: /^Branch/ })).toBeNull();
+    });
+
+    it("names the current branch and lists the branches when opened", () => {
+      const branch = branchControl();
+      renderWith(branch);
+      openFolderList();
+
+      fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
+
+      expect(branch.onOpen).toHaveBeenCalled();
+      const options = screen.getAllByRole("option", { name: /feature|main|release/ });
+      expect(options.map((o) => o.textContent)).toEqual(["feature/login", "main", "release"]);
+      expect(screen.getByRole("option", { name: "main" }).getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("says the branches are loading until they arrive", () => {
+      renderWith(branchControl({ branches: null }));
+      openFolderList();
+
+      fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
+
+      expect(screen.getByText("Loading branches…")).toBeDefined();
+    });
+
+    it("filters the branches as you type and picks the first match with Enter", () => {
+      const branch = branchControl();
+      renderWith(branch);
+      openFolderList();
+      fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
+
+      const search = screen.getByRole("textbox", { name: "Search branches" });
+      fireEvent.change(search, { target: { value: "rel" } });
+      expect(screen.getAllByRole("option", { name: /feature|main|release/ }).map((o) => o.textContent)).toEqual([
+        "release",
+      ]);
+      fireEvent.keyDown(search, { key: "Enter" });
+
+      expect(branch.onPick).toHaveBeenCalledWith("release");
+      expect(screen.queryByRole("dialog", { name: "Choose a folder" })).toBeNull();
+    });
+
+    it("picks a branch by clicking it and closes the list", () => {
+      const branch = branchControl();
+      renderWith(branch);
+      openFolderList();
+      fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
+
+      fireEvent.click(screen.getByRole("option", { name: "feature/login" }));
+
+      expect(branch.onPick).toHaveBeenCalledWith("feature/login");
+      expect(screen.queryByRole("dialog", { name: "Choose a folder" })).toBeNull();
+    });
+
+    it("says when no branch matches", () => {
+      renderWith(branchControl());
+      openFolderList();
+      fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
+
+      fireEvent.change(screen.getByRole("textbox", { name: "Search branches" }), { target: { value: "zzz" } });
+
+      expect(screen.getByText("No branch matches.")).toBeDefined();
+    });
   });
 
   it("closes an open dropdown with Escape", () => {

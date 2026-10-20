@@ -1,7 +1,7 @@
 //! Git worktrees that give a session its own checkout of a repository.
 //!
 //! Each worktree gets a new branch, `agent/<title>`, made from the
-//! repository's current HEAD, so agents working in the same repository at the
+//! repository's current HEAD or a local branch the user picked, so agents working in the same repository at the
 //! same time never edit the same files. Worktrees live in the app's data
 //! folder rather than inside the repository, so nothing needs ignoring there.
 
@@ -12,6 +12,7 @@ use std::process::Command;
 use serde::Serialize;
 use tauri::State;
 
+use crate::branches::ensure_local_branch;
 use crate::files::ensure_known_workspace;
 use crate::git_info::git_binary;
 use crate::store::AppStore;
@@ -78,7 +79,7 @@ pub fn branch_slug(title: &str) -> String {
 }
 
 /// Runs git in `dir` and returns its trimmed output, or its error message.
-fn run_git(git: &Path, dir: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn run_git(git: &Path, dir: &Path, args: &[&str]) -> Result<String, String> {
     let output = Command::new(git)
         .arg("-C")
         .arg(dir)
@@ -92,7 +93,7 @@ fn run_git(git: &Path, dir: &Path, args: &[&str]) -> Result<String, String> {
     }
 }
 
-fn branch_exists(git: &Path, repo: &Path, branch: &str) -> bool {
+pub(crate) fn branch_exists(git: &Path, repo: &Path, branch: &str) -> bool {
     run_git(
         git,
         repo,
@@ -114,6 +115,18 @@ pub fn create_worktree(
     root: &Path,
     title: &str,
 ) -> Result<SessionWorktree, String> {
+    create_worktree_from(git, workspace, root, title, None)
+}
+
+/// Like [`create_worktree`], but the new branch starts from the local branch
+/// `base` when one is given, instead of the repository's current `HEAD`.
+pub fn create_worktree_from(
+    git: &Path,
+    workspace: &Path,
+    root: &Path,
+    title: &str,
+    base: Option<&str>,
+) -> Result<SessionWorktree, String> {
     let toplevel = run_git(git, workspace, &["rev-parse", "--show-toplevel"])
         .map(PathBuf::from)
         .map_err(|_| format!("{} is not a git repository", workspace.display()))?;
@@ -131,15 +144,25 @@ pub fn create_worktree(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
+    if let Some(base) = base {
+        ensure_local_branch(git, &toplevel, base)?;
+    }
+    let start = base.unwrap_or("HEAD");
     // A worktree checks out the last commit: a folder that exists only in
     // uncommitted or ignored files would be missing there.
     if !subfolder.as_os_str().is_empty() {
-        let spec = format!("HEAD:{}", subfolder.to_string_lossy());
+        let spec = format!("{start}:{}", subfolder.to_string_lossy());
         if run_git(git, &toplevel, &["cat-file", "-e", &spec]).is_err() {
-            return Err(format!(
-                "{} is not in the last commit, so a worktree would not have it",
-                subfolder.display()
-            ));
+            return Err(match base {
+                Some(base) => format!(
+                    "{} is not on {base}, so a worktree of it would not have it",
+                    subfolder.display()
+                ),
+                None => format!(
+                    "{} is not in the last commit, so a worktree would not have it",
+                    subfolder.display()
+                ),
+            });
         }
     }
 
@@ -167,7 +190,7 @@ pub fn create_worktree(
     run_git(
         git,
         &toplevel,
-        &["worktree", "add", "-b", &branch, &path_arg, "HEAD"],
+        &["worktree", "add", "-b", &branch, &path_arg, start],
     )
     .map_err(|e| format!("Could not create the worktree: {e}"))?;
 
@@ -215,19 +238,22 @@ pub fn remove_worktree(
     run_git(git, repo, &["worktree", "remove", &path_arg]).map(|_| ())
 }
 
-/// Makes a worktree for a new session in the workspace `repo_path`.
+/// Makes a worktree for a new session in the workspace `repo_path`, from
+/// the local branch `base_branch` when one is given.
 #[tauri::command(async)]
 pub fn create_session_worktree(
     store: State<'_, AppStore>,
     repo_path: String,
     title: String,
+    base_branch: Option<String>,
 ) -> Result<SessionWorktree, String> {
     ensure_known_workspace(&repo_path, |p| store.is_known_workspace(p))?;
-    let worktree = create_worktree(
+    let worktree = create_worktree_from(
         &git_binary(),
         Path::new(&repo_path),
         &store.worktrees_root(),
         &title,
+        base_branch.as_deref(),
     )?;
     // The Files panel and branch line read it before the session's state save lands.
     if let Err(error) = store.remember_workspace(&worktree.cwd) {

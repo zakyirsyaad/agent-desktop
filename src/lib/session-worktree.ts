@@ -1,14 +1,19 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Session, SessionWorktree } from '../types';
 
-/** A new session's worktree of `repoPath`, and the folder its agent runs in. */
+/**
+ * A new session's worktree of `repoPath`, and the folder its agent runs in.
+ * It starts from the local branch `baseBranch`, or from the folder's HEAD.
+ */
 export async function createSessionWorktree(
   repoPath: string,
   title: string,
+  baseBranch?: string,
 ): Promise<{ worktree: SessionWorktree; cwd: string }> {
   const created = await invoke<{ path: string; cwd: string; branch: string }>('create_session_worktree', {
     repoPath,
     title,
+    ...(baseBranch ? { baseBranch } : {}),
   });
   return { worktree: { repoPath, path: created.path, branch: created.branch }, cwd: created.cwd };
 }

@@ -43,7 +43,8 @@ you have.
   before one of your messages and send it again, edited.
 - **Worktrees.** Run a session in its own git worktree on an
   `agent/<title>` branch, so agents in the same repository never edit the
-  same files.
+  same files. Pick the branch it starts from, or switch your folder to
+  another branch, from the folder list.
 - **Review and commit.** The Changes panel shows each changed file's diff
   and commits the files you choose. The top bar shows the branch's pull
   request and its checks, and the panel lists your pull requests. All of
