@@ -238,6 +238,23 @@ describe("SettingsPanel — tabs", () => {
     expect(screen.getByRole("tab", { name: "Agents" })).toHaveAttribute("tabindex", "-1");
   });
 
+  it("points each tab's aria-controls only at a panel that is shown", () => {
+    renderSettings();
+    const general = screen.getByRole("tab", { name: "General" });
+    const agents = screen.getByRole("tab", { name: /Agents/ });
+
+    expect(document.getElementById(general.getAttribute("aria-controls") ?? "")).toBe(
+      screen.getByRole("tabpanel", { name: "General" }),
+    );
+    expect(agents).not.toHaveAttribute("aria-controls");
+
+    fireEvent.click(agents);
+    expect(document.getElementById(agents.getAttribute("aria-controls") ?? "")).toBe(
+      screen.getByRole("tabpanel", { name: "Agents" }),
+    );
+    expect(general).not.toHaveAttribute("aria-controls");
+  });
+
   it("opens on the catalog when asked", () => {
     renderSettings({ initialTab: "agents" });
 

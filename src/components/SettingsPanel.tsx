@@ -116,7 +116,8 @@ function SettingsTabs({ selected, onSelect, idOf, updateCount }: SettingsTabsPro
             role="tab"
             id={idOf(tab.id, "tab")}
             aria-selected={isSelected}
-            aria-controls={idOf(tab.id, "panel")}
+            // Only the selected tab's panel is rendered, so only it is named here.
+            aria-controls={isSelected ? idOf(tab.id, "panel") : undefined}
             tabIndex={isSelected ? 0 : -1}
             onClick={() => onSelect(tab.id)}
             className={`-mb-px flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-2 text-xs font-medium transition-colors focus-ring ${
