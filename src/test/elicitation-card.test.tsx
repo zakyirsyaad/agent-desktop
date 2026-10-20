@@ -192,4 +192,34 @@ describe("ElicitationCard", () => {
     expect(container.textContent).not.toContain("secret-value");
     expect(container.querySelector("input")).toBeNull();
   });
+
+  it.each(["declined", "dismissed"] as const)(
+    "privacy: typed values are gone when a %s card is shown pending again",
+    (status) => {
+      const fields: ElicitationField[] = [
+        { name: "name", title: "Name", required: false, kind: { type: "text" } },
+      ];
+      const { rerender } = render(<ElicitationCard card={formCard(fields)} agentName="A" />);
+      fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "secret-value" } });
+      rerender(<ElicitationCard card={formCard(fields, { status, fields: undefined })} agentName="A" />);
+      rerender(<ElicitationCard card={formCard(fields)} agentName="A" />);
+      expect(valueOf(screen.getByLabelText(/Name/))).toBe("");
+    },
+  );
+
+  it("keeps typed values across a submitted to pending round trip", () => {
+    const fields: ElicitationField[] = [
+      { name: "name", title: "Name", required: false, kind: { type: "text" } },
+    ];
+    const { rerender } = render(<ElicitationCard card={formCard(fields)} agentName="A" />);
+    fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "secret-value" } });
+    rerender(<ElicitationCard card={formCard(fields, { status: "submitted", fields: undefined })} agentName="A" />);
+    rerender(<ElicitationCard card={formCard(fields)} agentName="A" />);
+    expect(valueOf(screen.getByLabelText(/Name/))).toBe("secret-value");
+  });
+
+  it("offers no Open again on an opened card without onReopen", () => {
+    render(<ElicitationCard card={urlCard({ status: "opened" })} agentName="A" />);
+    expect(screen.queryByRole("button", { name: "Open again" })).toBeNull();
+  });
 });

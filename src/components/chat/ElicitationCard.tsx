@@ -111,8 +111,8 @@ export function ElicitationCard({ card, agentName, onAnswer, onReopen, disabled 
       {summary !== null && (
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-2">
           <p className="text-xs text-fg-muted">{summary}</p>
-          {card.status === "opened" && (
-            <Button disabled={disabled} onClick={() => onReopen?.(card.key)}>
+          {card.status === "opened" && onReopen && !disabled && (
+            <Button onClick={() => onReopen(card.key)}>
               Open again
             </Button>
           )}
