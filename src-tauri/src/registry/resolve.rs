@@ -22,6 +22,8 @@ pub const SOURCE_REGISTRY: &str = "registry";
 pub const AVAILABILITY_READY: &str = "ready";
 pub const AVAILABILITY_NEEDS_RUNTIME: &str = "needs_runtime";
 pub const AVAILABILITY_NOT_INSTALLED: &str = "not_installed";
+/// A binary agent with no build for this Mac: listed in the catalog, never run.
+pub const AVAILABILITY_UNSUPPORTED: &str = "unsupported";
 
 /// Maps a legacy built-in id to its registry id; other ids come back unchanged.
 pub fn canonical_agent_id(id: &str) -> &str {
@@ -155,6 +157,9 @@ struct Resolution<'e> {
 
 impl Resolution<'_> {
     fn availability(&self) -> &'static str {
+        if self.kind == "binary" && self.target.is_none() {
+            return AVAILABILITY_UNSUPPORTED;
+        }
         match self.program {
             Program::NeedsRuntime(_) => AVAILABILITY_NEEDS_RUNTIME,
             Program::NotInstalled => AVAILABILITY_NOT_INSTALLED,
@@ -324,15 +329,25 @@ fn steps_for(
         .collect()
 }
 
+/// False only for a binary agent with no build for this Mac.
+pub fn is_supported(entry: &RegistryEntry) -> bool {
+    match &entry.distribution {
+        Distribution::Binary { platforms } => platforms.contains_key(current_platform()),
+        _ => true,
+    }
+}
+
 pub fn resolve_profile(entry: &RegistryEntry, tools: &SystemTools, listed: bool) -> AgentProfile {
     let resolution = resolve(entry, tools);
     let availability = resolution.availability();
-    let install_plan = (availability != AVAILABILITY_READY).then(|| {
-        steps_for(entry, &resolution, tools)
-            .iter()
-            .map(|step| step.display(tools.installed.manifest.as_ref(), current_platform()))
-            .collect()
-    });
+    let install_plan = (availability != AVAILABILITY_READY
+        && availability != AVAILABILITY_UNSUPPORTED)
+        .then(|| {
+            steps_for(entry, &resolution, tools)
+                .iter()
+                .map(|step| step.display(tools.installed.manifest.as_ref(), current_platform()))
+                .collect()
+        });
     let (program_path, unusable, prepend, append) = match resolution.program {
         Program::Found(located) => (
             Some(located.path),

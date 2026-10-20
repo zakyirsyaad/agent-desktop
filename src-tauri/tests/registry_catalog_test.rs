@@ -775,3 +775,49 @@ fn plans_the_offered_version_when_the_one_in_use_was_withdrawn() {
         "{steps:?}"
     );
 }
+
+fn linux_only_entry(id: &str, version: &str) -> RegistryEntry {
+    let mut entry = binary_entry(id, version);
+    if let Distribution::Binary { platforms } = &mut entry.distribution {
+        let target = platforms.remove(zorvo_lib::registry::schema::current_platform());
+        platforms.extend(target.map(|t| ("linux-x86_64".to_string(), t)));
+    }
+    entry
+}
+
+#[test]
+fn unsupported_agents_are_not_profiles() {
+    let dir = TempDir::new("unsupported");
+    let bundle = bundle_of(&[
+        (linux_only_entry("linuxy", "1.0.0"), T0),
+        (npx_entry("gemini", "1.0.0"), T0),
+    ]);
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+    let npm = BTreeSet::new();
+    let installed = InstalledTools::none();
+    let tools = SystemTools {
+        path_var: Some(""),
+        npm_globals: &npm,
+        installed: &installed,
+    };
+    let now = T0 + 30 * DAY;
+    let versions = BTreeMap::new();
+
+    let ids: Vec<String> = catalog
+        .profiles(&tools, &versions, now)
+        .into_iter()
+        .map(|p| p.id)
+        .collect();
+
+    assert_eq!(ids, vec!["gemini"]);
+    assert!(catalog.profile("linuxy", &tools, &versions, now).is_none());
+    assert_eq!(
+        catalog.unsupported_agent_name("linuxy", &versions, now),
+        Some("Agent linuxy".to_string())
+    );
+    assert_eq!(
+        catalog.unsupported_agent_name("gemini", &versions, now),
+        None
+    );
+    assert_eq!(catalog.unsupported_agent_name("nope", &versions, now), None);
+}

@@ -27,7 +27,7 @@ use cache::RegistryCache;
 use fetch::{fetch_registry, FETCH_TIMEOUT, MAX_REGISTRY_BYTES, REGISTRY_URL};
 use history::{is_within, VersionHistory};
 use npm_globals::{npm_globals, NPM_TIMEOUT};
-use resolve::{planned_steps, registry_env, resolve_profile, SystemTools};
+use resolve::{is_supported, planned_steps, registry_env, resolve_profile, SystemTools};
 use schema::{parse_registry, RegistryEntry};
 
 /// Emitted when a refresh changed the agent profiles; the UI reloads them.
@@ -115,6 +115,9 @@ impl CatalogState {
         now: u64,
     ) -> Option<AgentProfile> {
         let entry = self.entry_for(id, versions, now)?;
+        if !is_supported(entry) {
+            return None;
+        }
         Some(resolve_profile(entry, tools, self.is_listed(id)))
     }
 }
@@ -277,6 +280,21 @@ impl Catalog {
         let state = self.read_state();
         state
             .entry_for(id, versions, now)
+            .map(|entry| entry.name.clone())
+    }
+
+    /// The agent's name when the catalog has it but it has no build for this
+    /// Mac; `None` for a supported or unknown id.
+    pub fn unsupported_agent_name(
+        &self,
+        id: &str,
+        versions: &BTreeMap<String, String>,
+        now: u64,
+    ) -> Option<String> {
+        let state = self.read_state();
+        state
+            .entry_for(id, versions, now)
+            .filter(|entry| !is_supported(entry))
             .map(|entry| entry.name.clone())
     }
 

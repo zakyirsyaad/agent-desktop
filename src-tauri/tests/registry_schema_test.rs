@@ -203,10 +203,27 @@ fn ignores_an_invalid_target_for_another_platform() {
 }
 
 #[test]
-fn skips_a_binary_with_no_target_for_this_platform() {
+fn binary_entry_without_this_macs_target_is_kept() {
     let good = target("https://h/o.zip", "./o", SHA);
     let json = doc(&[
-        binary_on("elsewhere", &[("other-platform", good)]),
+        binary_on("elsewhere", &[("linux-x86_64", good)]),
+        npx("ok", "a@1.0.0"),
+    ]);
+    assert_eq!(
+        ids(&parse_registry(&json).unwrap()),
+        vec!["elsewhere", "ok"]
+    );
+}
+
+#[test]
+fn binary_entry_with_a_broken_target_for_this_mac_is_dropped() {
+    let bad = target("http://h/o.zip", "./o", SHA);
+    let good = target("https://h/o.zip", "./o", SHA);
+    let json = doc(&[
+        binary_on(
+            "broken",
+            &[(current_platform(), bad), ("linux-x86_64", good)],
+        ),
         npx("ok", "a@1.0.0"),
     ]);
     assert_eq!(ids(&parse_registry(&json).unwrap()), vec!["ok"]);

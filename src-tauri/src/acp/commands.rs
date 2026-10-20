@@ -86,14 +86,13 @@ fn profile_to_launch(
     versions: &BTreeMap<String, String>,
     now: u64,
 ) -> Result<AgentProfile, String> {
-    agent_profile_from(
-        catalog,
-        tools,
-        canonical_agent_id(profile_id),
-        versions,
-        now,
-    )
-    .ok_or_else(|| format!("Unknown agent profile '{profile_id}'"))
+    let id = canonical_agent_id(profile_id);
+    agent_profile_from(catalog, tools, id, versions, now).ok_or_else(|| {
+        match catalog.unsupported_agent_name(id, versions, now) {
+            Some(name) => format!("{name} is not available for this Mac"),
+            None => format!("Unknown agent profile '{profile_id}'"),
+        }
+    })
 }
 
 /// How to launch `profile` over ACP, or why it cannot run. The agent gets
@@ -757,5 +756,45 @@ mod tests {
             err.contains("Unknown agent profile 'no-such-agent'"),
             "unexpected: {err}"
         );
+    }
+
+    #[test]
+    fn an_agent_not_built_for_this_mac_is_refused_by_name() {
+        use crate::registry::schema::{BinaryTarget, Distribution, RegistryEntry};
+
+        let entry = RegistryEntry {
+            id: "linuxy".into(),
+            name: "Linuxy".into(),
+            version: "1.0.0".into(),
+            description: None,
+            icon: None,
+            distribution: Distribution::Binary {
+                platforms: BTreeMap::from([(
+                    "linux-x86_64".to_string(),
+                    BinaryTarget {
+                        archive: "https://example.com/linuxy.tar.gz".into(),
+                        cmd: "./linuxy".into(),
+                        args: Vec::new(),
+                        sha256: "a".repeat(64),
+                        env: BTreeMap::new(),
+                    },
+                )]),
+            },
+        };
+        let mut history = crate::registry::history::VersionHistory::default();
+        history.observe(std::slice::from_ref(&entry), 1);
+        let catalog = Catalog::bundled(&history.to_json());
+        let npm = BTreeSet::new();
+        let installed = InstalledTools::none();
+        let tools = SystemTools {
+            path_var: Some(""),
+            npm_globals: &npm,
+            installed: &installed,
+        };
+
+        let err =
+            profile_to_launch(&catalog, &tools, "linuxy", &BTreeMap::new(), FIXED_NOW).unwrap_err();
+
+        assert_eq!(err, "Linuxy is not available for this Mac");
     }
 }
