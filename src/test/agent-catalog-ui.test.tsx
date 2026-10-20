@@ -219,6 +219,18 @@ describe("Catalog actions — Add", () => {
     expect(callsTo(spy, "install_agent")).toHaveLength(0);
   });
 
+  it("records the catalog's version of the agent in the same save as the Add", async () => {
+    (fakeStore().state.settings as Partial<Settings>).enabledAgents = ["claude-acp", "codex-acp"];
+    (fakeStore().state.settings as Partial<Settings>).agentVersions = { "claude-acp": "1.2.0" };
+    spyOnBackend(withGemini);
+    await openAgentsTab();
+
+    fireEvent.click(within(row("Qwen Code")).getByRole("button", { name: "Add" }));
+
+    await waitFor(() => expect(savedSettings().enabledAgents).toContain("qwen-code"));
+    expect(savedSettings().agentVersions).toEqual({ "claude-acp": "1.2.0", "qwen-code": "0.4.0" });
+  });
+
   it("installs an agent that is not installed, with progress and Cancel in its row", async () => {
     const spy = spyOnBackend((cmd, args) =>
       cmd === "install_agent" ? new Promise(() => {}) : withGemini(cmd, args),

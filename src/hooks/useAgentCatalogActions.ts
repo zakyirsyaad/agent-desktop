@@ -8,7 +8,10 @@ import type { PersistedStateHandle } from './usePersistedState';
 import type { AgentProfile, Session, Settings } from '../types';
 
 export interface AgentCatalogActions {
-  /** Puts the agent in use, and installs it when the catalog (else its profile) says it is not installed. */
+  /**
+   * Puts the agent in use at the catalog's version, and installs it when the catalog (else its
+   * profile) says it is not installed.
+   */
   addAgent: (id: string) => void;
   /** Updates the agent; on success records and saves its version, then reloads profiles and catalog. */
   updateAgent: (id: string) => void;
@@ -52,16 +55,19 @@ export function useAgentCatalogActions({
   const runningSessionsOf = (id: string) =>
     sessions.filter((session) => session.profileId === id && session.status === 'running');
 
+  const catalogRowOf = (id: string) => catalog.catalog?.agents.find((agent) => agent.id === id);
+
   /** The catalog row is read fresh from the backend; a profile can lag behind it. */
   const needsInstall = (id: string) => {
-    const row = catalog.catalog?.agents.find((agent) => agent.id === id);
+    const row = catalogRowOf(id);
     if (row) return row.status === 'not_installed';
     const profile = agents.find((agent) => agent.id === id);
     return profile !== undefined && profile.availability !== 'ready';
   };
 
   const addAgent = (id: string) => {
-    updateSettings((settings) => withAgentAdded(settings, id, enabledAgentIds(settings)));
+    const version = catalogRowOf(id)?.version ?? null;
+    updateSettings((settings) => withAgentAdded(settings, id, enabledAgentIds(settings), version));
     if (needsInstall(id)) startInstall(id);
   };
 

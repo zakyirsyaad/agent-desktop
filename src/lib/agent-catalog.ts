@@ -84,12 +84,24 @@ export function rowActions(agent: CatalogAgent, isInUse: boolean): RowActions {
   };
 }
 
-/** Enables an agent: writes the full list (so defaults are not left implicit) and clears any removal. */
-export function withAgentAdded(settings: Settings, id: string, current: readonly string[]): Settings {
+/**
+ * Enables an agent: writes the full list (so defaults are not left implicit) and clears any removal.
+ * `version`, the one the catalog offers, is recorded unless one already is, so a later
+ * Check again cannot change the version in use without an Update.
+ */
+export function withAgentAdded(
+  settings: Settings,
+  id: string,
+  current: readonly string[],
+  version: string | null = null,
+): Settings {
+  const known = settings.agentVersions ?? {};
+  const shouldRecord = version !== null && !(id in known);
   return {
     ...settings,
     enabledAgents: current.includes(id) ? [...current] : [...current, id],
     removedAgents: (settings.removedAgents ?? []).filter((removed) => removed !== id),
+    ...(shouldRecord ? { agentVersions: { ...known, [id]: version } } : {}),
   };
 }
 

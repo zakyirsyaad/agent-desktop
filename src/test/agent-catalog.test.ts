@@ -136,6 +136,15 @@ describe("withAgentAdded / withAgentRemoved", () => {
     expect(input.removedAgents).toEqual(["gemini", "x"]);
   });
 
+  it("records the version Add puts in use, but never replaces one already recorded", () => {
+    const input: Settings = { ...settings, agentVersions: { "claude-acp": "1.0.0" } };
+    expect(withAgentAdded(input, "gemini", current, "0.2.0").agentVersions).toEqual({ "claude-acp": "1.0.0", gemini: "0.2.0" });
+    expect(withAgentAdded(input, "claude-acp", current, "1.2.0").agentVersions).toEqual({ "claude-acp": "1.0.0" });
+    expect(withAgentAdded(input, "gemini", current, null).agentVersions).toEqual({ "claude-acp": "1.0.0" });
+    expect(withAgentAdded(settings, "gemini", current).agentVersions).toBe(settings.agentVersions);
+    expect(input.agentVersions).toEqual({ "claude-acp": "1.0.0" });
+  });
+
   it("does not duplicate an agent already enabled", () => {
     expect(withAgentAdded(settings, "qwen-code", current).enabledAgents).toEqual(current);
   });
