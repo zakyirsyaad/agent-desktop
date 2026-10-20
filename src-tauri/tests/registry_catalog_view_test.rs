@@ -65,6 +65,17 @@ fn npx_entry(id: &str, version: &str) -> RegistryEntry {
     }
 }
 
+fn uvx_entry(id: &str, version: &str) -> RegistryEntry {
+    RegistryEntry {
+        distribution: Distribution::Uvx {
+            package: format!("{id}-pkg=={version}"),
+            args: vec!["acp".to_string()],
+            env: BTreeMap::new(),
+        },
+        ..npx_entry(id, version)
+    }
+}
+
 fn binary_entry(id: &str, version: &str, platform: &str, cmd: &str) -> RegistryEntry {
     let target = BinaryTarget {
         archive: format!("https://example.com/{id}.tar.gz"),
@@ -134,11 +145,12 @@ fn user_node(major: u32) -> InstalledTools {
 
 #[test]
 fn each_status_is_reported() {
-    let dir = BinDir::new(&["npx", "onpath"]);
+    let dir = BinDir::new(&["npx", "uvx", "onpath"]);
     let zorvo_dir = PathBuf::from("/tools/agents/by-zorvo-bin");
     let first_seen_recent = NOW - 2 * DAY;
     let bundle = bundle_of(&[
         (npx_entry("ready-npx", "1.0.0"), T0),
+        (uvx_entry("ready-uvx", "1.0.0"), T0),
         (npx_entry("zorvo-npx", "1.0.0"), T0),
         (npx_entry("global-npx", "1.0.0"), T0),
         (current_binary("on-path", "1.0.0", "./onpath"), T0),
@@ -168,6 +180,7 @@ fn each_status_is_reported() {
     );
 
     assert_eq!(agent(&result, "ready-npx").status, "ready");
+    assert_eq!(agent(&result, "ready-uvx").status, "ready");
     assert_eq!(agent(&result, "global-npx").status, "on_your_mac");
     assert_eq!(agent(&result, "global-npx").location, None);
     let on_path = agent(&result, "on-path");
@@ -348,6 +361,40 @@ fn update_target_refuses_with_the_spec_copy() {
         .update_target("gemini", &tools, &recorded_1_0_0(), NOW)
         .expect("a newer version is offered");
     assert_eq!(target.version, "1.1.0");
+}
+
+#[test]
+fn update_target_refuses_unsupported_and_waiting_agents() {
+    let dir = BinDir::new(&["npx"]);
+    let installed = user_node(22);
+    let globals = BTreeSet::new();
+    let path_var = dir.path_var();
+    let tools = SystemTools {
+        path_var: Some(&path_var),
+        npm_globals: &globals,
+        installed: &installed,
+    };
+    let catalog = Catalog::bundled(&bundle_of(&[
+        (
+            binary_entry("linux-only", "1.0.0", "linux-x86_64", "./x"),
+            T0,
+        ),
+        (npx_entry("fresh", "1.0.0"), NOW - 2 * DAY),
+    ]));
+    let versions = BTreeMap::new();
+
+    assert_eq!(
+        catalog
+            .update_target("linux-only", &tools, &versions, NOW)
+            .unwrap_err(),
+        "No newer version of Agent linux-only is offered"
+    );
+    assert_eq!(
+        catalog
+            .update_target("fresh", &tools, &versions, NOW)
+            .unwrap_err(),
+        "No newer version of Agent fresh is offered"
+    );
 }
 
 #[test]
