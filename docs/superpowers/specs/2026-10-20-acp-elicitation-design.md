@@ -298,7 +298,7 @@ Kept out of `acp-events.ts`, which only gains a dispatch line.
 - `useAcpSessions` handles the `elicitation` and `elicitation-complete` event
   kinds and exposes `respondElicitation(sessionId, key, action, content?)` and
   `reopenElicitationUrl(sessionId, key)`.
-- `useAcpEngine.respondElicitation` sets the new status optimistically
+- `useAcpEngine.answerElicitation` sets the new status optimistically
   (`submitted`, `opened`, `declined`, `dismissed`).
   - An `ELICITATION_INVALID:` error sets the card back with `errors`.
   - "can no longer be answered" marks it `unanswered` and reports the error.
@@ -310,7 +310,7 @@ Kept out of `acp-events.ts`, which only gains a dispatch line.
 ### Popouts
 
 `PopoutAction` gains
-`{ kind: 'respond-elicitation'; key; action; content? }` and
+`{ kind: 'answer-elicitation'; key; answer }` and
 `{ kind: 'reopen-elicitation-url'; key }`. The content travels in the Tauri
 event to the main window, in memory, and is never stored.
 
