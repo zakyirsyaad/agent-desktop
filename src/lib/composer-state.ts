@@ -77,8 +77,8 @@ export const COMPOSER_PLACEHOLDERS = {
   creatingWorktree: 'Creating a worktree for the session...',
 } as const;
 
-const installPlaceholder = (agentName: string, isResumable: boolean) =>
-  `Install ${agentName} to ${isResumable ? 'continue this session' : 'start a session'}.`;
+const installPlaceholder = (agentName: string, continuesSession: boolean) =>
+  `Install ${agentName} to ${continuesSession ? 'continue this session' : 'start a session'}.`;
 
 /** What the empty composer says the next message does; none in a running session. */
 export function composerPlaceholder(state: {
@@ -88,11 +88,13 @@ export function composerPlaceholder(state: {
   canStartSession: boolean;
   /** The draft agent's name while it must be installed before a message can be sent. */
   agentToInstall?: string;
+  /** An ended session is shown: once its agent is installed, the next message continues it. */
+  isEndedSession?: boolean;
 }): string | undefined {
   if (state.isRunning) return undefined;
   if (state.isCreatingWorktree) return COMPOSER_PLACEHOLDERS.creatingWorktree;
   if (!state.isResumable && !state.canStartSession) return COMPOSER_PLACEHOLDERS.noWorkspace;
-  if (state.agentToInstall) return installPlaceholder(state.agentToInstall, state.isResumable);
+  if (state.agentToInstall) return installPlaceholder(state.agentToInstall, state.isResumable || Boolean(state.isEndedSession));
   return state.isResumable ? COMPOSER_PLACEHOLDERS.resume : COMPOSER_PLACEHOLDERS.newSession;
 }
 

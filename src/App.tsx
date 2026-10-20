@@ -725,6 +725,7 @@ export default function App() {
                 isResumable,
                 canStartSession,
                 agentToInstall: draftNeedsInstall ? draftAgent?.name : undefined,
+                isEndedSession: Boolean(activeSession),
               })}
               onSendMessage={handleSendMessage}
               attachAsFiles={isActiveRunning ? isAcp(activeSession) : draftAgent?.transport === TRANSPORT_ACP}
