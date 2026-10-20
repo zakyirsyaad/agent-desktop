@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { AgentCatalog } from '../types';
@@ -20,12 +20,19 @@ export function useAgentCatalog(): AgentCatalogHandle {
   const [catalog, setCatalog] = useState<AgentCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const latestRequest = useRef(0);
+
+  /** Only the newest started load may set state, so a slow older one cannot overwrite fresher data. */
   const reload = useCallback(async () => {
+    latestRequest.current += 1;
+    const request = latestRequest.current;
     try {
-      setCatalog(await invoke<AgentCatalog>('get_agent_catalog'));
+      const loaded = await invoke<AgentCatalog>('get_agent_catalog');
+      if (request !== latestRequest.current) return;
+      setCatalog(loaded);
       setError(null);
     } catch (failure) {
-      setError(messageOf(failure));
+      if (request === latestRequest.current) setError(messageOf(failure));
     }
   }, []);
 

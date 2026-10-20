@@ -51,4 +51,24 @@ describe("useAgentCatalog", () => {
     await waitFor(() => expect(result.current.error).toBe("registry unreachable"));
     expect(result.current.catalog).toBeNull();
   });
+
+  it("keeps the newest catalog when an older load resolves last", async () => {
+    const stale = { lastChecked: 1, agents: [fakeCatalog[0]] };
+    const fresh = { lastChecked: 2, agents: fakeCatalog };
+    const resolvers: ((value: unknown) => void)[] = [];
+    vi.spyOn(internals(), "invoke").mockImplementation(
+      () => new Promise((resolve) => resolvers.push(resolve)),
+    );
+    const { result } = renderHook(() => useAgentCatalog());
+    await waitFor(() => expect(resolvers).toHaveLength(1));
+    await act(async () => {
+      listeners.get("agent-profiles-changed")?.({ payload: null });
+    });
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+
+    await act(async () => resolvers[1](fresh));
+    await act(async () => resolvers[0](stale));
+
+    expect(result.current.catalog).toEqual(fresh);
+  });
 });
