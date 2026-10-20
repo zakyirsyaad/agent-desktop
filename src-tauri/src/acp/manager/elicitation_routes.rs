@@ -61,21 +61,59 @@ impl AcpManager {
             .and_then(|mut routes| routes.elicitations.take_open(app_session_id, key))
             .ok_or_else(|| ELICITATION_GONE.to_string())?;
         // The lock is released: the opener and the agent may be slow.
-        match self.send_answer(&pending, action, content) {
-            Ok(()) if action == Action::Accept && is_url(&pending) => {
-                let awaiting = Pending {
-                    state: PendingState::AwaitingCompletion,
-                    ..pending
-                };
-                self.put_back(key, awaiting);
-                Ok(())
+        let reply = match self.reply_for(&pending, action, content) {
+            Ok(reply) => reply,
+            Err(error) => {
+                self.put_back(key, pending);
+                return Err(error);
             }
+        };
+        if action == Action::Accept && is_url(&pending) {
+            return self.send_url_accept(key, pending, reply);
+        }
+        match send(&pending.connection, &pending.request_id, reply) {
             Ok(()) => Ok(()),
             Err(error) => {
                 self.put_back(key, pending);
                 Err(error)
             }
         }
+    }
+
+    /// Sends the accept of a URL request whose link is open. The request
+    /// already waits for completion when the accept goes out, since the agent
+    /// may say it is done the moment the accept arrives. When the accept
+    /// cannot be sent, the request is open again.
+    fn send_url_accept(&self, key: &str, pending: Pending, reply: Value) -> Result<(), String> {
+        let app_session_id = pending.app_session_id.clone();
+        let connection = pending.connection.clone();
+        let request_id = pending.request_id.clone();
+        let awaiting = Pending {
+            state: PendingState::AwaitingCompletion,
+            ..pending
+        };
+        self.put_back(key, awaiting);
+        let Err(error) = send(&connection, &request_id, reply) else {
+            return Ok(());
+        };
+        let taken = self
+            .routes
+            .lock()
+            .ok()
+            .and_then(|mut routes| routes.elicitations.take_awaiting(&app_session_id, key));
+        match taken {
+            Some(pending) => {
+                let open = Pending {
+                    state: PendingState::Open,
+                    ..pending
+                };
+                self.put_back(key, open);
+            }
+            // Its session stopped meanwhile and, seeing it accepted, sent no
+            // answer: it is answered `cancel` as stop does.
+            None => cancel_request(&connection, request_id),
+        }
+        Err(error)
     }
 
     /// Opens the link of an accepted URL request again.
@@ -113,18 +151,17 @@ impl AcpManager {
         }
     }
 
-    /// Builds the agent's answer and writes it. Nothing is sent when the
-    /// form is invalid, the link is blocked or cannot be opened.
-    fn send_answer(
+    /// Builds the agent's answer. Nothing is to be sent when the agent is
+    /// gone, the form is invalid, or the link is blocked or cannot be opened.
+    fn reply_for(
         &self,
         pending: &Pending,
         action: Action,
         content: Option<Value>,
-    ) -> Result<(), String> {
-        let connection = pending
-            .connection
-            .upgrade()
-            .ok_or_else(|| ELICITATION_GONE.to_string())?;
+    ) -> Result<Value, String> {
+        if pending.connection.strong_count() == 0 {
+            return Err(ELICITATION_GONE.to_string());
+        }
         let reply = match (action, &pending.elicitation) {
             (Action::Accept, Elicitation::Form { fields, .. }) => {
                 let content = validate(fields, &content.unwrap_or(Value::Null))
@@ -141,7 +178,7 @@ impl AcpManager {
             (Action::Decline, _) => json!({ "action": "decline" }),
             (Action::Cancel, _) => json!({ "action": "cancel" }),
         };
-        connection.respond(&pending.request_id, reply)
+        Ok(reply)
     }
 
     /// Keeps a request taken out to answer again, unless its session stopped
@@ -165,6 +202,14 @@ impl AcpManager {
         };
         cancel_open(vec![dropped]);
     }
+}
+
+/// Writes an answer to the agent's request `request_id`.
+fn send(connection: &Weak<AcpConnection>, request_id: &Value, reply: Value) -> Result<(), String> {
+    connection
+        .upgrade()
+        .ok_or_else(|| ELICITATION_GONE.to_string())?
+        .respond(request_id, reply)
 }
 
 fn is_url(pending: &Pending) -> bool {

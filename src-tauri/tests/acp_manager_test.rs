@@ -1451,6 +1451,30 @@ fn reopens_and_completes_a_url_request() {
 }
 
 #[test]
+fn completes_a_url_request_the_agent_finishes_right_after_the_accept() {
+    let (manager, rx, _opened, key) = started_with("elicit-url-done-on-accept");
+
+    manager
+        .respond_elicitation("s-1", &key, "accept", None)
+        .expect("accept");
+
+    let seen = events_through(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
+    assert!(
+        seen.iter().any(|e| matches!(
+            e,
+            AcpEvent::ElicitationComplete { session_id, key: done }
+                if session_id == "s-1" && *done == key
+        )),
+        "{seen:?}"
+    );
+    assert_eq!(
+        manager.reopen_elicitation_url("s-1", &key),
+        Err(ELICITATION_GONE.to_string())
+    );
+    manager.stop("s-1");
+}
+
+#[test]
 fn reopens_only_an_accepted_url_request() {
     let (manager, _rx, opened, key) = started_with("elicit-url");
 

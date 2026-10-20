@@ -108,8 +108,22 @@ impl PendingElicitations {
     /// Takes the request `key` while it is still unanswered and belongs to
     /// `app_session_id`, so only one answer can be sent for it.
     pub fn take_open(&mut self, app_session_id: &str, key: &str) -> Option<Pending> {
-        let pending = self.get(app_session_id, key)?;
-        if pending.state != PendingState::Open {
+        self.take_in_state(app_session_id, key, PendingState::Open)
+    }
+
+    /// Takes the accepted URL request `key` back while it still waits for
+    /// the agent, as when its accept could not be sent.
+    pub fn take_awaiting(&mut self, app_session_id: &str, key: &str) -> Option<Pending> {
+        self.take_in_state(app_session_id, key, PendingState::AwaitingCompletion)
+    }
+
+    fn take_in_state(
+        &mut self,
+        app_session_id: &str,
+        key: &str,
+        state: PendingState,
+    ) -> Option<Pending> {
+        if self.get(app_session_id, key)?.state != state {
             return None;
         }
         self.requests.remove(key)
@@ -276,6 +290,19 @@ mod tests {
         assert!(pending.take_open("s-1", &accepted).is_none());
         assert_eq!(pending.take_open_of_session("s-1").len(), 1);
         assert!(pending.get("s-1", &accepted).is_some());
+    }
+
+    #[test]
+    fn takes_back_only_an_accepted_url_request_of_its_session() {
+        let mut pending = PendingElicitations::default();
+        let open = pending.insert(url("gh-1", 1, PendingState::Open));
+        let accepted = pending.insert(url("gh-2", 1, PendingState::AwaitingCompletion));
+
+        assert!(pending.take_awaiting("s-1", &open).is_none());
+        assert!(pending.take_awaiting("s-2", &accepted).is_none());
+        assert!(pending.take_awaiting("s-1", &accepted).is_some());
+        assert!(pending.take_awaiting("s-1", &accepted).is_none());
+        assert!(pending.get("s-1", &open).is_some());
     }
 
     #[test]
