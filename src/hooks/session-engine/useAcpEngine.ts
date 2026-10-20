@@ -457,10 +457,12 @@ export function useAcpEngine({
       if (card.requestId === undefined) continue;
       acp.respondPermission(sessionId, card.requestId, null).catch(reportFailure('Could not answer the agent'));
     }
-    // The backend answers the turn's open elicitations as cancelled.
+    // The backend answers the open elicitations as cancelled and names them; one that comes after stays open.
     elicitations.forget(sessionId);
-    const dismiss = () => updateMessages(sessionId, dismissPendingElicitations);
-    acp.cancel(sessionId).then(dismiss, reportFailure('Failed to stop the agent'));
+    acp.cancel(sessionId).then(
+      (cancelled) => updateMessages(sessionId, (prev) => dismissPendingElicitations(prev, new Set(cancelled))),
+      reportFailure('Failed to stop the agent'),
+    );
   };
 
   const setMode = (sessionId: string, modeId: string) => {

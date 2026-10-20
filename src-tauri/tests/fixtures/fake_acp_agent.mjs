@@ -14,9 +14,12 @@
 //     (each elicit-* prompt says "elicited:<reply as JSON>" per reply, then ends the turn;
 //     FAKE_ACP_ELICIT_LOG names a file each reply is appended to, as one JSON line)
 //   "elicit-complete" -> sends elicitation/complete for "gh-1" and "nope", then says "completed-sent"
+//   "elicit-url-done-on-accept" -> as "elicit-url", but sends elicitation/complete for "gh-1"
+//     the moment the accept arrives, before anything else
+//   "elicit-url-deaf" -> closes its stdin, then asks as "elicit-url", so no answer can reach it
 //   --login      -> the terminal sign-in: prints a greeting and exits
 //   anything else -> echoes the text back as an agent message chunk
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 let nextSession = 1;
@@ -57,8 +60,9 @@ const elicitations = {
 };
 
 // Sends each request as elicitation/create with ids "elic-1", "elic-2", ...
-function elicit(promptId, sessionId, requests) {
-  pendingElicit = { promptId, sessionId, waiting: new Set(requests.map((_, i) => `elic-${i + 1}`)) };
+// `doneOnAccept` is the elicitationId to complete as soon as an accept arrives.
+function elicit(promptId, sessionId, requests, doneOnAccept = null) {
+  pendingElicit = { promptId, sessionId, doneOnAccept, waiting: new Set(requests.map((_, i) => `elic-${i + 1}`)) };
   requests.forEach((params, i) => send({ id: `elic-${i + 1}`, method: "elicitation/create", params }));
 }
 
@@ -66,6 +70,21 @@ function handlePrompt(id, params) {
   const text = params.prompt.map((block) => block.text ?? "").join("");
   if (elicitations[text]) {
     elicit(id, params.sessionId, elicitations[text](params.sessionId));
+    return;
+  }
+  if (text === "elicit-url-done-on-accept") {
+    elicit(id, params.sessionId, elicitations["elicit-url"](params.sessionId), "gh-1");
+    return;
+  }
+  if (text === "elicit-url-deaf") {
+    // Close the pipe itself, not only Node's stream, before asking, so the client's answer fails.
+    process.stdin.destroy();
+    try {
+      closeSync(0);
+    } catch {
+      // Already closed by the stream.
+    }
+    elicit(id, params.sessionId, elicitations["elicit-url"](params.sessionId));
     return;
   }
   if (text === "elicit-complete") {
@@ -293,6 +312,11 @@ if (process.argv.includes("--login")) {
 
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
+  // FAKE_ACP_ARRIVAL_LOG: records every method called and every reply, in the order they arrive.
+  if (process.env.FAKE_ACP_ARRIVAL_LOG) {
+    const entry = message.method ?? `reply ${message.id} ${JSON.stringify(message.result ?? message.error)}`;
+    appendFileSync(process.env.FAKE_ACP_ARRIVAL_LOG, `${entry}\n`);
+  }
   // FAKE_ACP_METHOD_LOG: records each method the client called, one per line.
   if (process.env.FAKE_ACP_METHOD_LOG && message.method) appendFileSync(process.env.FAKE_ACP_METHOD_LOG, `${message.method}\n`);
   if (message.method === "session/cancel" && pendingSlow) {
@@ -311,6 +335,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
   if (pendingElicit?.waiting.has(message.id) && message.method === undefined) {
+    if (pendingElicit.doneOnAccept && message.result?.action === "accept") {
+      send({ method: "elicitation/complete", params: { elicitationId: pendingElicit.doneOnAccept } });
+    }
     if (process.env.FAKE_ACP_ELICIT_LOG) appendFileSync(process.env.FAKE_ACP_ELICIT_LOG, `${JSON.stringify(message)}\n`);
     say(pendingElicit.sessionId, `elicited:${JSON.stringify(message.result ?? message.error)}`);
     pendingElicit.waiting.delete(message.id);

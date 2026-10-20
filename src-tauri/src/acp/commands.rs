@@ -354,8 +354,12 @@ pub fn acp_prompt(
     manager.prompt(&session_id, &text, &attachments.unwrap_or_default())
 }
 
+/// Cancels the turn; returns the keys of the elicitations it answered `cancel`.
 #[tauri::command(async)]
-pub fn acp_cancel(manager: State<'_, AcpManager>, session_id: String) -> Result<(), String> {
+pub fn acp_cancel(
+    manager: State<'_, AcpManager>,
+    session_id: String,
+) -> Result<Vec<String>, String> {
     manager.cancel(&session_id)
 }
 

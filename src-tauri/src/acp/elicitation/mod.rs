@@ -240,11 +240,12 @@ fn parse_url(params: &Value) -> Result<Elicitation, String> {
     let url = text(params, "url")
         .filter(|url| !url.trim().is_empty())
         .ok_or("The request has no url.")?;
-    let check = check_url(&url);
+    let mut check = check_url(&url);
+    // Keep the link that was checked, not the agent's raw text, in one place.
+    let url = check.url.take().unwrap_or(url);
     Ok(Elicitation::Url {
         message: text(params, "message").unwrap_or_default(),
-        // Keep the link that was checked, not the agent's raw text.
-        url: check.url.clone().unwrap_or(url),
+        url,
         check,
         elicitation_id,
     })

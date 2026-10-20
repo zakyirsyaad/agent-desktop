@@ -7,6 +7,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use zorvo_lib::acp::manager::{
     AcpEvent, AcpLaunch, AcpManager, ELICITATION_GONE, ELICITATION_INVALID_PREFIX,
+    ELICITATION_UNDELIVERED,
 };
 use zorvo_lib::acp::terminal_auth::SignInAttempts;
 
@@ -1369,6 +1370,31 @@ fn opens_the_backends_url_on_accept() {
 }
 
 #[test]
+fn ends_a_url_request_whose_accept_cannot_reach_the_agent() {
+    let (manager, _rx, opened, key) = started_with("elicit-url-deaf");
+
+    let error = manager
+        .respond_elicitation("s-1", &key, "accept", None)
+        .unwrap_err();
+
+    // The page opened once, and the request is over: it is not offered again.
+    assert_eq!(error, ELICITATION_UNDELIVERED);
+    assert_eq!(opened.lock().unwrap().len(), 1);
+    assert_eq!(
+        manager.reopen_elicitation_url("s-1", &key).unwrap_err(),
+        ELICITATION_GONE
+    );
+    assert_eq!(
+        manager
+            .respond_elicitation("s-1", &key, "accept", None)
+            .unwrap_err(),
+        ELICITATION_GONE
+    );
+    assert_eq!(opened.lock().unwrap().len(), 1);
+    manager.stop("s-1");
+}
+
+#[test]
 fn refuses_to_open_a_blocked_url() {
     let (manager, rx, opened, key) = started_with("elicit-blocked-url");
 
@@ -1450,6 +1476,34 @@ fn reopens_and_completes_a_url_request() {
     manager.stop("s-1");
 }
 
+/// The race this guards (a completion arriving between the accept and the
+/// request waiting for it) reproduced only with a delay injected into the old
+/// code, so this documents the behaviour rather than reliably catching a
+/// regression.
+#[test]
+fn completes_a_url_request_the_agent_finishes_right_after_the_accept() {
+    let (manager, rx, _opened, key) = started_with("elicit-url-done-on-accept");
+
+    manager
+        .respond_elicitation("s-1", &key, "accept", None)
+        .expect("accept");
+
+    let seen = events_through(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
+    assert!(
+        seen.iter().any(|e| matches!(
+            e,
+            AcpEvent::ElicitationComplete { session_id, key: done }
+                if session_id == "s-1" && *done == key
+        )),
+        "{seen:?}"
+    );
+    assert_eq!(
+        manager.reopen_elicitation_url("s-1", &key),
+        Err(ELICITATION_GONE.to_string())
+    );
+    manager.stop("s-1");
+}
+
 #[test]
 fn reopens_only_an_accepted_url_request() {
     let (manager, _rx, opened, key) = started_with("elicit-url");
@@ -1516,6 +1570,30 @@ fn stop_answers_open_requests_with_cancel() {
         manager.respond_elicitation("s-1", &key, "decline", None),
         Err(ELICITATION_GONE.to_string())
     );
+    manager.stop("s-1");
+}
+
+#[test]
+fn cancel_answers_open_requests_before_cancelling_the_turn() {
+    let (manager, rx, _opened) = recording_manager();
+    let log = method_log("elicit-cancel-order");
+    let launch = with_env(fake_agent(), "FAKE_ACP_ARRIVAL_LOG", log.to_str().unwrap());
+    manager.start("s-1", &cwd(), &launch).unwrap();
+    manager.prompt("s-1", "elicit-form", &[]).unwrap();
+    next_key(&rx, "s-1");
+
+    manager.cancel("s-1").expect("cancel");
+
+    assert!(
+        eventually_called(&log, "session/cancel"),
+        "{:?}",
+        methods_in(&log)
+    );
+    let arrivals = methods_in(&log);
+    let position = |line: &str| arrivals.iter().position(|arrived| arrived == line);
+    let answered = position(r#"reply elic-1 {"action":"cancel"}"#);
+    let cancelled = position("session/cancel");
+    assert!(answered.is_some() && answered < cancelled, "{arrivals:?}");
     manager.stop("s-1");
 }
 

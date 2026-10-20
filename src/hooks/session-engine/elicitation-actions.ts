@@ -1,10 +1,12 @@
 import {
   ELICITATION_GONE,
+  ELICITATION_UNDELIVERED,
   findElicitationIndex,
   markElicitationsUnanswered,
   parseInvalidElicitation,
   rejectElicitationSubmit,
   setElicitationStatus,
+  withoutKeys,
 } from '../../lib/acp-elicitation';
 import type { ChatMessage, ElicitationAnswer, ElicitationCard, ElicitationStatus } from '../../types';
 
@@ -44,11 +46,17 @@ function optimisticStatus(answer: ElicitationAnswer, mode: ElicitationCard['mode
   return mode === 'url' ? 'opened' : 'submitted';
 }
 
-/** Puts the waiting card back, but only while it still shows the answer that failed. */
+/**
+ * Puts the waiting card back, but only while it still shows the answer that
+ * failed. It comes back without the field errors it had: the user may have
+ * fixed them since, and the backend checks the form again on the next submit.
+ * A refused form gets its new errors after this.
+ */
 function putBack(messages: ChatMessage[], { card, status }: InFlightAnswer): ChatMessage[] | null {
   const index = findElicitationIndex(messages, card.key, status);
   if (index < 0) return null;
-  return messages.map((m, i) => (i === index ? { ...m, elicitation: card } : m));
+  const waiting = withoutKeys(card, ['errors']);
+  return messages.map((m, i) => (i === index ? { ...m, elicitation: waiting } : m));
 }
 
 /**
@@ -66,9 +74,10 @@ export function elicitationActions({ acp, updateMessages, reportError, transcrip
     const errors = parseInvalidElicitation(error);
     if (errors) return restore((messages) => rejectElicitationSubmit(messages, entry.card.key, errors));
     const text = textOf(error);
-    if (text === ELICITATION_GONE) {
+    // Gone, or a page that opened but never reached the agent: the request is over.
+    if (text === ELICITATION_GONE || text === ELICITATION_UNDELIVERED) {
       restore((messages) => setElicitationStatus(messages, entry.card.key, 'pending', 'unanswered'));
-      reportError(ELICITATION_GONE);
+      reportError(text);
       return;
     }
     restore((messages) => messages);

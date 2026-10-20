@@ -34,7 +34,7 @@ The Rust ACP tests spawn `src-tauri/tests/fixtures/fake_acp_agent.mjs` with Node
 
 ## Architecture
 
-**Frontend ↔ backend.** The UI calls Tauri commands (all registered in `src-tauri/src/lib.rs`'s `generate_handler!`) and listens to events: `acp-event` (one channel for every ACP session, payload `{sessionId, kind: update|permission|turn-end|exit, ...}` built in `acp/commands.rs`) and `sign-in-terminal` (output and exit of an agent's terminal sign-in, see below).
+**Frontend ↔ backend.** The UI calls Tauri commands (all registered in `src-tauri/src/lib.rs`'s `generate_handler!`) and listens to events: `acp-event` (one channel for every ACP session, payload `{sessionId, kind: update|permission|elicitation|elicitation-complete|turn-end|exit, ...}` built in `acp/commands.rs`) and `sign-in-terminal` (output and exit of an agent's terminal sign-in, see below).
 
 **Session engine.** Every session is an ACP chat, run by `src/hooks/session-engine/useAcpEngine.ts`. ACP updates are folded into chat messages by `src/lib/acp-events.ts`; modes/models/config options come from the agent at session start (`useAcpSessions.ts`, `lib/acp-draft.ts`). Saved terminal sessions from older versions are dropped on load (`dropTerminalSessions` in `lib/persistence.ts`).
 

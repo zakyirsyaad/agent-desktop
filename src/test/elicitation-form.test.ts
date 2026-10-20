@@ -119,10 +119,11 @@ describe('checkForm', () => {
     expect(msg(kind({ maxItems: 1 }), ['a', 'b'])).toBe('Pick at most 1.');
     expect(msg(kind(), ['a', 'a'])).toBeUndefined();
   });
-  it('lets an optional multi-select with a minimum stay empty; a required one still needs the minimum', () => {
+  it('lets an optional multi-select with a minimum stay empty; a required one counts nothing picked as missing', () => {
     const kind: ElicitationFieldKind = { type: 'multiSelect', options: choices, minItems: 1 };
     expect(msg(kind, [])).toBeUndefined();
-    expect(msg(kind, [], true)).toBe('Pick at least 1.');
+    expect(msg(kind, [], true)).toBe('This field is required.');
+    expect(msg({ type: 'multiSelect', options: choices }, [], true)).toBe('This field is required.');
     expect(toContent([field('f', kind)], { f: [] })).toEqual({});
   });
   it('keeps typed values out of messages', () => {
@@ -152,12 +153,11 @@ describe('toContent', () => {
       d: '2026-10-20T09:30:15-05:30',
     });
   });
-  it('uses the offset at the entered date by default', () => {
+  it('uses the local offset by default (see elicitation-form-dst.test.ts for daylight saving)', () => {
     const f = [field('d', text({ format: 'date-time' }))];
-    for (const d of ['2026-01-15T12:00', '2026-07-15T12:00']) {
-      const sent = toContent(f, { d }).d as string;
-      expect(Date.parse(sent)).toBe(new Date(d).getTime());
-    }
+    const d = '2026-01-15T12:00';
+    const sent = toContent(f, { d }).d as string;
+    expect(Date.parse(sent)).toBe(new Date(d).getTime());
   });
   it('keeps multi-select as an array', () => {
     const f = [field('m', { type: 'multiSelect', options: choices })];

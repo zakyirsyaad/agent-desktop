@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { ElicitationCard } from "../components/chat/ElicitationCard";
 import type { ElicitationCard as ElicitationCardData, ElicitationField } from "../types";
 
@@ -38,6 +38,19 @@ const checkedOf = (el: HTMLElement) => (el as HTMLInputElement).checked;
 
 const choices = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ value: `v${i}`, title: `Option ${i}` }));
+
+describe("ElicitationCard mounted while its answer is on its way", () => {
+  it("shows the agent's defaults once the card is put back", () => {
+    const fields: ElicitationField[] = [
+      { name: "name", title: "Name", required: true, kind: { type: "text" }, default: "Ada" },
+    ];
+    const { rerender } = render(
+      <ElicitationCard card={formCard(fields, { status: "submitted", fields: undefined })} agentName="A" />,
+    );
+    rerender(<ElicitationCard card={formCard(fields)} agentName="A" />);
+    expect(valueOf(screen.getByLabelText(/Name/))).toBe("Ada");
+  });
+});
 
 describe("ElicitationCard", () => {
   it("renders every field kind with defaults", () => {
@@ -222,6 +235,115 @@ describe("ElicitationCard", () => {
     rerender(<ElicitationCard card={formCard(fields, { status: "submitted", fields: undefined })} agentName="A" />);
     rerender(<ElicitationCard card={formCard(fields)} agentName="A" />);
     expect(valueOf(screen.getByLabelText(/Name/))).toBe("secret-value");
+  });
+
+  it("submits the chosen radio, select and multi-select options", () => {
+    const onAnswer = vi.fn();
+    const fields: ElicitationField[] = [
+      { name: "few", title: "Few", required: true, kind: { type: "select", options: choices(3) } },
+      { name: "many", title: "Many", required: true, kind: { type: "select", options: choices(6) } },
+      { name: "tags", title: "Tags", required: false, kind: { type: "multiSelect", options: choices(3) } },
+    ];
+    render(<ElicitationCard card={formCard(fields)} agentName="A" onAnswer={onAnswer} />);
+    const few = screen.getByRole("radiogroup", { name: /Few/ });
+    fireEvent.click(within(few).getByRole("radio", { name: "Option 2" }));
+    fireEvent.change(screen.getByRole("combobox", { name: /Many/ }), { target: { value: "v4" } });
+    const tags = screen.getByRole("group", { name: /Tags/ });
+    fireEvent.click(within(tags).getByRole("checkbox", { name: "Option 0" }));
+    fireEvent.click(within(tags).getByRole("checkbox", { name: "Option 2" }));
+    fireEvent.click(within(tags).getByRole("checkbox", { name: "Option 0" }));
+
+    expect(checkedOf(within(few).getByRole("radio", { name: "Option 2" }))).toBe(true);
+    expect(checkedOf(within(tags).getByRole("checkbox", { name: "Option 0" }))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onAnswer).toHaveBeenCalledWith("e1", {
+      action: "accept",
+      content: { few: "v2", many: "v4", tags: ["v2"] },
+    });
+  });
+
+  it("sends a number as a number with a boolean and multi-select values", () => {
+    const onAnswer = vi.fn();
+    const fields: ElicitationField[] = [
+      { name: "count", title: "Count", required: true, kind: { type: "number", integer: true } },
+      { name: "agree", title: "Agree", required: false, kind: { type: "boolean" } },
+      { name: "tags", title: "Tags", required: true, kind: { type: "multiSelect", options: choices(2) } },
+    ];
+    render(<ElicitationCard card={formCard(fields)} agentName="A" onAnswer={onAnswer} />);
+    fireEvent.change(screen.getByLabelText(/Count/), { target: { value: "42" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Agree/ }));
+    const tags = screen.getByRole("group", { name: /Tags/ });
+    fireEvent.click(within(tags).getByRole("checkbox", { name: "Option 1" }));
+    fireEvent.click(within(tags).getByRole("checkbox", { name: "Option 0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(onAnswer.mock.calls[0][1]).toStrictEqual({
+      action: "accept",
+      content: { count: 42, agree: true, tags: ["v1", "v0"] },
+    });
+  });
+
+  it("submits the form from Enter in a field, through its submit button", () => {
+    const onAnswer = vi.fn();
+    const fields: ElicitationField[] = [
+      { name: "name", title: "Name", required: true, kind: { type: "text" } },
+    ];
+    render(<ElicitationCard card={formCard(fields)} agentName="A" onAnswer={onAnswer} />);
+    const input = screen.getByLabelText(/Name/);
+    fireEvent.change(input, { target: { value: "Ada" } });
+    // A browser submits a form from Enter in a field when the form has a
+    // submit button; jsdom does not, so the test checks both halves.
+    const form = input.closest("form");
+    expect(form?.querySelector('button[type="submit"]')?.textContent).toBe("Submit");
+    fireEvent.submit(form!);
+    expect(onAnswer).toHaveBeenCalledWith("e1", { action: "accept", content: { name: "Ada" } });
+  });
+
+  it("offers no Open again on a disabled opened card", () => {
+    const onReopen = vi.fn();
+    render(<ElicitationCard card={urlCard({ status: "opened" })} agentName="A" onReopen={onReopen} disabled />);
+    expect(screen.getByText("Opened in your browser.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open again" })).toBeNull();
+  });
+
+  it("marks a required radio group and names a required checkbox group as required", () => {
+    const fields: ElicitationField[] = [
+      { name: "few", title: "Few", required: true, kind: { type: "select", options: choices(2) } },
+      { name: "pick", title: "Pick", required: false, kind: { type: "select", options: choices(2) } },
+      { name: "tags", title: "Tags", required: true, kind: { type: "multiSelect", options: choices(2) } },
+      { name: "more", title: "More", required: false, kind: { type: "multiSelect", options: choices(2) } },
+    ];
+    render(<ElicitationCard card={formCard(fields)} agentName="A" />);
+    expect(screen.getByRole("radiogroup", { name: "Few" }).getAttribute("aria-required")).toBe("true");
+    expect(screen.getByRole("radiogroup", { name: "Pick" }).hasAttribute("aria-required")).toBe(false);
+    // The name joins "Tags" and the hidden " (required)"; jsdom's name drops the space.
+    const tags = screen.getByRole("group", { name: /^Tags ?\(required\)$/ });
+    expect(tags.hasAttribute("aria-required")).toBe(false);
+    expect(screen.getByRole("group", { name: "More" })).toBeTruthy();
+  });
+
+  it("hides a backend error once its field is edited, until the next refused submit", () => {
+    const onAnswer = vi.fn();
+    const fields: ElicitationField[] = [
+      { name: "name", title: "Name", required: false, kind: { type: "text" } },
+      { name: "city", title: "City", required: false, kind: { type: "text" } },
+    ];
+    const refused = { name: "Use the format the agent asked for.", city: "Use at most 5 characters." };
+    const { rerender } = render(
+      <ElicitationCard card={formCard(fields, { errors: refused })} agentName="A" onAnswer={onAnswer} />,
+    );
+    expect(screen.getAllByRole("alert")).toHaveLength(2);
+
+    fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "x" } });
+    expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual(["Use at most 5 characters."]);
+    // A popout gets the same errors again as a new object with every snapshot.
+    rerender(<ElicitationCard card={formCard(fields, { errors: { ...refused } })} agentName="A" onAnswer={onAnswer} />);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onAnswer).toHaveBeenCalled();
+    rerender(<ElicitationCard card={formCard(fields, { errors: { ...refused } })} agentName="A" onAnswer={onAnswer} />);
+    expect(screen.getAllByRole("alert")).toHaveLength(2);
   });
 
   it("offers no Open again on an opened card without onReopen", () => {
