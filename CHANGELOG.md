@@ -31,6 +31,7 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 - **Claude Code and Codex show their options before the first message.** Picking an agent for a new session now asks it what it offers, so its permission mode, model, effort and slash commands show right away, even for an agent that never ran before.
 - **Sign in before you write.** An agent that needs a sign-in now says so as soon as you pick it. When Claude Code refuses a message because you are signed out, Zorvo asks you to sign in and puts the message back in the composer, instead of reporting a failed turn.
 - **The composer no longer overflows.** With many options showing, the controls wrap onto a second line and the send button stays inside the composer. Turning on **Worktree** swaps the folder icon for a branch icon instead of adding one, so the controls no longer jump to a second line when you flip it.
+- **Agents no longer stall while a session opens.** Zorvo now answers every request an agent sends, even before its session is ready, so an agent that asks something during startup is no longer left waiting up to a minute. A permission request an agent sends right after a session opens now reaches you, and one for a session Zorvo does not know is cancelled. Two sessions of the same agent no longer mix up each other's messages when the agent gives both the same id. Forking is refused for an agent that cannot fork.
 
 ## [0.2.0] - 2026-10-19
 

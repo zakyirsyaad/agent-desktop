@@ -125,6 +125,7 @@ impl AcpManager {
                     &init,
                     "session/new",
                     json!({ "cwd": cwd, "mcpServers": [] }),
+                    |_| {},
                 )?;
                 let awaited = Awaited {
                     commands_until: Some(Instant::now() + COMMANDS_TIMEOUT),
