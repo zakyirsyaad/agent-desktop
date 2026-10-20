@@ -1,10 +1,11 @@
 import { Sparkles, X } from "lucide-react";
+import { NOTICE_BANNER_LAYOUT } from "./ui/noticeBannerStyle";
 
 export function NoticeBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   return (
     <div
       role="alert"
-      className="bg-danger-surface text-danger text-xs rounded-lg px-3 py-2 mx-6 mt-3 flex justify-between items-center"
+      className={`bg-danger-surface text-danger ${NOTICE_BANNER_LAYOUT}`}
     >
       <span className="break-words">{message}</span>
       <button

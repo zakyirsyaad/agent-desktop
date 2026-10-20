@@ -1,5 +1,6 @@
 import type { CatalogAgent } from '../types';
 import { Button } from './ui/Button';
+import { NOTICE_BANNER_LAYOUT } from './ui/noticeBannerStyle';
 
 export interface UpdateNoticeProps {
   agents: readonly CatalogAgent[];
@@ -18,7 +19,7 @@ export function UpdateNotice({ agents, onShow, onDismiss }: UpdateNoticeProps) {
   return (
     <div
       role="status"
-      className="bg-surface-2 text-fg-secondary text-xs rounded-lg px-3 py-2 mx-6 mt-3 flex justify-between items-center"
+      className={`bg-surface-2 text-fg-secondary ${NOTICE_BANNER_LAYOUT}`}
     >
       <span className="break-words">{messageFor(agents)}</span>
       <span className="ml-3 flex shrink-0 gap-2">

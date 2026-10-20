@@ -25,8 +25,8 @@ export function AgentLogo({ profileId, name, size = 13, className = "" }: AgentL
   const id = canonicalAgentId(profileId);
   const logo = LOGOS[id];
   const registryIcon = useAgentIcon(id);
+  const label = name ? { role: "img", "aria-label": name } : { "aria-hidden": true };
   if (!logo && registryIcon) {
-    const label = name ? { role: "img", "aria-label": name } : { "aria-hidden": true };
     const mask = `url("${registryIcon}")`;
     return (
       <span
@@ -45,7 +45,6 @@ export function AgentLogo({ profileId, name, size = 13, className = "" }: AgentL
     );
   }
   if (!logo) {
-    const label = name ? { role: "img", "aria-label": name } : { "aria-hidden": true };
     return <Bot size={size} {...label} className={`shrink-0 text-fg-muted ${className}`} />;
   }
   return <img src={logo} alt={name} width={size} height={size} className={`shrink-0 rounded-[3px] ${className}`} />;
