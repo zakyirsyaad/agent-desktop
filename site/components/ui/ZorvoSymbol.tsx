@@ -1,3 +1,6 @@
+/** The double prompt from docs/brand/assets: two `>` prompts, and the `_` cursor the full-size symbol adds. */
+export const SYMBOL_PATHS = { prompts: ["M6 7l10 7-10 7", "M18 19l10 7-10 7"], cursor: "M30 33h5" } as const;
+
 interface ZorvoSymbolProps {
   /** Rendered size in px. Under 32px uses the small variant: no cursor, heavier stroke. */
   size: number;
@@ -21,9 +24,10 @@ export function ZorvoSymbol({ size, className }: ZorvoSymbolProps) {
       focusable="false"
       className={className}
     >
-      <path d="M6 7l10 7-10 7" />
-      <path d="M18 19l10 7-10 7" />
-      {!isSmall && <path d="M30 33h5" />}
+      {SYMBOL_PATHS.prompts.map((d) => (
+        <path key={d} d={d} />
+      ))}
+      {!isSmall && <path d={SYMBOL_PATHS.cursor} />}
     </svg>
   );
 }

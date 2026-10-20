@@ -1,8 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import Home from "../../site/app/page";
+import robots from "../../site/app/robots";
+import sitemap from "../../site/app/sitemap";
+import { OG_COLORS } from "../../site/lib/og-colors";
+import { siteUrl } from "../../site/lib/site";
 
 const ROOT = join(__dirname, "..", "..");
 const appCss = readFileSync(join(ROOT, "src", "styles", "globals.css"), "utf8");
@@ -54,6 +58,12 @@ describe("site tokens", () => {
       }
     },
   );
+
+  it("draws the Open Graph image in the dark theme's colors", () => {
+    for (const [name, value] of Object.entries(OG_COLORS)) {
+      expect(site.darkColor.get(name), name).toBe(value);
+    }
+  });
 
   it("adds only terminal tokens of its own, which stay dark in both themes", () => {
     const extra = [...site.darkColor.keys()].filter((name) => !app.darkColor.has(name));
@@ -134,5 +144,50 @@ describe("landing page", () => {
       const id = link.getAttribute("href")!.slice(1);
       expect(document.getElementById(id), `#${id}`).not.toBeNull();
     }
+  });
+});
+
+describe("search engines", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("refuses to build for production without an address, rather than publish localhost links", () => {
+    expect(() => siteUrl({ NODE_ENV: "production" })).toThrow(/SITE_URL/);
+    expect(siteUrl({ NODE_ENV: "production", VERCEL_PROJECT_PRODUCTION_URL: "zorvo.xyz" }).href).toBe("https://zorvo.xyz/");
+  });
+
+  it("keeps a sub-path in SITE_URL for the sitemap", () => {
+    vi.stubEnv("SITE_URL", "https://example.github.io/zorvo");
+    expect(siteUrl().href).toBe("https://example.github.io/zorvo/");
+    expect(robots().sitemap).toBe("https://example.github.io/zorvo/sitemap.xml");
+    expect(sitemap()[0].url).toBe("https://example.github.io/zorvo/");
+  });
+
+  it("takes the site's address from SITE_URL, then Vercel's production domain, then localhost", () => {
+    expect(siteUrl({ SITE_URL: "https://zorvo.xyz", VERCEL_PROJECT_PRODUCTION_URL: "zorvo.vercel.app" }).href).toBe(
+      "https://zorvo.xyz/",
+    );
+    expect(siteUrl({ VERCEL_PROJECT_PRODUCTION_URL: "zorvo.vercel.app" }).href).toBe("https://zorvo.vercel.app/");
+    expect(siteUrl({}).href).toBe("http://localhost:3100/");
+  });
+
+  it("lets crawlers in and points them at a sitemap of the page", () => {
+    const base = siteUrl().href;
+    expect(robots()).toMatchObject({ rules: { userAgent: "*", allow: "/" }, sitemap: `${base}sitemap.xml` });
+    expect(sitemap().map((entry) => entry.url)).toEqual([base]);
+  });
+
+  it("describes Zorvo as a free macOS app in structured data", () => {
+    const html = renderToStaticMarkup(<Home />);
+    const json = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector('script[type="application/ld+json"]')?.textContent;
+    expect(JSON.parse(json ?? "null")).toMatchObject({
+      "@type": "SoftwareApplication",
+      name: "Zorvo",
+      operatingSystem: "macOS",
+      offers: { price: "0" },
+    });
   });
 });
