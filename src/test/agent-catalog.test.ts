@@ -79,6 +79,9 @@ describe("statusLine", () => {
     expect(statusLine(makeCatalogAgent({ id: "a", name: "A", status: "not_installed" }), plan)).toBe(
       "Not installed · Add installs Node.js 24.11.1 (50 MB) and OpenCode 1.19.3",
     );
+    expect(statusLine(makeCatalogAgent({ id: "a", name: "A", status: "not_installed" }), plan, true)).toBe(
+      "Not installed · Install adds Node.js 24.11.1 (50 MB) and OpenCode 1.19.3",
+    );
     expect(
       statusLine(makeCatalogAgent({ id: "a", name: "A", status: "waiting", availableFrom: Date.UTC(2026, 9, 27, 12) / 1000 }), null),
     ).toBe("Available from Oct 27");
@@ -98,20 +101,22 @@ describe("rowActions", () => {
     const base = { id: "a", name: "A" };
     expect(rowActions(a({ ...base, status: "on_your_mac", distribution: "binary", location: "/x" }), true)).toEqual({
       add: false,
+      install: false,
       update: false,
       remove: true,
     });
-    expect(rowActions(a({ ...base, status: "waiting" }), false)).toEqual({ add: false, update: false, remove: false });
-    expect(rowActions(a({ ...base, status: "waiting" }), true)).toEqual({ add: false, update: false, remove: true });
+    expect(rowActions(a({ ...base, status: "waiting" }), false)).toEqual({ add: false, install: false, update: false, remove: false });
+    expect(rowActions(a({ ...base, status: "waiting" }), true)).toEqual({ add: false, install: false, update: false, remove: true });
     expect(rowActions(a({ ...base, status: "unsupported" }), true).remove).toBe(true);
-    expect(rowActions(a({ ...base, status: "by_zorvo", updateVersion: "2" }), true)).toEqual({ add: false, update: true, remove: true });
-    expect(rowActions(a({ ...base, status: "by_zorvo", updateVersion: "2" }), false)).toEqual({ add: true, update: false, remove: false });
+    expect(rowActions(a({ ...base, status: "by_zorvo", updateVersion: "2" }), true)).toEqual({ add: false, install: false, update: true, remove: true });
+    expect(rowActions(a({ ...base, status: "by_zorvo", updateVersion: "2" }), false)).toEqual({ add: true, install: false, update: false, remove: false });
     expect(rowActions(a({ ...base, status: "by_zorvo" }), true).update).toBe(false);
     expect(rowActions(a({ ...base, status: "ready", updateVersion: "2" }), true).update).toBe(true);
-    expect(rowActions(a({ ...base, status: "not_installed" }), false)).toEqual({ add: true, update: false, remove: false });
-    expect(rowActions(a({ ...base, status: "not_installed" }), true)).toEqual({ add: false, update: false, remove: true });
+    expect(rowActions(a({ ...base, status: "not_installed" }), false)).toEqual({ add: true, install: false, update: false, remove: false });
+    expect(rowActions(a({ ...base, status: "not_installed" }), true)).toEqual({ add: false, install: true, update: false, remove: true });
     expect(rowActions(a({ ...base, status: "on_your_mac", location: null, updateVersion: "2" }), true)).toEqual({
       add: false,
+      install: false,
       update: true,
       remove: true,
     });

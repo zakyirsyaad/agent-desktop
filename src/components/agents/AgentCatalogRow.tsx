@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, RotateCcw } from "lucide-react";
+import { Download, Plus, RotateCcw } from "lucide-react";
 import { AgentLogo } from "../AgentLogo";
 import { InstallProgressLine } from "../InstallProgressLine";
 import { Button } from "../ui/Button";
@@ -10,7 +10,7 @@ import type { CatalogAgent, InstallStep } from "../../types";
 export interface AgentCatalogRowProps {
   agent: CatalogAgent;
   isInUse: boolean;
-  /** What Add would install, from the agent's profile; null when nothing or unknown. */
+  /** What Add or Install would install, from the agent's profile; null when nothing or unknown. */
   plan: readonly InstallStep[] | null;
   runningSessionCount: number;
   /** Why the last Remove could not delete Zorvo's copy; kept by the list, as the row moves section. */
@@ -25,7 +25,7 @@ function removeQuestion(name: string, runningSessionCount: number): string {
   return runningSessionCount > 0 ? `${question} Its open sessions stop.` : question;
 }
 
-/** One agent in the catalog: what it is, how it runs here, and Add / Update / Remove. */
+/** One agent in the catalog: what it is, how it runs here, and Add / Install / Update / Remove. */
 export function AgentCatalogRow({
   agent,
   isInUse,
@@ -52,7 +52,7 @@ export function AgentCatalogRow({
           <span className="truncate font-medium text-fg">{agent.name}</span>
           {agent.version && <span className="shrink-0 font-mono text-[11px] text-fg-subtle">{agent.version}</span>}
         </div>
-        <p className="mt-0.5 text-[11px] text-fg-muted">{statusLine(agent, plan)}</p>
+        <p className="mt-0.5 text-[11px] text-fg-muted">{statusLine(agent, plan, isInUse)}</p>
         {agent.description && <p className="mt-1 line-clamp-2 text-[11px] text-fg-subtle">{agent.description}</p>}
 
         {isBusy && <InstallProgressLine progress={job.progress} onCancel={job.cancel} action={job.action} />}
@@ -96,6 +96,11 @@ export function AgentCatalogRow({
         {actions.add && !isBusy && (
           <Button variant="primary" onClick={onAdd} icon={<Plus size={12} aria-hidden="true" />}>
             Add
+          </Button>
+        )}
+        {actions.install && !isBusy && !hasFailed && (
+          <Button variant="primary" onClick={job.install} icon={<Download size={12} aria-hidden="true" />}>
+            Install
           </Button>
         )}
         {actions.update && !isBusy && <Button onClick={onUpdate}>{`Update to ${agent.updateVersion}`}</Button>}

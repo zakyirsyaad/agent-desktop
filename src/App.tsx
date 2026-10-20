@@ -258,7 +258,7 @@ export default function App() {
   });
   // The one instance of Add, Update and Remove: Settings, saved sessions of a removed agent and popouts use it.
   const catalogActions = useAgentCatalogActions({
-    updateState, saveNow, agents, sessions, stopSession: acp.stop, refreshAgents, reloadCatalog: agentCatalog.reload,
+    updateState, saveNow, agents, sessions, stopSession: acp.stop, refreshAgents, catalog: agentCatalog,
   });
 
   /** Tells a user who is away that a session needs them or is done. */

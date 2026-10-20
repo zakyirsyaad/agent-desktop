@@ -39,7 +39,7 @@ export function catalogSections(
   return { inUse, others };
 }
 
-function baseStatusLine(agent: CatalogAgent, plan: readonly InstallStep[] | null): string {
+function baseStatusLine(agent: CatalogAgent, plan: readonly InstallStep[] | null, isInUse: boolean): string {
   switch (agent.status) {
     case 'by_zorvo':
       return 'Installed by Zorvo';
@@ -48,9 +48,8 @@ function baseStatusLine(agent: CatalogAgent, plan: readonly InstallStep[] | null
     case 'ready':
       return `Runs with ${agent.distribution}`;
     case 'not_installed':
-      return plan !== null && plan.length > 0
-        ? `Not installed · Add installs ${describePlan(plan)}`
-        : 'Not installed';
+      if (plan === null || plan.length === 0) return 'Not installed';
+      return `Not installed · ${isInUse ? 'Install adds' : 'Add installs'} ${describePlan(plan)}`;
     case 'waiting':
       return `Available from ${formatAvailableFrom(agent.availableFrom ?? 0)}`;
     case 'unsupported':
@@ -58,19 +57,28 @@ function baseStatusLine(agent: CatalogAgent, plan: readonly InstallStep[] | null
   }
 }
 
-/** The line under an agent's name; `plan` is what Add would install, when known. */
-export function statusLine(agent: CatalogAgent, plan: readonly InstallStep[] | null): string {
-  const line = baseStatusLine(agent, plan);
+/** The line under an agent's name; `plan` is what Add or Install would install, when known. */
+export function statusLine(agent: CatalogAgent, plan: readonly InstallStep[] | null, isInUse = false): string {
+  const line = baseStatusLine(agent, plan, isInUse);
   return agent.listed ? line : `${line} · No longer listed`;
 }
 
+export interface RowActions {
+  add: boolean;
+  /** An agent in use that is not installed yet, such as a default one. */
+  install: boolean;
+  update: boolean;
+  remove: boolean;
+}
+
 /** Which buttons a catalog row offers. */
-export function rowActions(agent: CatalogAgent, isInUse: boolean): { add: boolean; update: boolean; remove: boolean } {
+export function rowActions(agent: CatalogAgent, isInUse: boolean): RowActions {
   const canBeUsed = agent.status !== 'waiting' && agent.status !== 'unsupported';
   // A program managed outside Zorvo with a known location cannot be updated from here.
   const canUpdate = agent.status !== 'on_your_mac' || agent.location === null;
   return {
     add: !isInUse && canBeUsed,
+    install: isInUse && agent.status === 'not_installed',
     update: isInUse && canUpdate && agent.updateVersion !== null,
     remove: isInUse,
   };

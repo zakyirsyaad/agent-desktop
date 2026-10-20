@@ -3,11 +3,12 @@ import { startInstall, startUpdate } from '../lib/agent-installs';
 import { withAgentAdded, withAgentRemoved } from '../lib/agent-catalog';
 import { enabledAgentIds } from '../lib/enabled-agents';
 import { patchSessionIn } from '../lib/session-helpers';
+import type { AgentCatalogHandle } from './useAgentCatalog';
 import type { PersistedStateHandle } from './usePersistedState';
 import type { AgentProfile, Session, Settings } from '../types';
 
 export interface AgentCatalogActions {
-  /** Puts the agent in use, and installs it when its profile is not ready to run. */
+  /** Puts the agent in use, and installs it when the catalog (else its profile) says it is not installed. */
   addAgent: (id: string) => void;
   /** Updates the agent; on success records and saves its version, then reloads profiles and catalog. */
   updateAgent: (id: string) => void;
@@ -25,7 +26,7 @@ export interface AgentCatalogActionsArgs {
   /** The ACP engine's stop: resolves false when the agent could not be stopped (already reported). */
   stopSession: (sessionId: string) => Promise<boolean>;
   refreshAgents: () => Promise<void>;
-  reloadCatalog: () => Promise<void>;
+  catalog: Pick<AgentCatalogHandle, 'catalog' | 'reload'>;
 }
 
 const ignore = () => {
@@ -40,18 +41,27 @@ export function useAgentCatalogActions({
   sessions,
   stopSession,
   refreshAgents,
-  reloadCatalog,
+  catalog,
 }: AgentCatalogActionsArgs): AgentCatalogActions {
+  const reloadCatalog = catalog.reload;
+
   const updateSettings = (change: (settings: Settings) => Settings) =>
     updateState((prev) => ({ ...prev, settings: change(prev.settings) }));
 
   const runningSessionsOf = (id: string) =>
     sessions.filter((session) => session.profileId === id && session.status === 'running');
 
+  /** The catalog row is read fresh from the backend; a profile can lag behind it. */
+  const needsInstall = (id: string) => {
+    const row = catalog.catalog?.agents.find((agent) => agent.id === id);
+    if (row) return row.status === 'not_installed';
+    const profile = agents.find((agent) => agent.id === id);
+    return profile !== undefined && profile.availability !== 'ready';
+  };
+
   const addAgent = (id: string) => {
     updateSettings((settings) => withAgentAdded(settings, id, enabledAgentIds(settings)));
-    const profile = agents.find((agent) => agent.id === id);
-    if (profile && profile.availability !== 'ready') startInstall(id);
+    if (needsInstall(id)) startInstall(id);
   };
 
   /** Rejects when the version could not be saved: the profiles would then be read from the old file. */

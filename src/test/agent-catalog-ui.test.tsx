@@ -167,7 +167,7 @@ function Harness() {
     sessions: persisted.state.sessions,
     stopSession: () => Promise.resolve(true),
     refreshAgents: refresh,
-    reloadCatalog: catalog.reload,
+    catalog,
   });
   return (
     <AppSettingsDialog
@@ -248,6 +248,51 @@ describe("Catalog actions — Add", () => {
     expect(await within(row("Gemini CLI")).findByText("Install failed: network down")).toBeInTheDocument();
     expect(within(row("Gemini CLI")).getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(within(section(/^In use/)).getByRole("listitem", { name: "Gemini CLI" })).toBeInTheDocument();
+  });
+});
+
+describe("Catalog actions — Install", () => {
+  it("offers Install for an agent in use that is not installed, with progress, Cancel and Retry", async () => {
+    (fakeStore().state.settings as Partial<Settings>).enabledAgents = ["claude-acp", "gemini"];
+    let failInstall: (reason: string) => void = () => {};
+    const spy = spyOnBackend((cmd, args) =>
+      cmd === "install_agent" ? new Promise((_, reject) => (failInstall = reject)) : withGemini(cmd, args),
+    );
+    await openAgentsTab();
+    const gemini = () => within(section(/^In use/)).getByRole("listitem", { name: "Gemini CLI" });
+    expect(gemini()).toHaveTextContent("Not installed · Install adds Gemini CLI 0.2.0");
+    expect(within(gemini()).queryByRole("button", { name: "Add" })).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(within(gemini()).getByRole("button", { name: "Install" }));
+    });
+
+    await waitFor(() => expect(callsTo(spy, "install_agent")).toEqual([["install_agent", { agentId: "gemini" }]]));
+    expect(within(gemini()).getByText("Starting the install…")).toBeInTheDocument();
+    expect(within(gemini()).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(within(gemini()).queryByRole("button", { name: "Install" })).toBeNull();
+
+    await act(async () => failInstall("network down"));
+
+    expect(await within(gemini()).findByText("Install failed: network down")).toBeInTheDocument();
+    expect(within(gemini()).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(within(gemini()).queryByRole("button", { name: "Install" })).toBeNull();
+  });
+
+  it("installs on Add when the catalog says the agent is not installed, though its profile says ready", async () => {
+    const readyGemini = { ...geminiProfile, availability: "ready" as const };
+    const spy = spyOnBackend((cmd) => {
+      if (cmd === "install_agent") return new Promise(() => {});
+      if (cmd === "get_agent_profiles") return Promise.resolve([...structuredClone(fakeProfiles), readyGemini]);
+      return undefined;
+    });
+    await openAgentsTab();
+
+    await act(async () => {
+      fireEvent.click(within(row("Gemini CLI")).getByRole("button", { name: "Add" }));
+    });
+
+    await waitFor(() => expect(callsTo(spy, "install_agent")).toEqual([["install_agent", { agentId: "gemini" }]]));
   });
 });
 
