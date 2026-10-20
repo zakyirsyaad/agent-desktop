@@ -2,7 +2,7 @@
  * Builds the Markdown handoff document used to fork a conversation into a new
  * agent session, plus the one-line prompt that points the new agent at it.
  *
- * The prompt must stay on one line: text typed into an agent TUI through a PTY
+ * The prompt must stay on one line: text typed into an agent's input
  * is submitted at the first newline.
  */
 import type { ChatMessage } from "../types";

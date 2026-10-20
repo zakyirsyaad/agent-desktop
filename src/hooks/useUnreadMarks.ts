@@ -4,7 +4,7 @@ import type { Session } from '../types';
 /**
  * Marks a session unread when its agent stops working while another session
  * is open, and clears the mark when the session is opened. "Stops working"
- * covers every agent alike: an ACP turn ending, or a terminal agent going quiet.
+ * is an ACP turn ending.
  */
 export function useUnreadMarks(
   sessions: readonly Session[],

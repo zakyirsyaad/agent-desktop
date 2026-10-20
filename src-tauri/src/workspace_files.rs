@@ -29,7 +29,7 @@ const SKIPPED_FOLDERS: &[&str] = &[
 ];
 
 /// True for a name the composer can offer: no control characters, which a
-/// terminal agent would take as keys (Enter, Ctrl-C) rather than text.
+/// terminal would take as keys (Enter, Ctrl-C) rather than text.
 fn is_plain_name(path: &str) -> bool {
     !path.chars().any(char::is_control)
 }

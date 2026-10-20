@@ -22,7 +22,7 @@ export const LEGACY_AGENT_IDS: Readonly<Record<string, string>> = {
   codex: 'codex-acp',
 };
 
-/** Terminal agents that no longer exist; saved settings that name them are cleaned on load. */
+/** Removed agents (Oh-My-Pi and Aider); saved settings that name them are cleaned on load. */
 export const REMOVED_AGENT_IDS: readonly string[] = ['omp', 'aider'];
 
 function isRemovedAgent(id: string): boolean {

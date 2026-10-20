@@ -229,11 +229,11 @@ All systems ready for compilation.`,
     render(
       <ChatCanvas
         messages={mockMessages}
-        agentName="Aider"
+        agentName="Codex"
       />
     );
 
-    expect(screen.getByText("Aider")).toBeDefined();
+    expect(screen.getByText("Codex")).toBeDefined();
     expect(screen.queryByText("Claude Code")).toBeNull();
   });
 

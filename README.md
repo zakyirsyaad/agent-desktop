@@ -8,8 +8,8 @@
 **Every coding agent. One desktop.**
 
 A desktop app for the coding agents you already use. Qwen Code, Claude Code
-and Codex run in a real chat UI, and terminal agents (Oh-My-Pi, Aider) run in
-their own terminal. It is like Claude Code Desktop, but for whichever agent
+and Codex run in a real chat UI, and so does every other agent in the ACP
+registry. It is like Claude Code Desktop, but for whichever agent
 you have.
 
 - [Highlights](#highlights)
@@ -34,8 +34,8 @@ you have.
   - a diff of every file change;
   - slash commands and context usage;
   - sessions that resume after a restart.
-- **Terminal agents stay terminals.** Oh-My-Pi and Aider run as their real
-  TUI in the main view.
+- **Sign in from inside Zorvo.** An agent's own login runs in a terminal in
+  the app.
 - **Workspaces and sessions.** Sessions are grouped by folder, titled from
   the first message, and saved on disk. You can rename, pin and archive them.
   An unread mark shows which agent finished while you were elsewhere, and a
@@ -65,17 +65,17 @@ Settings. Only the agents in use show up: Claude Code, Codex and Qwen Code by
 default, plus any registry agent that is already installed on your Mac. Adding
 other registry agents comes in a later release. A new version of an agent is
 offered a week after it was published, and never one the registry has
-withdrawn. Oh-My-Pi and Aider are terminal agents that Zorvo defines itself.
+withdrawn.
 
-| | Qwen Code | Claude Code | Codex | Oh-My-Pi | Aider |
-|---|---|---|---|---|---|
-| Runs as | ACP agent via `npx` | ACP agent via `npx` | ACP agent via `npx` | its TUI (`omp`) | its TUI (`aider`) |
-| View | chat | chat | chat | terminal | terminal |
-| Models, effort, modes | from the agent | from the agent | from the agent | flags at start | model flag at start |
-| Approvals | in the chat | in the chat | in the chat | detected `[y/n]` prompts | in its terminal |
-| Resume after a restart | when the agent can load sessions | when the agent can load sessions | when the agent can load sessions | — | — |
-| Rewind | yes | yes | yes | — | — |
-| Fork | yes | yes | yes | yes, by handoff | yes, by handoff |
+| | Qwen Code | Claude Code | Codex |
+|---|---|---|---|
+| Runs as | ACP agent via `npx` | ACP agent via `npx` | ACP agent via `npx` |
+| View | chat | chat | chat |
+| Models, effort, modes | from the agent | from the agent | from the agent |
+| Approvals | in the chat | in the chat | in the chat |
+| Resume after a restart | when the agent can load sessions | when the agent can load sessions | when the agent can load sessions |
+| Rewind | yes | yes | yes |
+| Fork | yes | yes | yes |
 
 The ACP agents report their own models, efforts and approval modes for each
 session, so the app offers whatever your install has. An agent that cannot
@@ -103,7 +103,6 @@ the new agent is asked to read it.
   | Qwen Code | `npm i -g @qwen-code/qwen-code` | run `qwen` once |
   | Claude Code | `npm i -g @anthropic-ai/claude-code` | `claude`, then `/login` |
   | Codex | `npm i -g @openai/codex` | `codex login` (or the app's sign-in panel) |
-  | Oh-My-Pi / Aider | required; see their docs | — |
 
 - **Optional: the [GitHub CLI](https://cli.github.com)**, signed in with
   `gh auth login`, for pull request status. Without it, that part is hidden.
@@ -193,7 +192,7 @@ or runs commands.
 
 | Problem | What to try |
 |---|---|
-| An agent shows as not installed | Choose it in a new session's agent picker (it is labelled "(not installed)") and click **Install**. Zorvo brings Node.js when yours is missing or older than 22, and `uv` for agents that need it. A registry agent also counts as installed when its binary is on your `PATH` or its npm package is installed globally. For Oh-My-Pi and Aider, check that `which omp` (or `aider`) works in a new terminal. Then click **Check again** in Settings. |
+| An agent shows as not installed | Choose it in a new session's agent picker (it is labelled "(not installed)") and click **Install**. Zorvo brings Node.js when yours is missing or older than 22, and `uv` for agents that need it. A registry agent also counts as installed when its binary is on your `PATH` or its npm package is installed globally. Then click **Check again** in Settings. |
 | "Sign in to *agent*": the agent needs you to sign in before it can start | Use a sign-in method the panel offers, or sign in once in a terminal (see [Requirements](#requirements)), then send your message again. |
 | Claude Code, Codex or Qwen Code does not start | When you click **Install** and your Node.js is missing or older than 22, Zorvo installs Node.js for them. The first start downloads the agent's pinned package, so it can take a moment. |
 | No pull request status | Install `gh` and run `gh auth login`. A repository without a GitHub remote has none to show. |
@@ -206,21 +205,18 @@ or runs commands.
 flowchart LR
   UI["React UI<br/>(src/)"] <-- "Tauri commands<br/>and events" --> Core["Rust backend<br/>(src-tauri/)"]
   Core -- "ACP: JSON-RPC over stdio" --> ACP["Qwen Code · Claude Code · Codex"]
-  Core -- "PTY" --> TUI["Oh-My-Pi · Aider"]
   Core -- "git · gh" --> Repo[("Your repository")]
   Core --> Store[("state.json<br/>transcripts/")]
 ```
 
-- **The frontend** (`src/`, React 19 and Tailwind). `App.tsx` picks a session
-  engine: `hooks/session-engine/useAcpEngine.ts` for ACP agents and
-  `usePtyEngine.ts` for terminal agents.
+- **The frontend** (`src/`, React 19 and Tailwind). Every session
+  is an ACP chat, run by `hooks/session-engine/useAcpEngine.ts`.
 - **The backend** (`src-tauri/src/`, Tauri 2):
   - `acp/`: the ACP client;
-  - `pty_session.rs`: terminal agents;
+  - `pty_session.rs`: the terminal an agent's own sign-in runs in;
   - `registry/`: the ACP agent registry, its dated version history and the
     agents you use;
-  - `profiles.rs`: the terminal agents (Oh-My-Pi and Aider) and how they are
-    found;
+  - `profiles.rs`: the agent profiles and how agents are found;
   - `store.rs`: state and transcripts;
   - `changes.rs` and `worktrees.rs`: git;
   - `pull_requests.rs`: `gh`.

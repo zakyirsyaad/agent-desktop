@@ -6,4 +6,4 @@
 
 They are shown only to name the agent a session runs; the logos and names
 are trademarks of their owners (Anthropic, Alibaba Cloud, OpenAI). Agents
-without an official logo here (Oh-My-Pi, Aider) get a generic icon.
+without an official logo here get a generic icon.

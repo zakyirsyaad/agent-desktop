@@ -1,6 +1,6 @@
 /**
- * Raw output of terminal sessions, kept in memory so a terminal opened (or
- * re-opened) later can replay what the agent drew before and stay in sync.
+ * Raw output of sign-in terminals, kept in memory so a terminal opened (or
+ * re-opened) later can replay what the login program drew before and stay in sync.
  *
  * Replay and subscription happen synchronously in one task, so a terminal
  * never misses or repeats a chunk between the two.
@@ -13,7 +13,7 @@ export interface PtyOutputStore {
   forget: (sessionId: string) => void;
 }
 
-/** Enough scrollback for a long session; a TUI redraws its screen often, so old output is rarely needed. */
+/** Enough scrollback for a long session; a terminal program redraws its screen often, so old output is rarely needed. */
 const DEFAULT_MAX_CHARS = 2_000_000;
 
 interface Buffer {

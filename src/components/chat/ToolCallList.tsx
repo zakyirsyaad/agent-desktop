@@ -3,7 +3,7 @@ import { Check, Clock, Wrench } from "lucide-react";
 import type { ToolExecution } from "../../types";
 import { ToolDetails } from "./ToolDetails";
 
-/** Terminal agents report `Name(args)`; ACP agents give a ready-made title. */
+/** A tool with arguments is shown as `Name(args)`; ACP agents usually give a ready-made title. */
 function toolLabel(tool: ToolExecution): string {
   return tool.args ? `${tool.name}(${tool.args})` : tool.name;
 }

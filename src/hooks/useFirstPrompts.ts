@@ -11,7 +11,7 @@ export interface FirstPrompts {
 }
 
 /**
- * Delivers a first prompt to a freshly started agent. Typing into an agent TUI
+ * Delivers a first prompt to a freshly started agent. Typing into an agent
  * while it is still booting can be lost, so the prompt waits until the agent
  * produced output and then stayed idle (see `useAgentActivity`).
  */

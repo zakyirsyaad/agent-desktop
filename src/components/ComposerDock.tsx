@@ -42,7 +42,7 @@ export interface ComposerHandle {
 export interface ComposerDockProps {
   /** Dropdowns to show; each is omitted when the agent offers no real choice. */
   controls?: ComposerControls;
-  /** True for a running terminal session: its flags were fixed when it started. */
+  /** True when the session's options were fixed when it started. */
   optionsLocked?: boolean;
   /** True while the agent is working on a turn. */
   isThinking?: boolean;
@@ -102,8 +102,8 @@ export function ComposerDock({
   const [isMenuDismissed, setIsMenuDismissed] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null);
   const [wasAttachingAsFiles, setWasAttachingAsFiles] = useState(attachAsFiles);
-  // A terminal agent only takes text, so files attached for an ACP agent move
-  // into the prompt as paths when the agent changes to a terminal one.
+  // Files attached while the composer sends them as files move into the
+  // prompt as paths when it stops doing so.
   if (wasAttachingAsFiles !== attachAsFiles) {
     setWasAttachingAsFiles(attachAsFiles);
     if (!attachAsFiles && attachments.length > 0) {

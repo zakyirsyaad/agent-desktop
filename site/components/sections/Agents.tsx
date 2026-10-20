@@ -63,56 +63,6 @@ function ChatPanel() {
   );
 }
 
-function TerminalTab({ name, isActive }: { name: string; isActive: boolean }) {
-  const look = isActive ? "bg-terminal-tab text-terminal-fg-strong" : "text-terminal-fg-subtle";
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-[11px] leading-4 ${look}`}>
-      <Icon name="bot" className={isActive ? "text-terminal-fg-muted" : ""} />
-      {name}
-    </span>
-  );
-}
-
-function TerminalPanel() {
-  return (
-    <article
-      aria-labelledby="agents-terminal"
-      className="flex min-w-0 flex-[1_1_420px] flex-col overflow-hidden rounded-xl border border-terminal-border bg-terminal-bg"
-    >
-      <div
-        role="img"
-        aria-label="Aider running in its own terminal tab, next to an Oh-My-Pi tab"
-        className="flex flex-1 flex-col"
-      >
-        <div className="flex items-center gap-1 border-b border-terminal-border px-2.5 py-2">
-          <TerminalTab name="Aider" isActive />
-          <TerminalTab name="Oh-My-Pi" isActive={false} />
-        </div>
-        <div className="flex min-h-[120px] flex-1 flex-col gap-1 px-6 py-[22px] font-mono text-xs leading-[18px] text-terminal-fg">
-          <div>
-            <span className="text-terminal-fg-subtle">~/zorvo %</span> aider
-          </div>
-          <div className="pt-1.5">
-            <span className="inline-block h-4 w-2 bg-terminal-fg align-[-3px]" />
-          </div>
-        </div>
-      </div>
-      <div className="flex flex-col gap-2.5 border-t border-terminal-border px-5 pt-6 pb-7 sm:px-7">
-        <div className="flex items-center gap-2.5 text-terminal-fg-strong">
-          <Icon name="square-terminal" size={18} />
-          <h3 id="agents-terminal" className="m-0 text-xl leading-7 font-semibold tracking-[-0.02em] text-terminal-fg-strong">
-            In their own terminal
-          </h3>
-        </div>
-        <p className="m-0 text-sm leading-[22px] text-terminal-fg-muted">
-          Aider and Oh-My-Pi run as their real TUI in the main view. Zorvo spots Oh-My-Pi&apos;s
-          [y/n] prompts, and forks either one by handoff.
-        </p>
-      </div>
-    </article>
-  );
-}
-
 export function Agents() {
   return (
     <section id="agents" aria-labelledby="agents-title" className="py-[72px] md:py-28">
@@ -121,12 +71,11 @@ export function Agents() {
           id="agents-title"
           eyebrow="agents"
           title="Bring the agent you already use."
-          lead="Zorvo meets each agent where it lives. Agents that speak ACP get a real chat. Terminal agents keep their terminal."
+          lead="Zorvo runs each agent that speaks ACP as a real chat, with its own models, modes and approvals."
           className="max-w-[600px]"
         />
         <div className="flex flex-wrap items-stretch gap-4">
           <ChatPanel />
-          <TerminalPanel />
         </div>
         <p className="t-caption m-0">
           Each agent reports its own models and modes, so Zorvo offers whatever your install has.

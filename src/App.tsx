@@ -127,7 +127,7 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeAgent = agents.find((a) => a.id === activeSession?.profileId);
   const isActiveRunning = activeSession?.status === "running";
-  // Only the agents in use are offered: the defaults, installed ones and the terminal agents found.
+  // Only the agents in use are offered: the defaults and installed ones.
   const agentsInUse = agents.filter((agent) => isInUse(agent, state.settings));
   // A registry agent not installed yet is offered too: picking it shows its Install panel.
   const pickableAgents = agentsInUse.filter((agent) => agent.source === "registry" || agent.detected);

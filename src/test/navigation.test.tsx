@@ -447,7 +447,7 @@ describe("Navigation and Layout Components", () => {
 
       expect(screen.getAllByText(/ai-perpetual-trading/i).length).toBeGreaterThan(0);
       expect(screen.getByPlaceholderText(/search/i)).toBeDefined();
-      // Terminal agents show their screen as the main view, so the main window has no drawer.
+      // The main window has no terminal drawer.
       expect(screen.queryByRole("button", { name: /toggle terminal/i })).toBeNull();
     });
   });

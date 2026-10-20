@@ -12,7 +12,7 @@ const CREATED_AT = Date.UTC(2026, 9, 16, 10, 30, 0);
 
 const meta: ForkHandoffMeta = {
   sourceSessionName: "zorvo / feat-real-ui-chat",
-  agentName: "Aider",
+  agentName: "Codex",
   cwd: "/Users/test/developer/zorvo",
   createdAt: CREATED_AT,
 };

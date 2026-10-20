@@ -92,7 +92,7 @@ fn test_e2e_pty_interactive_approval_and_zero_harness_mutation() {
     let profiles = get_available_agent_profiles();
     assert!(
         !profiles.is_empty(),
-        "Agent profiles must not be empty (should contain default profiles)"
+        "Agent profiles must not be empty (should contain the registry profiles)"
     );
 
     let env_vars = resolve_user_env().expect("Should resolve user environment");
