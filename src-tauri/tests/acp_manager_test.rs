@@ -1544,6 +1544,30 @@ fn stop_answers_open_requests_with_cancel() {
 }
 
 #[test]
+fn cancel_answers_open_requests_before_cancelling_the_turn() {
+    let (manager, rx, _opened) = recording_manager();
+    let log = method_log("elicit-cancel-order");
+    let launch = with_env(fake_agent(), "FAKE_ACP_ARRIVAL_LOG", log.to_str().unwrap());
+    manager.start("s-1", &cwd(), &launch).unwrap();
+    manager.prompt("s-1", "elicit-form", &[]).unwrap();
+    next_key(&rx, "s-1");
+
+    manager.cancel("s-1").expect("cancel");
+
+    assert!(
+        eventually_called(&log, "session/cancel"),
+        "{:?}",
+        methods_in(&log)
+    );
+    let arrivals = methods_in(&log);
+    let position = |line: &str| arrivals.iter().position(|arrived| arrived == line);
+    let answered = position(r#"reply elic-1 {"action":"cancel"}"#);
+    let cancelled = position("session/cancel");
+    assert!(answered.is_some() && answered < cancelled, "{arrivals:?}");
+    manager.stop("s-1");
+}
+
+#[test]
 fn cancel_keeps_an_accepted_url_request() {
     let (manager, rx, opened, key) = started_with("elicit-url");
     manager

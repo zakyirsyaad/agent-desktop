@@ -300,6 +300,11 @@ if (process.argv.includes("--login")) {
 
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
+  // FAKE_ACP_ARRIVAL_LOG: records every method called and every reply, in the order they arrive.
+  if (process.env.FAKE_ACP_ARRIVAL_LOG) {
+    const entry = message.method ?? `reply ${message.id} ${JSON.stringify(message.result ?? message.error)}`;
+    appendFileSync(process.env.FAKE_ACP_ARRIVAL_LOG, `${entry}\n`);
+  }
   // FAKE_ACP_METHOD_LOG: records each method the client called, one per line.
   if (process.env.FAKE_ACP_METHOD_LOG && message.method) appendFileSync(process.env.FAKE_ACP_METHOD_LOG, `${message.method}\n`);
   if (message.method === "session/cancel" && pendingSlow) {
