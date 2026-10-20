@@ -36,8 +36,7 @@ describe("installPanelAgentOf", () => {
     expect(installPanelAgentOf(session({}), ready, notInstalled)).toBeUndefined();
   });
 
-  it("shows nothing over a running chat or an old terminal session", () => {
+  it("shows nothing over a running chat", () => {
     expect(installPanelAgentOf(session({ status: "running" }), notInstalled, notInstalled)).toBeUndefined();
-    expect(installPanelAgentOf(session({ transport: "pty" }), notInstalled, notInstalled)).toBeUndefined();
   });
 });

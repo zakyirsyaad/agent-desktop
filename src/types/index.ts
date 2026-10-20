@@ -15,7 +15,7 @@ export interface AgentProfile {
   acp_program?: string | null;
   acp_args: string[];
   acp_program_path?: string | null;
-  source: 'registry' | 'builtin';
+  source: 'registry';
   version: string | null;
   distribution: 'npx' | 'uvx' | 'binary' | null;
   availability: AgentAvailability;
@@ -161,7 +161,6 @@ export interface PermissionChoice {
 export interface ToolExecution {
   id: string;
   name: string;
-  args: string;
   status: 'running' | 'completed' | 'failed';
   /** ACP tool kind, e.g. "read", "edit", "execute". */
   kind?: string;

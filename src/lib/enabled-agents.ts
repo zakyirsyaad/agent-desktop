@@ -24,7 +24,7 @@ export function withAutoEnabled(settings: Settings, agents: readonly AgentProfil
   const removed = settings.removedAgents ?? [];
   const enabled = enabledAgentIds(settings);
   const installed = agents
-    .filter((a) => a.source === "registry" && a.installed_on_system)
+    .filter((a) => a.installed_on_system)
     .map((a) => a.id)
     .filter((id) => !enabled.includes(id) && !removed.includes(id));
   const nextEnabled = installed.length > 0 ? [...new Set([...enabled, ...installed])] : enabled;
@@ -32,7 +32,7 @@ export function withAutoEnabled(settings: Settings, agents: readonly AgentProfil
   const known = settings.agentVersions ?? {};
   const newVersions = Object.fromEntries(
     agents
-      .filter((a) => a.source === "registry" && a.version && nextEnabled.includes(a.id) && !(a.id in known))
+      .filter((a) => a.version && nextEnabled.includes(a.id) && !(a.id in known))
       .map((a) => [a.id, a.version as string]),
   );
   const hasNewVersions = Object.keys(newVersions).length > 0;

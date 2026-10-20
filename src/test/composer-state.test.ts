@@ -37,23 +37,19 @@ describe("composerPlaceholder", () => {
 describe("composerCommandsFor", () => {
   const live: SlashCommand[] = [{ name: "init", description: "Set up" }];
   const remembered: SlashCommand[] = [{ name: "review", description: "Review" }];
-  const acpSession = { transport: TRANSPORT_ACP } as Session;
   const acpAgent = { id: "qwen" } as AgentProfile;
   const options = { qwen: { modes: null, configOptions: [], commands: remembered } };
 
-  it("offers a live ACP session's own commands, and an old terminal session's none", () => {
-    expect(composerCommandsFor({ session: acpSession, isRunning: true, liveCommands: live, draftAgent: acpAgent, agentOptions: options })).toBe(live);
-    expect(
-      composerCommandsFor({ session: { transport: "pty" } as Session, isRunning: true, liveCommands: live, draftAgent: acpAgent, agentOptions: options }),
-    ).toBeUndefined();
+  it("offers a running session's own commands", () => {
+    expect(composerCommandsFor({ isRunning: true, liveCommands: live, draftAgent: acpAgent, agentOptions: options })).toBe(live);
   });
 
   it("offers the commands an ACP agent reported last time before it runs", () => {
-    expect(composerCommandsFor({ session: undefined, isRunning: false, liveCommands: undefined, draftAgent: acpAgent, agentOptions: options })).toBe(
+    expect(composerCommandsFor({ isRunning: false, liveCommands: undefined, draftAgent: acpAgent, agentOptions: options })).toBe(
       remembered,
     );
     expect(
-      composerCommandsFor({ session: undefined, isRunning: false, liveCommands: undefined, draftAgent: { id: "other" } as AgentProfile, agentOptions: options }),
+      composerCommandsFor({ isRunning: false, liveCommands: undefined, draftAgent: { id: "other" } as AgentProfile, agentOptions: options }),
     ).toBeUndefined();
   });
 });
@@ -103,12 +99,6 @@ describe("composerStateFor", () => {
     agentOptions: undefined,
     acp,
     ...overrides,
-  });
-
-  it("offers an old terminal session no controls", () => {
-    const state = composerStateFor(inputs({ session: running("pty"), draftAgent }));
-
-    expect(state).toEqual({ controls: {} });
   });
 
   it("builds a running ACP session's controls from what its agent reported", () => {

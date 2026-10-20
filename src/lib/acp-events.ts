@@ -117,7 +117,6 @@ function addToolCall(messages: readonly ChatMessage[], update: Json, ctx: AcpRed
   const tool: ToolExecution = {
     id,
     name: str(update.title) ?? 'Tool',
-    args: '',
     status: toToolStatus(update.status) ?? 'running',
     kind: str(update.kind),
     details: toDetails(update.content),

@@ -9,7 +9,7 @@ export function makeProfile(overrides: Partial<AgentProfile> & Pick<AgentProfile
     acp_program: null,
     acp_args: [],
     acp_program_path: null,
-    source: "builtin",
+    source: "registry",
     version: null,
     distribution: null,
     availability: "ready",

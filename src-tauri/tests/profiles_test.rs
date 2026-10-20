@@ -1,6 +1,11 @@
 use std::collections::BTreeMap;
 
-use zorvo_lib::profiles::{agent_profile, get_available_agent_profiles, AgentProfile};
+use zorvo_lib::profiles::{agent_profile, agent_profiles, AgentProfile};
+
+/// Every agent at its offered version, as on a first launch.
+fn offered_profiles() -> Vec<AgentProfile> {
+    agent_profiles(&BTreeMap::new())
+}
 
 fn find<'a>(profiles: &'a [AgentProfile], id: &str) -> &'a AgentProfile {
     profiles
@@ -10,8 +15,8 @@ fn find<'a>(profiles: &'a [AgentProfile], id: &str) -> &'a AgentProfile {
 }
 
 #[test]
-fn test_get_available_agent_profiles_contains_defaults() {
-    let profiles = get_available_agent_profiles();
+fn test_offered_profiles_contain_defaults() {
+    let profiles = offered_profiles();
 
     // The default registry agents, from the bundle with no catalog installed.
     for id in ["claude-acp", "codex-acp", "qwen-code"] {
@@ -24,7 +29,7 @@ fn test_get_available_agent_profiles_contains_defaults() {
 
 #[test]
 fn test_every_listed_profile_comes_from_the_registry() {
-    let profiles = get_available_agent_profiles();
+    let profiles = offered_profiles();
 
     assert!(!profiles.is_empty());
     assert!(profiles.iter().all(|p| p.source == "registry"));
@@ -32,7 +37,7 @@ fn test_every_listed_profile_comes_from_the_registry() {
 
 #[test]
 fn test_profile_ids_are_unique() {
-    let profiles = get_available_agent_profiles();
+    let profiles = offered_profiles();
     let mut ids: Vec<&str> = profiles.iter().map(|p| p.id.as_str()).collect();
     let unique = ids.len();
     ids.sort_unstable();
@@ -42,7 +47,7 @@ fn test_profile_ids_are_unique() {
 
 #[test]
 fn test_npx_registry_agents_are_pinned_to_exact_versions() {
-    let profiles = get_available_agent_profiles();
+    let profiles = offered_profiles();
     let npx: Vec<&AgentProfile> = profiles
         .iter()
         .filter(|p| p.distribution.as_deref() == Some("npx"))
@@ -65,7 +70,7 @@ fn test_npx_registry_agents_are_pinned_to_exact_versions() {
 
 #[test]
 fn test_registry_profiles_are_detected_exactly_when_ready_and_plan_otherwise() {
-    let profiles = get_available_agent_profiles();
+    let profiles = offered_profiles();
     let registry: Vec<&AgentProfile> = profiles.iter().filter(|p| p.source == "registry").collect();
     assert!(!registry.is_empty());
 
@@ -82,7 +87,7 @@ fn test_registry_profiles_are_detected_exactly_when_ready_and_plan_otherwise() {
 #[test]
 fn test_agent_profile_matches_the_listed_profile_for_each_id() {
     let none = BTreeMap::new();
-    for listed in get_available_agent_profiles() {
+    for listed in offered_profiles() {
         assert_eq!(agent_profile(&listed.id, &none).as_ref(), Some(&listed));
     }
     assert_eq!(agent_profile("no-such-agent", &none), None);

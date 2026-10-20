@@ -2,7 +2,6 @@ import { useState } from "react";
 import { BookOpen, CircleAlert, CircleCheck, RefreshCw } from "lucide-react";
 import { RECHECK_ERROR, installHintFor, isAgentReady, type AgentSummary } from "../../lib/agent-readiness";
 import { Button } from "../ui/Button";
-import { CopyButton } from "./CopyButton";
 
 export interface AgentsStepProps {
   agents: readonly AgentSummary[];
@@ -11,22 +10,11 @@ export interface AgentsStepProps {
 
 
 function InstallHintRow({ agent }: { agent: AgentSummary }) {
-  const hint = installHintFor(agent);
-  if (hint.kind === "docs") {
-    return (
-      <p className="mt-2 flex items-center gap-1.5 text-[11px] text-fg-muted">
-        <BookOpen size={12} aria-hidden="true" />
-        {hint.text}
-      </p>
-    );
-  }
   return (
-    <div className="mt-2 flex items-center gap-2">
-      <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-bg px-2 py-1 font-mono text-[11px] text-fg-secondary">
-        {hint.command}
-      </code>
-      <CopyButton text={hint.command} label={`Copy install command for ${agent.name}`} />
-    </div>
+    <p className="mt-2 flex items-center gap-1.5 text-[11px] text-fg-muted">
+      <BookOpen size={12} aria-hidden="true" />
+      {installHintFor(agent)}
+    </p>
   );
 }
 

@@ -100,19 +100,15 @@ export function noAgentNotice(agentsInUse: readonly AgentSummary[]): string {
   return `No agent is ready. ${joinNames(installable.map((agent) => agent.name))} ${verb} not installed yet. ${action}`;
 }
 
-export type InstallHint =
-  | { kind: "command"; command: string }
-  | { kind: "docs"; text: string };
-
 /** An agent whose Install sets up Node.js: this Mac has none, or one older than 22. */
 export const NODE_HINT = "Needs Node.js 22 or newer. Zorvo installs it when you click Install in a new session.";
 
 /** A registry agent Zorvo can download for this Mac. */
 export const INSTALLABLE_HINT = "Zorvo installs it when you click Install in a new session.";
 
-/** How to install a missing agent; agents without a verified command get a docs pointer. */
-export function installHintFor(agent: AgentSummary): InstallHint {
-  if (needsNode(agent)) return { kind: "docs", text: NODE_HINT };
-  if (canInstall(agent)) return { kind: "docs", text: INSTALLABLE_HINT };
-  return { kind: "docs", text: `See the ${agent.name} documentation for install steps.` };
+/** How to install a missing agent: with Install when Zorvo can, else from its own documentation. */
+export function installHintFor(agent: AgentSummary): string {
+  if (needsNode(agent)) return NODE_HINT;
+  if (canInstall(agent)) return INSTALLABLE_HINT;
+  return `See the ${agent.name} documentation for install steps.`;
 }

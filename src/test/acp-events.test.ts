@@ -75,7 +75,7 @@ describe("applyAcpUpdate", () => {
     );
 
     expect(started[0].tools).toEqual([
-      { id: "t-1", name: "Read src/App.tsx", args: "", status: "running", kind: "read" },
+      { id: "t-1", name: "Read src/App.tsx", status: "running", kind: "read" },
     ]);
     expect(finished[0].tools?.[0].status).toBe("completed");
   });

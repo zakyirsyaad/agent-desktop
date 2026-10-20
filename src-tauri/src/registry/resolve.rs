@@ -356,7 +356,6 @@ pub fn resolve_profile(entry: &RegistryEntry, tools: &SystemTools, listed: bool)
     profile.acp_program_path = program_path;
     profile.acp_path_prepend = prepend;
     profile.acp_path_append = append;
-    profile.source = SOURCE_REGISTRY.to_string();
     profile.version = Some(entry.version.clone());
     profile.distribution = Some(resolution.kind.to_string());
     profile.availability = availability.to_string();

@@ -32,7 +32,6 @@ import {
 import { isAwaitingPermission } from "./lib/acp-events";
 import {
   folderNameOf,
-  isAcpSession as isAcp,
   isListed,
   isAutoName,
   workspacePathOf,
@@ -129,8 +128,8 @@ export default function App() {
   const isActiveRunning = activeSession?.status === "running";
   // Only the agents in use are offered: the defaults and installed ones.
   const agentsInUse = agents.filter((agent) => isInUse(agent, state.settings));
-  // A registry agent not installed yet is offered too: picking it shows its Install panel.
-  const pickableAgents = agentsInUse.filter((agent) => agent.source === "registry" || agent.detected);
+  // An agent not installed yet is offered too: picking it shows its Install panel.
+  const pickableAgents = agentsInUse;
   const defaultAgentId = resolveDraftAgentId(agentsInUse, state.settings.defaultAgentId, pickableAgents);
   const newSessionAgentId = pickableAgents.find((a) => a.id === pickedAgentId)?.id ?? defaultAgentId;
   const newSessionAgent = agents.find((a) => a.id === newSessionAgentId);
@@ -150,7 +149,7 @@ export default function App() {
   // An ended ACP session continues with its own agent: in the agent's own
   // session when it has one, else (rewound) in a fresh one handed the conversation.
   const isResumable =
-    isAcp(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
+    Boolean(activeSession) && activeSession?.status !== "running" && activeAgent?.detected === true;
   const draftAgent = isResumable ? activeAgent : newSessionAgent;
   const isDraftAgentReady = draftAgent ? isAgentRunnable(draftAgent) : false;
   const installPanelAgent = installPanelAgentOf(activeSession, activeAgent, newSessionAgent);
@@ -538,7 +537,6 @@ export default function App() {
     onPick: rememberPick,
   });
   const composerCommands = composerCommandsFor({
-    session: activeSession,
     isRunning: isActiveRunning,
     liveCommands: acp.info[activeSessionId]?.commands,
     draftAgent,

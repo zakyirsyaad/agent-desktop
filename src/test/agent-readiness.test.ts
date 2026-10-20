@@ -48,7 +48,6 @@ describe("resolveDefaultAgentId", () => {
 
 describe("installHintFor", () => {
   it("points an agent whose Install sets up Node.js at Node.js", () => {
-    const nodeHint = { kind: "docs", text: NODE_HINT };
     const gemini: AgentSummary = {
       id: "gemini",
       name: "Gemini CLI",
@@ -57,7 +56,7 @@ describe("installHintFor", () => {
       install_plan: [nodeStep],
     };
 
-    expect(installHintFor(gemini)).toEqual(nodeHint);
+    expect(installHintFor(gemini)).toBe(NODE_HINT);
     expect(NODE_HINT).toContain("Node.js 22 or newer");
     expect(NODE_HINT).toContain("Zorvo installs it");
     expect(NODE_HINT).not.toContain("https://nodejs.org");
@@ -72,25 +71,19 @@ describe("installHintFor", () => {
       install_plan: [{ kind: "prerequisite", name: "pi", version: "0.9.0", download_bytes: null }],
     };
 
-    expect(installHintFor(piAcp)).toEqual({ kind: "docs", text: INSTALLABLE_HINT });
+    expect(installHintFor(piAcp)).toBe(INSTALLABLE_HINT);
   });
 
   it("goes by the distribution, not the agent id", () => {
     const binaryCodex: AgentSummary = { id: "codex-acp", name: "Codex", detected: false, distribution: "binary" };
 
-    expect(installHintFor(binaryCodex)).toEqual({
-      kind: "docs",
-      text: "See the Codex documentation for install steps.",
-    });
+    expect(installHintFor(binaryCodex)).toBe("See the Codex documentation for install steps.");
   });
 
   it("points unknown agents to their own documentation", () => {
     const custom: AgentSummary = { id: "custom", name: "Custom Agent", detected: false, distribution: null };
 
-    expect(installHintFor(custom)).toEqual({
-      kind: "docs",
-      text: "See the Custom Agent documentation for install steps.",
-    });
+    expect(installHintFor(custom)).toBe("See the Custom Agent documentation for install steps.");
   });
 });
 
@@ -221,6 +214,6 @@ describe("resolveUsableAgentId", () => {
 
 describe("installHintFor an agent Zorvo can install", () => {
   it("says Install does it", () => {
-    expect(installHintFor(opencodeToInstall)).toEqual({ kind: "docs", text: INSTALLABLE_HINT });
+    expect(installHintFor(opencodeToInstall)).toBe(INSTALLABLE_HINT);
   });
 });

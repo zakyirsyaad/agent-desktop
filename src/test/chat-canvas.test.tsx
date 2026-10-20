@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { ActionCard } from "../components/ActionCard";
+import { ActionCard, NO_OPTIONS_MESSAGE } from "../components/ActionCard";
 import { ChatCanvas, type ChatMessage } from "../components/ChatCanvas";
 import type { ActionCard as ActionCardType } from "../types";
 import {
@@ -54,6 +54,19 @@ describe("ActionCard Component", () => {
     expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
     expect(screen.getByText("You chose: Allow")).toBeDefined();
   });
+
+  it("says how to continue when a pending request has no options to pick", () => {
+    render(<ActionCard card={{ ...mockCard, options: [] }} onChoose={() => {}} />);
+
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText(NO_OPTIONS_MESSAGE)).toBeDefined();
+  });
+
+  it("says a request was not answered when it ended without a pick", () => {
+    render(<ActionCard card={{ ...mockCard, status: "rejected" }} />);
+
+    expect(screen.getByText("This request was not answered.")).toBeDefined();
+  });
 });
 
 describe("ChatCanvas Component", () => {
@@ -87,13 +100,11 @@ All systems ready for compilation.`,
         {
           id: "t-1",
           name: "Edit",
-          args: 'file_path: "src/App.tsx"',
           status: "completed",
         },
         {
           id: "t-2",
           name: "Bash",
-          args: "pnpm test",
           status: "running",
         },
       ],
@@ -189,11 +200,11 @@ All systems ready for compilation.`,
     );
 
     // Tool chip 1: completed
-    expect(screen.getByText(/Edit\(file_path:\s*"src\/App\.tsx"\)/i)).toBeDefined();
+    expect(screen.getByText("Edit")).toBeDefined();
     expect(screen.getByText(/Completed/i)).toBeDefined();
 
     // Tool chip 2: running
-    expect(screen.getByText(/Bash\(pnpm test\)/i)).toBeDefined();
+    expect(screen.getByText("Bash")).toBeDefined();
     expect(screen.getByText(/Running/i)).toBeDefined();
   });
 
@@ -515,7 +526,7 @@ describe("ACP chat content", () => {
             role: "agent",
             content: "",
             timestamp: 1,
-            tools: [{ id: "t-1", name: "Read src/App.tsx", args: "", status: "completed", kind: "read" }],
+            tools: [{ id: "t-1", name: "Read src/App.tsx", status: "completed", kind: "read" }],
           },
         ]}
       />

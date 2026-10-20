@@ -7,7 +7,10 @@ use crate::installer::{
     self,
     plan::{InstallStep, PlannedStep},
 };
-use crate::registry::{self, resolve::SystemTools};
+use crate::registry::{
+    self,
+    resolve::{SystemTools, SOURCE_REGISTRY},
+};
 
 /// Static description of one ACP agent: what it is called and how Zorvo
 /// launches and installs it. Registry agents fill in the ACP launch fields.
@@ -31,7 +34,7 @@ pub struct AgentProfile {
     /// Dirs put after the user's `PATH` at launch (Zorvo's uv, prerequisites).
     #[serde(skip)]
     pub acp_path_append: Vec<String>,
-    /// `"registry"` or `"builtin"`.
+    /// Always `"registry"`: every agent comes from the ACP registry.
     pub source: String,
     pub version: Option<String>,
     /// `"npx"`, `"uvx"` or `"binary"` for registry agents.
@@ -60,7 +63,7 @@ impl AgentProfile {
             acp_program_path: None,
             acp_path_prepend: Vec::new(),
             acp_path_append: Vec::new(),
-            source: "builtin".to_string(),
+            source: SOURCE_REGISTRY.to_string(),
             version: None,
             distribution: None,
             availability: "ready".to_string(),
@@ -70,11 +73,6 @@ impl AgentProfile {
             listed: true,
         }
     }
-}
-
-/// [`agent_profiles`] at each registry agent's offered version.
-pub fn get_available_agent_profiles() -> Vec<AgentProfile> {
-    agent_profiles(&BTreeMap::new())
 }
 
 /// Every agent the app can run, detected against the user's `PATH` and what

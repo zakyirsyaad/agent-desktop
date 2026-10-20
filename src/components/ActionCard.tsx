@@ -10,6 +10,9 @@ export interface ActionCardProps {
   disabled?: boolean;
 }
 
+/** Shown on a request that came without options: only stopping the agent ends the wait. */
+export const NO_OPTIONS_MESSAGE = "This request has no options to pick. Stop the agent to continue.";
+
 function choiceVariant(kind: string): ButtonVariant {
   if (kind === "allow_once") return "primary";
   return kind.startsWith("allow") ? "outline" : "danger";
@@ -33,6 +36,9 @@ function PermissionChoices({
         {chosen ? `You chose: ${chosen.name}` : "This request was not answered."}
       </p>
     );
+  }
+  if (options.length === 0) {
+    return <p className="mt-4 border-t border-border pt-2 text-xs text-fg-muted">{NO_OPTIONS_MESSAGE}</p>;
   }
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-2">

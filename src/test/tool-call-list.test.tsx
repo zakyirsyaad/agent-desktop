@@ -6,7 +6,6 @@ import type { ToolExecution } from "../types";
 const editTool: ToolExecution = {
   id: "t-1",
   name: "Edit src/app.ts",
-  args: "",
   status: "completed",
   kind: "edit",
   details: [{ kind: "diff", path: "/repo/src/app.ts", oldText: "keep\nconst a = 1;\n", newText: "keep\nconst a = 2;\n" }],

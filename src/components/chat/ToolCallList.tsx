@@ -3,10 +3,6 @@ import { Check, Clock, Wrench } from "lucide-react";
 import type { ToolExecution } from "../../types";
 import { ToolDetails } from "./ToolDetails";
 
-/** A tool with arguments is shown as `Name(args)`; an ACP tool call carries a title, so its args are empty. */
-function toolLabel(tool: ToolExecution): string {
-  return tool.args ? `${tool.name}(${tool.args})` : tool.name;
-}
 
 function ToolStatus({ status }: { status: ToolExecution["status"] }) {
   if (status === "completed") {
@@ -42,7 +38,7 @@ function ToolRow({ tool }: { tool: ToolExecution }) {
       <div className="flex items-center gap-2 overflow-hidden">
         <Wrench className="h-3.5 w-3.5 text-fg-subtle shrink-0" />
         <span className="truncate" title={tool.locations?.join("\n")}>
-          {toolLabel(tool)}
+          {tool.name}
         </span>
       </div>
       <div className="shrink-0">

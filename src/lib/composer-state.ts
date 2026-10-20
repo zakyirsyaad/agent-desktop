@@ -2,7 +2,6 @@ import { acpControls, type ComposerControls } from './composer-controls';
 import { draftInfo, type AcpChoices, type AgentOptions } from './acp-draft';
 import type { AcpConfigOption } from '../hooks/useAcpSessions';
 import type { AcpEngine } from '../hooks/session-engine/useAcpEngine';
-import { isAcpSession } from './session-helpers';
 import type { AgentProfile, Session, SlashCommand } from '../types';
 
 export interface ComposerState {
@@ -32,21 +31,18 @@ export interface ComposerInputs {
 export function composerStateFor(inputs: ComposerInputs): ComposerState {
   const { session, draftAgent, acp } = inputs;
   if (session?.status === 'running') {
-    if (isAcpSession(session)) {
-      const info = acp.info[session.id];
-      const controls = info
-        ? acpControls(info, {
-            setMode: (modeId) => acp.setMode(session.id, modeId),
-            setConfigOption: (configId, value) => {
-              void acp.setConfigOption(session.id, configId, value).then((reported) => {
-                if (reported) inputs.onPick?.(session.profileId, configId, value, reported);
-              });
-            },
-          })
-        : {};
-      return { controls };
-    }
-    return { controls: {} };
+    const info = acp.info[session.id];
+    const controls = info
+      ? acpControls(info, {
+          setMode: (modeId) => acp.setMode(session.id, modeId),
+          setConfigOption: (configId, value) => {
+            void acp.setConfigOption(session.id, configId, value).then((reported) => {
+              if (reported) inputs.onPick?.(session.profileId, configId, value, reported);
+            });
+          },
+        })
+      : {};
+    return { controls };
   }
   if (!draftAgent) return { controls: {} };
   const options = inputs.agentOptions?.[draftAgent.id];
@@ -95,13 +91,12 @@ export function composerPlaceholder(state: {
  * it runs, the ones its agent offered last time.
  */
 export function composerCommandsFor(inputs: {
-  session: Session | undefined;
   isRunning: boolean;
   liveCommands: SlashCommand[] | undefined;
   draftAgent: AgentProfile | undefined;
   agentOptions: Readonly<Record<string, AgentOptions>> | undefined;
 }): SlashCommand[] | undefined {
-  if (inputs.isRunning) return isAcpSession(inputs.session) ? inputs.liveCommands : undefined;
+  if (inputs.isRunning) return inputs.liveCommands;
   const agent = inputs.draftAgent;
   return agent ? inputs.agentOptions?.[agent.id]?.commands : undefined;
 }
