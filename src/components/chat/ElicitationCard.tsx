@@ -41,6 +41,14 @@ const KEEPS_VALUES: ElicitationStatus[] = ["pending", "submitted"];
 export function ElicitationCard({ card, agentName, onAnswer, onReopen, disabled = false }: ElicitationCardProps) {
   const [values, setValues] = useState<Record<string, FormValue>>(() => initialValues(card.fields ?? []));
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
+  // Fields edited since the backend's errors came, by their content: a popout
+  // gets the same errors as a new object with every snapshot.
+  const errorsKey = JSON.stringify(card.errors ?? {});
+  const [editedSince, setEditedSince] = useState({ errorsKey, names: [] as string[] });
+  const edited = editedSince.errorsKey === errorsKey ? editedSince.names : [];
+  const backendErrors = Object.fromEntries(
+    Object.entries(card.errors ?? {}).filter(([name]) => !edited.includes(name)),
+  );
 
   // Drop what the user typed once the card is answered for good.
   if (!KEEPS_VALUES.includes(card.status) && (Object.keys(values).length > 0 || Object.keys(clientErrors).length > 0)) {
@@ -58,12 +66,18 @@ export function ElicitationCard({ card, agentName, onAnswer, onReopen, disabled 
     const errors = checkForm(fields, values);
     setClientErrors(errors);
     if (Object.keys(errors).length > 0) return;
+    // The backend's next errors show in full, even when they read the same.
+    setEditedSince({ errorsKey, names: [] });
     answer({ action: "accept", content: toContent(fields, values) });
   };
 
   const change = (name: string, value: FormValue) => {
     setValues((prev) => ({ ...prev, [name]: value }));
     setClientErrors(({ [name]: _cleared, ...rest }) => rest);
+    setEditedSince((prev) => {
+      const names = prev.errorsKey === errorsKey ? prev.names : [];
+      return names.includes(name) ? prev : { errorsKey, names: [...names, name] };
+    });
   };
 
   return (
@@ -90,7 +104,7 @@ export function ElicitationCard({ card, agentName, onAnswer, onReopen, disabled 
           <ElicitationFields
             fields={fields}
             values={values}
-            errors={{ ...card.errors, ...clientErrors }}
+            errors={{ ...backendErrors, ...clientErrors }}
             onChange={change}
             disabled={disabled}
           />

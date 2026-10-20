@@ -309,6 +309,30 @@ describe("ElicitationCard", () => {
     expect(screen.getByRole("group", { name: "More" })).toBeTruthy();
   });
 
+  it("hides a backend error once its field is edited, until the next refused submit", () => {
+    const onAnswer = vi.fn();
+    const fields: ElicitationField[] = [
+      { name: "name", title: "Name", required: false, kind: { type: "text" } },
+      { name: "city", title: "City", required: false, kind: { type: "text" } },
+    ];
+    const refused = { name: "Use the format the agent asked for.", city: "Use at most 5 characters." };
+    const { rerender } = render(
+      <ElicitationCard card={formCard(fields, { errors: refused })} agentName="A" onAnswer={onAnswer} />,
+    );
+    expect(screen.getAllByRole("alert")).toHaveLength(2);
+
+    fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "x" } });
+    expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual(["Use at most 5 characters."]);
+    // A popout gets the same errors again as a new object with every snapshot.
+    rerender(<ElicitationCard card={formCard(fields, { errors: { ...refused } })} agentName="A" onAnswer={onAnswer} />);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onAnswer).toHaveBeenCalled();
+    rerender(<ElicitationCard card={formCard(fields, { errors: { ...refused } })} agentName="A" onAnswer={onAnswer} />);
+    expect(screen.getAllByRole("alert")).toHaveLength(2);
+  });
+
   it("offers no Open again on an opened card without onReopen", () => {
     render(<ElicitationCard card={urlCard({ status: "opened" })} agentName="A" />);
     expect(screen.queryByRole("button", { name: "Open again" })).toBeNull();
