@@ -21,7 +21,7 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 ### Removed
 
-- **Oh-My-Pi, Aider and terminal sessions.** Every agent now runs as an ACP chat. Saved terminal sessions are deleted the first time Zorvo opens.
+- **Oh-My-Pi, Aider and terminal sessions.** Every agent now runs as an ACP chat. Saved terminal sessions are deleted the first time Zorvo opens; the worktree of a deleted terminal session stays on disk under Zorvo's app data `worktrees/` folder.
 
 ### Fixed
 
