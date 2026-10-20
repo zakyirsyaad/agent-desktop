@@ -1,11 +1,10 @@
-import { AgentCatalog } from "./agents/AgentCatalog";
+import { AgentCatalogPanel } from "./agents/AgentCatalogPanel";
 import { SettingsPanel, type SettingsTab } from "./SettingsPanel";
 import type { FolderOption } from "./onboarding/types";
 import type { AgentCatalogActions } from "../hooks/useAgentCatalogActions";
 import type { AgentCatalogHandle } from "../hooks/useAgentCatalog";
 import type { PersistedStateHandle } from "../hooks/usePersistedState";
 import { pendingUpdates } from "../lib/agent-catalog";
-import { loadAgentIcons } from "../lib/agent-icons";
 import { enabledAgentIds, isInUse } from "../lib/enabled-agents";
 import type { AgentProfile, Settings } from "../types";
 
@@ -47,15 +46,6 @@ export function AppSettingsDialog({
   const enabledIds = enabledAgentIds(settings);
   const updateSettings = (patch: Partial<Settings>) =>
     updateState((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }));
-  // Check again refreshes the registry, but reports no change event: the catalog and icons are read here.
-  const checkAgain = async () => {
-    try {
-      await refreshAgents();
-    } finally {
-      await Promise.all([catalog.reload(), loadAgentIcons()]);
-    }
-  };
-
   return (
     <SettingsPanel
       initialTab={initialTab}
@@ -70,14 +60,12 @@ export function AppSettingsDialog({
       onClose={onClose}
       updateCount={pendingUpdates(catalog.catalog?.agents ?? [], enabledIds).length}
       agentsPanel={
-        <AgentCatalog
-          catalog={catalog.catalog}
-          error={catalog.error}
+        <AgentCatalogPanel
           agents={agents}
-          enabledIds={enabledIds}
+          settings={settings}
+          refreshAgents={refreshAgents}
+          catalog={catalog}
           actions={actions}
-          onCheckAgain={checkAgain}
-          onRetryLoad={() => void catalog.reload()}
         />
       }
     />

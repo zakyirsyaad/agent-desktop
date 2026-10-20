@@ -52,6 +52,7 @@ import { useTranscripts } from "./hooks/useTranscripts";
 import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
 import { useDraftInstall } from "./hooks/useDraftInstall";
 import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
+import { AgentCatalogPanel } from "./components/agents/AgentCatalogPanel";
 import { Onboarding, type OnboardingResult } from "./components/Onboarding";
 import { AppSettingsDialog, type SettingsTab } from "./components/AppSettingsDialog";
 import { useAgentCatalog } from "./hooks/useAgentCatalog";
@@ -577,7 +578,7 @@ export default function App() {
         settings={state.settings}
         recentFolders={workspaces}
         suggestedFolders={suggestedFolders}
-        onRecheckAgents={refreshAgents}
+        agentsPanel={<AgentCatalogPanel agents={agents} settings={state.settings} refreshAgents={refreshAgents} catalog={agentCatalog} actions={catalogActions} />}
         onPickFolder={openFolder}
         onComplete={handleOnboardingComplete}
       />

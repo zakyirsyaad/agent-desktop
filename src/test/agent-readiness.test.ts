@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  INSTALLABLE_HINT,
-  NODE_HINT,
-  installHintFor,
   isAgentRunnable,
   noAgentNotice,
   readyAgents,
@@ -43,61 +40,6 @@ describe("resolveDefaultAgentId", () => {
 
   it("returns null when no agent is ready", () => {
     expect(resolveDefaultAgentId([omp], null)).toBeNull();
-  });
-});
-
-describe("installHintFor", () => {
-  it("returns the verified install command for a terminal agent", () => {
-    expect(installHintFor(aider)).toEqual({
-      kind: "command",
-      command: "python -m pip install aider-install && aider-install",
-    });
-  });
-
-  it("points an agent whose Install sets up Node.js at Node.js", () => {
-    const nodeHint = { kind: "docs", text: NODE_HINT };
-    const gemini: AgentSummary = {
-      id: "gemini",
-      name: "Gemini CLI",
-      detected: false,
-      distribution: "npx",
-      install_plan: [nodeStep],
-    };
-
-    expect(installHintFor(gemini)).toEqual(nodeHint);
-    expect(NODE_HINT).toContain("Node.js 22 or newer");
-    expect(NODE_HINT).toContain("Zorvo installs it");
-    expect(NODE_HINT).not.toContain("https://nodejs.org");
-  });
-
-  it("goes by the install plan, not the distribution: an npx agent missing only a prerequisite", () => {
-    const piAcp: AgentSummary = {
-      id: "pi-acp",
-      name: "pi ACP",
-      detected: false,
-      distribution: "npx",
-      install_plan: [{ kind: "prerequisite", name: "pi", version: "0.9.0", download_bytes: null }],
-    };
-
-    expect(installHintFor(piAcp)).toEqual({ kind: "docs", text: INSTALLABLE_HINT });
-  });
-
-  it("goes by the distribution, not the agent id", () => {
-    const binaryCodex: AgentSummary = { id: "codex-acp", name: "Codex", detected: false, distribution: "binary" };
-
-    expect(installHintFor(binaryCodex)).toEqual({
-      kind: "docs",
-      text: "See the Codex documentation for install steps.",
-    });
-  });
-
-  it("points unknown agents to their own documentation", () => {
-    const custom: AgentSummary = { id: "custom", name: "Custom Agent", detected: false, distribution: null };
-
-    expect(installHintFor(custom)).toEqual({
-      kind: "docs",
-      text: "See the Custom Agent documentation for install steps.",
-    });
   });
 });
 
@@ -223,11 +165,5 @@ describe("resolveUsableAgentId", () => {
     expect(resolveUsableAgentId([codexToInstall, claude], null)).toBe("claude-acp");
     expect(resolveUsableAgentId([codexToInstall, omp], "omp")).toBe("codex-acp");
     expect(resolveUsableAgentId([omp], null)).toBeNull();
-  });
-});
-
-describe("installHintFor an agent Zorvo can install", () => {
-  it("says Install does it", () => {
-    expect(installHintFor(opencodeToInstall)).toEqual({ kind: "docs", text: INSTALLABLE_HINT });
   });
 });
