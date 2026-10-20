@@ -162,3 +162,11 @@ fn rejects_a_file_without_agents() {
     assert!(VersionHistory::from_json("{}").is_err());
     assert!(VersionHistory::from_json("[]").is_err());
 }
+
+#[test]
+fn first_seen_returns_the_date_or_none() {
+    let h = history(&[("a", "1.0.0", 42)]);
+    assert_eq!(h.first_seen("a", "1.0.0"), Some(42));
+    assert_eq!(h.first_seen("a", "2.0.0"), None);
+    assert_eq!(h.first_seen("b", "1.0.0"), None);
+}

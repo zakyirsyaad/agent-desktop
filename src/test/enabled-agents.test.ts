@@ -3,6 +3,7 @@ import {
   DEFAULT_ENABLED_AGENTS,
   enabledAgentIds,
   isInUse,
+  removedAgentNameFor,
   withAutoEnabled,
 } from "../lib/enabled-agents";
 import type { Settings } from "../types";
@@ -79,5 +80,22 @@ describe("enabled agents", () => {
   it("a builtin terminal agent is in use when detected", () => {
     expect(isInUse({ ...aiderProfile, detected: true }, BASE)).toBe(true);
     expect(isInUse({ ...aiderProfile, detected: false }, BASE)).toBe(false);
+  });
+});
+
+describe("removedAgentNameFor", () => {
+  const removed: Settings = { ...BASE, enabledAgents: ["claude-acp"], removedAgents: ["gemini"] };
+
+  it("names a removed agent for a session that is not running", () => {
+    expect(removedAgentNameFor({ profileId: "gemini", status: "terminated" }, [gemini], removed)).toBe("Gemini CLI");
+  });
+
+  it("names nothing while the session still runs, so its composer keeps Stop", () => {
+    expect(removedAgentNameFor({ profileId: "gemini", status: "running" }, [gemini], removed)).toBeNull();
+  });
+
+  it("names nothing without a session or for an agent in use", () => {
+    expect(removedAgentNameFor(undefined, [gemini], removed)).toBeNull();
+    expect(removedAgentNameFor({ profileId: "claude-acp", status: "terminated" }, [claudeProfile], removed)).toBeNull();
   });
 });

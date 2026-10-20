@@ -9,6 +9,8 @@ export interface ProfileFooterProps {
   /** Bundled app version; the version line is omitted when unknown. */
   version?: string;
   onOpenSettings?: () => void;
+  /** Agent updates waiting; puts a dot on the Settings button. */
+  updateCount?: number;
 }
 
 const FALLBACK_DISPLAY_NAME = "Local user";
@@ -30,6 +32,11 @@ function initialFromEmail(email?: string): string | null {
   return first ? first.toUpperCase() : null;
 }
 
+function settingsLabel(updateCount: number): string {
+  if (updateCount === 0) return "Settings";
+  return `Settings, ${updateCount} ${updateCount === 1 ? "update" : "updates"}`;
+}
+
 /**
  * The signed-in developer's identity, read from their global git config.
  *
@@ -42,6 +49,7 @@ export function ProfileFooter({
   email,
   version,
   onOpenSettings,
+  updateCount = 0,
 }: ProfileFooterProps) {
   const trimmedName = name?.trim() || undefined;
   const trimmedEmail = email?.trim() || undefined;
@@ -69,8 +77,11 @@ export function ProfileFooter({
       </div>
 
       {onOpenSettings && (
-        <IconButton label="Settings" onClick={onOpenSettings}>
+        <IconButton label={settingsLabel(updateCount)} onClick={onOpenSettings} className="relative">
           <Settings size={14} />
+          {updateCount > 0 && (
+            <span aria-hidden="true" className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
+          )}
         </IconButton>
       )}
     </footer>

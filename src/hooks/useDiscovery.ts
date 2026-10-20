@@ -11,6 +11,8 @@ export interface AgentProfilesHandle {
   isLoaded: boolean;
   /** Detects again, e.g. after the user installed an agent during setup. */
   refresh: () => Promise<void>;
+  /** Reads the profiles again without refreshing anything first: no registry fetch, no PATH re-read. */
+  reload: () => Promise<void>;
 }
 
 export function useAgentProfiles(onError: (message: string) => void): AgentProfilesHandle {
@@ -60,8 +62,9 @@ export function useAgentProfiles(onError: (message: string) => void): AgentProfi
 
   /** "Check again": detects with a fresh PATH. */
   const refresh = useCallback(() => detect(true), [detect]);
+  const reload = useCallback(() => detect(false), [detect]);
 
-  return { agents, isLoaded, refresh };
+  return { agents, isLoaded, refresh, reload };
 }
 
 /**

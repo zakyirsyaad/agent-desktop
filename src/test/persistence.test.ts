@@ -119,6 +119,20 @@ describe("normalizePersistedState - catalog settings", () => {
   });
 });
 
+describe("normalizePersistedState - notified updates", () => {
+  it("keeps string pairs and drops non-string values", () => {
+    const { settings } = normalizePersistedState({
+      settings: { notifiedUpdates: { "claude-code": "1.1.0", "codex-acp": 2 } },
+    });
+    expect(settings.notifiedUpdates).toEqual({ "claude-acp": "1.1.0" });
+  });
+
+  it("defaults to none when missing or malformed", () => {
+    expect(normalizePersistedState({ settings: {} }).settings.notifiedUpdates).toEqual({});
+    expect(normalizePersistedState({ settings: { notifiedUpdates: ["x"] } }).settings.notifiedUpdates).toEqual({});
+  });
+});
+
 describe("normalizePersistedState — appearance", () => {
   it("defaults a missing appearance to system", () => {
     expect(normalizePersistedState({ settings: {} }).settings.appearance).toBe("system");

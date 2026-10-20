@@ -112,6 +112,13 @@ function toAgentVersions(raw: unknown): Record<string, string> {
   return withCanonicalKeys(raw as Record<string, string>);
 }
 
+/** Agent id to announced version; entries that are not strings are dropped. */
+function toNotifiedUpdates(raw: unknown): Record<string, string> {
+  if (!isObject(raw)) return {};
+  const strings = Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string');
+  return withCanonicalKeys(Object.fromEntries(strings));
+}
+
 /**
  * Coerces whatever the backend returned into a well-formed state, keeping the
  * valid parts. A malformed file must degrade to "empty", never crash the UI.
@@ -130,6 +137,7 @@ export function normalizePersistedState(raw: unknown): PersistedState {
       ...(toAgentIdList(settings.enabledAgents) ? { enabledAgents: toAgentIdList(settings.enabledAgents) } : {}),
       removedAgents: toAgentIdList(settings.removedAgents) ?? [],
       agentVersions: toAgentVersions(settings.agentVersions),
+      notifiedUpdates: toNotifiedUpdates(settings.notifiedUpdates),
     },
     recentFolders: Array.isArray(raw.recentFolders)
       ? raw.recentFolders.filter(

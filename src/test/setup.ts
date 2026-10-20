@@ -2,6 +2,7 @@
 
 import { afterEach } from "vitest";
 import { fakeProfiles } from "./fixtures/agents";
+import { fakeCatalog } from "./fixtures/catalog";
 
 /**
  * In-memory stand-in for the backend store commands. Tests seed it through
@@ -112,7 +113,9 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
 
 if (typeof window !== "undefined") {
   (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
-  afterEach(() => {
+  afterEach(async () => {
+    // Imported here, not at the top: a static import would load the module before a test file's vi.mock applies.
+    (await import("../lib/agent-icons")).resetAgentIcons();
     (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
   });
 }
@@ -137,6 +140,19 @@ export function fakeTauriInvoke(cmd: string, args?: unknown): Promise<unknown> {
   }
   if (cmd === "get_agent_profiles") {
     return Promise.resolve(structuredClone(fakeProfiles));
+  }
+  if (cmd === "get_agent_catalog") {
+    return Promise.resolve({ lastChecked: null, agents: structuredClone(fakeCatalog) });
+  }
+  if (cmd === "get_agent_icons") {
+    return Promise.resolve({});
+  }
+  if (cmd === "update_agent") {
+    const agentId = (args as { agentId?: string } | undefined)?.agentId;
+    return Promise.resolve(fakeCatalog.find((a) => a.id === agentId)?.updateVersion ?? null);
+  }
+  if (cmd === "remove_agent_install") {
+    return Promise.resolve(undefined);
   }
   if (cmd === "workspace_details") {
     return Promise.resolve({ location: "~/developer", branch: "main" });

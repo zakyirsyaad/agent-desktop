@@ -1,4 +1,4 @@
-import type { AgentProfile, Settings } from "../types";
+import type { AgentProfile, Session, Settings } from "../types";
 
 /** The registry agents in use until the user changes the list. */
 export const DEFAULT_ENABLED_AGENTS: readonly string[] = ["claude-acp", "codex-acp", "qwen-code"];
@@ -14,6 +14,27 @@ export function enabledAgentIds(settings: EnabledSettings): readonly string[] {
 export function isInUse(agent: UsableAgent, settings: EnabledSettings): boolean {
   if (agent.source === "builtin") return agent.detected;
   return enabledAgentIds(settings).includes(agent.id);
+}
+
+/** The name of a registry agent that is no longer in use, whose saved sessions can only be read. */
+export function removedAgentName(
+  agent: (UsableAgent & Pick<AgentProfile, "name">) | undefined,
+  settings: EnabledSettings,
+): string | null {
+  return agent?.source === "registry" && !isInUse(agent, settings) ? agent.name : null;
+}
+
+/**
+ * The removed agent's name when `session` should show the removed-agent panel in place of its
+ * composer. A running session keeps the composer, which holds Stop.
+ */
+export function removedAgentNameFor(
+  session: Pick<Session, "profileId" | "status"> | undefined,
+  agents: readonly (UsableAgent & Pick<AgentProfile, "name">)[],
+  settings: EnabledSettings,
+): string | null {
+  if (!session || session.status === "running") return null;
+  return removedAgentName(agents.find((agent) => agent.id === session.profileId), settings);
 }
 
 /**

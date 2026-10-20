@@ -313,7 +313,7 @@ describe("Window chrome wiring", () => {
 
     expect(sidebar.getByText("Test User")).toBeDefined();
     expect(sidebar.getByText(/0\.1\.0/)).toBeDefined();
-    await click(sidebar.getByRole("button", { name: "Settings" }));
+    await click(sidebar.getByRole("button", { name: /^Settings/ }));
     expect(screen.getByRole("dialog")).toBeDefined();
   });
 });

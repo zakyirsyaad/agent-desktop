@@ -67,6 +67,32 @@ export interface InstallStep {
   download_bytes: number | null;
 }
 
+export type CatalogStatus = 'by_zorvo' | 'on_your_mac' | 'ready' | 'not_installed' | 'unsupported' | 'waiting';
+
+/** One registry agent as the catalog lists it, whether or not the user has it in use. */
+export interface CatalogAgent {
+  id: string;
+  name: string;
+  description: string | null;
+  distribution: 'npx' | 'uvx' | 'binary';
+  /** False once the registry dropped the agent. */
+  listed: boolean;
+  version: string | null;
+  /** The newer version on offer, if any. */
+  updateVersion: string | null;
+  status: CatalogStatus;
+  /** Unix seconds; set while a new version waits out its seven days. */
+  availableFrom: number | null;
+  /** Where a program installed outside Zorvo lives. */
+  location: string | null;
+}
+
+export interface AgentCatalog {
+  /** Unix seconds of the last registry fetch; null if it never succeeded. */
+  lastChecked: number | null;
+  agents: CatalogAgent[];
+}
+
 export type AgentTransport = 'acp' | 'pty';
 
 export const TRANSPORT_ACP: AgentTransport = 'acp';
@@ -148,6 +174,8 @@ export interface Settings {
   removedAgents?: string[];
   /** The version last seen for each agent, by agent id. */
   agentVersions?: Record<string, string>;
+  /** The update version already announced for each agent, by agent id. */
+  notifiedUpdates?: Record<string, string>;
 }
 
 export interface RecentFolder {
