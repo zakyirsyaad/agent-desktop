@@ -26,6 +26,8 @@ export function usePersistedState(onError: (message: string) => void): Persisted
   const [isLoaded, setIsLoaded] = useState(false);
   const canSaveRef = useRef(false);
   const lastSavedRef = useRef<PersistedState | null>(null);
+  /** The newest state, written only by the load and by `updateState`: the one source of truth. */
+  const latestStateRef = useRef<PersistedState>(state);
   const onErrorRef = useLatest(onError);
 
   useEffect(() => {
@@ -34,6 +36,7 @@ export function usePersistedState(onError: (message: string) => void): Persisted
       .then((loaded) => {
         if (isCancelled) return;
         lastSavedRef.current = loaded;
+        latestStateRef.current = loaded;
         canSaveRef.current = true;
         setState(loaded);
         setIsLoaded(true);
@@ -60,7 +63,6 @@ export function usePersistedState(onError: (message: string) => void): Persisted
   }, [state, onErrorRef]);
 
   // A change made just before the window closes must not wait for the debounce.
-  const latestStateRef = useLatest(state);
   const saveNow = useCallback((): Promise<void> => {
     const current = latestStateRef.current;
     if (!canSaveRef.current || current === lastSavedRef.current) return Promise.resolve();
@@ -68,7 +70,7 @@ export function usePersistedState(onError: (message: string) => void): Persisted
     return saveAppState(current).catch((error) => {
       onErrorRef.current(`Failed to save sessions: ${String(error)}`);
     });
-  }, [latestStateRef, onErrorRef]);
+  }, [onErrorRef]);
 
   useEffect(() => {
     const flush = () => void saveNow();
@@ -80,14 +82,14 @@ export function usePersistedState(onError: (message: string) => void): Persisted
     };
   }, [saveNow]);
 
-  // The ref moves on at once, so a `saveNow` right after an update already sees it.
+  // Every update builds on the ref, so none is lost to a render that skipped it, and a `saveNow` right after sees it.
   const updateState = useCallback(
     (updater: (prev: PersistedState) => PersistedState) => {
       const next = updater(latestStateRef.current);
       latestStateRef.current = next;
       setState(next);
     },
-    [latestStateRef],
+    [],
   );
 
   return { state, isLoaded, updateState, saveNow };

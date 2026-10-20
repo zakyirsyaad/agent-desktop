@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { fakeTauriInvoke } from "./setup";
+import type { PersistedState } from "../types";
 import { SAVE_DEBOUNCE_MS, usePersistedState } from "../hooks/usePersistedState";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
@@ -68,5 +69,39 @@ describe("usePersistedState saveNow", () => {
       await hook.result.current.saveNow();
     });
     expect(savesOf(spy)).toHaveLength(0);
+  });
+
+  it("keeps both updates made either side of a re-render", async () => {
+    const { hook } = await loaded();
+    const mark = (key: string) => (prev: PersistedState) => ({
+      ...prev,
+      settings: { ...prev.settings, agentVersions: { ...prev.settings.agentVersions, [key]: "1" } },
+    });
+
+    act(() => hook.result.current.updateState(mark("a")));
+    hook.rerender();
+    act(() => hook.result.current.updateState(mark("b")));
+
+    expect(hook.result.current.state.settings.agentVersions).toEqual({ a: "1", b: "1" });
+  });
+
+  it("builds an update issued right after the load resolves on the loaded state", async () => {
+    let resolveLoad: (value: unknown) => void = () => {};
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
+      cmd === "load_app_state" ? new Promise((resolve) => (resolveLoad = resolve)) : fakeTauriInvoke(cmd, args),
+    );
+    const hook = renderHook(() => usePersistedState(() => {}));
+    const loadedState = structuredClone(
+      (window as unknown as { __FAKE_TAURI_STORE__: { state: PersistedState } }).__FAKE_TAURI_STORE__.state,
+    );
+
+    await act(async () => {
+      resolveLoad(loadedState);
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+      hook.result.current.updateState((prev) => ({ ...prev }));
+    });
+
+    expect(hook.result.current.state.recentFolders).toEqual(loadedState.recentFolders);
+    expect(hook.result.current.state.recentFolders.length).toBeGreaterThan(0);
   });
 });
