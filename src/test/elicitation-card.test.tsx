@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { ElicitationCard } from "../components/chat/ElicitationCard";
 import type { ElicitationCard as ElicitationCardData, ElicitationField } from "../types";
 
@@ -222,6 +222,75 @@ describe("ElicitationCard", () => {
     rerender(<ElicitationCard card={formCard(fields, { status: "submitted", fields: undefined })} agentName="A" />);
     rerender(<ElicitationCard card={formCard(fields)} agentName="A" />);
     expect(valueOf(screen.getByLabelText(/Name/))).toBe("secret-value");
+  });
+
+  it("submits the chosen radio, select and multi-select options", () => {
+    const onAnswer = vi.fn();
+    const fields: ElicitationField[] = [
+      { name: "few", title: "Few", required: true, kind: { type: "select", options: choices(3) } },
+      { name: "many", title: "Many", required: true, kind: { type: "select", options: choices(6) } },
+      { name: "tags", title: "Tags", required: false, kind: { type: "multiSelect", options: choices(3) } },
+    ];
+    render(<ElicitationCard card={formCard(fields)} agentName="A" onAnswer={onAnswer} />);
+    const few = screen.getByRole("radiogroup", { name: /Few/ });
+    fireEvent.click(within(few).getByRole("radio", { name: "Option 2" }));
+    fireEvent.change(screen.getByRole("combobox", { name: /Many/ }), { target: { value: "v4" } });
+    const tags = screen.getByRole("group", { name: /Tags/ });
+    fireEvent.click(within(tags).getByRole("checkbox", { name: "Option 0" }));
+    fireEvent.click(within(tags).getByRole("checkbox", { name: "Option 2" }));
+    fireEvent.click(within(tags).getByRole("checkbox", { name: "Option 0" }));
+
+    expect(checkedOf(within(few).getByRole("radio", { name: "Option 2" }))).toBe(true);
+    expect(checkedOf(within(tags).getByRole("checkbox", { name: "Option 0" }))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onAnswer).toHaveBeenCalledWith("e1", {
+      action: "accept",
+      content: { few: "v2", many: "v4", tags: ["v2"] },
+    });
+  });
+
+  it("sends a number as a number with a boolean and multi-select values", () => {
+    const onAnswer = vi.fn();
+    const fields: ElicitationField[] = [
+      { name: "count", title: "Count", required: true, kind: { type: "number", integer: true } },
+      { name: "agree", title: "Agree", required: false, kind: { type: "boolean" } },
+      { name: "tags", title: "Tags", required: true, kind: { type: "multiSelect", options: choices(2) } },
+    ];
+    render(<ElicitationCard card={formCard(fields)} agentName="A" onAnswer={onAnswer} />);
+    fireEvent.change(screen.getByLabelText(/Count/), { target: { value: "42" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Agree/ }));
+    const tags = screen.getByRole("group", { name: /Tags/ });
+    fireEvent.click(within(tags).getByRole("checkbox", { name: "Option 1" }));
+    fireEvent.click(within(tags).getByRole("checkbox", { name: "Option 0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(onAnswer.mock.calls[0][1]).toStrictEqual({
+      action: "accept",
+      content: { count: 42, agree: true, tags: ["v1", "v0"] },
+    });
+  });
+
+  it("submits the form from Enter in a field, through its submit button", () => {
+    const onAnswer = vi.fn();
+    const fields: ElicitationField[] = [
+      { name: "name", title: "Name", required: true, kind: { type: "text" } },
+    ];
+    render(<ElicitationCard card={formCard(fields)} agentName="A" onAnswer={onAnswer} />);
+    const input = screen.getByLabelText(/Name/);
+    fireEvent.change(input, { target: { value: "Ada" } });
+    // A browser submits a form from Enter in a field when the form has a
+    // submit button; jsdom does not, so the test checks both halves.
+    const form = input.closest("form");
+    expect(form?.querySelector('button[type="submit"]')?.textContent).toBe("Submit");
+    fireEvent.submit(form!);
+    expect(onAnswer).toHaveBeenCalledWith("e1", { action: "accept", content: { name: "Ada" } });
+  });
+
+  it("offers no Open again on a disabled opened card", () => {
+    const onReopen = vi.fn();
+    render(<ElicitationCard card={urlCard({ status: "opened" })} agentName="A" onReopen={onReopen} disabled />);
+    expect(screen.getByText("Opened in your browser.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open again" })).toBeNull();
   });
 
   it("offers no Open again on an opened card without onReopen", () => {
