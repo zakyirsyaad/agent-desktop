@@ -143,7 +143,8 @@ stays small:
   }
   ```
 
-  Keyed by a Zorvo-made key `el-<n>`. Lookups: by key; by
+  Keyed by a Zorvo-made key `el-<run>-<n>` (`run` is random per app run, so
+  a key never repeats one a saved transcript holds). Lookups: by key; by
   `(connection_key, elicitation_id)` for completion; all keys of an app
   session for cancel and stop. A URL request moves to `AwaitingCompletion`
   after `accept` and is dropped on `elicitation/complete`, on stop, or on

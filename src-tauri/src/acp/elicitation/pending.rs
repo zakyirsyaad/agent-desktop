@@ -1,6 +1,8 @@
 //! Elicitation requests the user has not finished answering, by key.
 
+use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 use std::sync::Weak;
 
 use serde_json::Value;
@@ -37,18 +39,50 @@ impl Pending {
     }
 }
 
-/// The open requests of every session. Keys are `el-<n>`, never reused.
-#[derive(Default)]
+/// The open requests of every session. Keys are `el-<run>-<n>`: `run` is
+/// random for each store, so a key never repeats one a saved transcript holds
+/// from an earlier run of the app.
 pub struct PendingElicitations {
     requests: HashMap<String, Pending>,
+    run: String,
     last_key: u64,
+}
+
+impl Default for PendingElicitations {
+    fn default() -> Self {
+        Self {
+            requests: HashMap::new(),
+            run: base36(random_u64()),
+            last_key: 0,
+        }
+    }
+}
+
+/// A random number from the standard library's per-process hash keys; each
+/// call gives another one.
+fn random_u64() -> u64 {
+    RandomState::new().hash_one(())
+}
+
+fn base36(mut value: u64) -> String {
+    const DIGITS: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let mut out = Vec::new();
+    loop {
+        out.push(DIGITS[(value % 36) as usize]);
+        value /= 36;
+        if value == 0 {
+            break;
+        }
+    }
+    out.reverse();
+    String::from_utf8(out).unwrap_or_default()
 }
 
 impl PendingElicitations {
     /// Keeps `pending` and returns its new key.
     pub fn insert(&mut self, pending: Pending) -> String {
         self.last_key += 1;
-        let key = format!("el-{}", self.last_key);
+        let key = format!("el-{}-{}", self.run, self.last_key);
         self.requests.insert(key.clone(), pending);
         key
     }
@@ -173,7 +207,27 @@ mod tests {
         let first = pending.insert(form("s-1", 1));
         let second = pending.insert(form("s-1", 1));
 
-        assert_eq!((first.as_str(), second.as_str()), ("el-1", "el-2"));
+        assert!(first.starts_with("el-") && first.ends_with("-1"), "{first}");
+        assert!(
+            second.starts_with("el-") && second.ends_with("-2"),
+            "{second}"
+        );
+        assert_eq!(
+            first.rsplit_once('-').map(|(run, _)| run),
+            second.rsplit_once('-').map(|(run, _)| run)
+        );
+    }
+
+    #[test]
+    fn keys_of_another_run_never_repeat() {
+        let mut this_run = PendingElicitations::default();
+        let mut next_run = PendingElicitations::default();
+
+        let first = this_run.insert(form("s-1", 1));
+        let again = next_run.insert(form("s-1", 1));
+
+        assert_ne!(first, again);
+        assert!(again.starts_with("el-"), "{again}");
     }
 
     #[test]
@@ -184,7 +238,7 @@ mod tests {
         assert!(pending.get("s-1", &key).is_some());
         assert!(pending.get("s-2", &key).is_none());
         assert!(pending.get_mut("s-2", &key).is_none());
-        assert!(pending.get("s-1", "el-99").is_none());
+        assert!(pending.get("s-1", "el-x-99").is_none());
     }
 
     #[test]

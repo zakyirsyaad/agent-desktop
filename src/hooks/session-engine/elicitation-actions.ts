@@ -1,5 +1,6 @@
 import {
   ELICITATION_GONE,
+  findElicitationIndex,
   markElicitationsUnanswered,
   parseInvalidElicitation,
   rejectElicitationSubmit,
@@ -45,8 +46,8 @@ function optimisticStatus(answer: ElicitationAnswer, mode: ElicitationCard['mode
 
 /** Puts the waiting card back, but only while it still shows the answer that failed. */
 function putBack(messages: ChatMessage[], { card, status }: InFlightAnswer): ChatMessage[] | null {
-  const index = messages.findIndex((m) => m.elicitation?.key === card.key);
-  if (index < 0 || messages[index].elicitation?.status !== status) return null;
+  const index = findElicitationIndex(messages, card.key, status);
+  if (index < 0) return null;
   return messages.map((m, i) => (i === index ? { ...m, elicitation: card } : m));
 }
 
@@ -66,7 +67,7 @@ export function elicitationActions({ acp, updateMessages, reportError, transcrip
     if (errors) return restore((messages) => rejectElicitationSubmit(messages, entry.card.key, errors));
     const text = textOf(error);
     if (text === ELICITATION_GONE) {
-      restore((messages) => setElicitationStatus(messages, entry.card.key, 'unanswered'));
+      restore((messages) => setElicitationStatus(messages, entry.card.key, 'pending', 'unanswered'));
       reportError(ELICITATION_GONE);
       return;
     }
@@ -81,21 +82,21 @@ export function elicitationActions({ acp, updateMessages, reportError, transcrip
    */
   const failForgotten = (sessionId: string, entry: InFlightAnswer, error: unknown) => {
     if (entry.status !== 'submitted' && entry.status !== 'opened') return;
-    const { key } = entry.card;
-    const isStillShown = (prev: ChatMessage[]) =>
-      prev.some((m) => m.elicitation?.key === key && m.elicitation.status === entry.status);
-    updateMessages(sessionId, (prev) => (isStillShown(prev) ? setElicitationStatus(prev, key, 'unanswered') : prev));
+    // A deleted session's transcript is gone; writing to it would save an empty one.
+    if (!transcriptOf(sessionId)) return;
+    updateMessages(sessionId, (prev) => setElicitationStatus(prev, entry.card.key, entry.status, 'unanswered'));
     const text = textOf(error);
     if (text !== ELICITATION_GONE) reportError(`Could not answer the agent: ${text}`);
   };
 
   const answer = (sessionId: string, key: string, reply: ElicitationAnswer) => {
     const id = idOf(sessionId, key);
-    const card = transcriptOf(sessionId)?.find((m) => m.elicitation?.key === key)?.elicitation;
-    if (card?.status !== 'pending' || inFlight.has(id)) return;
+    const transcript = transcriptOf(sessionId) ?? [];
+    const card = transcript[findElicitationIndex(transcript, key, 'pending')]?.elicitation;
+    if (!card || inFlight.has(id)) return;
     const entry: InFlightAnswer = { card, status: optimisticStatus(reply, card.mode) };
     inFlight.set(id, entry);
-    updateMessages(sessionId, (prev) => setElicitationStatus(prev, key, entry.status));
+    updateMessages(sessionId, (prev) => setElicitationStatus(prev, key, 'pending', entry.status));
     acp.respondElicitation(sessionId, key, reply).then(
       () => {
         if (inFlight.get(id) === entry) inFlight.delete(id);

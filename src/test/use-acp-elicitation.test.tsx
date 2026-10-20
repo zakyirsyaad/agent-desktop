@@ -145,6 +145,47 @@ describe("Elicitations in the app", () => {
     await waitFor(() => expect(card("el-1").getByText("You sent the form.")).toBeDefined());
   });
 
+  it("answers a new card whose key an older, settled card in the transcript also has", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startWorkingSession(spy);
+    await askForName(sessionId);
+    await act(async () => {
+      fireEvent.click(card("el-1").getByRole("button", { name: "Decline" }));
+    });
+    let fail: (reason: unknown) => void = () => {};
+    override(spy, "acp_respond_elicitation", (args) =>
+      args?.action === "accept" ? new Promise((_, reject) => (fail = reject)) : realInvoke("acp_respond_elicitation", args),
+    );
+    // A request from a later run of the app reuses the key.
+    await askForName(sessionId);
+    const cards = () => screen.getAllByTestId("elicitation-card-el-1").map((el) => within(el));
+    expect(cards()).toHaveLength(2);
+
+    await act(async () => {
+      fireEvent.change(cards()[1].getByLabelText(/Name/), { target: { value: "Ada" } });
+    });
+    await act(async () => {
+      fireEvent.click(cards()[1].getByRole("button", { name: "Submit" }));
+    });
+    expect(callsTo(spy, "acp_respond_elicitation").map(([, a]) => a)).toContainEqual({
+      sessionId,
+      key: "el-1",
+      action: "accept",
+      content: { name: "Ada" },
+    });
+    await waitFor(() => expect(cards()[1].getByText("You sent the form.")).toBeDefined());
+    expect(cards()[0].getByText("You declined.")).toBeDefined();
+
+    await act(async () => {
+      fail('ELICITATION_INVALID:{"name":"Use the format the agent asked for."}');
+    });
+
+    await waitFor(() => expect(cards()[1].getByText("Use the format the agent asked for.")).toBeDefined());
+    expect(cards()[1].getByRole("button", { name: "Submit" })).toBeDefined();
+    expect(cards()[0].getByText("You declined.")).toBeDefined();
+    expect(cards()[0].queryByRole("button", { name: "Submit" })).toBeNull();
+  });
+
   it("reopens_with_field_errors", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startWorkingSession(spy);
@@ -326,6 +367,34 @@ describe("Elicitations in the app", () => {
     expect(callsTo(spy, "delete_transcript").map(([, a]) => a)).toContainEqual({ sessionId });
     expect(callsTo(spy, "save_transcript").filter(([, a]) => a?.sessionId === sessionId)).toHaveLength(0);
     expect(fakeStore().transcripts[sessionId]).toBeUndefined();
+  });
+
+  it("does not save or report a deleted session's answer that fails after the delete", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startWorkingSession(spy);
+    let fail: (reason: unknown) => void = () => {};
+    override(spy, "acp_respond_elicitation", () => new Promise((_, reject) => (fail = reject)));
+    await askForName(sessionId);
+    await acpEvent({ sessionId, kind: "turn-end", stopReason: "end_turn" });
+    await submitName("el-1", "Ada");
+    const row = sidebar().getByText("sign me up").closest("li") as HTMLElement;
+
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Delete session" }));
+    });
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Confirm delete" }));
+    });
+    await act(async () => {
+      fail("the pipe broke");
+    });
+    await flushSaves();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(callsTo(spy, "delete_transcript").map(([, a]) => a)).toContainEqual({ sessionId });
+    expect(callsTo(spy, "save_transcript").filter(([, a]) => a?.sessionId === sessionId)).toHaveLength(0);
+    expect(fakeStore().transcripts[sessionId]).toBeUndefined();
+    expect(screen.queryByText("Could not answer the agent: the pipe broke")).toBeNull();
   });
 
   it("exit_and_failed_start_leave_cards_unanswered: the agent exits", async () => {

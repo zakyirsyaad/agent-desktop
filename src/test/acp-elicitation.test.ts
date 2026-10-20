@@ -132,28 +132,44 @@ describe('status changes', () => {
   const two = (): ChatMessage[] => [reply({ id: 'a', elicitation: card('k1') }), reply({ id: 'b', elicitation: card('k2') })];
 
   it('keeps_two_cards_apart', () => {
-    const result = setElicitationStatus(two(), 'k1', 'opened');
+    const result = setElicitationStatus(two(), 'k1', 'pending', 'opened');
 
     expect(result[0].elicitation?.status).toBe('opened');
     expect(result[1].elicitation?.status).toBe('pending');
   });
 
   it('strips_fields_and_url_once_answered', () => {
-    const opened = setElicitationStatus(two(), 'k1', 'opened');
+    const opened = setElicitationStatus(two(), 'k1', 'pending', 'opened');
     expect(opened[0].elicitation).not.toHaveProperty('url');
     expect(opened[0].elicitation?.host).toBe('x.test');
 
     const form = [reply({ elicitation: card('f', { mode: 'form', fields: [{ name: 'a', required: false, kind: { type: 'boolean' } }], errors: { a: 'x' } }) })];
-    const submitted = setElicitationStatus(form, 'f', 'submitted');
+    const submitted = setElicitationStatus(form, 'f', 'pending', 'submitted');
     expect(submitted[0].elicitation).not.toHaveProperty('fields');
     expect(submitted[0].elicitation).not.toHaveProperty('errors');
   });
 
-  it('rejectElicitationSubmit puts the card back to pending with errors', () => {
-    const form = [reply({ elicitation: card('f', { mode: 'form', status: 'submitted' }) })];
+  it('rejectElicitationSubmit shows the errors on the pending card', () => {
+    const form = [reply({ elicitation: card('f', { mode: 'form' }) })];
     const result = rejectElicitationSubmit(form, 'f', { name: 'Use a date.' });
 
     expect(result[0].elicitation).toMatchObject({ status: 'pending', errors: { name: 'Use a date.' } });
+  });
+
+  it('changes only the card in the given state when an older card has the same key', () => {
+    const messages = [
+      reply({ id: 'old', elicitation: card('el-1', { status: 'declined' }) }),
+      reply({ id: 'new', elicitation: card('el-1') }),
+    ];
+
+    const sent = setElicitationStatus(messages, 'el-1', 'pending', 'opened');
+    const rejected = rejectElicitationSubmit(messages, 'el-1', { a: 'x' });
+
+    expect(sent[0]).toBe(messages[0]);
+    expect(sent[1].elicitation?.status).toBe('opened');
+    expect(rejected[0]).toBe(messages[0]);
+    expect(rejected[1].elicitation?.errors).toEqual({ a: 'x' });
+    expect(setElicitationStatus(messages, 'el-1', 'submitted', 'unanswered')).toBe(messages);
   });
 
   it('completeElicitation moves opened to completed and leaves other statuses alone', () => {

@@ -185,39 +185,58 @@ function mapCard(
   );
 }
 
-/** Moves one card to `status`. A card that is no longer pending loses its fields and url. */
-export function setElicitationStatus(
-  messages: ChatMessage[],
+/**
+ * The newest card `key` showing `status`, or -1. A saved transcript can hold a
+ * settled card from an earlier run under the same key, so a change goes to the
+ * one card in that state rather than to every card with the key.
+ */
+export function findElicitationIndex(
+  messages: readonly ChatMessage[],
   key: string,
   status: ElicitationStatus,
+): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const card = messages[i].elicitation;
+    if (card?.key === key && card.status === status) return i;
+  }
+  return -1;
+}
+
+function changeCard(
+  messages: ChatMessage[],
+  key: string,
+  from: ElicitationStatus,
+  change: (card: ElicitationCard) => ElicitationCard,
 ): ChatMessage[] {
-  return mapCard(
-    messages,
-    (card) => card.key === key,
-    (card) => (status === 'pending' ? { ...card, status } : settled(card, status)),
+  const index = findElicitationIndex(messages, key, from);
+  if (index < 0) return messages;
+  return messages.map((message, i) =>
+    i === index && message.elicitation ? { ...message, elicitation: change(message.elicitation) } : message,
   );
 }
 
-/** Puts a refused submit back to pending with the field errors to show. */
+/** Moves the card `key` that shows `from` to `status`. A card that is no longer pending loses its fields and url. */
+export function setElicitationStatus(
+  messages: ChatMessage[],
+  key: string,
+  from: ElicitationStatus,
+  status: ElicitationStatus,
+): ChatMessage[] {
+  return changeCard(messages, key, from, (card) => (status === 'pending' ? { ...card, status } : settled(card, status)));
+}
+
+/** Shows the field errors of a refused submit on the pending card `key`. */
 export function rejectElicitationSubmit(
   messages: ChatMessage[],
   key: string,
   errors: Record<string, string>,
 ): ChatMessage[] {
-  return mapCard(
-    messages,
-    (card) => card.key === key,
-    (card) => ({ ...card, status: 'pending', errors }),
-  );
+  return changeCard(messages, key, 'pending', (card) => ({ ...card, errors }));
 }
 
 /** The agent reported a URL elicitation done; only a card the user opened can complete. */
 export function completeElicitation(messages: ChatMessage[], key: string): ChatMessage[] {
-  return mapCard(
-    messages,
-    (card) => card.key === key && card.status === 'opened',
-    (card) => settled(card, 'completed'),
-  );
+  return changeCard(messages, key, 'opened', (card) => settled(card, 'completed'));
 }
 
 /** Dismisses every card still waiting, e.g. when the user stops the turn. */
