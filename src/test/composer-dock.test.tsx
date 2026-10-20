@@ -303,6 +303,23 @@ describe("ComposerDock", () => {
     });
   });
 
+  it("marks a worktree in place of the folder icon, so the chip keeps its width", () => {
+    const folder = (isOn: boolean) => ({
+      folders: [{ name: "api", path: "/w/api" }],
+      selectedPath: "/w/api",
+      onSelect: () => {},
+      worktree: { isOn, onChange: () => {} },
+    });
+    const { rerender } = render(<ComposerDock onSendMessage={() => {}} folder={folder(false)} />);
+    const chip = () => screen.getByRole("button", { name: "Folder: api" });
+    const iconCountOff = chip().querySelectorAll("svg").length;
+
+    rerender(<ComposerDock onSendMessage={() => {}} folder={folder(true)} />);
+
+    expect(chip().querySelectorAll("svg").length).toBe(iconCountOff);
+    expect(chip().querySelector('[aria-label="in a new worktree"]')).not.toBeNull();
+  });
+
   it("closes an open dropdown with Escape", () => {
     render(<ComposerDock onSendMessage={() => {}} controls={controls()} />);
 
