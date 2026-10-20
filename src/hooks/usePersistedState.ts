@@ -29,11 +29,11 @@ export function usePersistedState(onError: (message: string) => void): Persisted
   useEffect(() => {
     let isCancelled = false;
     loadAppState()
-      .then((loaded) => {
+      .then(({ state: loaded, isOutdated }) => {
         if (isCancelled) return;
         const { state: cleaned, droppedSessionIds } = dropTerminalSessions(loaded);
-        // The cleaned state differs from what is on disk, so the save effect writes it.
-        lastSavedRef.current = loaded;
+        // What differs from the file (an older version, dropped sessions) is written by the save effect.
+        lastSavedRef.current = isOutdated ? null : loaded;
         canSaveRef.current = true;
         setState(cleaned);
         setIsLoaded(true);

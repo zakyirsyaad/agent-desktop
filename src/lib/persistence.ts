@@ -173,8 +173,18 @@ export function dropTerminalSessions(state: PersistedState): { state: PersistedS
   return { state: { ...state, sessions: kept }, droppedSessionIds };
 }
 
-export async function loadAppState(): Promise<PersistedState> {
-  return normalizePersistedState(await invoke<unknown>('load_app_state'));
+export interface LoadedAppState {
+  state: PersistedState;
+  /** The file was written by an older version, so its clean-up must be saved. */
+  isOutdated: boolean;
+}
+
+export async function loadAppState(): Promise<LoadedAppState> {
+  const raw = await invoke<unknown>('load_app_state');
+  return {
+    state: normalizePersistedState(raw),
+    isOutdated: !isObject(raw) || raw.version !== STATE_VERSION,
+  };
 }
 
 export function saveAppState(state: PersistedState): Promise<void> {

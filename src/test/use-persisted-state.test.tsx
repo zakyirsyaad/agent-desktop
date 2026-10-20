@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
-import { usePersistedState } from "../hooks/usePersistedState";
+import { SAVE_DEBOUNCE_MS, usePersistedState } from "../hooks/usePersistedState";
 import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
@@ -69,5 +69,32 @@ describe("usePersistedState - terminal sessions", () => {
 
     expect(result.current.state.sessions).toEqual([]);
     await waitFor(() => expect(savedSessionIds()).toEqual([]));
+  });
+});
+
+describe("usePersistedState - older files", () => {
+  it("writes a cleaned older file back once, even when no session was dropped", async () => {
+    const store = fakeStore();
+    store.state.version = 1;
+    store.state.settings.defaultAgentId = "omp";
+    seedSessions([{ id: "a", transport: "acp" }]);
+
+    const { result } = renderHook(() => usePersistedState(vi.fn()));
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    await waitFor(() => expect(fakeStore().state.version).toBe(2));
+    expect(fakeStore().state.settings.defaultAgentId).toBeNull();
+    expect(savedSessionIds()).toEqual(["a"]);
+  });
+
+  it("does not rewrite a current file that needs no clean-up", async () => {
+    seedSessions([{ id: "a", transport: "acp" }]);
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+
+    const { result } = renderHook(() => usePersistedState(vi.fn()));
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, SAVE_DEBOUNCE_MS + 50));
+
+    expect(spy).not.toHaveBeenCalledWith("save_app_state", expect.anything(), undefined);
   });
 });
