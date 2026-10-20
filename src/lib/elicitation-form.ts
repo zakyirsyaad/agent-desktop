@@ -22,9 +22,26 @@ function initialValue({ kind, default: fallback }: ElicitationField): FormValue 
         : [];
     case 'number':
       return typeof fallback === 'number' ? String(fallback) : '';
+    case 'text':
+      if (typeof fallback !== 'string') return '';
+      return kind.format === 'date-time' ? toLocalDateTime(fallback) : fallback;
     default:
       return typeof fallback === 'string' ? fallback : '';
   }
+}
+
+const RFC_3339 = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+
+/** An RFC 3339 time as local `YYYY-MM-DDTHH:MM:SS` for a datetime-local input; '' if it is not one. */
+function toLocalDateTime(value: string): string {
+  const time = RFC_3339.test(value) ? Date.parse(value) : NaN;
+  if (Number.isNaN(time)) return '';
+  const d = new Date(time);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  );
 }
 
 /** False when a field cannot be shown, so the form cannot be sent. */
@@ -81,7 +98,10 @@ function checkText(
   if (kind.maxLength !== undefined && length > kind.maxLength) {
     return `Use at most ${kind.maxLength} characters.`;
   }
-  const format = kind.format && FORMATS[kind.format];
+  const format =
+    kind.format !== undefined && Object.hasOwn(FORMATS, kind.format)
+      ? FORMATS[kind.format]
+      : undefined;
   return format && !format.valid(value) ? format.message : undefined;
 }
 
@@ -131,7 +151,12 @@ function isEmail(text: string): boolean {
 
 function isUri(text: string): boolean {
   if (/\s/.test(text) || !/^[A-Za-z][A-Za-z0-9+.-]*:\/\/./.test(text)) return false;
-  return URL.canParse(text);
+  try {
+    new URL(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** `YYYY-MM-DD` with a month of 1-12 and a day of 1-31. */
@@ -158,13 +183,14 @@ function isDateTime(text: string): boolean {
 
 /**
  * The content to send: typed values with numbers as numbers, date-times as
- * RFC 3339 and empty optional values left out. `offsetMinutes` is the local
- * offset from UTC.
+ * RFC 3339 and empty optional values left out. `offsetMinutes` overrides the
+ * offset from UTC; by default it is the local offset at the entered date-time,
+ * so daylight saving is respected.
  */
 export function toContent(
   fields: ElicitationField[],
   values: Record<string, FormValue>,
-  offsetMinutes: number = -new Date().getTimezoneOffset(),
+  offsetMinutes?: number,
 ): Record<string, unknown> {
   const content: Record<string, unknown> = {};
   for (const field of fields) {
@@ -180,7 +206,7 @@ export function toContent(
   return content;
 }
 
-function convert(field: ElicitationField, value: string, offsetMinutes: number): unknown {
+function convert(field: ElicitationField, value: string, offsetMinutes?: number): unknown {
   if (field.kind.type === 'number') return Number(value);
   if (field.kind.type === 'text' && field.kind.format === 'date-time') {
     return withOffset(value, offsetMinutes);
@@ -189,11 +215,18 @@ function convert(field: ElicitationField, value: string, offsetMinutes: number):
 }
 
 /** `2026-10-20T09:30` plus an offset becomes `2026-10-20T09:30:00+07:00`. */
-function withOffset(local: string, offsetMinutes: number): string {
+function withOffset(local: string, override?: number): string {
+  const offsetMinutes = override ?? localOffset(local);
   const withSeconds = /T\d{2}:\d{2}$/.test(local) ? `${local}:00` : local;
   if (offsetMinutes === 0) return `${withSeconds}Z`;
   const sign = offsetMinutes < 0 ? '-' : '+';
   const abs = Math.abs(offsetMinutes);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${withSeconds}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+}
+
+/** Minutes east of UTC for a local date-time, falling back to now if it does not parse. */
+function localOffset(local: string): number {
+  const date = new Date(local);
+  return -(Number.isNaN(date.getTime()) ? new Date() : date).getTimezoneOffset();
 }

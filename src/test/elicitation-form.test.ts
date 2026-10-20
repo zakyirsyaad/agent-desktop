@@ -48,6 +48,20 @@ describe('initialValues', () => {
   });
 });
 
+describe('date-time defaults', () => {
+  const f = field('d', text({ format: 'date-time' }), { default: '2026-10-20T02:30:00Z' });
+  it('pre-fills a local value that passes the check and round-trips', () => {
+    const values = initialValues([f]);
+    expect(checkForm([f], values)).toEqual({});
+    const sent = toContent([f], values).d as string;
+    expect(Date.parse(sent)).toBe(Date.parse('2026-10-20T02:30:00Z'));
+  });
+  it('drops a default that is not RFC 3339', () => {
+    const bad = field('d', text({ format: 'date-time' }), { default: 'tomorrow' });
+    expect(initialValues([bad])).toEqual({ d: '' });
+  });
+});
+
 describe('checkForm', () => {
   it('requires a value', () => {
     expect(msg(text(), '', true)).toBe('This field is required.');
@@ -83,6 +97,11 @@ describe('checkForm', () => {
     expect(msg(text({ format: 'date-time' }), '2026-10-20')).toBe('Use a date and time.');
     expect(msg(text({ format: 'date-time' }), '2026-10-20T09:30')).toBeUndefined();
     expect(msg(text({ format: 'date-time' }), '2026-10-20T09:30:15')).toBeUndefined();
+  });
+  it('treats unknown or inherited formats as annotations', () => {
+    for (const format of ['constructor', 'toString', '__proto__', 'phone']) {
+      expect(msg(text({ format }), 'anything')).toBeUndefined();
+    }
   });
   it('checks select options', () => {
     const kind: ElicitationFieldKind = { type: 'select', options: choices };
@@ -126,6 +145,13 @@ describe('toContent', () => {
     expect(toContent(f, { d: '2026-10-20T09:30:15' }, -330)).toEqual({
       d: '2026-10-20T09:30:15-05:30',
     });
+  });
+  it('uses the offset at the entered date by default', () => {
+    const f = [field('d', text({ format: 'date-time' }))];
+    for (const d of ['2026-01-15T12:00', '2026-07-15T12:00']) {
+      const sent = toContent(f, { d }).d as string;
+      expect(Date.parse(sent)).toBe(new Date(d).getTime());
+    }
   });
   it('keeps multi-select as an array', () => {
     const f = [field('m', { type: 'multiSelect', options: choices })];
