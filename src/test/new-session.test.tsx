@@ -46,6 +46,35 @@ describe("New session spawning", () => {
     });
   }
 
+  it("forgets an agent picked for a new session once the user opens another session", async () => {
+    (window as unknown as { __FAKE_TAURI_STORE__: { state: { sessions: unknown[] } } }).__FAKE_TAURI_STORE__.state.sessions = [
+      { id: "s-old", name: "Old work", profileId: "qwen-code", cwd: "/Users/test/developer/zorvo", status: "terminated", createdAt: 1, transport: "acp" },
+    ];
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Agent: Claude Code" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "Qwen Code" }));
+    });
+    expect(screen.getByRole("button", { name: "Agent: Qwen Code" })).toBeDefined();
+
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("complementary")).getByText("Old work"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+
+    expect(screen.getByRole("button", { name: "Agent: Claude Code" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Agent: Qwen Code" })).toBeNull();
+  });
+
   it("spawns the agent in the workspace's absolute path, not its display name", async () => {
     const invokeSpy = vi.spyOn(tauriInternals(), "invoke");
 
