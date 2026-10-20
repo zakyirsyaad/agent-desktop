@@ -1,5 +1,5 @@
 import { AgentCatalog } from "./agents/AgentCatalog";
-import { SettingsPanel } from "./SettingsPanel";
+import { SettingsPanel, type SettingsTab } from "./SettingsPanel";
 import type { FolderOption } from "./onboarding/types";
 import { useAgentCatalogActions } from "../hooks/useAgentCatalogActions";
 import type { AgentCatalogHandle } from "../hooks/useAgentCatalog";
@@ -9,8 +9,12 @@ import { loadAgentIcons } from "../lib/agent-icons";
 import { enabledAgentIds, isInUse } from "../lib/enabled-agents";
 import type { AgentProfile, Settings } from "../types";
 
+export type { SettingsTab };
+
 export interface AppSettingsDialogProps {
   isOpen: boolean;
+  /** The tab shown when the dialog opens. */
+  initialTab?: SettingsTab;
   persisted: Pick<PersistedStateHandle, "state" | "updateState" | "saveNow">;
   agents: readonly AgentProfile[];
   refreshAgents: () => Promise<void>;
@@ -26,6 +30,7 @@ export interface AppSettingsDialogProps {
 /** The app's Settings dialog: General, and the agent catalog with its Add, Update and Remove. */
 export function AppSettingsDialog({
   isOpen,
+  initialTab,
   persisted: { state, updateState, saveNow },
   agents,
   refreshAgents,
@@ -62,6 +67,7 @@ export function AppSettingsDialog({
 
   return (
     <SettingsPanel
+      initialTab={initialTab}
       appearance={settings.appearance}
       onChangeAppearance={(appearance) => updateSettings({ appearance })}
       agents={agents.filter((agent) => isInUse(agent, settings))}

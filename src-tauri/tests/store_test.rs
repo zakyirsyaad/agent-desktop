@@ -675,6 +675,8 @@ fn settings_keep_enabled_removed_and_versioned_agents() {
     state.settings.removed_agents = vec!["codex-acp".to_string()];
     state.settings.agent_versions =
         BTreeMap::from([("claude-acp".to_string(), "0.89.1".to_string())]);
+    state.settings.notified_updates =
+        BTreeMap::from([("claude-acp".to_string(), "0.90.0".to_string())]);
 
     store.save_state(&state).expect("save state");
     let loaded = store.load_state().expect("load state");
@@ -685,6 +687,7 @@ fn settings_keep_enabled_removed_and_versioned_agents() {
         "\"enabledAgents\"",
         "\"removedAgents\"",
         "\"agentVersions\"",
+        "\"notifiedUpdates\"",
     ] {
         assert!(raw.contains(key), "{key} is saved in camelCase: {raw}");
     }
@@ -705,6 +708,7 @@ fn settings_keep_enabled_removed_and_versioned_agents() {
     assert_eq!(old.settings.enabled_agents, None);
     assert!(old.settings.removed_agents.is_empty());
     assert!(old.settings.agent_versions.is_empty());
+    assert!(old.settings.notified_updates.is_empty());
     fs::remove_dir_all(&old_root).ok();
 }
 

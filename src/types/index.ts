@@ -174,6 +174,8 @@ export interface Settings {
   removedAgents?: string[];
   /** The version last seen for each agent, by agent id. */
   agentVersions?: Record<string, string>;
+  /** The update version already announced for each agent, by agent id. */
+  notifiedUpdates?: Record<string, string>;
 }
 
 export interface RecentFolder {

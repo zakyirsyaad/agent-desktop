@@ -84,6 +84,8 @@ pub struct Settings {
     pub removed_agents: Vec<String>,
     /// The registry version in use for each agent id.
     pub agent_versions: BTreeMap<String, String>,
+    /// The update version already announced for each agent id.
+    pub notified_updates: BTreeMap<String, String>,
 }
 
 /// The registry agents in use until the user changes the list; matches

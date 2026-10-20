@@ -52,8 +52,11 @@ import { useAgentProfiles, useSuggestedFolders } from "./hooks/useDiscovery";
 import { useDraftInstall } from "./hooks/useDraftInstall";
 import { useWorkspaceSelection } from "./hooks/useWorkspaceSelection";
 import { Onboarding, type OnboardingResult } from "./components/Onboarding";
-import { AppSettingsDialog } from "./components/AppSettingsDialog";
+import { AppSettingsDialog, type SettingsTab } from "./components/AppSettingsDialog";
 import { useAgentCatalog } from "./hooks/useAgentCatalog";
+import { useShellActions } from "./hooks/useShellActions";
+import { useAgentUpdates } from "./hooks/useAgentUpdates";
+import { UpdateNotice } from "./components/UpdateNotice";
 import { ProfileFooter } from "./components/ProfileFooter";
 import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import { useUserProfile } from "./hooks/useUserProfile";
@@ -104,7 +107,7 @@ export default function App() {
   /** Bumped after each of the active agent's turns, so its folder's branch is read again. */
   const [branchCheck, setBranchCheck] = useState(0);
   const [acpChoices, setAcpChoices] = useState<AcpChoices>(NO_CHOICES);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const composerRef = useRef<ComposerHandle>(null);
   const [ptyOutput] = useState(createPtyOutputStore);
 
@@ -114,6 +117,8 @@ export default function App() {
   const { transcripts, ensureLoaded, updateMessages, removeTranscript } = useTranscripts(reportError);
   const { agents, isLoaded: areAgentsLoaded, refresh: refreshAgents } = useAgentProfiles(reportError);
   const agentCatalog = useAgentCatalog();
+  const shell = useShellActions(setNotice);
+  const agentUpdates = useAgentUpdates({ catalog: agentCatalog.catalog, settings: state.settings, updateState });
   // Installed registry agents join the ones in use, and each one's version is recorded.
   useEffect(() => {
     if (!isLoaded || agents.length === 0) return;
@@ -449,27 +454,6 @@ export default function App() {
     if (sessionId) handleSelectSession(sessionId);
   };
 
-  /** A workspace's files for @-mentions; a failure is reported and offers none. */
-  const loadWorkspaceFiles = (root: string): Promise<string[]> =>
-    invoke<string[]>("workspace_files", { root }).catch((error) => {
-      setNotice(`Could not list the files to mention: ${String(error)}`);
-      return [];
-    });
-
-  const handleRevealFolder = () => {
-    if (!filesFolder) return;
-    invoke("reveal_in_finder", { path: filesFolder.path }).catch((error) => {
-      setNotice(`Could not open the folder: ${String(error)}`);
-    });
-  };
-
-  const handlePopout = () => {
-    if (!activeSession) return;
-    invoke("open_session_window", { sessionId: activeSession.id }).catch((error) => {
-      setNotice(`Could not open a new window: ${String(error)}`);
-    });
-  };
-
   const updateSettings = (patch: Partial<Settings>) =>
     updateState((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }));
 
@@ -479,7 +463,7 @@ export default function App() {
   };
 
   const handleRunOnboarding = () => {
-    setIsSettingsOpen(false);
+    setSettingsTab(null);
     updateSettings({ onboardingCompleted: false });
   };
 
@@ -617,8 +601,8 @@ export default function App() {
         isChangesOpen={sidePanel.open === "changes" && Boolean(filesFolder) && isRepository}
         diffStats={diffStats}
         onOpenDiff={() => sidePanel.show("diff")}
-        onPopout={activeSession ? handlePopout : undefined}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onPopout={activeSession ? () => shell.popout(activeSession.id) : undefined}
+        onOpenSettings={() => setSettingsTab("general")}
         backgroundTasks={{
           tasks: backgroundTasks.tasks,
           isOpen: backgroundTasks.isMenuOpen,
@@ -653,7 +637,8 @@ export default function App() {
               name={userProfile.name}
               email={userProfile.email}
               version={userProfile.version}
-              onOpenSettings={() => setIsSettingsOpen(true)}
+              updateCount={agentUpdates.updateCount}
+              onOpenSettings={() => setSettingsTab("general")}
             />
           }
         />
@@ -661,6 +646,11 @@ export default function App() {
         <article className={`${isDiffOpen && isDiffExpanded ? "hidden" : "flex"} flex-1 flex-col bg-bg relative overflow-hidden`}>
           {isDraggingFiles && <FileDropOverlay />}
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
+          <UpdateNotice
+            agents={agentUpdates.unnotified}
+            onShow={() => { agentUpdates.acknowledge(); setSettingsTab("agents"); }}
+            onDismiss={agentUpdates.acknowledge}
+          />
           <SignInLayer signIn={signIn} agents={agents} />
           {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
           {showsTerminal ? (
@@ -735,7 +725,7 @@ export default function App() {
                   : undefined
               }
               contextUsage={isActiveRunning && isAcp(activeSession) ? acp.info[activeSessionId]?.usage : undefined}
-              mentions={filesFolder ? { root: filesFolder.path, loadFiles: () => loadWorkspaceFiles(filesFolder.path) } : undefined}
+              mentions={filesFolder ? { root: filesFolder.path, loadFiles: () => shell.loadWorkspaceFiles(filesFolder.path) } : undefined}
               folder={
                 isNewSessionDraft
                   ? {
@@ -794,12 +784,13 @@ export default function App() {
             rootName={filesFolder.name}
             onClose={sidePanel.close}
             onInsertPath={(path) => composerRef.current?.insertPaths([path])}
-            onRevealRoot={handleRevealFolder}
+            onRevealRoot={() => filesFolder && shell.revealFolder(filesFolder.path)}
           />
         )}
       </section>
       <AppSettingsDialog
-        isOpen={isSettingsOpen}
+        isOpen={settingsTab !== null}
+        initialTab={settingsTab ?? undefined}
         persisted={{ state, updateState, saveNow }}
         agents={agents}
         refreshAgents={refreshAgents}
@@ -808,7 +799,7 @@ export default function App() {
         recentFolders={workspaces}
         onRemoveRecentFolder={removeFolder}
         onRunOnboarding={handleRunOnboarding}
-        onClose={() => setIsSettingsOpen(false)}
+        onClose={() => setSettingsTab(null)}
       />
     </main>
   );

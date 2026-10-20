@@ -389,7 +389,7 @@ describe("Catalog actions — Remove in the app", () => {
     await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
     const sessionId = String(callsTo(spy, "acp_start_session")[0][1]?.sessionId);
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Settings/ }));
     fireEvent.click(screen.getByRole("tab", { name: /Agents/ }));
     const qwen = await screen.findByRole("listitem", { name: "Qwen Code" });
     fireEvent.click(within(qwen).getByRole("button", { name: "Remove" }));
