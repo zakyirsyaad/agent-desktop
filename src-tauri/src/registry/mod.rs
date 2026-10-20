@@ -25,7 +25,7 @@ use crate::installer::{
 use crate::profiles::AgentProfile;
 use cache::RegistryCache;
 use fetch::{fetch_registry, FETCH_TIMEOUT, MAX_REGISTRY_BYTES, REGISTRY_URL};
-use history::{is_within, VersionHistory};
+use history::{is_within, VersionHistory, MIN_AGE_SECS};
 use npm_globals::{npm_globals, NPM_TIMEOUT};
 use resolve::{is_supported, planned_steps, registry_env, resolve_profile, SystemTools};
 use schema::{parse_registry, RegistryEntry};
@@ -97,6 +97,7 @@ impl CatalogState {
     ) -> Option<&RegistryEntry> {
         let recorded = versions
             .get(id)
+            .filter(|version| self.is_old_enough(id, version, now))
             .and_then(|version| Some((version, self.history.version(id, version)?)));
         match recorded {
             Some((version, entry)) if self.is_withdrawn(id, version) => {
@@ -105,6 +106,13 @@ impl CatalogState {
             Some((_, entry)) => Some(entry),
             None => self.offered(id, now),
         }
+    }
+
+    /// True when `version` was first seen at least `MIN_AGE_SECS` before `now`.
+    fn is_old_enough(&self, id: &str, version: &str, now: u64) -> bool {
+        self.history
+            .first_seen(id, version)
+            .is_some_and(|seen| now.saturating_sub(seen) >= MIN_AGE_SECS)
     }
 
     fn profile(

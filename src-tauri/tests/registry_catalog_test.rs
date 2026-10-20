@@ -821,3 +821,34 @@ fn unsupported_agents_are_not_profiles() {
     );
     assert_eq!(catalog.unsupported_agent_name("nope", &versions, now), None);
 }
+
+/// gemini 1.0.0 seen at T0, 1.1.0 seen ten days later, with 1.1.0 recorded as in use.
+fn version_of_recorded_1_1_0_at(now: u64) -> Option<String> {
+    let dir = TempDir::new("recorded-age");
+    let bundle = bundle_of(&[
+        (npx_entry("gemini", "1.0.0"), T0),
+        (npx_entry("gemini", "1.1.0"), T0 + 10 * DAY),
+    ]);
+    let catalog = Catalog::open(dir.path().to_path_buf(), &bundle);
+    let recorded = BTreeMap::from([("gemini".to_string(), "1.1.0".to_string())]);
+
+    let profiles = no_tools_profiles(&catalog, &recorded, now);
+
+    find(&profiles, "gemini").version.clone()
+}
+
+#[test]
+fn a_recorded_version_first_seen_6_days_ago_is_not_used() {
+    assert_eq!(
+        version_of_recorded_1_1_0_at(T0 + 16 * DAY).as_deref(),
+        Some("1.0.0")
+    );
+}
+
+#[test]
+fn a_recorded_version_first_seen_7_days_ago_is_used() {
+    assert_eq!(
+        version_of_recorded_1_1_0_at(T0 + 17 * DAY).as_deref(),
+        Some("1.1.0")
+    );
+}
