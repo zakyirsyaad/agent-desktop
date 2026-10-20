@@ -231,7 +231,7 @@ function BranchList({ branch, onPicked }: { branch: BranchControl; onPicked: () 
                   aria-selected={isCurrent}
                   title={name}
                   onClick={() => pick(name)}
-                  className="flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
+                  className="flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg focus-ring"
                 >
                   <span className="truncate">{name}</span>
                   {isCurrent && <Check size={13} className="shrink-0 text-fg" />}

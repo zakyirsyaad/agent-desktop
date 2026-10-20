@@ -1,8 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { BranchControl } from '../components/composer/FolderPicker';
-import { liveSessionsIn } from '../lib/branch-switch';
-import type { Session } from '../types';
 
 export interface BranchPickerInput {
   /** The new session's folder. */
@@ -10,7 +8,6 @@ export interface BranchPickerInput {
   /** The folder's checked-out branch; undefined outside a repository. */
   checkedOut: string | undefined;
   isWorktreeOn: boolean;
-  sessions: readonly Session[];
   /** The folder's branch changed, so its details should be read again. */
   onSwitched: () => void;
   onNotice: (message: string) => void;
@@ -25,20 +22,22 @@ export interface BranchPicker {
 
 /**
  * The branch a new session starts on. With Worktree off, picking a branch
- * switches the folder itself, unless a live agent runs there; with Worktree
- * on, it only picks the branch the session's worktree starts from.
+ * switches the folder itself (the backend refuses while an agent works in
+ * that checkout); with Worktree on, it only picks the branch the session's
+ * worktree starts from.
  */
 export function useBranchPicker({
   folderPath,
   checkedOut,
   isWorktreeOn,
-  sessions,
   onSwitched,
   onNotice,
 }: BranchPickerInput): BranchPicker {
   const [listed, setListed] = useState<{ path: string; branches: readonly string[] } | null>(null);
   // Kept with its folder, so another folder never starts from this one's branch.
   const [base, setBase] = useState<{ path: string; branch: string } | null>(null);
+  // Two git switches at once would race on the repository's index lock.
+  const isSwitchingRef = useRef(false);
 
   if (!folderPath || !checkedOut) return { control: undefined, baseBranch: undefined };
 
@@ -55,19 +54,15 @@ export function useBranchPicker({
   };
 
   const switchFolder = async (branch: string) => {
-    if (branch === checkedOut) return;
-    const live = liveSessionsIn(folderPath, sessions);
-    if (live.length > 0) {
-      onNotice(
-        `Did not switch to ${branch}: ${live.map((s) => `"${s.name}"`).join(', ')} still runs in this folder. Stop it first, or turn on Worktree.`,
-      );
-      return;
-    }
+    if (branch === checkedOut || isSwitchingRef.current) return;
+    isSwitchingRef.current = true;
     try {
       await invoke('switch_branch', { path: folderPath, branch });
       onSwitched();
     } catch (error) {
       onNotice(`Could not switch to ${branch}: ${String(error)}`);
+    } finally {
+      isSwitchingRef.current = false;
     }
   };
 

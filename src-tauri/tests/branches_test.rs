@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use zorvo_lib::branches::{local_branches, switch_to_branch};
+use zorvo_lib::branches::{ensure_no_live_session, local_branches, switch_to_branch};
 
 fn unique_repo(tag: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -158,5 +158,75 @@ fn refuses_a_name_git_would_read_as_an_option() {
         );
     }
     assert_eq!(current_branch(&repo), "main");
+    fs::remove_dir_all(repo).ok();
+}
+
+#[test]
+fn passes_git_s_own_message_when_branches_cannot_be_listed() {
+    let dir = unique_repo("message");
+
+    let error = local_branches(&git_path(), &dir).expect_err("not a repository");
+
+    assert!(error.starts_with("fatal:"), "{error}");
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn a_live_session_anywhere_in_the_repository_blocks_a_switch() {
+    let repo = repo("live-sibling");
+    fs::create_dir_all(repo.join("api")).expect("create subfolder");
+    fs::create_dir_all(repo.join("web")).expect("create subfolder");
+
+    let error = ensure_no_live_session(&git_path(), &repo.join("web"), &[repo.join("api")])
+        .expect_err("a sibling subfolder shares the checkout");
+
+    assert!(error.contains("Worktree"), "{error}");
+    fs::remove_dir_all(repo).ok();
+}
+
+#[test]
+fn a_session_in_another_checkout_does_not_block_a_switch() {
+    let repo = repo("live-elsewhere");
+    let worktree = repo.with_extension("wt");
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            &worktree.to_string_lossy(),
+            "older",
+        ],
+    );
+    let unrelated = unique_repo("unrelated");
+
+    ensure_no_live_session(&git_path(), &repo, &[worktree.clone(), unrelated.clone()])
+        .expect("a worktree and an unrelated folder have their own files");
+
+    fs::remove_dir_all(&worktree).ok();
+    fs::remove_dir_all(unrelated).ok();
+    fs::remove_dir_all(repo).ok();
+}
+
+#[test]
+fn a_live_session_in_a_worktree_blocks_switching_that_worktree() {
+    let repo = repo("live-worktree");
+    let worktree = repo.with_extension("wt");
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            &worktree.to_string_lossy(),
+            "older",
+        ],
+    );
+
+    assert!(
+        ensure_no_live_session(&git_path(), &worktree, std::slice::from_ref(&worktree)).is_err()
+    );
+
+    fs::remove_dir_all(&worktree).ok();
     fs::remove_dir_all(repo).ok();
 }

@@ -850,3 +850,23 @@ fn cancelling_a_sign_in_ends_the_agent_it_is_reading_the_method_from() {
     );
     assert!(attempts.is_cancelled("signin-cancel-1"));
 }
+
+#[test]
+fn lists_the_folder_of_every_open_session_until_it_stops() {
+    let (manager, _rx) = manager();
+    let other = std::env::temp_dir().canonicalize().unwrap();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+    manager
+        .fork("s-1", "s-2", &other.to_string_lossy())
+        .expect("fork");
+
+    let mut folders = manager.session_folders();
+    folders.sort();
+    let mut expected = vec![std::path::PathBuf::from(cwd()), other.clone()];
+    expected.sort();
+    assert_eq!(folders, expected);
+
+    manager.stop("s-1");
+    manager.stop("s-2");
+    assert!(manager.session_folders().is_empty());
+}

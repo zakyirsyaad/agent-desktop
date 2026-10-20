@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useBranchPicker, type BranchPickerInput } from "../hooks/useBranchPicker";
-import type { Session } from "../types";
 
 const mockInvoke = vi.fn((_cmd: string, _args?: Record<string, unknown>): Promise<unknown> => Promise.resolve(undefined));
 
@@ -11,24 +10,11 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 const FOLDER = "/Users/test/developer/zorvo";
 
-function session(overrides: Partial<Session> = {}): Session {
-  return {
-    id: "s1",
-    name: "Fix login",
-    profileId: "qwen-code",
-    cwd: FOLDER,
-    status: "idle",
-    createdAt: 0,
-    ...overrides,
-  };
-}
-
 function input(overrides: Partial<BranchPickerInput> = {}): BranchPickerInput {
   return {
     folderPath: FOLDER,
     checkedOut: "main",
     isWorktreeOn: false,
-    sessions: [],
     onSwitched: vi.fn(),
     onNotice: vi.fn(),
     ...overrides,
@@ -91,39 +77,24 @@ describe("useBranchPicker", () => {
     expect(mockInvoke).not.toHaveBeenCalledWith("switch_branch", expect.anything());
   });
 
-  it("leaves the folder alone while one of its sessions has a live agent", async () => {
-    const onNotice = vi.fn();
-    const { result } = renderHook(() =>
-      useBranchPicker(input({ onNotice, sessions: [session({ cwd: `${FOLDER}/src` })] })),
-    );
-
-    await act(async () => result.current.control?.onPick("feature"));
-
-    expect(mockInvoke).not.toHaveBeenCalledWith("switch_branch", expect.anything());
-    expect(onNotice).toHaveBeenCalledWith(expect.stringContaining("Fix login"));
-  });
-
-  it("does not count ended sessions, worktree sessions or other folders", async () => {
-    const { result } = renderHook(() =>
-      useBranchPicker(
-        input({
-          sessions: [
-            session({ id: "ended", status: "terminated" }),
-            session({ id: "wt", worktree: { repoPath: FOLDER, path: "/wt/zorvo/x", branch: "agent/x" } }),
-            session({ id: "other", cwd: "/Users/test/developer/zorvo-site" }),
-          ],
-        }),
-      ),
-    );
-
-    await act(async () => result.current.control?.onPick("feature"));
-
-    expect(mockInvoke).toHaveBeenCalledWith("switch_branch", { path: FOLDER, branch: "feature" });
-  });
-
-  it("reports a switch git refused", async () => {
+  it("ignores another pick while a switch is still running", async () => {
+    let finish: () => void = () => {};
     mockInvoke.mockImplementation((cmd: string) =>
-      cmd === "switch_branch" ? Promise.reject("Your local changes would be overwritten") : Promise.resolve([]),
+      cmd === "switch_branch" ? new Promise<void>((resolve) => (finish = resolve)) : Promise.resolve([]),
+    );
+    const { result } = renderHook(() => useBranchPicker(input()));
+
+    act(() => void result.current.control?.onPick("feature"));
+    await act(async () => result.current.control?.onPick("release"));
+    await act(async () => finish());
+
+    const switches = mockInvoke.mock.calls.filter(([cmd]) => cmd === "switch_branch");
+    expect(switches).toEqual([["switch_branch", { path: FOLDER, branch: "feature" }]]);
+  });
+
+  it("reports a switch the backend refused", async () => {
+    mockInvoke.mockImplementation((cmd: string) =>
+      cmd === "switch_branch" ? Promise.reject("An agent is still running in this repository.") : Promise.resolve([]),
     );
     const onNotice = vi.fn();
     const onSwitched = vi.fn();
@@ -131,7 +102,7 @@ describe("useBranchPicker", () => {
 
     await act(async () => result.current.control?.onPick("feature"));
 
-    expect(onNotice).toHaveBeenCalledWith(expect.stringContaining("Your local changes would be overwritten"));
+    expect(onNotice).toHaveBeenCalledWith(expect.stringContaining("An agent is still running in this repository."));
     expect(onSwitched).not.toHaveBeenCalled();
   });
 

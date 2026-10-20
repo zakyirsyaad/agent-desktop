@@ -152,7 +152,6 @@ export default function App() {
     folderPath: isNewSessionDraft ? activeWorkspacePath : undefined,
     checkedOut: workspaceDetails?.branch ?? undefined,
     isWorktreeOn: isWorktreeOn && canUseWorktree,
-    sessions,
     onSwitched: () => setBranchCheck((n) => n + 1),
     onNotice: setNotice,
   });
