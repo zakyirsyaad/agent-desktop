@@ -149,6 +149,72 @@ describe("Popout windows", () => {
     });
   });
 
+  it("forwards an answer to an agent's form request", async () => {
+    await act(async () => {
+      render(<PopoutApp sessionId="s-1" />);
+    });
+    await deliver("session-snapshot", {
+      sessionId: "s-1",
+      session: runningSession,
+      messages: [
+        {
+          id: "m-1",
+          role: "agent",
+          content: "",
+          timestamp: 1,
+          elicitation: {
+            key: "el-1",
+            sessionId: "s-1",
+            mode: "form",
+            message: "What is your name?",
+            status: "pending",
+            timestamp: 1,
+            fields: [{ name: "name", title: "Name", required: true, kind: { type: "text" } }],
+          },
+        },
+      ],
+    });
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "Ada" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    });
+
+    expect(emitted).toContainEqual({
+      event: "popout-action",
+      payload: {
+        sessionId: "s-1",
+        action: { kind: "answer-elicitation", key: "el-1", answer: { action: "accept", content: { name: "Ada" } } },
+      },
+    });
+  });
+
+  it("main window answers an agent's request when its popout asks", async () => {
+    const spy = vi.spyOn(tauriInternals(), "invoke");
+    const sessionId = await startSessionInMainWindow(spy);
+    await deliver("acp-event", {
+      sessionId,
+      kind: "elicitation",
+      key: "el-1",
+      request: { mode: "url", message: "Sign in", url: "https://acme.example/login", host: "acme.example" },
+    });
+
+    await deliver("popout-action", {
+      sessionId,
+      action: { kind: "answer-elicitation", key: "el-1", answer: { action: "accept" } },
+    });
+    await deliver("popout-action", { sessionId, action: { kind: "reopen-elicitation-url", key: "el-1" } });
+
+    expect(spy).toHaveBeenCalledWith(
+      "acp_respond_elicitation",
+      { sessionId, key: "el-1", action: "accept", content: null },
+      undefined,
+    );
+    expect(spy).toHaveBeenCalledWith("acp_reopen_elicitation_url", { sessionId, key: "el-1" }, undefined);
+  });
+
   it("shows the agent working and stops it from the popout", async () => {
     await act(async () => {
       render(<PopoutApp sessionId="s-1" />);

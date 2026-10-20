@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Sparkles, User } from "lucide-react";
 import { ActionCard } from "./ActionCard";
+import { ElicitationCard } from "./chat/ElicitationCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { MessageActionBar } from "./MessageActionBar";
 import { UserMessageBar } from "./chat/UserMessageBar";
@@ -8,7 +9,7 @@ import { AttachmentChips } from "./composer/AttachmentChips";
 import { ToolCallList } from "./chat/ToolCallList";
 import { PlanList, ThinkingBlock, WorkingIndicator } from "./chat/ReplyExtras";
 import { useReadAloud } from "../hooks/useReadAloud";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, ElicitationAnswer } from "../types";
 
 export type { ChatMessage, ToolExecution } from "../types";
 
@@ -23,7 +24,7 @@ const STICK_TO_BOTTOM_PX = 80;
 function hasSomethingToShow(msg: ChatMessage): boolean {
   if (msg.role === "user") return true;
   return Boolean(
-    msg.content.trim() || msg.thinking || msg.plan?.length || msg.tools?.length || msg.actionCard,
+    msg.content.trim() || msg.thinking || msg.plan?.length || msg.tools?.length || msg.actionCard || msg.elicitation,
   );
 }
 
@@ -34,6 +35,10 @@ export interface ChatCanvasProps {
   onForkBranch?: (messageId: string) => void;
   /** Answers an ACP permission card with one of the agent's options. */
   onChooseOption?: (cardId: string, optionId: string) => void;
+  /** Answers an agent's request for input or to open a page. */
+  onAnswerElicitation?: (key: string, answer: ElicitationAnswer) => void;
+  /** Opens an agent's page again after the user opened it once. */
+  onReopenElicitationUrl?: (key: string) => void;
   /** True while the agent works on its turn: shown under the last message. */
   isWorking?: boolean;
   /** Which conversation is shown; switching starts at its newest output. */
@@ -63,6 +68,8 @@ export function ChatCanvas({
   agentName = DEFAULT_AGENT_NAME,
   onForkBranch,
   onChooseOption,
+  onAnswerElicitation,
+  onReopenElicitationUrl,
   isWorking = false,
   conversationId,
   onRewind,
@@ -176,6 +183,17 @@ export function ChatCanvas({
                   onChoose={
                     onChooseOption ? (optionId) => onChooseOption(msg.actionCard!.id, optionId) : undefined
                   }
+                />
+              )}
+
+              {/* The agent's request for input or to open a page; keyed so typed values never move between cards */}
+              {msg.elicitation && (
+                <ElicitationCard
+                  key={msg.elicitation.key}
+                  card={msg.elicitation}
+                  agentName={agentName}
+                  onAnswer={onAnswerElicitation}
+                  onReopen={onReopenElicitationUrl}
                 />
               )}
             </div>

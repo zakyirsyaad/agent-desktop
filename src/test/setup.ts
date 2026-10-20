@@ -80,6 +80,8 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
     case "acp_prompt":
     case "acp_cancel":
     case "acp_respond_permission":
+    case "acp_respond_elicitation":
+    case "acp_reopen_elicitation_url":
     case "acp_set_mode":
     case "acp_stop_session":
       return Promise.resolve(undefined);

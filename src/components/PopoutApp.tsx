@@ -91,6 +91,8 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
             messages={messages}
             agentName={agent?.name}
             onChooseOption={(cardId, optionId) => forward({ kind: "choose-option", cardId, optionId })}
+            onAnswerElicitation={(key, answer) => forward({ kind: "answer-elicitation", key, answer })}
+            onReopenElicitationUrl={(key) => forward({ kind: "reopen-elicitation-url", key })}
             isWorking={status.isBusy && !status.isWaiting}
           />
         ) : (

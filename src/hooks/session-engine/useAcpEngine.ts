@@ -12,10 +12,12 @@ import { changesToApply, NO_CHOICES, type AcpChange, type AcpChoices, type Agent
 import { findCard, titleFromPrompt, userMessage, withoutMessage } from '../../lib/session-helpers';
 import { createId } from '../../lib/ids';
 import { toCommands, useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
-import type { AgentProfile, ChatMessage, Session } from '../../types';
+import type { AgentProfile, ChatMessage, ElicitationCard, Session } from '../../types';
 import { parseAuthRequired, type AuthMethod } from '../../lib/acp-auth';
 import { isUnknownSessionError } from '../../lib/acp-load-error';
 import { writeConversationHandoff } from '../../lib/session-handoff';
+import { applyElicitation, completeElicitation, dismissPendingElicitations } from '../../lib/acp-elicitation';
+import { elicitationActions, type InFlightAnswer } from './elicitation-actions';
 
 const NOT_ENDED_NORMALLY = new Set(['refusal', 'max_tokens', 'max_turn_requests']);
 
@@ -103,6 +105,8 @@ export function useAcpEngine({
   const unsentContextRef = useRef(new Map<string, string>());
   // The picks a session was opened with when its agent refused to open it until the user signs in.
   const refusedChoicesRef = useRef(new Map<string, AcpChoices>());
+  // Elicitation answers on their way, with the card each came from (never what the user typed).
+  const elicitationsInFlightRef = useRef(new Map<string, InFlightAnswer>());
   const ctx = (sessionId: string) => ({ sessionId, now: Date.now(), createId });
   const isStopped = (sessionId: string) => stoppedRef.current.has(sessionId);
   const unlessStopped =
@@ -133,6 +137,13 @@ export function useAcpEngine({
       updateMessages(sessionId, (prev) => applyPermissionRequest(prev, request, ctx(sessionId)));
       onAttention?.(sessionId, 'needs-answer');
     }),
+    onElicitation: unlessStopped((sessionId, card: ElicitationCard) => {
+      updateMessages(sessionId, (prev) => applyElicitation(prev, card, ctx(sessionId)));
+      onAttention?.(sessionId, 'needs-answer');
+    }),
+    onElicitationComplete: unlessStopped((sessionId, key: string) => {
+      updateMessages(sessionId, (prev) => completeElicitation(prev, key));
+    }),
     onTurnEnd: unlessStopped((sessionId, { stopReason, error }: TurnResult) => {
       updateMessages(sessionId, closeTurn);
       const authMethods = parseAuthRequired(error);
@@ -148,10 +159,14 @@ export function useAcpEngine({
     }),
     onExit: unlessStopped((sessionId, code: number | null) => {
       updateMessages(sessionId, closeTurn);
+      elicitations.abandon(sessionId);
       patchSession(sessionId, { status: 'terminated', endedAt: Date.now(), exitCode: code });
     }),
     onError: reportError,
   });
+
+  const transcriptOf = (sessionId: string) => transcripts?.[sessionId] ?? [];
+  const elicitations = elicitationActions({ acp, updateMessages, reportError, transcriptOf, inFlight: elicitationsInFlightRef.current });
 
   const markStarting = useCallback((sessionId: string, isStarting: boolean) => {
     setStarting((prev) => {
@@ -260,6 +275,7 @@ export function useAcpEngine({
       } catch (error) {
         if (isStopped(session.id)) return true;
         if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+        elicitations.abandon(session.id);
         // The message's hidden context goes out with the next one.
         if (options.first?.context) unsentContextRef.current.set(session.id, options.first.context);
         patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
@@ -428,6 +444,7 @@ export function useAcpEngine({
    */
   const interrupt = (sessionId: string, messages: ChatMessage[] | undefined) => {
     if (starting.has(sessionId)) {
+      elicitations.abandon(sessionId);
       void stop(sessionId);
       patchSession(sessionId, { status: 'terminated', endedAt: Date.now() });
       return;
@@ -436,7 +453,10 @@ export function useAcpEngine({
       if (card.requestId === undefined) continue;
       acp.respondPermission(sessionId, card.requestId, null).catch(reportFailure('Could not answer the agent'));
     }
-    acp.cancel(sessionId).catch(reportFailure('Failed to stop the agent'));
+    // The backend answers the turn's open elicitations as cancelled.
+    elicitations.forget(sessionId);
+    const dismiss = () => updateMessages(sessionId, dismissPendingElicitations);
+    acp.cancel(sessionId).then(dismiss, reportFailure('Failed to stop the agent'));
   };
 
   const setMode = (sessionId: string, modeId: string) => {
@@ -460,6 +480,8 @@ export function useAcpEngine({
     fork,
     send,
     chooseOption,
+    answerElicitation: elicitations.answer,
+    reopenElicitationUrl: elicitations.reopen,
     interrupt,
     setMode,
     setConfigOption,
