@@ -145,8 +145,10 @@ impl AcpManager {
             .map(|mut routes| routes.elicitations.take_open_of_session(app_session_id))
             .unwrap_or_default();
         for pending in open {
-            // Best effort, like every answer Zorvo sends unasked: a write
-            // fails only when the agent is gone, and the turn is cancelled anyway.
+            // Written here, not on a thread through `cancel_request`/`answer`,
+            // so these replies reach the agent before `session/cancel`. Best
+            // effort, like every answer Zorvo sends unasked: a write fails
+            // only when the agent is gone, and the turn is cancelled anyway.
             let _ = send(
                 &pending.connection,
                 &pending.request_id,

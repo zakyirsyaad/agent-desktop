@@ -1450,6 +1450,10 @@ fn reopens_and_completes_a_url_request() {
     manager.stop("s-1");
 }
 
+/// The race this guards (a completion arriving between the accept and the
+/// request waiting for it) reproduced only with a delay injected into the old
+/// code, so this documents the behaviour rather than reliably catching a
+/// regression.
 #[test]
 fn completes_a_url_request_the_agent_finishes_right_after_the_accept() {
     let (manager, rx, _opened, key) = started_with("elicit-url-done-on-accept");
