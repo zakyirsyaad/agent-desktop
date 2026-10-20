@@ -657,7 +657,6 @@ export default function App() {
           <div className="p-4 flex justify-center">
             <ComposerDock
               controls={composer.controls}
-              optionsLocked={composer.locked}
               isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
               onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
               disabled={

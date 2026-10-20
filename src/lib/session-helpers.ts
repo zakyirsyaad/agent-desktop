@@ -153,19 +153,6 @@ export function groupSessionsByWorkspace(
   }));
 }
 
-/** Sets the status of one action card (or every card when no id is given). */
-export function setCardStatus(
-  messages: readonly ChatMessage[],
-  cardId: string | undefined,
-  status: ActionCard['status'],
-): ChatMessage[] {
-  return messages.map((msg) => {
-    if (!msg.actionCard) return msg;
-    if (cardId && msg.actionCard.id !== cardId) return msg;
-    return { ...msg, actionCard: { ...msg.actionCard, status } };
-  });
-}
-
 /** A chat message the user typed, with the files they attached. */
 export function userMessage(content: string, attachments: readonly string[] = []): ChatMessage {
   const message: ChatMessage = { id: createId('msg'), role: 'user', content, timestamp: Date.now() };

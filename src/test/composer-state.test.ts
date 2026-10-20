@@ -108,13 +108,12 @@ describe("composerStateFor", () => {
   it("offers an old terminal session no controls", () => {
     const state = composerStateFor(inputs({ session: running("pty"), draftAgent }));
 
-    expect(state).toEqual({ controls: {}, locked: false });
+    expect(state).toEqual({ controls: {} });
   });
 
   it("builds a running ACP session's controls from what its agent reported", () => {
     const state = composerStateFor(inputs({ session: running(TRANSPORT_ACP) }));
 
-    expect(state.locked).toBe(false);
     expect(state.controls.permission?.options.map((o) => o.label)).toEqual(["Default", "Plan"]);
     state.controls.permission?.onChange("plan");
     expect(setMode).toHaveBeenCalledWith("s-1", "plan");
@@ -123,11 +122,11 @@ describe("composerStateFor", () => {
   it("offers no controls while a running ACP session has reported nothing", () => {
     const state = composerStateFor(inputs({ session: running(TRANSPORT_ACP), acp: { ...acp, info: {} } as ComposerInputs["acp"] }));
 
-    expect(state).toEqual({ controls: {}, locked: false });
+    expect(state).toEqual({ controls: {} });
   });
 
   it("offers no controls without a draft agent", () => {
-    expect(composerStateFor(inputs({}))).toEqual({ controls: {}, locked: false });
+    expect(composerStateFor(inputs({}))).toEqual({ controls: {} });
   });
 
   it("builds a draft agent's controls from the options it reported last time", () => {
@@ -136,13 +135,12 @@ describe("composerStateFor", () => {
       inputs({ draftAgent, setAcpChoices, agentOptions: { qwen: { modes: info.modes, configOptions: [] } } }),
     );
 
-    expect(state.locked).toBe(false);
     expect(state.controls.permission?.selected).toBe("default");
     state.controls.permission?.onChange("plan");
     expect(setAcpChoices).toHaveBeenCalledWith({ config: {}, modeId: "plan" });
   });
 
   it("offers a draft agent that reported nothing no controls", () => {
-    expect(composerStateFor(inputs({ draftAgent, agentOptions: {} }))).toEqual({ controls: {}, locked: false });
+    expect(composerStateFor(inputs({ draftAgent, agentOptions: {} }))).toEqual({ controls: {} });
   });
 });

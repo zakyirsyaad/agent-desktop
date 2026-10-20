@@ -7,7 +7,6 @@ import type { AgentProfile, Session, SlashCommand } from '../types';
 
 export interface ComposerState {
   controls: ComposerControls;
-  locked: boolean;
 }
 
 export interface ComposerInputs {
@@ -45,13 +44,13 @@ export function composerStateFor(inputs: ComposerInputs): ComposerState {
             },
           })
         : {};
-      return { controls, locked: false };
+      return { controls };
     }
-    return { controls: {}, locked: false };
+    return { controls: {} };
   }
-  if (!draftAgent) return { controls: {}, locked: false };
+  if (!draftAgent) return { controls: {} };
   const options = inputs.agentOptions?.[draftAgent.id];
-  if (!options) return { controls: {}, locked: false };
+  if (!options) return { controls: {} };
   const { acpChoices: choices, setAcpChoices } = inputs;
   const controls = acpControls(draftInfo(options, choices), {
     setMode: (modeId) => setAcpChoices({ ...choices, modeId }),
@@ -60,7 +59,7 @@ export function composerStateFor(inputs: ComposerInputs): ComposerState {
       inputs.onPick?.(draftAgent.id, configId, value);
     },
   });
-  return { controls, locked: false };
+  return { controls };
 }
 
 export const COMPOSER_PLACEHOLDERS = {

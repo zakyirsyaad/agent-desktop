@@ -87,7 +87,9 @@ function withCanonicalKeys<T>(record: Record<string, T>): Record<string, T> {
   const current = entries.filter(([id]) => canonicalAgentId(id) === id);
   const legacy = entries.filter(([id]) => canonicalAgentId(id) !== id);
   return Object.fromEntries(
-    [...legacy, ...current].map(([id, value]) => [canonicalAgentId(id), value]).filter(([id]) => !isRemovedAgent(id as string)),
+    [...legacy, ...current]
+      .filter(([id]) => !isRemovedAgent(canonicalAgentId(id)))
+      .map(([id, value]) => [canonicalAgentId(id), value]),
   );
 }
 

@@ -97,7 +97,6 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
         )}
         <div className="p-4 flex justify-center">
           <ComposerDock
-            optionsLocked
             disabled={!isRunning}
             placeholder={isRunning ? undefined : "This session is not running"}
             onSendMessage={(text) => forward({ kind: "send", text })}

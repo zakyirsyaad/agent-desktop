@@ -48,19 +48,4 @@ describe("Composer attachments", () => {
 
     expect(prompt().value).toBe("/Users/me/notes.md ");
   });
-
-  it("moves attached files into the text when the agent changes to a terminal one", async () => {
-    const onSendMessage = vi.fn();
-    const ref = createRef<ComposerHandle>();
-    const { rerender } = render(<ComposerDock onSendMessage={onSendMessage} attachAsFiles handleRef={ref} />);
-    act(() => ref.current?.insertPaths(["/Users/me/error.png"]));
-    fireEvent.change(prompt(), { target: { value: "why?" } });
-
-    rerender(<ComposerDock onSendMessage={onSendMessage} attachAsFiles={false} handleRef={ref} />);
-
-    expect(screen.queryByText("error.png")).toBeNull();
-    expect(prompt().value).toBe("why? /Users/me/error.png ");
-    fireEvent.keyDown(prompt(), { key: "Enter" });
-    expect(onSendMessage).toHaveBeenCalledWith("why? /Users/me/error.png");
-  });
 });

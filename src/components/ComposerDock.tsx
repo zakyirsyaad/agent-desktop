@@ -18,7 +18,6 @@ import type { ContextUsage, SlashCommand } from "../types";
 const MAX_PROMPT_HEIGHT_PX = 180;
 const PLACEHOLDER = "Prompt the agent...";
 const PLACEHOLDER_WITH_COMMANDS = "Type / for commands, or prompt the agent...";
-const LOCKED_OPTIONS_TITLE = "Applies to the next new session: CLI flags are set when an agent starts.";
 
 /** Keys that only move the caret; the menu's own keys (Escape, Enter, up and down) are not among them. */
 const CARET_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End"]);
@@ -42,8 +41,6 @@ export interface ComposerHandle {
 export interface ComposerDockProps {
   /** Dropdowns to show; each is omitted when the agent offers no real choice. */
   controls?: ComposerControls;
-  /** True when the session's options were fixed when it started. */
-  optionsLocked?: boolean;
   /** True while the agent is working on a turn. */
   isThinking?: boolean;
   /** Interrupts the agent's current turn; shown in place of Send while it works. */
@@ -79,7 +76,6 @@ export interface ComposerDockProps {
 
 export function ComposerDock({
   controls = {},
-  optionsLocked = false,
   isThinking = false,
   onStop,
   placeholder,
@@ -101,16 +97,6 @@ export function ComposerDock({
   const [highlighted, setHighlighted] = useState(0);
   const [isMenuDismissed, setIsMenuDismissed] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null);
-  const [wasAttachingAsFiles, setWasAttachingAsFiles] = useState(attachAsFiles);
-  // Files attached while the composer sends them as files move into the
-  // prompt as paths when it stops doing so.
-  if (wasAttachingAsFiles !== attachAsFiles) {
-    setWasAttachingAsFiles(attachAsFiles);
-    if (!attachAsFiles && attachments.length > 0) {
-      setText((current) => appendAttachments(current, attachments));
-      setAttachments([]);
-    }
-  }
   const containerRef = useRef<HTMLElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // What the last restore left in the composer, until the user sends or clears it.
@@ -120,7 +106,7 @@ export function ComposerDock({
 
   const toggle = (name: Exclude<OpenDropdown, null>) =>
     setOpenDropdown((current) => (current === name ? null : name));
-  const dropdownProps = (name: Exclude<OpenDropdown, null>, control: ComposerControl, isLockable = true) => ({
+  const dropdownProps = (name: Exclude<OpenDropdown, null>, control: ComposerControl) => ({
     options: control.options,
     selected: control.selected,
     isOpen: openDropdown === name,
@@ -129,8 +115,6 @@ export function ComposerDock({
       control.onChange(value);
       setOpenDropdown(null);
     },
-    disabled: isLockable && optionsLocked,
-    disabledTitle: LOCKED_OPTIONS_TITLE,
   });
 
   // While the agent works, Stop takes Send's place; the draft waits for the turn to end.
@@ -319,7 +303,7 @@ export function ComposerDock({
                 label="Agent"
                 align="left"
                 icon={<Bot size={12} className="text-fg-muted" />}
-                {...dropdownProps("agent", agent, false)}
+                {...dropdownProps("agent", agent)}
               />
             )}
 
