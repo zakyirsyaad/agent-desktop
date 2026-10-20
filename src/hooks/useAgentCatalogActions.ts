@@ -25,7 +25,8 @@ export interface AgentCatalogActionsArgs {
   sessions: readonly Session[];
   /** The ACP engine's stop: resolves false when the agent could not be stopped (already reported). */
   stopSession: (sessionId: string) => Promise<boolean>;
-  refreshAgents: () => Promise<void>;
+  /** Reads the profiles again, without the registry refresh that Check again does. */
+  reloadAgents: () => Promise<void>;
   catalog: Pick<AgentCatalogHandle, 'catalog' | 'reload'>;
 }
 
@@ -40,7 +41,7 @@ export function useAgentCatalogActions({
   agents,
   sessions,
   stopSession,
-  refreshAgents,
+  reloadAgents,
   catalog,
 }: AgentCatalogActionsArgs): AgentCatalogActions {
   const reloadCatalog = catalog.reload;
@@ -72,7 +73,7 @@ export function useAgentCatalogActions({
     } catch (error) {
       throw new Error(`Could not save version ${version}: ${String(error)}`);
     }
-    await Promise.all([refreshAgents().catch(ignore), reloadCatalog()]);
+    await Promise.all([reloadAgents().catch(ignore), reloadCatalog()]);
   };
 
   const updateAgent = (id: string) => {

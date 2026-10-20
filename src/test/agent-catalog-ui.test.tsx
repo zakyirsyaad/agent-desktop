@@ -158,7 +158,7 @@ describe("AgentCatalog", () => {
 /** The Settings dialog with the app's real state, profile and catalog hooks behind it. */
 function Harness() {
   const persisted = usePersistedState(() => {});
-  const { agents, refresh } = useAgentProfiles(() => {});
+  const { agents, refresh, reload } = useAgentProfiles(() => {});
   const catalog = useAgentCatalog();
   const actions = useAgentCatalogActions({
     updateState: persisted.updateState,
@@ -166,7 +166,7 @@ function Harness() {
     agents,
     sessions: persisted.state.sessions,
     stopSession: () => Promise.resolve(true),
-    refreshAgents: refresh,
+    reloadAgents: reload,
     catalog,
   });
   return (
@@ -313,6 +313,7 @@ describe("Catalog actions — Update", () => {
     });
     await openAgentsTab();
     const catalogLoads = callsTo(spy, "get_agent_catalog").length;
+    const profileLoads = callsTo(spy, "get_agent_profiles").length;
 
     await act(async () => {
       fireEvent.click(within(row("Claude Code")).getByRole("button", { name: "Update to 1.1.0" }));
@@ -321,7 +322,9 @@ describe("Catalog actions — Update", () => {
     await waitFor(() => expect(callsTo(spy, "update_agent")).toEqual([["update_agent", { agentId: "claude-acp" }]]));
     await waitFor(() => expect(savedSettings().agentVersions?.["claude-acp"]).toBe("1.1.0"));
     expect(callsTo(spy, "save_app_state").length).toBeGreaterThan(0);
-    await waitFor(() => expect(callsTo(spy, "get_agent_profiles").some(([, args]) => args?.refresh === true)).toBe(true));
+    await waitFor(() => expect(callsTo(spy, "get_agent_profiles").length).toBeGreaterThan(profileLoads));
+    // A plain reload: no registry fetch, npm scan or login-shell read, which only Check again does.
+    expect(callsTo(spy, "get_agent_profiles").slice(profileLoads).map(([, args]) => args?.refresh)).toEqual([false]);
     expect(callsTo(spy, "get_agent_catalog").length).toBeGreaterThan(catalogLoads);
   });
 
