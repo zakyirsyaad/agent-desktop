@@ -237,7 +237,9 @@ fn parse_form(params: &Value) -> Result<Elicitation, String> {
 fn parse_url(params: &Value) -> Result<Elicitation, String> {
     let elicitation_id =
         text(params, "elicitationId").ok_or("The request has no elicitationId.")?;
-    let url = text(params, "url").ok_or("The request has no url.")?;
+    let url = text(params, "url")
+        .filter(|url| !url.trim().is_empty())
+        .ok_or("The request has no url.")?;
     let check = check_url(&url);
     Ok(Elicitation::Url {
         message: text(params, "message").unwrap_or_default(),
@@ -505,6 +507,14 @@ mod tests {
             })
             .collect();
         assert_eq!(raw, ["string", "string", "string", "array", "string"]);
+    }
+
+    #[test]
+    fn rejects_an_empty_url() {
+        for url in ["", "   ", "\t\n"] {
+            let params = json!({"mode": "url", "elicitationId": "i", "message": "m", "url": url});
+            assert!(parse_request(&params).is_err(), "{url:?}");
+        }
     }
 
     #[test]

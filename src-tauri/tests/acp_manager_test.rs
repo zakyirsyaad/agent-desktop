@@ -1559,6 +1559,44 @@ fn stop_answers_open_requests_with_cancel_too() {
 }
 
 #[test]
+fn answers_cancel_when_the_session_stops_while_an_answer_fails() {
+    // The fork shares s-1's agent, so the agent still runs after s-2 stops.
+    let (tx, rx) = mpsc::channel();
+    let this: Arc<std::sync::OnceLock<std::sync::Weak<AcpManager>>> = Arc::default();
+    let in_opener = Arc::clone(&this);
+    let manager = Arc::new(AcpManager::with_url_opener(
+        Box::new(move |event| {
+            let _ = tx.send(event);
+        }),
+        Box::new(move |_| {
+            if let Some(manager) = in_opener.get().and_then(std::sync::Weak::upgrade) {
+                manager.stop("s-2");
+            }
+            Err("no browser".to_string())
+        }),
+    ));
+    this.set(Arc::downgrade(&manager)).unwrap();
+    let log = method_log("elicit-put-back-gone");
+    let launch = with_env(fake_agent(), "FAKE_ACP_ELICIT_LOG", log.to_str().unwrap());
+    manager.start("s-1", &cwd(), &launch).unwrap();
+    manager.fork("s-1", "s-2", &cwd()).unwrap();
+    manager.prompt("s-2", "elicit-url", &[]).unwrap();
+    let key = next_key(&rx, "s-2");
+
+    let error = manager.respond_elicitation("s-2", &key, "accept", None);
+
+    assert_eq!(error, Err("no browser".to_string()));
+    let replies = replies_logged(&log, 1);
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    assert_eq!(replies[0]["result"], json!({"action": "cancel"}));
+    assert_eq!(
+        manager.respond_elicitation("s-2", &key, "decline", None),
+        Err(ELICITATION_GONE.to_string())
+    );
+    manager.stop("s-1");
+}
+
+#[test]
 fn cancels_a_request_for_an_unknown_session_on_a_routed_connection() {
     let (manager, rx) = manager();
     manager.start("s-1", &cwd(), &fake_agent()).unwrap();

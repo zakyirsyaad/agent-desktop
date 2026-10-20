@@ -145,18 +145,25 @@ impl AcpManager {
     }
 
     /// Keeps a request taken out to answer again, unless its session stopped
-    /// or its agent exited meanwhile (they already dropped its requests).
+    /// or its agent exited meanwhile (they already dropped its requests). An
+    /// unanswered request of a stopped session is answered `cancel`, as stop
+    /// does, once the lock is released.
     fn put_back(&self, key: &str, pending: Pending) {
-        let Ok(mut routes) = self.routes.lock() else {
-            return;
+        let dropped = {
+            let Ok(mut routes) = self.routes.lock() else {
+                return;
+            };
+            let id = &pending.app_session_id;
+            let session_known = routes.sessions.contains_key(id)
+                || routes.opening.values().any(|opening| opening == id)
+                || routes.by_acp_id.values().any(|routed| routed == id);
+            if session_known && pending.connection.strong_count() > 0 {
+                routes.elicitations.put_back(key.to_string(), pending);
+                return;
+            }
+            pending
         };
-        let id = &pending.app_session_id;
-        let session_known = routes.sessions.contains_key(id)
-            || routes.opening.values().any(|opening| opening == id)
-            || routes.by_acp_id.values().any(|routed| routed == id);
-        if session_known && pending.connection.strong_count() > 0 {
-            routes.elicitations.put_back(key.to_string(), pending);
-        }
+        cancel_open(vec![dropped]);
     }
 }
 
