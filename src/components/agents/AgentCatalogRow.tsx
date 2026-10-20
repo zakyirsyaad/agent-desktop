@@ -43,6 +43,8 @@ export function AgentCatalogRow({
   const retry = job.action === "update" ? onUpdate : job.install;
   // A failure is about an agent in use; once removed, its Add starts over.
   const hasFailed = job.status === "failed" && isInUse;
+  // A program managed outside Zorvo may not be the registry's version.
+  const shownVersion = agent.location === null ? agent.version : null;
 
   return (
     <li aria-label={agent.name} className="flex gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-xs">
@@ -50,7 +52,7 @@ export function AgentCatalogRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="truncate font-medium text-fg">{agent.name}</span>
-          {agent.version && <span className="shrink-0 font-mono text-[11px] text-fg-subtle">{agent.version}</span>}
+          {shownVersion && <span className="shrink-0 font-mono text-[11px] text-fg-subtle">{shownVersion}</span>}
         </div>
         <p className="mt-0.5 text-[11px] text-fg-muted">{statusLine(agent, plan, isInUse)}</p>
         {agent.description && <p className="mt-1 line-clamp-2 text-[11px] text-fg-subtle">{agent.description}</p>}

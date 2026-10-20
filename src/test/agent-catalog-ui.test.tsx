@@ -97,6 +97,30 @@ describe("AgentCatalog", () => {
     expect(row("Gemini CLI")).toHaveTextContent("Google's coding agent");
   });
 
+  it("hides the registry version of a program managed outside Zorvo, which may not be the one you run", () => {
+    renderCatalog({
+      catalog: {
+        lastChecked: null,
+        agents: [
+          makeCatalogAgent({
+            id: "opencode",
+            name: "OpenCode",
+            version: "1.19.3",
+            status: "on_your_mac",
+            distribution: "binary",
+            location: "/opt/homebrew/bin/opencode",
+          }),
+          makeCatalogAgent({ id: "goose", name: "Goose", version: "2.0.0", status: "on_your_mac", location: null }),
+        ],
+      },
+      enabledIds: [],
+    });
+
+    expect(row("OpenCode")).toHaveTextContent("Managed outside Zorvo · /opt/homebrew/bin/opencode");
+    expect(row("OpenCode")).not.toHaveTextContent("1.19.3");
+    expect(row("Goose")).toHaveTextContent("2.0.0");
+  });
+
   it("filters the rows by the search and says when nothing matches", () => {
     renderCatalog();
     const search = screen.getByRole("searchbox", { name: "Search agents" });
