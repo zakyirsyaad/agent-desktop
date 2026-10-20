@@ -4,6 +4,7 @@
 //   "slow"       -> waits until the client sends session/cancel
 //   "crash"      -> exits with code 3 mid-turn
 //   "needs-login" -> refuses the prompt until the user signs in
+//   "stray-permission" -> asks permission for a session that does not exist, reports the answer
 //   --login      -> the terminal sign-in: prints a greeting and exits
 //   anything else -> echoes the text back as an agent message chunk
 import { appendFileSync } from "node:fs";
@@ -12,6 +13,7 @@ import { createInterface } from "node:readline";
 let nextSession = 1;
 let pendingPermission = null;
 let pendingSlow = null;
+let pendingStray = null;
 // Replies to the requests sent while a session/new waits, by request id.
 let earlyRequests = null;
 
@@ -43,6 +45,11 @@ function handlePrompt(id, params) {
     pendingSlow = { promptId: id };
     return;
   }
+  if (text === "stray-permission") {
+    pendingStray = { promptId: id, sessionId: params.sessionId };
+    send({ id: "stray", method: "session/request_permission", params: permissionFor("nobody") });
+    return;
+  }
   if (text === "crash") process.exit(3);
   if (text === "needs-login") {
     send({ id, error: { code: -32000, message: "Authentication required" } });
@@ -51,6 +58,19 @@ function handlePrompt(id, params) {
   say(params.sessionId, `echo: ${text}`);
   reply(id, { stopReason: "end_turn" });
 }
+
+const permissionFor = (sessionId) => ({
+  sessionId,
+  toolCall: { toolCallId: "t-0", title: "Warm up", kind: "execute", status: "pending" },
+  options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+});
+
+// FAKE_ACP_ASK_AFTER_OPEN: asks permission for a session right after opening it.
+const askAfterOpen = (sessionId) => {
+  if (process.env.FAKE_ACP_ASK_AFTER_OPEN) {
+    send({ id: `after-open-${sessionId}`, method: "session/request_permission", params: permissionFor(sessionId) });
+  }
+};
 
 const handlers = {
   initialize: (id, params) => {
@@ -97,6 +117,10 @@ const handlers = {
       : send({ id, error: { code: -32602, message: `Unknown auth method ${params.methodId}` } }),
   // Like real agents, replays the old conversation before answering.
   "session/load": (id, params) => {
+    if (process.env.FAKE_ACP_EARLY_REQUESTS && !params.earlyDone) {
+      askBeforeTheSessionExists("session/load", id, params);
+      return;
+    }
     say(params.sessionId, "replayed history");
     reply(id, {
       modes: {
@@ -110,10 +134,11 @@ const handlers = {
   },
   "session/new": (id, params) => {
     // FAKE_ACP_EARLY_REQUESTS: asks the client things before the session exists and answers
-    // session/new only once both are answered (or with an error after two seconds). Each
-    // reply goes to the file FAKE_ACP_EARLY_REQUESTS names, one JSON line per reply.
+    // session/new (or session/load) only once both are answered, or with an error after
+    // twenty seconds. Each reply goes to the file FAKE_ACP_EARLY_REQUESTS names, one JSON
+    // line per reply.
     if (process.env.FAKE_ACP_EARLY_REQUESTS && !params?.earlyDone) {
-      askBeforeTheSessionExists(id, params);
+      askBeforeTheSessionExists("session/new", id, params);
       return;
     }
     if (process.env.FAKE_ACP_STDERR) process.stderr.write("warming up the model cache\n");
@@ -149,6 +174,7 @@ const handlers = {
         },
       ],
     });
+    askAfterOpen(sessionId);
     // Like real agents, lists its slash commands just after the session opens.
     if (!process.env.FAKE_ACP_NO_COMMANDS) update(sessionId, {
       sessionUpdate: "available_commands_update",
@@ -157,7 +183,11 @@ const handlers = {
   },
   // FAKE_ACP_SLOW_DELETE: takes three seconds to delete a session.
   "session/delete": (id) => setTimeout(() => reply(id, {}), process.env.FAKE_ACP_SLOW_DELETE ? 3000 : 0),
-  "session/fork": (id) => reply(id, { sessionId: `fake-${nextSession++}` }),
+  "session/fork": (id) => {
+    const sessionId = `fake-${nextSession++}`;
+    reply(id, { sessionId });
+    askAfterOpen(sessionId);
+  },
   "session/prompt": handlePrompt,
   "session/set_mode": (id, params) => {
     update(params.sessionId, { sessionUpdate: "current_mode_update", currentModeId: params.modeId });
@@ -165,29 +195,21 @@ const handlers = {
   },
 };
 
-function askBeforeTheSessionExists(id, params) {
+function askBeforeTheSessionExists(method, id, params) {
   const timer = setTimeout(() => {
     earlyRequests = null;
     send({ id, error: { code: -32603, message: "The client never answered early requests" } });
-  }, 2000);
+  }, 20000);
   earlyRequests = {
     waiting: new Set(["early-fs", "early-permission"]),
     done: () => {
       clearTimeout(timer);
       earlyRequests = null;
-      handlers["session/new"](id, { ...params, earlyDone: true });
+      handlers[method](id, { ...params, earlyDone: true });
     },
   };
   send({ id: "early-fs", method: "fs/read_text_file", params: { sessionId: "not-yet", path: "/etc/hosts" } });
-  send({
-    id: "early-permission",
-    method: "session/request_permission",
-    params: {
-      sessionId: "not-yet",
-      toolCall: { toolCallId: "t-0", title: "Warm up", kind: "execute", status: "pending" },
-      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
-    },
-  });
+  send({ id: "early-permission", method: "session/request_permission", params: permissionFor("not-yet") });
 }
 
 // Started as the terminal login (--login): print a greeting and exit, FAKE_LOGIN_EXIT is the exit code.
@@ -211,6 +233,13 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     if (earlyRequests.waiting.size === 0) earlyRequests.done();
     return;
   }
+  if (message.id === "stray" && pendingStray) {
+    const outcome = message.result?.outcome?.outcome ?? `error ${message.error?.code}`;
+    say(pendingStray.sessionId, `stray:${outcome}`);
+    reply(pendingStray.promptId, { stopReason: "end_turn" });
+    pendingStray = null;
+    return;
+  }
   if (message.id === "perm-1" && pendingPermission) {
     const outcome = message.result.outcome;
     say(pendingPermission.sessionId, `allowed:${outcome.optionId ?? outcome.outcome}`);
@@ -218,6 +247,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     pendingPermission = null;
     return;
   }
+  // A reply to a request with nothing waiting on it (an after-open permission).
+  if (message.method === undefined) return;
   const handler = handlers[message.method];
   if (handler) handler(message.id, message.params);
   else if (message.id !== undefined) send({ id: message.id, error: { code: -32601, message: "Method not found" } });

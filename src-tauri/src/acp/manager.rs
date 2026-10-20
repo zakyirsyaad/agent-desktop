@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
+use std::thread;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -101,8 +102,9 @@ struct SessionEntry {
 struct Routes {
     /// app session id -> entry
     sessions: HashMap<String, SessionEntry>,
-    /// acp session id -> app session id
-    by_acp_id: HashMap<String, String>,
+    /// (connection key, acp session id) -> app session id. Keyed by connection
+    /// too: two agent processes may give their sessions the same id.
+    by_acp_id: HashMap<(u64, String), String>,
 }
 
 pub struct AcpManager {
@@ -135,12 +137,13 @@ impl AcpManager {
         cwd: &str,
         launch: &AcpLaunch,
     ) -> Result<StartedSession, String> {
-        self.open(app_session_id, cwd, launch, |connection, init| {
+        self.open(app_session_id, cwd, launch, |connection, init, key| {
             let session = open_request(
                 connection,
                 init,
                 "session/new",
                 json!({ "cwd": cwd, "mcpServers": [] }),
+                self.route_on_answer(key, app_session_id, None),
             )?;
             started_session(session, init["agentCapabilities"].clone()).map_err(OpenError::Agent)
         })
@@ -158,7 +161,7 @@ impl AcpManager {
         launch: &AcpLaunch,
         acp_session_id: &str,
     ) -> Result<StartedSession, String> {
-        self.open(app_session_id, cwd, launch, |connection, init| {
+        self.open(app_session_id, cwd, launch, |connection, init, key| {
             let capabilities = init["agentCapabilities"].clone();
             if capabilities["loadSession"] != Value::Bool(true) {
                 return Err(OpenError::Agent(
@@ -170,6 +173,7 @@ impl AcpManager {
                 init,
                 "session/load",
                 json!({ "sessionId": acp_session_id, "cwd": cwd, "mcpServers": [] }),
+                self.route_on_answer(key, app_session_id, Some(acp_session_id)),
             )?;
             Ok(StartedSession {
                 acp_session_id: acp_session_id.to_string(),
@@ -182,14 +186,14 @@ impl AcpManager {
     }
 
     /// Spawns the agent, initializes ACP, opens a session with `open_session`
-    /// and registers it. On failure the process is killed and its stderr tail
-    /// is added to the error.
+    /// (which gets the connection's key) and registers it. On failure the
+    /// process is killed and its stderr tail is added to the error.
     fn open(
         &self,
         app_session_id: &str,
         cwd: &str,
         launch: &AcpLaunch,
-        open_session: impl FnOnce(&AcpConnection, &Value) -> Result<StartedSession, OpenError>,
+        open_session: impl FnOnce(&AcpConnection, &Value, u64) -> Result<StartedSession, OpenError>,
     ) -> Result<StartedSession, String> {
         validate_cwd(cwd)?;
         let connection_key = self.next_connection_key.fetch_add(1, Ordering::SeqCst);
@@ -204,7 +208,8 @@ impl AcpManager {
         let (started, auth_methods) = initialize(&connection)
             .map_err(OpenError::Transport)
             .and_then(|init| {
-                open_session(&connection, &init).map(|started| (started, auth_methods_of(&init)))
+                open_session(&connection, &init, connection_key)
+                    .map(|started| (started, auth_methods_of(&init)))
             })
             .map_err(|error| failure_message(&connection, error))?;
         self.register(
@@ -264,10 +269,11 @@ impl AcpManager {
         if !capabilities["sessionCapabilities"]["fork"].is_object() {
             return Err("This agent cannot fork sessions".to_string());
         }
-        let response = connection.request(
+        let response = connection.request_with(
             "session/fork",
             json!({ "sessionId": acp_id, "cwd": cwd, "mcpServers": [] }),
             SESSION_REQUEST_TIMEOUT,
+            self.route_on_answer(connection_key, new_app_id, None),
         )?;
         let started = started_session(response, capabilities)?;
         self.register(
@@ -441,7 +447,9 @@ impl AcpManager {
         let Some(entry) = routes.sessions.remove(app_session_id) else {
             return;
         };
-        routes.by_acp_id.remove(&entry.acp_session_id);
+        routes
+            .by_acp_id
+            .remove(&(entry.connection_key, entry.acp_session_id.clone()));
         let still_used = routes
             .sessions
             .values()
@@ -461,9 +469,10 @@ impl AcpManager {
         cwd: &str,
     ) {
         if let Ok(mut routes) = self.routes.lock() {
-            routes
-                .by_acp_id
-                .insert(started.acp_session_id.clone(), app_session_id.to_string());
+            routes.by_acp_id.insert(
+                (key, started.acp_session_id.clone()),
+                app_session_id.to_string(),
+            );
             routes.sessions.insert(
                 app_session_id.to_string(),
                 SessionEntry {
@@ -500,6 +509,32 @@ impl AcpManager {
         })
     }
 
+    /// Routes the session an answer opens (`acp_session_id`, else the
+    /// answer's `sessionId`) as the answer arrives, on the reader thread: an
+    /// agent may ask about its new session in its very next message, before
+    /// [`register`](Self::register) runs.
+    fn route_on_answer(
+        &self,
+        connection_key: u64,
+        app_session_id: &str,
+        acp_session_id: Option<&str>,
+    ) -> impl FnOnce(&Value) + Send + 'static {
+        let routes = Arc::clone(&self.routes);
+        let app_session_id = app_session_id.to_string();
+        let known = acp_session_id.map(str::to_string);
+        move |answer| {
+            let Some(acp_id) = known.or_else(|| answer["sessionId"].as_str().map(str::to_string))
+            else {
+                return;
+            };
+            if let Ok(mut routes) = routes.lock() {
+                routes
+                    .by_acp_id
+                    .insert((connection_key, acp_id), app_session_id);
+            }
+        }
+    }
+
     /// Routes one connection's events to the app sessions it hosts.
     fn connection_sink(&self, connection_key: u64, connection: Weak<AcpConnection>) -> EventSink {
         let routes = Arc::clone(&self.routes);
@@ -515,15 +550,9 @@ fn route_event(
     connection_key: u64,
     event: ConnectionEvent,
 ) {
-    let app_id_for = |acp_id: &str| {
-        routes
-            .lock()
-            .ok()
-            .and_then(|r| r.by_acp_id.get(acp_id).cloned())
-    };
     match event {
         ConnectionEvent::Notification { method, params } if method == "session/update" => {
-            if let Some(session_id) = params["sessionId"].as_str().and_then(app_id_for) {
+            if let Some(session_id) = app_id_for(routes, connection_key, &params) {
                 sink(AcpEvent::Update {
                     session_id,
                     update: params["update"].clone(),
@@ -532,27 +561,8 @@ fn route_event(
         }
         ConnectionEvent::Notification { .. } => {}
         ConnectionEvent::Request { id, method, params } => {
-            let session_id = params["sessionId"].as_str().and_then(app_id_for);
-            match (method.as_str(), session_id) {
-                ("session/request_permission", Some(session_id)) => {
-                    sink(AcpEvent::PermissionRequest {
-                        session_id,
-                        request_id: id,
-                        params,
-                    })
-                }
-                // No app session to ask: the session is still opening (an agent
-                // may ask during `session/new` or `session/load`) or is unknown.
-                // `cancelled` rather than an error: it is a valid answer every
-                // agent handles (ACP sends it when a turn is cancelled), it
-                // grants nothing the user never saw, and it does not make the
-                // agent fail the session it is opening.
-                ("session/request_permission", None) => answer(connection, |c| {
-                    c.respond(&id, json!({ "outcome": { "outcome": "cancelled" } }))
-                }),
-                // We advertise no fs/terminal capabilities, so anything else is refused.
-                _ => refuse(connection, &id),
-            }
+            let session_id = app_id_for(routes, connection_key, &params);
+            route_request(sink, connection, session_id, id, &method, params)
         }
         ConnectionEvent::Exited { code } => {
             let gone: Vec<String> = routes
@@ -564,11 +574,9 @@ fn route_event(
                         .filter(|(_, e)| e.connection_key == connection_key)
                         .map(|(id, _)| id.clone())
                         .collect();
-                    for id in &ids {
-                        if let Some(entry) = r.sessions.remove(id) {
-                            r.by_acp_id.remove(&entry.acp_session_id);
-                        }
-                    }
+                    r.sessions.retain(|_, e| e.connection_key != connection_key);
+                    // Also drops a session routed by its answer that never registered.
+                    r.by_acp_id.retain(|(key, _), _| *key != connection_key);
                     ids
                 })
                 .unwrap_or_default();
@@ -579,20 +587,66 @@ fn route_event(
     }
 }
 
-/// Answers a request from the agent, whether or not it hosts an app session
-/// yet. Nothing to do once the connection is gone: the agent is being killed.
-fn answer(
+/// The app session a message's `sessionId` belongs to on this connection.
+fn app_id_for(routes: &Arc<Mutex<Routes>>, connection_key: u64, params: &Value) -> Option<String> {
+    let acp_id = params["sessionId"].as_str()?;
+    routes
+        .lock()
+        .ok()?
+        .by_acp_id
+        .get(&(connection_key, acp_id.to_string()))
+        .cloned()
+}
+
+/// Answers a request from the agent or hands it to the app session it is for.
+fn route_request(
+    sink: &Arc<AcpEventSink>,
     connection: &Weak<AcpConnection>,
-    reply: impl FnOnce(&AcpConnection) -> Result<(), String>,
+    session_id: Option<String>,
+    id: Value,
+    method: &str,
+    params: Value,
 ) {
-    if let Some(connection) = connection.upgrade() {
-        let _ = reply(&connection);
+    match (method, session_id) {
+        ("session/request_permission", Some(session_id)) => sink(AcpEvent::PermissionRequest {
+            session_id,
+            request_id: id,
+            params,
+        }),
+        // No app session to ask: the agent asked before answering the
+        // `session/new`, `session/load` or `session/fork` that opens it (its
+        // answer routes it), or the session is unknown. It can't wait for
+        // the session to open, since the agent may finish opening only after
+        // this answer. `cancelled` rather than an error: it is a valid answer
+        // every agent handles (ACP sends it when a turn is cancelled), it
+        // grants nothing the user never saw, and it does not make the agent
+        // fail the session it is opening.
+        ("session/request_permission", None) => answer(connection, move |c| {
+            c.respond(&id, json!({ "outcome": { "outcome": "cancelled" } }))
+        }),
+        // We advertise no fs/terminal capabilities, so anything else is refused.
+        _ => refuse(connection, id),
     }
 }
 
-fn refuse(connection: &Weak<AcpConnection>, id: &Value) {
-    answer(connection, |c| {
-        c.respond_error(id, METHOD_NOT_FOUND, "Method not supported by Zorvo")
+/// Answers a request from the agent, whether or not it hosts an app session
+/// yet. The reply is written on its own thread, so the reader keeps reading
+/// even while the agent's stdin is full. Nothing to do once the connection is
+/// gone: the agent is being killed.
+fn answer(
+    connection: &Weak<AcpConnection>,
+    reply: impl FnOnce(&AcpConnection) -> Result<(), String> + Send + 'static,
+) {
+    if let Some(connection) = connection.upgrade() {
+        thread::spawn(move || {
+            let _ = reply(&connection);
+        });
+    }
+}
+
+fn refuse(connection: &Weak<AcpConnection>, id: Value) {
+    answer(connection, move |c| {
+        c.respond_error(&id, METHOD_NOT_FOUND, "Method not supported by Zorvo")
     });
 }
 
@@ -613,15 +667,17 @@ fn is_auth_required(error: &Value) -> bool {
 }
 
 /// Opens a session; an "authentication required" answer becomes an error
-/// carrying [`AUTH_REQUIRED_PREFIX`] and the agent's auth methods.
+/// carrying [`AUTH_REQUIRED_PREFIX`] and the agent's auth methods. A
+/// successful answer also goes to `on_answer`, on the reader thread.
 pub(super) fn open_request(
     connection: &AcpConnection,
     init: &Value,
     method: &str,
     params: Value,
+    on_answer: impl FnOnce(&Value) + Send + 'static,
 ) -> Result<Value, OpenError> {
     match connection
-        .request_raw(method, params, HANDSHAKE_TIMEOUT)
+        .request_raw_with(method, params, HANDSHAKE_TIMEOUT, on_answer)
         .map_err(OpenError::Transport)?
     {
         Ok(result) => Ok(result),
@@ -686,7 +742,7 @@ pub(super) fn spawn_unrouted(
         &launch.env,
         |connection| -> EventSink {
             Arc::new(move |event| match event {
-                ConnectionEvent::Request { id, .. } => answer(&connection, |c| {
+                ConnectionEvent::Request { id, .. } => answer(&connection, move |c| {
                     c.respond_error(&id, METHOD_NOT_FOUND, "Not available here")
                 }),
                 ConnectionEvent::Notification { method, params } => {

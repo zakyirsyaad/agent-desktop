@@ -195,6 +195,86 @@ fn answers_agent_requests_sent_before_the_session_is_registered() {
 }
 
 #[test]
+fn answers_agent_requests_sent_while_a_session_loads() {
+    let (manager, _rx) = manager();
+    let log = method_log("early-load-requests");
+    let launch = with_env(
+        fake_agent(),
+        "FAKE_ACP_EARLY_REQUESTS",
+        log.to_str().unwrap(),
+    );
+
+    manager
+        .load("s-1", &cwd(), &launch, "fake-old")
+        .expect("load");
+
+    let replies = early_replies(&log);
+    assert_eq!(replies["early-fs"]["error"]["code"], -32601);
+    assert_eq!(
+        replies["early-permission"]["result"]["outcome"]["outcome"],
+        "cancelled"
+    );
+    manager.stop("s-1");
+}
+
+fn permission_for(rx: &Receiver<AcpEvent>, app_id: &str) -> AcpEvent {
+    wait_for(
+        rx,
+        |e| matches!(e, AcpEvent::PermissionRequest { session_id, .. } if session_id == app_id),
+    )
+}
+
+#[test]
+fn asks_the_user_about_a_permission_sent_right_after_a_session_opens() {
+    let (manager, rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_ASK_AFTER_OPEN", "1");
+
+    manager.start("s-1", &cwd(), &launch).unwrap();
+    permission_for(&rx, "s-1");
+    manager.fork("s-1", "s-2", &cwd()).unwrap();
+    permission_for(&rx, "s-2");
+
+    manager.stop("s-1");
+    manager.stop("s-2");
+}
+
+#[test]
+fn cancels_a_permission_request_for_a_session_the_app_does_not_know() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "stray-permission", &[]).unwrap();
+
+    let chunk = wait_for(&rx, |e| agent_text(e).is_some());
+    assert_eq!(agent_text(&chunk).as_deref(), Some("stray:cancelled"));
+    manager.stop("s-1");
+}
+
+#[test]
+fn routes_each_agent_process_to_its_own_session_when_their_ids_match() {
+    let (manager, rx) = manager();
+    // Each start is its own agent process, and both call their session `fake-1`.
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+    manager.start("s-2", &cwd(), &fake_agent()).unwrap();
+
+    manager.prompt("s-1", "permission", &[]).unwrap();
+    let AcpEvent::PermissionRequest { request_id, .. } = permission_for(&rx, "s-1") else {
+        unreachable!()
+    };
+    manager
+        .respond_permission("s-1", &request_id, Some("allow"))
+        .unwrap();
+    wait_for(&rx, |e| matches!(e, AcpEvent::TurnEnded { .. }));
+
+    manager.stop("s-2");
+    manager.prompt("s-1", "hi", &[]).unwrap();
+    let chunk = wait_for(&rx, |e| agent_text(e).is_some());
+    assert!(matches!(&chunk, AcpEvent::Update { session_id, .. } if session_id == "s-1"));
+    assert_eq!(agent_text(&chunk).as_deref(), Some("echo: hi"));
+    manager.stop("s-1");
+}
+
+#[test]
 fn reports_an_agent_that_exits_mid_turn() {
     let (manager, rx) = manager();
     manager.start("s-1", &cwd(), &fake_agent()).unwrap();

@@ -219,7 +219,19 @@ impl AcpConnection {
 
     /// Sends a request and blocks until the agent answers or `timeout` passes.
     pub fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
-        self.request_raw(method, params, timeout)?
+        self.request_with(method, params, timeout, |_| {})
+    }
+
+    /// Like [`request`](Self::request); `on_answer` gets a successful answer
+    /// on the reader thread, before the agent's next message is read.
+    pub fn request_with(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        on_answer: impl FnOnce(&Value) + Send + 'static,
+    ) -> Result<Value, String> {
+        self.request_raw_with(method, params, timeout, on_answer)?
             .map_err(|error| format!("{} failed: {}", method, error_message(&error)))
     }
 
@@ -231,11 +243,26 @@ impl AcpConnection {
         params: Value,
         timeout: Duration,
     ) -> Result<Result<Value, Value>, String> {
+        self.request_raw_with(method, params, timeout, |_| {})
+    }
+
+    /// Like [`request_raw`](Self::request_raw), with the `on_answer` of
+    /// [`request_with`](Self::request_with).
+    pub fn request_raw_with(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        on_answer: impl FnOnce(&Value) + Send + 'static,
+    ) -> Result<Result<Value, Value>, String> {
         let (tx, rx) = mpsc::channel();
         let id = self.send_request_with_id(
             method,
             params,
             Box::new(move |result| {
+                if let Ok(answer) = &result {
+                    on_answer(answer);
+                }
                 let _ = tx.send(result);
             }),
         )?;
