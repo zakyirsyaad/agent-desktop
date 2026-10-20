@@ -10,10 +10,12 @@ use tauri::State;
 
 use super::manager::{AcpEvent, AcpLaunch, AcpManager, StartedSession};
 use super::probe::ProbedAgent;
+use super::terminal_auth::{is_sign_in_terminal_id, CANCELLED_MESSAGE};
 use crate::env_resolver::cached_user_env;
 use crate::files::ensure_known_workspace;
 use crate::installer::commands::versions_in_use;
 use crate::profiles::{agent_profile_from, with_system_tools, AgentProfile, TRANSPORT_ACP};
+use crate::pty_session::PtySessionManager;
 use crate::registry::{
     self,
     resolve::{canonical_agent_id, missing_reason, SystemTools},
@@ -272,6 +274,75 @@ pub fn acp_fork_session(
     fork_in_workspace(&manager, &store, &source_session_id, &session_id, &cwd)
 }
 
+/// Runs the sign-in command of `profile_id`'s terminal method `method_id` in a
+/// PTY named `terminal_id`, in `cwd`, which must be one of the user's workspaces.
+fn start_terminal_sign_in(
+    manager: &AcpManager,
+    pty: &PtySessionManager,
+    store: &AppStore,
+    profile_id: &str,
+    cwd: &str,
+    method_id: &str,
+    terminal_id: &str,
+) -> Result<(), String> {
+    if !is_sign_in_terminal_id(terminal_id) {
+        return Err("Not a sign-in terminal id".to_string());
+    }
+    if pty.has_session(terminal_id) {
+        return Err("That sign-in is already running".to_string());
+    }
+    let attempts = manager.sign_ins();
+    attempts.begin(terminal_id)?;
+    let result = launch_in_workspace(store, cwd, profile_id)
+        .and_then(|launch| {
+            manager.terminal_login_with(cwd, &launch, method_id, |connection| {
+                attempts.track(terminal_id, connection)
+            })
+        })
+        .and_then(|login| {
+            if attempts.is_cancelled(terminal_id) {
+                return Err(CANCELLED_MESSAGE.to_string());
+            }
+            pty.start_session(terminal_id, cwd, &login.program, &login.args, &login.env)
+        });
+    // Whatever went wrong, a sign-in the user cancelled reads as cancelled.
+    let result = match result {
+        Err(_) if attempts.is_cancelled(terminal_id) => Err(CANCELLED_MESSAGE.to_string()),
+        other => other,
+    };
+    attempts.end(terminal_id);
+    result
+}
+
+#[tauri::command(async)]
+pub fn acp_start_terminal_sign_in(
+    manager: State<'_, AcpManager>,
+    pty: State<'_, PtySessionManager>,
+    store: State<'_, AppStore>,
+    profile_id: String,
+    cwd: String,
+    method_id: String,
+    terminal_id: String,
+) -> Result<(), String> {
+    start_terminal_sign_in(
+        &manager,
+        &pty,
+        &store,
+        &profile_id,
+        &cwd,
+        &method_id,
+        &terminal_id,
+    )
+}
+
+/// Cancels a terminal sign-in that is still starting: the agent it reads the
+/// method from is ended and no terminal starts. A running login is ended with
+/// `terminate_session` instead.
+#[tauri::command(async)]
+pub fn acp_cancel_terminal_sign_in(manager: State<'_, AcpManager>, terminal_id: String) {
+    manager.sign_ins().cancel(&terminal_id);
+}
+
 #[tauri::command(async)]
 pub fn acp_prompt(
     manager: State<'_, AcpManager>,
@@ -467,6 +538,45 @@ mod tests {
         let err = launch_in_workspace(&store, &scratch.folder(), "omp").unwrap_err();
 
         assert!(err.contains("does not support"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn a_sign_in_with_a_bad_terminal_id_is_refused() {
+        let scratch = Scratch::new("signin-bad-id");
+
+        let err = start_terminal_sign_in(
+            &quiet_manager(),
+            &PtySessionManager::default_manager(),
+            &scratch.store(),
+            "claude-acp",
+            &scratch.folder(),
+            "terminal-login",
+            "session-1",
+        )
+        .unwrap_err();
+
+        assert_eq!(err, "Not a sign-in terminal id");
+    }
+
+    #[test]
+    fn a_sign_in_is_not_started_in_a_folder_that_is_not_a_workspace() {
+        let scratch = Scratch::new("signin-unknown");
+
+        let err = start_terminal_sign_in(
+            &quiet_manager(),
+            &PtySessionManager::default_manager(),
+            &scratch.store(),
+            "claude-acp",
+            &scratch.folder(),
+            "terminal-login",
+            "signin-1",
+        )
+        .unwrap_err();
+
+        assert!(
+            err.contains("is not one of your workspaces"),
+            "unexpected: {err}"
+        );
     }
 
     #[test]

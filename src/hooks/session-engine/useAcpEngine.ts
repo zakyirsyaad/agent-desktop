@@ -15,6 +15,8 @@ import { toCommands, useAcpSessions, type AcpSessionInfo, type TurnResult } from
 import type { ChatMessage, Session } from '../../types';
 import type { EngineDeps } from './usePtyEngine';
 import { parseAuthRequired, type AuthMethod } from '../../lib/acp-auth';
+import { isUnknownSessionError } from '../../lib/acp-load-error';
+import { writeConversationHandoff } from '../../lib/session-handoff';
 
 const NOT_ENDED_NORMALLY = new Set(['refusal', 'max_tokens', 'max_turn_requests']);
 
@@ -63,6 +65,8 @@ export interface AcpEngineDeps extends EngineDeps {
   onAuthRequired: (session: Pick<Session, 'id' | 'profileId' | 'cwd'>, methods: AuthMethod[], unsent?: FirstMessage) => void;
   /** Called with what an agent offers when one of its sessions opens or its commands change. */
   rememberOptions: (profileId: string, options: Partial<AgentOptions>) => void;
+  /** Each session's conversation: handed to a fresh ACP session that does not have it. */
+  transcripts?: Readonly<Record<string, ChatMessage[]>>;
 }
 
 /**
@@ -79,6 +83,7 @@ export function useAcpEngine({
   rememberOptions,
   onAuthRequired,
   onAttention,
+  transcripts,
 }: AcpEngineDeps) {
   const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
   // Sessions the app stopped (deleted, or stopped while starting): their late
@@ -89,6 +94,8 @@ export function useAcpEngine({
   const lastPromptRef = useRef(new Map<string, { message: ChatMessage; context?: string }>());
   // Hidden context a refused prompt carried (a rewound session's conversation): it goes out with the next message.
   const unsentContextRef = useRef(new Map<string, string>());
+  // The picks a session was opened with when its agent refused to open it until the user signs in.
+  const refusedChoicesRef = useRef(new Map<string, AcpChoices>());
   const ctx = (sessionId: string) => ({ sessionId, now: Date.now(), createId });
   const isStopped = (sessionId: string) => stoppedRef.current.has(sessionId);
   const unlessStopped =
@@ -225,10 +232,16 @@ export function useAcpEngine({
     }
   };
 
-  /** Opens an already recorded session in its agent, then applies the picks and the first prompt. */
-  const launch = async (session: Session, open: () => Promise<AcpSessionInfo>, options: LaunchOptions) => {
+  /**
+   * Opens an already recorded session in its agent, then applies the picks and
+   * the first prompt. Resolves to false when the agent could not be opened or
+   * prompted for a reason other than a sign-in (reported); a refusal for a
+   * sign-in hands the message back itself.
+   */
+  const launch = async (session: Session, open: () => Promise<AcpSessionInfo>, options: LaunchOptions): Promise<boolean> => {
     // A session ended earlier and now resumed must hear from its agent again.
     stoppedRef.current.delete(session.id);
+    refusedChoicesRef.current.delete(session.id);
     const message = options.first ? userMessage(options.first.text, options.first.attachments) : null;
     if (message) updateMessages(session.id, (prev) => [...prev, message]);
     // Busy until the first prompt is out: a message sent meanwhile would race it.
@@ -238,22 +251,25 @@ export function useAcpEngine({
       try {
         info = await open();
       } catch (error) {
-        if (isStopped(session.id)) return;
+        if (isStopped(session.id)) return true;
         if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+        // The message's hidden context goes out with the next one.
+        if (options.first?.context) unsentContextRef.current.set(session.id, options.first.context);
         patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
         const authMethods = parseAuthRequired(error);
         if (authMethods) {
+          refusedChoicesRef.current.set(session.id, options.choices);
           onAuthRequired(session, authMethods, options.first);
-          return;
+          return true;
         }
         const name = agents.find((a) => a.id === session.profileId)?.name ?? session.profileId;
         reportError(`Failed to ${options.action} ${name}: ${String(error)}`);
-        return;
+        return false;
       }
       if (isStopped(session.id)) {
         // Stopped while starting: the backend could not end an agent it did not know yet.
         acp.stop(session.id).catch(reportFailure('Failed to stop the agent'));
-        return;
+        return true;
       }
       rememberOptions(session.profileId, { modes: info.modes, configOptions: info.configOptions });
       if (info.acpSessionId) patchSession(session.id, { acpSessionId: info.acpSessionId });
@@ -266,8 +282,9 @@ export function useAcpEngine({
       if (message && !isStopped(session.id)) {
         // A launch's own context (a rewind's) is newer than one a refused prompt left behind.
         const leftOver = takeUnsentContext(session.id);
-        await prompt(session.id, message, options.first?.context ?? leftOver);
+        return await prompt(session.id, message, options.first?.context ?? leftOver);
       }
+      return true;
     } finally {
       markStarting(session.id, false);
     }
@@ -289,6 +306,71 @@ export function useAcpEngine({
       applySafeMode: true,
       action: 'resume',
     });
+
+  /** The conversation so far, written for a fresh ACP session to read; undefined when there is none. */
+  const handoffFor = (session: Session) =>
+    writeConversationHandoff(
+      session,
+      transcripts?.[session.id] ?? [],
+      agents.find((a) => a.id === session.profileId)?.name ?? session.profileId,
+      'signin',
+    );
+
+  /**
+   * After a sign-in: sends a refused message in a fresh agent, which picks up
+   * the new credentials. The session is reopened through the agent's own
+   * session/load when it has one to reopen, else started anew. Resolves to
+   * false when the message did not go out, for a reason other than a sign-in:
+   * the caller gives it back to the user.
+   */
+  const retryAfterSignIn = async (sessionId: string, message: FirstMessage): Promise<boolean> => {
+    const session = sessions.find((s) => s.id === sessionId);
+    // Deleted meanwhile: there is no session to give the message back to.
+    if (!session) return true;
+    const canLoad = acp.info[sessionId]?.canLoad === true;
+    // Taken before stop, which forgets it.
+    const hidden = message.context ?? takeUnsentContext(sessionId);
+    const wasTerminated = session.status === 'terminated';
+    const { acpSessionId } = session;
+    const startsAnew = !acpSessionId || !(wasTerminated || canLoad);
+    // A fresh ACP session does not have the conversation: it is handed over, before the old agent stops.
+    let handoff: string | undefined;
+    if (startsAnew && !hidden) {
+      try {
+        handoff = await handoffFor(session);
+      } catch (error) {
+        reportError(`Could not hand the conversation to the agent: ${String(error)}`);
+        return false;
+      }
+    }
+    const first = { ...message, context: hidden ?? handoff };
+    if (!wasTerminated && !(await stop(sessionId))) {
+      // The agent may still run: its events count again, and the context waits for the next message.
+      stoppedRef.current.delete(sessionId);
+      if (hidden) unsentContextRef.current.set(sessionId, hidden);
+      return false;
+    }
+    // A session refused at start was ended: it runs again, with the picks it was opened with.
+    const choices = refusedChoicesRef.current.get(sessionId) ?? NO_CHOICES;
+    if (wasTerminated) patchSession(sessionId, { status: 'running', endedAt: null, exitCode: null, archivedAt: null });
+    if (!acpSessionId || startsAnew) return start(session, first, choices);
+    // Reached only when the agent does not know the old session: the conversation goes with the message.
+    const openNew = async () => {
+      const context = hidden ? undefined : await handoffFor(session);
+      if (context) unsentContextRef.current.set(sessionId, context);
+      return acp.start(session.id, session.cwd, session.profileId).catch((error: unknown) => {
+        if (context) unsentContextRef.current.delete(sessionId);
+        throw error;
+      });
+    };
+    const load = () => acp.load(session.id, session.cwd, session.profileId, acpSessionId);
+    // A session refused at a prompt may have had no turn the agent kept: when the agent does not know it,
+    // it starts anew. Any other failure keeps the session, whose conversation the agent may still have.
+    const reopen = wasTerminated
+      ? load
+      : () => load().catch((error: unknown) => (isUnknownSessionError(error) ? openNew() : Promise.reject(error)));
+    return launch(session, reopen, { first, choices, applySafeMode: true, action: 'resume' });
+  };
 
   const fork = (sourceSessionId: string, session: Session) =>
     launch(session, () => acp.fork(sourceSessionId, session.id, session.cwd), {
@@ -321,6 +403,7 @@ export function useAcpEngine({
     stoppedRef.current.add(sessionId);
     lastPromptRef.current.delete(sessionId);
     unsentContextRef.current.delete(sessionId);
+    refusedChoicesRef.current.delete(sessionId);
     return acp.stop(sessionId).then(
       () => true,
       (error) => {
@@ -366,6 +449,7 @@ export function useAcpEngine({
     info: acp.info,
     start,
     resume,
+    retryAfterSignIn,
     fork,
     send,
     chooseOption,

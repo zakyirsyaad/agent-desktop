@@ -1,9 +1,7 @@
 import { useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { keptConfigOf, type AcpChoices, type RewoundOptions } from '../lib/acp-draft';
 import type { AcpEngine, FirstMessage } from './session-engine/useAcpEngine';
-import { buildForkHandoff, buildRewindContext } from '../lib/fork-handoff';
-import { createId } from '../lib/ids';
+import { writeConversationHandoff } from '../lib/session-handoff';
 import type { AgentProfile, ChatMessage, Session } from '../types';
 
 export interface SessionRewindDeps {
@@ -89,18 +87,13 @@ export function useSessionRewind(deps: SessionRewindDeps): SessionRewind {
   };
 
   /** The handoff a fresh agent reads first; undefined when nothing is left of the conversation. */
-  const handoffFor = async (session: Session): Promise<string | undefined> => {
-    const messages = transcripts[session.id] ?? [];
-    if (messages.length === 0) return undefined;
-    const content = buildForkHandoff(messages, messages[messages.length - 1].id, {
-      sourceSessionName: session.name,
-      agentName: agents.find((a) => a.id === session.profileId)?.name ?? session.profileId,
-      cwd: session.cwd,
-      createdAt: Date.now(),
-    });
-    const handoffPath = await invoke<string>('write_fork_handoff', { handoffId: createId('rewind'), content });
-    return buildRewindContext(handoffPath);
-  };
+  const handoffFor = (session: Session): Promise<string | undefined> =>
+    writeConversationHandoff(
+      session,
+      transcripts[session.id] ?? [],
+      agents.find((a) => a.id === session.profileId)?.name ?? session.profileId,
+      'rewind',
+    );
 
   const restart = async (session: Session, message: FirstMessage, choices: AcpChoices) => {
     if (restartingRef.current.has(session.id)) return;

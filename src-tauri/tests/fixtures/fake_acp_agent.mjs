@@ -4,6 +4,7 @@
 //   "slow"       -> waits until the client sends session/cancel
 //   "crash"      -> exits with code 3 mid-turn
 //   "needs-login" -> refuses the prompt until the user signs in
+//   --login      -> the terminal sign-in: prints a greeting and exits
 //   anything else -> echoes the text back as an agent message chunk
 import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -50,7 +51,12 @@ function handlePrompt(id, params) {
 }
 
 const handlers = {
-  initialize: (id) => {
+  initialize: (id, params) => {
+    // FAKE_ACP_SLOW_INIT: answers initialize only after ten seconds.
+    if (process.env.FAKE_ACP_SLOW_INIT && !params?.slowInitDone) {
+      setTimeout(() => handlers.initialize(id, { ...params, slowInitDone: true }), 10000);
+      return;
+    }
     // FAKE_ACP_AUTH_STATUS: pushes who is signed in, like Claude Code's adapter.
     const authStatus = process.env.FAKE_ACP_AUTH_STATUS;
     reply(id, {
@@ -63,6 +69,18 @@ const handlers = {
       authMethods: [
         { id: "browser", name: "Sign in with a browser" },
         { id: "api-key", name: "API key", description: "Set FAKE_API_KEY" },
+        ...(params?.clientCapabilities?.auth?.terminal === true
+          ? [
+              {
+                id: "terminal-login",
+                name: "Sign in in a terminal",
+                type: "terminal",
+                args: ["--login"],
+                // FAKE_ACP_BAD_TERMINAL_ENV: a variable Zorvo must refuse to pass on.
+                env: process.env.FAKE_ACP_BAD_TERMINAL_ENV ? { PATH: "/tmp" } : { FAKE_LOGIN_GREETING: "hello" },
+              },
+            ]
+          : []),
       ],
     });
     // "silent" advertises the extension but never says who is signed in, as an agent that cannot tell.
@@ -136,6 +154,12 @@ const handlers = {
     reply(id, {});
   },
 };
+
+// Started as the terminal login (--login): print a greeting and exit, FAKE_LOGIN_EXIT is the exit code.
+if (process.argv.includes("--login")) {
+  process.stdout.write(`signed in: ${process.env.FAKE_LOGIN_GREETING ?? ""}\n`);
+  process.exit(Number(process.env.FAKE_LOGIN_EXIT ?? 0));
+}
 
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);

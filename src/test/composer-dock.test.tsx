@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
-import { ComposerDock } from "../components/ComposerDock";
+import { createRef } from "react";
+import { ComposerDock, type ComposerHandle } from "../components/ComposerDock";
 import type { ComposerControls } from "../lib/composer-controls";
 
 function prompt(): HTMLTextAreaElement {
@@ -257,5 +258,33 @@ describe("ComposerDock", () => {
     expect(chip.getAttribute("title")).toBe("[ModelStudio Token Plan] qwen3.8-max");
     fireEvent.click(chip);
     expect(screen.getByRole("option", { name: "[ModelStudio Token Plan] qwen3-coder" })).toBeDefined();
+  });
+});
+
+describe("ComposerDock restored message", () => {
+  function renderWithHandle() {
+    const handle = createRef<ComposerHandle>();
+    render(<ComposerDock handleRef={handle} onSendMessage={() => {}} />);
+    return handle;
+  }
+
+  it("holds the restored message until the user changes it", () => {
+    const handle = renderWithHandle();
+
+    act(() => handle.current?.restore("hi"));
+    expect(handle.current?.holdsRestored()).toBe(true);
+
+    fireEvent.change(prompt(), { target: { value: "hi!" } });
+    expect(handle.current?.holdsRestored()).toBe(false);
+  });
+
+  it("is emptied by clear and then holds nothing restored", () => {
+    const handle = renderWithHandle();
+    act(() => handle.current?.restore("hi"));
+
+    act(() => handle.current?.clear());
+
+    expect(prompt().value).toBe("");
+    expect(handle.current?.holdsRestored()).toBe(false);
   });
 });

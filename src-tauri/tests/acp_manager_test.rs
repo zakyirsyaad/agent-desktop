@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use zorvo_lib::acp::manager::{AcpEvent, AcpLaunch, AcpManager};
+use zorvo_lib::acp::terminal_auth::SignInAttempts;
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -380,6 +381,24 @@ fn auth_methods_in(error: &str) -> Value {
 }
 
 #[test]
+fn offers_terminal_sign_in_because_zorvo_advertises_it() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_REQUIRED", "1");
+
+    let err = manager.start("s-1", &cwd(), &launch).unwrap_err();
+
+    let methods = auth_methods_in(&err);
+    let terminal = methods
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == "terminal-login")
+        .expect("terminal method listed");
+    assert_eq!(terminal["type"], "terminal");
+    assert_eq!(terminal["args"][0], "--login");
+}
+
+#[test]
 fn reports_a_sign_in_when_the_agent_refuses_a_prompt_for_it() {
     let (manager, rx) = manager();
     manager.start("s-1", &cwd(), &fake_agent()).unwrap();
@@ -707,4 +726,127 @@ fn is_running_under_sees_a_session_whose_path_reaches_into_that_dir() {
     );
     manager.stop("s-1");
     assert!(!manager.is_running_under(&dir.0));
+}
+
+#[test]
+fn builds_the_login_from_the_agent_launch_and_its_terminal_method() {
+    let (manager, _rx) = manager();
+
+    let login = manager
+        .terminal_login(&cwd(), &fake_agent(), "terminal-login")
+        .expect("terminal login");
+
+    assert_eq!(login.program, "node");
+    assert_eq!(login.args.len(), 2);
+    assert!(login.args[0].ends_with("fake_acp_agent.mjs"));
+    assert_eq!(login.args[1], "--login");
+    assert!(login
+        .env
+        .contains(&("FAKE_LOGIN_GREETING".to_string(), "hello".to_string())));
+}
+
+#[test]
+fn asks_for_a_sign_in_again_when_the_method_is_gone() {
+    let (manager, _rx) = manager();
+
+    let error = manager
+        .terminal_login(&cwd(), &fake_agent(), "browser")
+        .unwrap_err();
+
+    assert!(error.starts_with("ACP_AUTH_REQUIRED:"), "{error}");
+    assert!(error.contains("terminal-login"), "{error}");
+}
+
+#[test]
+fn refuses_a_terminal_method_that_sets_path() {
+    let (manager, _rx) = manager();
+    let launch = with_env(fake_agent(), "FAKE_ACP_BAD_TERMINAL_ENV", "1");
+
+    let error = manager
+        .terminal_login(&cwd(), &launch, "terminal-login")
+        .unwrap_err();
+
+    assert_eq!(error, "Zorvo does not run this sign-in: it sets PATH");
+}
+
+#[test]
+fn never_sends_authenticate_for_a_terminal_method() {
+    let (manager, _rx) = manager();
+    let log = method_log("terminal-authenticate");
+    let launch = with_env(fake_agent(), "FAKE_ACP_METHOD_LOG", log.to_str().unwrap());
+
+    let error = manager
+        .authenticate(&cwd(), &launch, "terminal-login")
+        .unwrap_err();
+
+    assert!(error.contains("runs in a terminal"), "{error}");
+    let methods = methods_in(&log);
+    assert!(methods.contains(&"initialize".to_string()), "{methods:?}");
+    assert!(
+        !methods.contains(&"authenticate".to_string()),
+        "{methods:?}"
+    );
+}
+
+/// Runs the fake agent's terminal login in a PTY; returns its output and exit code.
+fn run_login_in_pty(terminal_id: &str, launch: AcpLaunch) -> (String, u32) {
+    use zorvo_lib::pty_session::{PtyEvent, PtySessionManager};
+
+    let (tx, rx) = mpsc::channel();
+    let pty = PtySessionManager::new(Box::new(move |event| {
+        let _ = tx.send(event);
+    }));
+    let (acp, _rx) = manager();
+    let login = acp
+        .terminal_login(&cwd(), &launch, "terminal-login")
+        .expect("terminal login");
+    pty.start_session(terminal_id, &cwd(), &login.program, &login.args, &login.env)
+        .expect("start login");
+
+    let mut output = String::new();
+    loop {
+        match rx.recv_timeout(WAIT).expect("timed out waiting for login") {
+            PtyEvent::Output { data, .. } => output.push_str(&data),
+            PtyEvent::Exit { exit_code, .. } => return (output, exit_code),
+        }
+    }
+}
+
+#[test]
+fn runs_the_terminal_login_in_a_pty_and_reports_its_exit() {
+    let (output, code) = run_login_in_pty("signin-test-1", fake_agent());
+    assert!(output.contains("signed in: hello"), "{output:?}");
+    assert_eq!(code, 0);
+
+    let failing = with_env(fake_agent(), "FAKE_LOGIN_EXIT", "1");
+    let (_, code) = run_login_in_pty("signin-test-2", failing);
+    assert_eq!(code, 1);
+}
+
+#[test]
+fn cancelling_a_sign_in_ends_the_agent_it_is_reading_the_method_from() {
+    let (manager, _rx) = manager();
+    let attempts = Arc::new(SignInAttempts::default());
+    attempts.begin("signin-cancel-1").expect("begin");
+    let launch = with_env(fake_agent(), "FAKE_ACP_SLOW_INIT", "1");
+    let started = std::time::Instant::now();
+
+    let login = {
+        let attempts = Arc::clone(&attempts);
+        let manager = Arc::clone(&manager);
+        std::thread::spawn(move || {
+            manager.terminal_login_with(&cwd(), &launch, "terminal-login", |connection| {
+                attempts.track("signin-cancel-1", connection)
+            })
+        })
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    attempts.cancel("signin-cancel-1");
+
+    assert!(login.join().expect("join").is_err());
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the agent was not ended"
+    );
+    assert!(attempts.is_cancelled("signin-cancel-1"));
 }

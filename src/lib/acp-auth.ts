@@ -1,24 +1,31 @@
 /** Matches the backend's prefix for "this agent needs a sign-in" errors. */
 export const AUTH_REQUIRED_PREFIX = 'ACP_AUTH_REQUIRED:';
 
+/**
+ * How the app handles a sign-in method: `agent` runs inside the agent
+ * (authenticate), `terminal` is a login command the app runs in a terminal
+ * for the agent, `explain` needs a secret the app never asks for.
+ */
+export type AuthMethodKind = 'agent' | 'terminal' | 'explain';
+
 /** A way to sign in that the agent offers. */
 export interface AuthMethod {
   id: string;
   name: string;
   description?: string;
-  /**
-   * True when the user must provide a secret (an API key) or run a terminal
-   * command; the app never asks for secrets, so it only explains these.
-   */
-  needsSecret: boolean;
+  kind: AuthMethodKind;
 }
 
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-function needsSecret(method: Json): boolean {
+function methodKind(method: Json): AuthMethodKind {
+  if (method.type === 'terminal') return 'terminal';
+  // Any other type the app does not run (env_var needs a secret it never asks for).
+  if (method.type !== undefined && method.type !== 'agent') return 'explain';
   const meta = isObject(method._meta) ? method._meta : {};
-  return meta.type === 'terminal' || 'api-key' in meta || /api.?key/i.test(String(method.id));
+  if (meta.type === 'terminal' || 'api-key' in meta || /api.?key/i.test(String(method.id))) return 'explain';
+  return 'agent';
 }
 
 function toAuthMethods(raw: unknown): AuthMethod[] {
@@ -30,7 +37,7 @@ function toAuthMethods(raw: unknown): AuthMethod[] {
         id: method.id,
         name: method.name,
         ...(typeof method.description === 'string' ? { description: method.description } : {}),
-        needsSecret: needsSecret(method),
+        kind: methodKind(method),
       },
     ];
   });

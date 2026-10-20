@@ -37,6 +37,8 @@ export interface AcpSessionInfo {
   /** Context window use, from the agent's latest usage_update. */
   usage?: ContextUsage;
   canFork: boolean;
+  /** The agent can reopen a session of its own (session/load). */
+  canLoad: boolean;
   isBusy: boolean;
 }
 
@@ -108,6 +110,7 @@ function toInfo(raw: unknown): AcpSessionInfo {
     configOptions: toConfigOptions(started.configOptions),
     commands: [],
     canFork: isObject(sessionCaps.fork),
+    canLoad: capabilities.loadSession === true,
     isBusy: false,
   };
 }
