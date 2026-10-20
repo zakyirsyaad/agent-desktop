@@ -152,12 +152,11 @@ describe('toContent', () => {
       d: '2026-10-20T09:30:15-05:30',
     });
   });
-  it('uses the offset at the entered date by default', () => {
+  it('uses the local offset by default (see elicitation-form-dst.test.ts for daylight saving)', () => {
     const f = [field('d', text({ format: 'date-time' }))];
-    for (const d of ['2026-01-15T12:00', '2026-07-15T12:00']) {
-      const sent = toContent(f, { d }).d as string;
-      expect(Date.parse(sent)).toBe(new Date(d).getTime());
-    }
+    const d = '2026-01-15T12:00';
+    const sent = toContent(f, { d }).d as string;
+    expect(Date.parse(sent)).toBe(new Date(d).getTime());
   });
   it('keeps multi-select as an array', () => {
     const f = [field('m', { type: 'multiSelect', options: choices })];
