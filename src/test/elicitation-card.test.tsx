@@ -50,6 +50,8 @@ describe("ElicitationCard", () => {
       { name: "tags", title: "Tags", required: false, kind: { type: "multiSelect", options: choices(2) }, default: ["v0"] },
       { name: "day", title: "Day", required: false, kind: { type: "text", format: "date" }, default: "2026-10-20" },
       { name: "when", title: "When", required: false, kind: { type: "text", format: "date-time" } },
+      { name: "site", title: "Site", required: false, kind: { type: "text", format: "uri" } },
+      { name: "nick", title: "Nick", required: false, kind: { type: "text" } },
     ];
     const { container } = render(
       <ElicitationCard
@@ -70,6 +72,10 @@ describe("ElicitationCard", () => {
     expect(checkedOf(screen.getByRole("checkbox", { name: "Option 1" }))).toBe(false);
     expect(valueOf(screen.getByLabelText(/Day/))).toBe(String("2026-10-20"));
     expect(container.querySelector('input[type="datetime-local"]')).not.toBeNull();
+    expect(screen.getByLabelText(/Email/).getAttribute("type")).toBe("email");
+    expect(screen.getByLabelText(/Site/).getAttribute("type")).toBe("url");
+    expect(screen.getByLabelText(/Nick/).getAttribute("type")).toBe("text");
+    expect(screen.getByLabelText(/Day/).closest("form")?.noValidate).toBe(true);
     expect(screen.getByText("See https://evil.example/x now")).toBeTruthy();
     expect(screen.queryByRole("link")).toBeNull();
   });

@@ -172,6 +172,8 @@ function inputProps(field: ElicitationField): { type: string; step?: string } {
   if (kind.type === "number") return { type: "number", step: kind.integer ? "1" : "any" };
   if (kind.type === "text" && kind.format === "date") return { type: "date" };
   if (kind.type === "text" && kind.format === "date-time") return { type: "datetime-local", step: "1" };
+  if (kind.type === "text" && kind.format === "email") return { type: "email" };
+  if (kind.type === "text" && kind.format === "uri") return { type: "url" };
   return { type: "text" };
 }
 

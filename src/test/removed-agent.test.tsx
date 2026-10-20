@@ -20,6 +20,10 @@ vi.mock("@tauri-apps/api/event", () => ({
     emitted.push({ event, payload });
     return Promise.resolve();
   },
+  emitTo: (_target: string, event: string, payload: unknown) => {
+    emitted.push({ event, payload });
+    return Promise.resolve();
+  },
 }));
 
 import App from "../App";

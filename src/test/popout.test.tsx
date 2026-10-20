@@ -4,6 +4,9 @@ import { render, screen, act, fireEvent, waitFor } from "@testing-library/react"
 type Listener = (event: { payload: unknown }) => void;
 const listeners = new Map<string, Listener[]>();
 const emitted: { event: string; payload: unknown }[] = [];
+/** Events sent to one window by label, and events broadcast to every window. */
+const sentTo: { target: string; event: string }[] = [];
+const broadcast: string[] = [];
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (event: string, cb: Listener) => {
@@ -14,6 +17,12 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
   emit: (event: string, payload: unknown) => {
     emitted.push({ event, payload });
+    broadcast.push(event);
+    return Promise.resolve();
+  },
+  emitTo: (target: string, event: string, payload: unknown) => {
+    emitted.push({ event, payload });
+    sentTo.push({ target, event });
     return Promise.resolve();
   },
 }));
@@ -63,6 +72,8 @@ describe("Popout windows", () => {
     vi.restoreAllMocks();
     listeners.clear();
     emitted.length = 0;
+    sentTo.length = 0;
+    broadcast.length = 0;
   });
 
   it("reads the popout session from the window URL and rejects unsafe ids", () => {
@@ -189,6 +200,9 @@ describe("Popout windows", () => {
         action: { kind: "answer-elicitation", key: "el-1", answer: { action: "accept", content: { name: "Ada" } } },
       },
     });
+    // What the user typed goes to the main window only, never to the other popouts.
+    expect(sentTo).toContainEqual({ target: "main", event: "popout-action" });
+    expect(broadcast).not.toContain("popout-action");
   });
 
   it("main window answers an agent's request when its popout asks", async () => {

@@ -67,6 +67,8 @@ function checkField(field: ElicitationField, value: unknown): string | undefined
   if (value === undefined || value === null || value === '') {
     return field.required ? REQUIRED : undefined;
   }
+  // Nothing picked in an optional multi-select is left out of the answer, so its counts do not apply.
+  if (Array.isArray(value) && value.length === 0 && !field.required) return undefined;
   const { kind } = field;
   switch (kind.type) {
     case 'text':
