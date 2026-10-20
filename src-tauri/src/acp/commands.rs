@@ -14,7 +14,7 @@ use super::terminal_auth::{is_sign_in_terminal_id, CANCELLED_MESSAGE};
 use crate::env_resolver::cached_user_env;
 use crate::files::ensure_known_workspace;
 use crate::installer::commands::versions_in_use;
-use crate::profiles::{agent_profile_from, with_system_tools, AgentProfile, TRANSPORT_ACP};
+use crate::profiles::{agent_profile_from, with_system_tools, AgentProfile};
 use crate::pty_session::PtySessionManager;
 use crate::registry::{
     self,
@@ -106,12 +106,6 @@ fn launch_from(
     process_path: Option<&str>,
     registry_env: impl FnOnce(&str, &str) -> BTreeMap<String, String>,
 ) -> Result<AcpLaunch, String> {
-    if profile.transport != TRANSPORT_ACP {
-        return Err(format!(
-            "{} does not support the Agent Client Protocol",
-            profile.name
-        ));
-    }
     if let Some(reason) = missing_reason(&profile) {
         return Err(reason);
     }
@@ -469,16 +463,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn launching_a_terminal_only_agent_over_acp_is_refused() {
-        let none = BTreeMap::new();
-        let err = launch_for("omp", &none).unwrap_err();
-        assert!(err.contains("does not support"), "unexpected: {err}");
-        assert!(launch_for("no-such-agent", &none)
-            .unwrap_err()
-            .contains("Unknown"));
-    }
-
     /// A fresh store and an empty folder it does not know yet, both removed on drop.
     struct Scratch {
         root: std::path::PathBuf,
@@ -518,26 +502,12 @@ mod tests {
         let scratch = Scratch::new("unknown");
         let store = scratch.store();
 
-        let err = launch_in_workspace(&store, &scratch.folder(), "omp").unwrap_err();
+        let err = launch_in_workspace(&store, &scratch.folder(), "claude-acp").unwrap_err();
 
         assert!(
             err.contains("is not one of your workspaces"),
             "unexpected: {err}"
         );
-    }
-
-    #[test]
-    fn an_agent_is_launched_in_a_remembered_workspace() {
-        let scratch = Scratch::new("known");
-        let store = scratch.store();
-        store
-            .remember_workspace(&scratch.folder())
-            .expect("remember");
-
-        // Past the folder check, the terminal-only agent is refused for its transport.
-        let err = launch_in_workspace(&store, &scratch.folder(), "omp").unwrap_err();
-
-        assert!(err.contains("does not support"), "unexpected: {err}");
     }
 
     #[test]
@@ -644,7 +614,6 @@ mod tests {
             "Gemini CLI".to_string(),
             "npx".to_string(),
         );
-        profile.transport = TRANSPORT_ACP.to_string();
         profile.detected = true;
         profile.acp_program_path = Some("/zorvo/node/bin/npx".to_string());
         profile.acp_path_prepend = vec!["/zorvo/node/bin".to_string()];

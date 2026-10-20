@@ -18,7 +18,6 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::acp::manager::AcpManager;
-use crate::pty_session::PtySessionManager;
 
 /// The base names of the programs that count as shells.
 const SHELLS: [&str; 5] = ["sh", "bash", "zsh", "dash", "fish"];
@@ -476,27 +475,22 @@ pub fn terminate(task: &TaskProcess, rows: &[ProcessRow]) -> Result<(), String> 
 }
 
 /// Every running agent's pid, by the app session it serves.
-fn session_roots(pty: &PtySessionManager, acp: &AcpManager) -> Vec<(String, u32)> {
-    pty.root_pids().into_iter().chain(acp.root_pids()).collect()
+fn session_roots(acp: &AcpManager) -> Vec<(String, u32)> {
+    acp.root_pids()
 }
 
 /// The shell commands agents started that are still running, with their
 /// listening ports unless `with_ports` is false.
 #[tauri::command(async)]
 pub fn background_processes(
-    pty: State<'_, PtySessionManager>,
     acp: State<'_, AcpManager>,
     with_ports: Option<bool>,
 ) -> Result<Vec<BackgroundProcess>, String> {
-    scan(&session_roots(&pty, &acp), with_ports.unwrap_or(true))
+    scan(&session_roots(&acp), with_ports.unwrap_or(true))
 }
 
 /// Stops one of the tasks `background_processes` lists.
 #[tauri::command(async)]
-pub fn stop_background_process(
-    pty: State<'_, PtySessionManager>,
-    acp: State<'_, AcpManager>,
-    pid: u32,
-) -> Result<(), String> {
-    stop(&session_roots(&pty, &acp), pid)
+pub fn stop_background_process(acp: State<'_, AcpManager>, pid: u32) -> Result<(), String> {
+    stop(&session_roots(&acp), pid)
 }

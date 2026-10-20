@@ -8,7 +8,7 @@ use crate::env_resolver::find_binary_in_path_str;
 use crate::installer::plan::{InstalledTools, PlannedStep};
 use crate::installer::prerequisites::{prerequisites_for, Prerequisite};
 use crate::installer::runtimes::{RuntimeKind, MIN_USER_NODE_MAJOR};
-use crate::profiles::{AgentProfile, TRANSPORT_ACP};
+use crate::profiles::AgentProfile;
 use crate::registry::schema::{current_platform, BinaryTarget, Distribution, RegistryEntry};
 
 /// Old built-in profile ids and the registry ids that replace them.
@@ -349,7 +349,6 @@ pub fn resolve_profile(entry: &RegistryEntry, tools: &SystemTools, listed: bool)
         entry.name.clone(),
         resolution.command.clone(),
     );
-    profile.transport = TRANSPORT_ACP.to_string();
     profile.acp_program = Some(resolution.command);
     profile.acp_args = resolution.args;
     profile.detected = availability == AVAILABILITY_READY;
