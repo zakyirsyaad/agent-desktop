@@ -439,7 +439,10 @@ impl Catalog {
             return Err(format!("Unknown agent '{id}'"));
         }
         let row = state.catalog_agent(id, tools, versions, now);
-        if row.status == STATUS_ON_YOUR_MAC && row.location.is_some() {
+        let is_user_binary = state
+            .entry_for(id, versions, now)
+            .is_some_and(|entry| install_status(entry, tools).is_user_binary());
+        if is_user_binary {
             return Err(format!("{} is managed outside Zorvo", row.name));
         }
         row.update_version
