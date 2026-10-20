@@ -354,6 +354,13 @@ pub enum InstallStatus {
     Unsupported,
 }
 
+impl InstallStatus {
+    /// True for a binary found on the user's PATH, which Zorvo does not manage.
+    pub fn is_user_binary(&self) -> bool {
+        matches!(self, InstallStatus::OnYourMac { location: Some(_) })
+    }
+}
+
 /// [`InstallStatus`] of `entry` on the machine described by `tools`.
 pub fn install_status(entry: &RegistryEntry, tools: &SystemTools) -> InstallStatus {
     let resolution = resolve(entry, tools);

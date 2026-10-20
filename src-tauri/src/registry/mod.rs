@@ -141,16 +141,16 @@ impl CatalogState {
         let Some(entry) = self.entry_for(id, versions, now) else {
             return self.waiting_agent(id, listed);
         };
-        let (status, location) = match install_status(entry, tools) {
+        let install = install_status(entry, tools);
+        let user_binary = install.is_user_binary();
+        let (status, location) = match install {
             InstallStatus::ByZorvo => (STATUS_BY_ZORVO, None),
             InstallStatus::OnYourMac { location } => (STATUS_ON_YOUR_MAC, location),
             InstallStatus::Ready => (STATUS_READY, None),
             InstallStatus::NotInstalled => (STATUS_NOT_INSTALLED, None),
             InstallStatus::Unsupported => (STATUS_UNSUPPORTED, None),
         };
-        let update_version = if status == STATUS_UNSUPPORTED
-            || (status == STATUS_ON_YOUR_MAC && location.is_some())
-        {
+        let update_version = if status == STATUS_UNSUPPORTED || user_binary {
             None
         } else {
             self.newer_offered(id, &entry.version, now)
@@ -439,7 +439,10 @@ impl Catalog {
             return Err(format!("Unknown agent '{id}'"));
         }
         let row = state.catalog_agent(id, tools, versions, now);
-        if row.status == STATUS_ON_YOUR_MAC && row.location.is_some() {
+        let is_user_binary = state
+            .entry_for(id, versions, now)
+            .is_some_and(|entry| install_status(entry, tools).is_user_binary());
+        if is_user_binary {
             return Err(format!("{} is managed outside Zorvo", row.name));
         }
         row.update_version

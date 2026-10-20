@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { startTransition } from "react";
+import { flushSync } from "react-dom";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
 import type { PersistedState } from "../types";
@@ -160,16 +162,20 @@ describe("usePersistedState saveNow", () => {
     expect(savesOf(spy)).toHaveLength(0);
   });
 
-  it("keeps both updates made either side of a re-render", async () => {
+  it("keeps a low-priority update when a sync render commits before the next update", async () => {
     const { hook } = await loaded();
     const mark = (key: string) => (prev: PersistedState) => ({
       ...prev,
       settings: { ...prev.settings, agentVersions: { ...prev.settings.agentVersions, [key]: "1" } },
     });
 
-    act(() => hook.result.current.updateState(mark("a")));
-    hook.rerender();
-    act(() => hook.result.current.updateState(mark("b")));
+    // A is low priority, so a sync render can commit before A has rendered. A hook that
+    // builds on a ref reset to the committed state would then drop A when it builds B.
+    act(() => {
+      startTransition(() => hook.result.current.updateState(mark("a")));
+      flushSync(() => hook.rerender());
+      hook.result.current.updateState(mark("b"));
+    });
 
     expect(hook.result.current.state.settings.agentVersions).toEqual({ a: "1", b: "1" });
   });

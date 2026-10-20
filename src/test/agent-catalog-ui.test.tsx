@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
 import { fakeCatalog, makeCatalogAgent } from "./fixtures/catalog";
 import { fakeProfiles, makeProfile } from "./fixtures/agents";
@@ -138,6 +138,27 @@ describe("AgentCatalog", () => {
     renderCatalog({ catalog: { lastChecked: twoHoursAgo, agents: fakeCatalog } });
 
     expect(screen.getByText("Registry checked 2 hours ago")).toBeInTheDocument();
+  });
+
+  it("ages the checked time while the panel stays open", () => {
+    vi.useFakeTimers();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const baseline = vi.getTimerCount();
+      renderCatalog({ catalog: { lastChecked: now - 30, agents: fakeCatalog } });
+      expect(screen.getByText("Registry checked just now")).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+
+      expect(screen.getByText("Registry checked 1 minute ago")).toBeInTheDocument();
+
+      cleanup();
+      expect(vi.getTimerCount()).toBe(baseline);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says nothing about the registry before it was ever checked", () => {
