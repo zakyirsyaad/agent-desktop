@@ -40,6 +40,24 @@ describe("isSvg", () => {
     expect(isSvg("<svg/>")).toBe(true);
     expect(isSvg("<svgx>")).toBe(false);
   });
+
+  it("matches the app's Rust check on edge cases", () => {
+    expect(isSvg("<SVG/>")).toBe(true);
+    expect(isSvg("\u00A0<svg>")).toBe(true);
+    expect(isSvg("<!-- made by a tool --><svg>")).toBe(false);
+    expect(isSvg('<?XML version="1.0"?><svg>')).toBe(false);
+    expect(isSvg("\uFEFF<svg>")).toBe(false);
+    expect(isSvg("<?xml version")).toBe(false);
+    expect(isSvg("<svg")).toBe(false);
+  });
+
+  it("answers quickly on input built to make a regex backtrack", () => {
+    const hostile = `<!--${"--><!--".repeat(50_000)}`;
+    const started = performance.now();
+    expect(isSvg(hostile)).toBe(false);
+    expect(isSvg(`<?xml${"?>".repeat(50_000)}`)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
 });
 
 describe("bundleIcons", () => {
