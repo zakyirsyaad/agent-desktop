@@ -180,6 +180,8 @@ impl PtySessionManager {
                 drop(sessions);
                 if let Ok(mut child) = shared_child.lock() {
                     let _ = child.kill();
+                    // No reader thread waits on this one: reap it here.
+                    let _ = child.wait();
                 }
                 return Err(format!("Session '{}' is already running", session_id));
             }
