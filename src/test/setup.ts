@@ -113,7 +113,9 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
 
 if (typeof window !== "undefined") {
   (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
-  afterEach(() => {
+  afterEach(async () => {
+    // Imported here, not at the top: a static import would load the module before a test file's vi.mock applies.
+    (await import("../lib/agent-icons")).resetAgentIcons();
     (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
   });
 }
