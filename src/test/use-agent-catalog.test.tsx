@@ -5,10 +5,14 @@ import { fakeCatalog } from "./fixtures/catalog";
 
 type Listener = (event: { payload: unknown }) => void;
 
-const { listeners } = vi.hoisted(() => ({ listeners: new Map<string, Listener>() }));
+const { listeners, listenFailure } = vi.hoisted(() => ({
+  listeners: new Map<string, Listener>(),
+  listenFailure: { current: null as string | null },
+}));
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (event: string, cb: Listener) => {
+    if (listenFailure.current) return Promise.reject(new Error(listenFailure.current));
     listeners.set(event, cb);
     return Promise.resolve(() => {
       listeners.delete(event);
@@ -24,6 +28,7 @@ const catalogCalls = (spy: { mock: { calls: unknown[][] } }) =>
 afterEach(() => {
   vi.restoreAllMocks();
   listeners.clear();
+  listenFailure.current = null;
 });
 
 describe("useAgentCatalog", () => {
@@ -70,5 +75,28 @@ describe("useAgentCatalog", () => {
     await act(async () => resolvers[0](stale));
 
     expect(result.current.catalog).toEqual(fresh);
+  });
+
+  it("keeps the could-not-watch warning after a later successful load", async () => {
+    listenFailure.current = "no event bridge";
+    const { result } = renderHook(() => useAgentCatalog());
+    await waitFor(() => expect(result.current.catalog).not.toBeNull());
+    await waitFor(() => expect(result.current.error).toBe("Could not watch for agent changes: no event bridge"));
+
+    await act(async () => result.current.reload());
+
+    expect(result.current.catalog).not.toBeNull();
+    expect(result.current.error).toBe("Could not watch for agent changes: no event bridge");
+  });
+
+  it("shows a load error before the could-not-watch warning", async () => {
+    listenFailure.current = "no event bridge";
+    vi.spyOn(internals(), "invoke").mockRejectedValue(new Error("registry unreachable"));
+    const { result } = renderHook(() => useAgentCatalog());
+
+    await waitFor(() => expect(result.current.error).toBe("registry unreachable"));
+    await act(async () => {});
+
+    expect(result.current.error).toBe("registry unreachable");
   });
 });

@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { RefreshCw, Search } from "lucide-react";
 import { AgentCatalogRow } from "./AgentCatalogRow";
 import { Button } from "../ui/Button";
@@ -22,6 +22,18 @@ const SECTION_HEADING = "mb-2 text-[10px] font-semibold uppercase tracking-wider
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+const CLOCK_TICK_MS = 60_000;
+
+/** The current time in seconds, refreshed every minute while mounted, so "checked … ago" keeps ageing. */
+function useNowSeconds(): number {
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Math.floor(Date.now() / 1000)), CLOCK_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
 }
 
 function useCheckAgain(onCheckAgain: () => Promise<void>) {
@@ -63,6 +75,7 @@ export function AgentCatalog({ catalog, error, agents, enabledIds, actions, onCh
   // Kept here, not in the row: a removed agent's row moves to the other section and starts afresh.
   const [removeErrors, setRemoveErrors] = useState<Readonly<Record<string, string>>>({});
   const { isChecking, checkError, checkAgain } = useCheckAgain(onCheckAgain);
+  const now = useNowSeconds();
   const { inUse, others } = catalogSections(catalog?.agents ?? [], enabledIds, query);
   const trimmedQuery = query.trim();
 
@@ -119,7 +132,7 @@ export function AgentCatalog({ catalog, error, agents, enabledIds, actions, onCh
         </div>
         {catalog?.lastChecked != null && (
           <p className="text-[11px] text-fg-subtle">
-            {`Registry checked ${formatCheckedAgo(catalog.lastChecked, Math.floor(Date.now() / 1000))}`}
+            {`Registry checked ${formatCheckedAgo(catalog.lastChecked, now)}`}
           </p>
         )}
         {checkError && (

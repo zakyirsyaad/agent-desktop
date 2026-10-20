@@ -110,7 +110,8 @@ const fetchText = async (url) => {
   if (!icon.ok) throw new Error(`${icon.status}`);
   return icon.text();
 };
-const icons = await bundleIcons(registryEntries, fetchText);
+const previousIcons = existsSync(ICONS_PATH) ? JSON.parse(readFileSync(ICONS_PATH, "utf8")) : {};
+const icons = await bundleIcons(registryEntries, fetchText, previousIcons);
 writeFileSync(ICONS_PATH, `${JSON.stringify(icons, null, 2)}\n`);
 console.log(`Wrote ${Object.keys(icons).length} icons to ${ICONS_PATH}`);
 
