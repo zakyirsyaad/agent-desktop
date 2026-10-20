@@ -15,12 +15,16 @@ the card's React state and the command call.
 
 **Spec:** `docs/superpowers/specs/2026-10-20-acp-elicitation-design.md`
 
-**Precondition:** PR #57 (`fix/acp-answer-every-request`) is merged into
-`main`, and this branch is rebased onto it. This plan assumes its shape:
-`AcpConnection::spawn(…, make_sink: impl FnOnce(Weak<AcpConnection>) -> EventSink)`,
-`route_event(routes, sink, connection: &Weak<AcpConnection>, connection_key, event)`,
-and the helpers `answer(connection, reply)` and `refuse(connection, id)` in
-`manager.rs`.
+**Precondition (met):** PR #57 is merged (`338ea18`) and this branch is
+rebased onto it. Its final shape, which this plan builds on:
+`AcpConnection::spawn(…, make_sink: impl FnOnce(Weak<AcpConnection>) -> EventSink)`;
+`Routes.by_acp_id: HashMap<(u64 /*connection key*/, String /*acp id*/), String>`;
+`session/new`/`session/load`/`session/fork` route their session on the reader
+thread as the answer arrives (`route_on_answer`), so only requests sent
+*before* that answer have no session; `route_event` → `app_id_for` →
+`route_request(sink, connection, session_id, id, method, params)`; and
+`answer(connection, reply)` writes replies on their own thread.
+`manager.rs` is 782 lines after it.
 
 ## Global Constraints
 
@@ -32,7 +36,7 @@ and the helpers `answer(connection, reply)` and `refuse(connection, id)` in
 - Allowed URLs: `https` to any host; `http` only to `localhost`, `127.0.0.1` or `[::1]`.
 - URLs open with macOS `open` from the backend, never in the webview.
 - Copy is sentence case, says "you", and names the agent. Tokens only, `ui/Button`, `focus-ring` on every control.
-- Source files stay under 800 lines. `manager.rs` (about 730 lines after PR #57) gains only hooks; the elicitation logic lives in its own files.
+- Source files stay under 800 lines. `manager.rs` is 782 lines, so Task 3 first moves its routing functions into `manager/routing.rs`; the elicitation logic lives in its own files.
 - Commands that spawn `open` are `#[tauri::command(async)]`.
 - Conventional Commits; stage explicit paths only (never `git add -A`).
 
@@ -53,7 +57,8 @@ and the helpers `answer(connection, reply)` and `refuse(connection, id)` in
 - Create `src/acp/elicitation/url_check.rs`: `check_url`.
 - Create `src/acp/elicitation/validate.rs`: `validate`, `FieldErrors`.
 - Create `src/acp/elicitation/pending.rs`: the open-request store.
-- Create `src/acp/manager/elicitation_routes.rs`: a child module of `manager` (so it can reach `Routes`) with routing, respond, reopen and cancel.
+- Create `src/acp/manager/routing.rs`: `route_event`, `app_id_for`, `route_request`, `answer`, `refuse` moved out of `manager.rs` unchanged (child module, so it reaches `Routes`).
+- Create `src/acp/manager/elicitation_routes.rs`: a child module of `manager` with elicitation routing, respond, reopen and cancel.
 - Modify `src/acp/mod.rs`, `src/acp/manager.rs`, `src/acp/commands.rs`, `src/lib.rs`, `src/windows.rs` (make `open_url` `pub(crate)`), and `Cargo.toml` (`regex = "1"`, already in `Cargo.lock` at 1.13.1).
 - Modify `tests/acp_manager_test.rs` and `tests/fixtures/fake_acp_agent.mjs`.
 
@@ -230,7 +235,7 @@ Messages, used verbatim by Rust and TypeScript (Task 6):
 ### Task 3: Advertise elicitation, keep open requests, route them to sessions
 
 **Files:**
-- Create: `src-tauri/src/acp/elicitation/pending.rs`, `src-tauri/src/acp/manager/elicitation_routes.rs`
+- Create: `src-tauri/src/acp/elicitation/pending.rs`, `src-tauri/src/acp/manager/routing.rs`, `src-tauri/src/acp/manager/elicitation_routes.rs`
 - Modify: `src-tauri/src/acp/manager.rs`, `src-tauri/src/acp/commands.rs` (`event_payload`), `src-tauri/tests/fixtures/fake_acp_agent.mjs`, `src-tauri/tests/acp_manager_test.rs`
 
 **Interfaces:**
@@ -250,6 +255,7 @@ Messages, used verbatim by Rust and TypeScript (Task 6):
       pub fn remove(&mut self, key: &str) -> Option<Pending>;
       pub fn take_completed(&mut self, connection_key: u64, elicitation_id: &str) -> Option<(String, Pending)>; // only AwaitingCompletion
       pub fn take_session(&mut self, app_session_id: &str) -> Vec<Pending>;
+      pub fn take_connection(&mut self, connection_key: u64) -> Vec<Pending>;    // agent exited
   }
   // manager.rs
   pub enum AcpEvent { …, Elicitation { session_id: String, key: String, view: Value },
@@ -258,6 +264,10 @@ Messages, used verbatim by Rust and TypeScript (Task 6):
 
   - `Routes` gains `opening: HashMap<u64, String>` (connection key → app session id) and `elicitations: PendingElicitations`.
   - `event_payload` maps the two new events to `{sessionId, kind:"elicitation", key, request: view}` and `{sessionId, kind:"elicitation-complete", key}`.
+
+- [ ] **Step 0: Move routing out of `manager.rs` (no behaviour change)**
+
+  Move `route_event`, `app_id_for`, `route_request`, `answer` and `refuse` into `src-tauri/src/acp/manager/routing.rs` (`mod routing;` in `manager.rs`, items `pub(super)` where `manager.rs` or `elicitation_routes.rs` call them). Run `cd src-tauri && cargo test && cargo clippy --all-targets -- -D warnings`; expect PASS. Commit: `refactor: move ACP request routing into its own module`.
 
 - [ ] **Step 1: Extend the fake agent**
 
@@ -291,7 +301,7 @@ Messages, used verbatim by Rust and TypeScript (Task 6):
 
   1. In `initialize()`, add `"elicitation": { "form": {}, "url": {} }` to `clientCapabilities`.
   2. In `open()`, insert `opening[connection_key] = app_session_id` right after spawn. Remove it after `register` or on failure. On failure, also `take_session(app_session_id)`, so no card can be answered later.
-  3. In `route_event`, send `("elicitation/create", _)` to `elicitation_routes::route_create(routes, sink, connection, connection_key, id, params)`.
+  3. In `route_event`'s request arm, send `elicitation/create` to `elicitation_routes::route_create(routes, sink, connection, connection_key, id, params)` before `route_request`. A `sessionId` found by `app_id_for` (keyed by connection) wins; `opening` covers only requests sent before the `session/new`/`session/load` answer routes the session.
   4. Send `ConnectionEvent::Notification` with method `elicitation/complete` to `route_complete(routes, sink, connection_key, params)`.
   5. `route_create` handles each request:
      - On a parse error, `respond_error(id, -32602, msg)`.
@@ -299,7 +309,7 @@ Messages, used verbatim by Rust and TypeScript (Task 6):
      - Then insert `Pending { state: Open }` and emit `AcpEvent::Elicitation`.
   6. `route_complete` calls `take_completed`, then emits `ElicitationComplete`. Unknown ids do nothing.
   7. `spawn_unrouted` answers `elicitation/create` with `{"action":"cancel"}` and every other request as today.
-  8. `stop()` and the `Exited` arm `take_session` each removed session.
+  8. `stop()` calls `take_session`; the `Exited` arm calls `take_connection(connection_key)` (covers a session that never registered) and clears that connection's `opening` entry.
   9. Add `mod elicitation_routes;` at the top of `manager.rs`. It is a child module, so it sees `Routes` and its private fields.
 
 - [ ] **Step 5: Run them and confirm they pass**
@@ -310,7 +320,7 @@ Messages, used verbatim by Rust and TypeScript (Task 6):
 - [ ] **Step 6: Commit**
 
   ```bash
-  git add src-tauri/src/acp/elicitation/pending.rs src-tauri/src/acp/elicitation/mod.rs src-tauri/src/acp/manager.rs src-tauri/src/acp/manager/elicitation_routes.rs src-tauri/src/acp/commands.rs src-tauri/tests/acp_manager_test.rs src-tauri/tests/fixtures/fake_acp_agent.mjs
+  git add src-tauri/src/acp/elicitation/pending.rs src-tauri/src/acp/elicitation/mod.rs src-tauri/src/acp/manager.rs src-tauri/src/acp/manager/routing.rs src-tauri/src/acp/manager/elicitation_routes.rs src-tauri/src/acp/commands.rs src-tauri/tests/acp_manager_test.rs src-tauri/tests/fixtures/fake_acp_agent.mjs
   git commit -m "feat: advertise ACP elicitation and route requests to sessions"
   ```
 
