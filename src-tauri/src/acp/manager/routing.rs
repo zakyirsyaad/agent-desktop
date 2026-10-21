@@ -66,18 +66,23 @@ pub(super) fn route_event(
 }
 
 /// Starts routing the `session/update`s of `connection_key`'s `acp_session_id`
-/// to `app_session_id` while an import's `session/load` replays.
+/// to `app_session_id` while an import's `session/load` replays. The route is
+/// installed only while the session is still opening: once it was stopped
+/// (from `initialize` on), its replay has nowhere to go.
 pub(super) fn begin_replay(
     routes: &Arc<Mutex<Routes>>,
     connection_key: u64,
     acp_session_id: &str,
     app_session_id: &str,
 ) {
+    let app_session_id = app_session_id.to_string();
     if let Ok(mut routes) = routes.lock() {
-        routes.replaying.insert(
-            (connection_key, acp_session_id.to_string()),
-            app_session_id.to_string(),
-        );
+        if routes.opening.get(&connection_key) != Some(&app_session_id) {
+            return;
+        }
+        routes
+            .replaying
+            .insert((connection_key, acp_session_id.to_string()), app_session_id);
     }
 }
 

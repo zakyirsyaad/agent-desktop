@@ -280,7 +280,8 @@ fn stopping_an_import_mid_replay_drops_the_rest() {
         .expect("the import thread")
         .expect("the import answers");
     assert_eq!(reopened.reopened_with, Some(ReopenMethod::Load));
-    // Its answer registered the stopped session again.
+    // `route_on_answer` skipped the stopped session's early route, but
+    // `register` still registers it once the load answers: stop it once more.
     manager.stop("s-imp");
 
     let late: Vec<AcpEvent> = events_within(&rx, Duration::from_secs(4))
@@ -299,6 +300,60 @@ fn stopping_an_import_mid_replay_drops_the_rest() {
         )
         .expect("a new import still works");
     manager.stop("s-imp2");
+}
+
+#[test]
+fn does_not_route_a_replay_after_the_import_was_stopped() {
+    let (manager, rx) = manager();
+    let log = call_log("import-stopped-opening");
+    let launch = fake_agent_with(&[
+        ("FAKE_ACP_SLOW_INIT", "1500"),
+        ("FAKE_ACP_CALL_LOG", log.to_str().unwrap()),
+    ]);
+    let importing = {
+        let manager = std::sync::Arc::clone(&manager);
+        let cwd = cwd();
+        thread::spawn(move || {
+            manager.reopen(
+                "s-imp-stop",
+                &cwd,
+                &launch,
+                "fake-earlier",
+                ReopenPurpose::Import,
+            )
+        })
+    };
+
+    // The stop lands between `initialize` and the replay route: the import is
+    // still waiting for the fake agent's slow initialize to answer.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !called_methods(&log).contains(&"initialize".to_string()) {
+        assert!(Instant::now() < deadline, "initialize was never sent");
+        thread::sleep(Duration::from_millis(10));
+    }
+    manager.stop("s-imp-stop");
+
+    let reopened = importing
+        .join()
+        .expect("the import thread")
+        .expect("the import answers");
+    assert_eq!(reopened.reopened_with, Some(ReopenMethod::Load));
+    // `route_on_answer` skipped the stopped session's early route, but
+    // `register` still registers it once the load answers: stop it once more.
+    manager.stop("s-imp-stop");
+
+    // The history the agent replayed during the load had nowhere to go: the
+    // route was never installed for the session stopped while it opened.
+    let routed: Vec<AcpEvent> = events_within(&rx, Duration::from_secs(3))
+        .into_iter()
+        .filter(
+            |event| matches!(event, AcpEvent::Update { session_id, .. } if session_id == "s-imp-stop"),
+        )
+        .collect();
+    assert!(
+        routed.is_empty(),
+        "the stopped import still routed {routed:?}"
+    );
 }
 
 #[test]

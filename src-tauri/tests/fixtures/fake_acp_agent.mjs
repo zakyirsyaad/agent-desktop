@@ -27,6 +27,8 @@
 //   FAKE_ACP_LIST_FAIL_AT=<n> -> page n answers with a server error
 //   FAKE_ACP_AUTH_REQUIRED -> session/new and session/list refuse with an auth-required error
 //   FAKE_ACP_CALL_LOG -> appends every received method name to the file it names
+//   FAKE_ACP_SLOW_INIT=<ms> -> answers initialize only after that many milliseconds
+//                         (ten seconds when set without a delay)
 //   FAKE_ACP_SLOW_REPLAY -> session/load sends another chunk three seconds later, then answers
 // (each other FAKE_ACP_* flag is documented where it is read below)
 import { appendFileSync, closeSync, readFileSync, writeFileSync } from "node:fs";
@@ -162,9 +164,14 @@ const askAfterOpen = (sessionId) => {
 
 const handlers = {
   initialize: (id, params) => {
-    // FAKE_ACP_SLOW_INIT: answers initialize only after ten seconds.
+    // FAKE_ACP_SLOW_INIT: answers initialize only after the delay it names, so a
+    // test can stop a session while it opens. A bare set keeps the ten seconds.
+    const delay = Number(process.env.FAKE_ACP_SLOW_INIT);
     if (process.env.FAKE_ACP_SLOW_INIT && !params?.slowInitDone) {
-      setTimeout(() => handlers.initialize(id, { ...params, slowInitDone: true }), 10000);
+      setTimeout(
+        () => handlers.initialize(id, { ...params, slowInitDone: true }),
+        delay > 1 ? delay : 10000,
+      );
       return;
     }
     // FAKE_ACP_INIT_LOG: writes the client's capabilities to the file it names, as JSON.
