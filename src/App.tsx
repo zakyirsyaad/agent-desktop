@@ -66,6 +66,7 @@ import { useBranchPicker } from "./hooks/useBranchPicker";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
 import { useDraftSessionList } from "./hooks/useDraftSessionList";
+import type { OpenNewSessionOptions } from "./hooks/useSessionImport";
 import { useSessionFork } from "./hooks/useSessionFork";
 import { useSessionRewind } from "./hooks/useSessionRewind";
 import { useUnreadMarks } from "./hooks/useUnreadMarks";
@@ -392,11 +393,12 @@ export default function App() {
    * Shows a new, empty session: the folder and agent can still be changed in
    * the composer, and the agent starts with the first message.
    */
-  const openNewSession = (path?: string, agentId?: string) => {
+  const openNewSession = (path?: string, agentId?: string, options?: OpenNewSessionOptions) => {
     if (path) chooseFolder(path);
     setPickedAgentId(agentId ?? null);
     // A fresh draft: picks left from an earlier one would override the model picked last.
-    setAcpChoices(NO_CHOICES);
+    // A failed import returns to the draft it started from, so its picks stay: it did not open.
+    if (!options?.keepChoices) setAcpChoices(NO_CHOICES);
     setActiveSessionId("");
   };
 

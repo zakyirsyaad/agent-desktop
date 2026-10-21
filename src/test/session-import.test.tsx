@@ -62,7 +62,10 @@ function stubInvoke(overrides: Overrides) {
 
 const MODES = {
   currentModeId: "default",
-  availableModes: [{ id: "default", name: "Default" }],
+  availableModes: [
+    { id: "default", name: "Default" },
+    { id: "plan", name: "Plan" },
+  ],
 };
 
 const MODEL_OPTIONS = [
@@ -200,6 +203,12 @@ describe("Importing a session the agent listed", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("option", { name: "Smart" }));
     });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Permission mode: Default" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "Plan" }));
+    });
     await openList();
     await clickRow();
 
@@ -214,6 +223,43 @@ describe("Importing a session the agent listed", () => {
         value: "smart",
       }),
     );
+    // Both picks went with the import: the mode is applied and the composer shows it.
+    await waitFor(() =>
+      expect(callsTo(spy, "acp_set_mode").map(([, args]) => args)).toContainEqual({
+        sessionId: importedId,
+        modeId: "plan",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Permission mode: Plan" })).toBeDefined(),
+    );
+  });
+
+  it("keeps the draft's model and mode picks when the import fails", async () => {
+    await renderDraft({
+      importSession: () => Promise.reject("session/load failed: Unknown session"),
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Model: Fast" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "Smart" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Permission mode: Default" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "Plan" }));
+    });
+    await openList();
+    await clickRow();
+
+    expect(await screen.findByText("Could not open the session: session/load failed: Unknown session")).toBeDefined();
+
+    // The draft is back as it was: both picks made for the import are still selected.
+    expect(screen.getByRole("heading", { name: "New session" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Model: Smart" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Permission mode: Plan" })).toBeDefined();
   });
 
   it("undoes the import, returns to the draft and shows the agent's error when the session is gone", async () => {
@@ -433,6 +479,67 @@ describe("Importing a session a Zorvo session already holds", () => {
     expect(openSession).toHaveBeenCalledWith("s-held");
     expect(recordSession).not.toHaveBeenCalled();
     expect(importSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("The draft's picks", () => {
+  const CLAUDE = { id: "claude-acp", name: "Claude Code" } as AgentProfile;
+  const IMPORTED: Session = {
+    id: "s-import",
+    name: "Fix the login",
+    profileId: "claude-acp",
+    cwd: "/Users/test/developer/ai-perpetual-trading",
+    status: "running",
+    createdAt: 1,
+    acpSessionId: "listed-1",
+  };
+  const LISTED = { acpSessionId: "listed-1", title: "Fix the login" };
+
+  function renderPickImport(importSession: () => Promise<boolean>) {
+    const onChoicesUsed = vi.fn();
+    const recordSession = vi.fn(() => IMPORTED);
+    const { result } = renderHook(() =>
+      useSessionImport({
+        sessions: [],
+        agent: CLAUDE,
+        cwd: IMPORTED.cwd,
+        activeSessionId: "",
+        acp: { importSession },
+        choices: { modeId: "plan", config: { model: "smart" } },
+        onChoicesUsed,
+        recordSession,
+        openSession: vi.fn(),
+        discardSession: vi.fn(),
+        openNewSession: vi.fn(),
+        requestSignIn: vi.fn(),
+        onImportError: vi.fn(),
+      }),
+    );
+    return { result, onChoicesUsed, recordSession, importSession };
+  }
+
+  it("leave the picks alone when the import does not open", async () => {
+    const importSession = vi.fn(() => Promise.resolve(false));
+    const { result, onChoicesUsed } = renderPickImport(importSession);
+
+    await act(async () => {
+      result.current(LISTED);
+    });
+
+    expect(importSession).toHaveBeenCalledTimes(1);
+    expect(onChoicesUsed).not.toHaveBeenCalled();
+  });
+
+  it("consume the picks once the import opens", async () => {
+    const importSession = vi.fn(() => Promise.resolve(true));
+    const { result, onChoicesUsed } = renderPickImport(importSession);
+
+    await act(async () => {
+      result.current(LISTED);
+    });
+
+    expect(importSession).toHaveBeenCalledTimes(1);
+    expect(onChoicesUsed).toHaveBeenCalledTimes(1);
   });
 });
 

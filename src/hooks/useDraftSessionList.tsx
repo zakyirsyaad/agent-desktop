@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { AgentSessionList } from '../components/workspace/AgentSessionList';
 import { useAgentSessionList } from './useAgentSessionList';
-import { useSessionImport } from './useSessionImport';
+import { useSessionImport, type OpenNewSession } from './useSessionImport';
 import type { AcpEngine } from './session-engine/useAcpEngine';
 import type { AgentAuth } from './useAgentAuth';
 import type { AcpChoices } from '../lib/acp-draft';
@@ -26,7 +26,7 @@ export interface DraftSessionListDeps {
   recordSession: (spec: SessionSpec) => Session;
   openSession: (sessionId: string) => void;
   discardSession: (sessionId: string) => void;
-  openNewSession: (path: string, agentId: string) => void;
+  openNewSession: OpenNewSession;
   requestSignIn: AgentAuth['requestSignIn'];
 }
 
