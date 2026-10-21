@@ -583,6 +583,32 @@ fn probes_an_agent_for_its_options_and_commands_without_keeping_a_session() {
 }
 
 #[test]
+fn probe_reports_session_listing_when_it_opens_a_session() {
+    let (manager, _rx) = manager();
+
+    let listing = with_env(fake_agent(), "FAKE_ACP_LIST", "1");
+    let probed = manager.probe(&cwd(), &listing, true).expect("probe");
+    assert!(probed.can_list_sessions);
+
+    let plain = manager.probe(&cwd(), &fake_agent(), true).expect("probe");
+    assert!(!plain.can_list_sessions);
+}
+
+#[test]
+fn probe_reports_session_listing_when_it_only_checks_the_sign_in() {
+    let (manager, _rx) = manager();
+    let launch = with_env(
+        with_env(fake_agent(), "FAKE_ACP_LIST", "1"),
+        "FAKE_ACP_AUTH_STATUS",
+        "claude",
+    );
+
+    let probed = manager.probe(&cwd(), &launch, false).expect("probe");
+
+    assert!(probed.can_list_sessions);
+}
+
+#[test]
 fn probing_reports_a_sign_in_when_the_agent_will_not_open_a_session() {
     let (manager, _rx) = manager();
     let launch = with_env(fake_agent(), "FAKE_ACP_AUTH_REQUIRED", "1");

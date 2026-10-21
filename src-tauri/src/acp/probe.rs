@@ -51,6 +51,8 @@ pub struct ProbedAgent {
     /// Whether the agent showed someone is signed in: it opened a session, or
     /// reported an account. False when it said nothing either way.
     pub sign_in_checked: bool,
+    /// Whether the agent can list its own sessions (`session/list`).
+    pub can_list_sessions: bool,
 }
 
 /// What the agent pushes on its own while a probe waits.
@@ -115,6 +117,8 @@ impl AcpManager {
                         config_options: Value::Array(Vec::new()),
                         commands: Value::Array(Vec::new()),
                         sign_in_checked: auth_kind.is_some(),
+                        can_list_sessions: init["agentCapabilities"]["sessionCapabilities"]["list"]
+                            .is_object(),
                     };
                     let outcome = signed_in(&init, auth_kind.as_deref()).map(|()| probed);
                     return Ok((outcome, None));
@@ -139,6 +143,8 @@ impl AcpManager {
                     // An agent that reports its sign-in may open sessions signed out
                     // (Claude Code): then only a reported account shows one.
                     sign_in_checked: !reports_auth || auth_kind.is_some(),
+                    can_list_sessions: init["agentCapabilities"]["sessionCapabilities"]["list"]
+                        .is_object(),
                 };
                 let discard =
                     discard_method(&init).map(|method| (method, session["sessionId"].clone()));
