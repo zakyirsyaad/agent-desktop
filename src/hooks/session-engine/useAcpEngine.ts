@@ -180,7 +180,8 @@ export function useAcpEngine({
     onError: reportError,
   });
 
-  // Read when a call settles, long after the render that made it: the latest transcripts, not that render's.
+  // Read when a call settles, long after the render that made it: the latest sessions and transcripts, not that render's.
+  const sessionsRef = useLatest(sessions);
   const transcriptsRef = useLatest(transcripts);
   const transcriptOf = (sessionId: string) => transcriptsRef.current?.[sessionId];
   const elicitations = elicitationActions({ acp, updateMessages, reportError, transcriptOf, inFlight: elicitationsInFlightRef.current });
@@ -376,9 +377,10 @@ export function useAcpEngine({
         },
         { choices, applySafeMode: true, action: 'import', onOpenError },
       );
-      // Stopped or deleted meanwhile: its last reply must not be closed into a transcript.
-      if (isOpened && !isStopped(id)) {
-        updateMessages(id, closeTurn);
+      // A deleted session has no transcript to close, and none may be written back;
+      // a stopped one that is still listed still needs its last replay reply closed.
+      if (isOpened) {
+        if (sessionsRef.current.some((s) => s.id === id)) updateMessages(id, closeTurn);
         if (reopenedWith === 'resume') patchSession(id, { historyElsewhere: true });
       }
       return isOpened;
@@ -483,6 +485,8 @@ export function useAcpEngine({
     // The backend cancels the open requests, and the agent's later events (its exit) are ignored.
     elicitations.abandon(sessionId);
     stoppedRef.current.add(sessionId);
+    // A stopped import no longer replays: if the session is resumed, its updates fold normally.
+    replayingRef.current.delete(sessionId);
     // Stopped while opening: it is no longer starting, so its row can be deleted before the open settles.
     markStarting(sessionId, false);
     lastPromptRef.current.delete(sessionId);

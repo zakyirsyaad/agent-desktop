@@ -6,7 +6,7 @@ import type { AcpEngine } from './session-engine/useAcpEngine';
 import type { AgentAuth } from './useAgentAuth';
 import type { AcpChoices } from '../lib/acp-draft';
 import type { SessionSpec } from '../lib/session-start';
-import type { ListedSession, ListedSessions } from '../lib/session-list';
+import type { ListedSessions } from '../lib/session-list';
 import type { AgentProfile, Session } from '../types';
 
 export interface DraftSessionListDeps {
@@ -35,7 +35,6 @@ export interface DraftSessionListDeps {
  */
 export function useDraftSessionList(deps: DraftSessionListDeps): {
   sessionList: ReactNode;
-  importListed: (listed: ListedSession) => void;
 } {
   const { agent, cwd, sessions, isShown, listSessions, acp, choices, ...actions } = deps;
   // While an imported session opens, the draft's agent is still the list's
@@ -84,5 +83,5 @@ export function useDraftSessionList(deps: DraftSessionListDeps): {
         }}
       />
     ) : null;
-  return { sessionList, importListed };
+  return { sessionList };
 }

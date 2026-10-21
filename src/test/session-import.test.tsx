@@ -14,9 +14,11 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 import App from "../App";
+import { useAcpEngine } from "../hooks/session-engine/useAcpEngine";
 import { useSessionImport } from "../hooks/useSessionImport";
 import { NO_CHOICES } from "../lib/acp-draft";
-import type { AgentProfile, Session } from "../types";
+import { fakeProfiles } from "./fixtures/agents";
+import type { AgentProfile, ChatMessage, Session } from "../types";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 type InvokeCall = [string, Record<string, unknown> | undefined, ...unknown[]];
@@ -302,6 +304,45 @@ describe("Importing a session the agent listed", () => {
     expect(fakeStore().transcripts[importedId]).toBeUndefined();
     expect(callsTo(spy, "save_transcript").filter(([, args]) => args?.sessionId === importedId)).toHaveLength(0);
   });
+
+  it("closes the last reply and keeps the history note of a stopped import that is kept", async () => {
+    let importedId = "";
+    let finishImport: (value: unknown) => void = () => {};
+    await renderDraft({
+      importSession: (args) => {
+        importedId = String(args?.sessionId);
+        listeners.get("acp-event")?.({ payload: { sessionId: importedId, kind: "update", update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "replayed history" },
+        } } });
+        return new Promise((resolve) => {
+          finishImport = resolve;
+        });
+      },
+    });
+    await openList();
+    await clickRow();
+    await screen.findByText("replayed history");
+
+    // Stop while the import is pending: the record stays, and the import answers afterwards.
+    const row = sidebar().getByText("Fix the login").closest("li") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Stop session" }));
+    });
+    await act(async () => {
+      finishImport(importAnswer({ reopenedWith: "resume" }));
+    });
+
+    expect(
+      await screen.findByText("Earlier messages stay in Claude Code. They are not shown here."),
+    ).toBeDefined();
+    expect(sidebar().getByText("Fix the login")).toBeDefined();
+    await flushSaves();
+
+    const saved = fakeStore().transcripts[importedId] as { role: string; isComplete?: boolean }[];
+    expect(saved.at(-1)?.role).toBe("agent");
+    expect(saved.at(-1)?.isComplete).toBe(true);
+  });
 });
 
 describe("Importing a session a Zorvo session already holds", () => {
@@ -342,5 +383,80 @@ describe("Importing a session a Zorvo session already holds", () => {
     expect(openSession).toHaveBeenCalledWith("s-held");
     expect(recordSession).not.toHaveBeenCalled();
     expect(importSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("Stopping an import before it answers", () => {
+  const IMPORTED: Session = {
+    id: "s-importing",
+    name: "Fix the login",
+    profileId: "claude-acp",
+    cwd: "/Users/test/developer/ai-perpetual-trading",
+    status: "running",
+    createdAt: 1,
+    acpSessionId: "listed-1",
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    listeners.clear();
+  });
+
+  it("folds a late update normally once a stopped import is resumed", async () => {
+    const internals = tauriInternals();
+    const original = internals.invoke;
+    let finishImport: (value: unknown) => void = () => {};
+    vi.spyOn(internals, "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "acp_import_session") {
+        return new Promise((resolve) => {
+          finishImport = resolve;
+        });
+      }
+      return original(cmd, args);
+    });
+
+    const messages = new Map<string, ChatMessage[]>();
+    const updateMessages = (sessionId: string, change: (prev: ChatMessage[]) => ChatMessage[]) => {
+      messages.set(sessionId, change(messages.get(sessionId) ?? []));
+    };
+    const { result } = renderHook(() =>
+      useAcpEngine({
+        sessions: [IMPORTED],
+        agents: fakeProfiles,
+        updateMessages,
+        patchSession: () => {},
+        reportError: () => {},
+        rememberOptions: () => {},
+        onAuthRequired: () => {},
+      }),
+    );
+
+    let opened: Promise<boolean> = Promise.resolve(false);
+    await act(async () => {
+      opened = result.current.importSession(IMPORTED, NO_CHOICES, () => {});
+    });
+    await act(async () => {
+      await result.current.stop(IMPORTED.id);
+    });
+    // The import is still pending; the user resumes the session that was stopped.
+    await act(async () => {
+      await result.current.resume(IMPORTED, "listed-1");
+    });
+    // A user chunk is replay-only: folded normally, it opens no user turn.
+    await act(async () => {
+      listeners.get("acp-event")?.({ payload: { sessionId: IMPORTED.id, kind: "update", update: {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "late note" },
+        messageId: "late-1",
+      } } });
+    });
+
+    expect(messages.get(IMPORTED.id) ?? []).toEqual([]);
+
+    // Let the pending import settle so no update lands after the test.
+    await act(async () => {
+      finishImport(importAnswer());
+      await opened;
+    });
   });
 });
