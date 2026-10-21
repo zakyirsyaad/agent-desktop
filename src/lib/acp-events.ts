@@ -326,8 +326,18 @@ export function reopenPermissionCard(messages: ChatMessage[], cardId: string): C
 }
 
 /**
- * Ends the agent's turn: the last reply is complete, and permission requests
- * that were never answered can no longer be (the agent stopped waiting).
+ * Tools still running when the turn ends: a turn cannot end with one genuinely
+ * running, so a tool whose terminal update never arrived never reported success.
+ */
+function settleTools(tools: ToolExecution[] | undefined): ToolExecution[] | undefined {
+  if (!tools?.some((tool) => tool.status === 'running')) return tools;
+  return tools.map((tool) => (tool.status === 'running' ? { ...tool, status: 'failed' } : tool));
+}
+
+/**
+ * Ends the agent's turn: the last reply is complete, permission requests that
+ * were never answered can no longer be (the agent stopped waiting), and tools
+ * still running are settled as failed rather than shown as running forever.
  */
 export function closeTurn(messages: ChatMessage[]): ChatMessage[] {
   const lastIndex = messages.length - 1;
@@ -335,8 +345,14 @@ export function closeTurn(messages: ChatMessage[]): ChatMessage[] {
     const card = isPendingRequest(message.actionCard)
       ? { ...message.actionCard, status: 'rejected' as const }
       : message.actionCard;
+    const tools = settleTools(message.tools);
     const isLastReply = index === lastIndex && message.role === 'agent';
-    if (card === message.actionCard && !isLastReply) return message;
-    return { ...message, actionCard: card, ...(isLastReply ? { isComplete: true } : {}) };
+    if (card === message.actionCard && tools === message.tools && !isLastReply) return message;
+    return {
+      ...message,
+      actionCard: card,
+      ...(tools === message.tools ? {} : { tools }),
+      ...(isLastReply ? { isComplete: true } : {}),
+    };
   });
 }

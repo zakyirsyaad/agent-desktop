@@ -9,7 +9,7 @@ import {
   resolvePermissionCard,
   type AcpReducerContext,
 } from "../lib/acp-events";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, ToolExecution } from "../types";
 
 function ctx(): AcpReducerContext {
   let n = 0;
@@ -294,6 +294,34 @@ describe("permission requests", () => {
   });
 });
 
+describe("closeTurn", () => {
+  const tool = (id: string, status: ToolExecution["status"]): ToolExecution => ({ id, name: id, status });
+  const reply = (id: string, tools: ToolExecution[]): ChatMessage => ({
+    id,
+    role: "agent",
+    content: "",
+    timestamp: 1,
+    tools,
+  });
+
+  it("settles running tools as failed and leaves settled ones alone", () => {
+    const messages = [
+      reply("a-1", [tool("t-done", "completed"), tool("t-running", "running")]),
+      reply("a-2", [tool("t-failed", "failed"), tool("t-running-2", "running")]),
+    ];
+
+    const closed = closeTurn(messages);
+
+    expect(closed.flatMap((m) => m.tools?.map((t) => [t.id, t.status]) ?? [])).toEqual([
+      ["t-done", "completed"],
+      ["t-running", "failed"],
+      ["t-failed", "failed"],
+      ["t-running-2", "failed"],
+    ]);
+    expect(messages[0].tools?.map((t) => t.status)).toEqual(["completed", "running"]);
+  });
+});
+
 const userChunk = (t: string, messageId?: string) => ({
   sessionUpdate: "user_message_chunk",
   content: { type: "text", text: t },
@@ -384,6 +412,7 @@ describe("applyReplayUpdate", () => {
 
     expect(last.isComplete).toBe(true);
     expect(last.actionCard?.status).toBe("rejected");
+    expect(last.tools?.map((t) => t.status)).toEqual(["failed"]);
     expect(pendingCardsInTurn(closed)).toEqual([]);
   });
 });
