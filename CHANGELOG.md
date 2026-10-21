@@ -16,6 +16,7 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 - **Sign in from Zorvo.** Agents that sign in through their own login, such as Claude Agent's Claude subscription or Anthropic Console, now offer it in the sign-in panel. The login runs in a terminal inside Zorvo, and your message is sent once you are signed in. Zorvo never sees or stores your keys.
 - **Agents can ask you for input.** An agent can show a form in the chat, or send you to a web page to sign in (ACP elicitation). You answer in the chat or in a popout window, and what you type is never saved.
 - **Pick a branch for a new session.** The folder list has a **Branch** row with the repository's local branches and a search. With **Worktree** off, picking one switches your folder to it, as `git switch` would, and Zorvo leaves it alone while a session's agent works anywhere in that checkout. With **Worktree** on, the new worktree starts from the branch you pick and your folder stays as it is.
+- **Continue a session where its agent left it.** Zorvo continues a session with the agent's own resume when it offers one, and you can continue a session started outside Zorvo (for example in the agent's CLI) from the new-session screen.
 
 ### Changed
 
@@ -33,6 +34,7 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 - **Sign in before you write.** An agent that needs a sign-in now says so as soon as you pick it. When Claude Code refuses a message because you are signed out, Zorvo asks you to sign in and puts the message back in the composer, instead of reporting a failed turn.
 - **The composer no longer overflows.** With many options showing, the controls wrap onto a second line and the send button stays inside the composer. Turning on **Worktree** swaps the folder icon for a branch icon instead of adding one, so the controls no longer jump to a second line when you flip it.
 - **Agents no longer stall while a session opens.** Zorvo now answers every request an agent sends, even before its session is ready, so an agent that asks something during startup is no longer left waiting up to a minute. A permission request an agent sends right after a session opens now reaches you, and one for a session Zorvo does not know is cancelled. Two sessions of the same agent no longer mix up each other's messages when the agent gives both the same id. Forking is refused for an agent that cannot fork.
+- **A tool still running when its turn ends settles.** It now shows as failed instead of running forever, since a turn cannot end while a tool is genuinely working.
 
 ## [0.2.0] - 2026-10-19
 

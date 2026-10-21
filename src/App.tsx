@@ -40,6 +40,7 @@ import {
   mostRecentSessionId,
   nextSessionName,
   patchSessionIn,
+  removeSessionFrom,
 } from "./lib/session-helpers";
 import { useAppearance } from "./hooks/useAppearance";
 import { usePersistedState } from "./hooks/usePersistedState";
@@ -64,6 +65,7 @@ import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { useBranchPicker } from "./hooks/useBranchPicker";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
+import { useDraftSessionList } from "./hooks/useDraftSessionList";
 import { useSessionFork } from "./hooks/useSessionFork";
 import { useSessionRewind } from "./hooks/useSessionRewind";
 import { useUnreadMarks } from "./hooks/useUnreadMarks";
@@ -465,6 +467,16 @@ export default function App() {
     onNotice: setNotice,
   });
 
+  /** Removes a session an import made and then failed: its record, its history and its transcript. */
+  const discardSession = (id: string) => { navigation.remove(id); updateState((prev) => removeSessionFrom(prev, id)); removeTranscript(id); };
+  // The draft's list of the agent's own sessions, and the import each row starts.
+  const draftSessionList = useDraftSessionList({
+    agent: isNewSessionDraft ? newSessionAgent : undefined, cwd: activeWorkspace?.path, sessions,
+    isShown: Boolean(isNewSessionDraft && newSessionAgent && agentCheck.canListSessions(newSessionAgent.id) && !(isWorktreeOn && canUseWorktree)),
+    listSessions: acp.listSessions, acp, choices: startChoices, onChoicesUsed: () => setAcpChoices(NO_CHOICES),
+    recordSession, openSession: handleSelectSession, discardSession, openNewSession, requestSignIn: signIn.auth.requestSignIn,
+  });
+
   const sendTo = async (sessionId: string, message: FirstMessage) => {
     const session = sessionById(sessionId);
     // A numbered session takes its title from the first thing the user asks.
@@ -658,6 +670,7 @@ export default function App() {
               details={workspaceDetails}
               agentName={newSessionAgent?.name}
               unavailableReason={areAgentsLoaded && !agentsInUse.some(isAgentReady) ? noAgentNotice(agentsInUse) : undefined}
+              sessionList={draftSessionList.sessionList}
             />
           ) : (
             <EmptySessionState />
