@@ -18,6 +18,7 @@ import { TopBar } from "./TopBar";
 import { ChatCanvas } from "./ChatCanvas";
 import { ComposerDock } from "./ComposerDock";
 import { RemovedAgentPanel } from "./RemovedAgentPanel";
+import { HistoryElsewhereNote } from "./chat/HistoryElsewhereNote";
 
 export interface PopoutAppProps {
   sessionId: string;
@@ -88,10 +89,15 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
         workspaceName={session ? folderNameOf(session.cwd) : undefined}
       />
       <article className="flex-1 flex flex-col bg-bg relative overflow-hidden">
-        {messages.length > 0 ? (
+        {messages.length > 0 || session?.historyElsewhere ? (
           <ChatCanvas
             messages={messages}
             agentName={agent?.name}
+            header={
+              session?.historyElsewhere ? (
+                <HistoryElsewhereNote agentName={agent?.name ?? "the agent"} />
+              ) : undefined
+            }
             onChooseOption={(cardId, optionId) => forward({ kind: "choose-option", cardId, optionId })}
             onAnswerElicitation={(key, answer) => forward({ kind: "answer-elicitation", key, answer })}
             onReopenElicitationUrl={(key) => forward({ kind: "reopen-elicitation-url", key })}

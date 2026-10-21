@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 use zorvo_lib::acp::manager::{
-    AcpEvent, AcpLaunch, AcpManager, ELICITATION_GONE, ELICITATION_INVALID_PREFIX,
+    AcpEvent, AcpLaunch, AcpManager, ReopenPurpose, ELICITATION_GONE, ELICITATION_INVALID_PREFIX,
     ELICITATION_UNDELIVERED,
 };
 use zorvo_lib::acp::terminal_auth::SignInAttempts;
@@ -209,7 +209,7 @@ fn answers_agent_requests_sent_while_a_session_loads() {
     );
 
     manager
-        .load("s-1", &cwd(), &launch, "fake-old")
+        .reopen("s-1", &cwd(), &launch, "fake-old", ReopenPurpose::Continue)
         .expect("load");
 
     let replies = early_replies(&log);
@@ -345,7 +345,13 @@ fn loads_an_earlier_session_without_replaying_its_history_to_the_app() {
     let (manager, rx) = manager();
 
     let loaded = manager
-        .load("s-resumed", &cwd(), &fake_agent(), "fake-earlier")
+        .reopen(
+            "s-resumed",
+            &cwd(),
+            &fake_agent(),
+            "fake-earlier",
+            ReopenPurpose::Continue,
+        )
         .expect("load");
 
     assert_eq!(loaded.acp_session_id, "fake-earlier");
@@ -369,7 +375,13 @@ fn refuses_to_load_when_the_agent_cannot_resume_sessions() {
         .push(("FAKE_ACP_NO_LOAD".to_string(), "1".to_string()));
 
     let error = manager
-        .load("s-x", &cwd(), &launch, "fake-earlier")
+        .reopen(
+            "s-x",
+            &cwd(),
+            &launch,
+            "fake-earlier",
+            ReopenPurpose::Continue,
+        )
         .unwrap_err();
 
     assert!(error.contains("cannot resume"), "unexpected error: {error}");
@@ -568,6 +580,32 @@ fn probes_an_agent_for_its_options_and_commands_without_keeping_a_session() {
         manager.root_pids().is_empty(),
         "the probe must not leave an agent running"
     );
+}
+
+#[test]
+fn probe_reports_session_listing_when_it_opens_a_session() {
+    let (manager, _rx) = manager();
+
+    let listing = with_env(fake_agent(), "FAKE_ACP_LIST", "1");
+    let probed = manager.probe(&cwd(), &listing, true).expect("probe");
+    assert!(probed.can_list_sessions);
+
+    let plain = manager.probe(&cwd(), &fake_agent(), true).expect("probe");
+    assert!(!plain.can_list_sessions);
+}
+
+#[test]
+fn probe_reports_session_listing_when_it_only_checks_the_sign_in() {
+    let (manager, _rx) = manager();
+    let launch = with_env(
+        with_env(fake_agent(), "FAKE_ACP_LIST", "1"),
+        "FAKE_ACP_AUTH_STATUS",
+        "claude",
+    );
+
+    let probed = manager.probe(&cwd(), &launch, false).expect("probe");
+
+    assert!(probed.can_list_sessions);
 }
 
 #[test]

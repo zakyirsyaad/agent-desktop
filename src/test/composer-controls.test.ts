@@ -6,7 +6,7 @@ const info: AcpSessionInfo = {
   acpSessionId: "acp-1",
   isBusy: false,
   canFork: false,
-  canLoad: false,
+  canReopen: false,
   commands: [],
   modes: {
     currentModeId: "default",

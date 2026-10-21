@@ -13,12 +13,30 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 import App from "../App";
+import { NewSessionView } from "../components/workspace/NewSessionView";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 
 function tauriInternals(): TauriInternals {
   return (window as unknown as { __TAURI_INTERNALS__: TauriInternals }).__TAURI_INTERNALS__;
 }
+
+describe("The new-session view", () => {
+  it("shows the session list below the workspace summary", () => {
+    render(
+      <NewSessionView
+        workspace={{ name: "api", path: "/Users/test/developer/api" }}
+        details={{ location: "~/developer", branch: "main" }}
+        agentName="Claude Code"
+        sessionList={<p>Listed sessions</p>}
+      />
+    );
+
+    const summary = screen.getByRole("group", { name: "Workspace" });
+    const slot = screen.getByText("Listed sessions");
+    expect(summary.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
 
 describe("Starting a new session", () => {
   afterEach(() => {

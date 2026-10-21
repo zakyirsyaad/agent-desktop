@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from 'react';
 import {
   applyAcpUpdate,
   applyPermissionRequest,
+  applyReplayUpdate,
+  closeImportedTurn,
   closeTurn,
   pendingCardsInTurn,
   reopenPermissionCard,
@@ -66,6 +68,12 @@ interface LaunchOptions {
   applySafeMode: boolean;
   /** "start" or "resume", for the error message. */
   action: string;
+  /**
+   * The agent could not open the session, and the caller made its record: it
+   * undoes that record itself, so the session is not marked terminated and no
+   * sign-in is tied to it.
+   */
+  onOpenError?: (error: unknown) => void;
 }
 
 export interface AcpEngineDeps extends EngineDeps {
@@ -100,6 +108,20 @@ export function useAcpEngine({
   // events must not write a transcript back, and a start still in flight must
   // end the agent as soon as it is up.
   const stoppedRef = useRef(new Set<string>());
+  // Sessions whose `session/load` replay is still streaming: their user chunks
+  // open a turn instead of landing in the agent's current reply.
+  const replayingRef = useRef(new Set<string>());
+  // Each session's launch token: a newer launch (or a stop) replaces it, so a
+  // continuation that settles later can tell it was superseded and must not
+  // touch the session, which may belong to another launch by then.
+  const launchGenRef = useRef(new Map<string, number>());
+  const bumpLaunchGen = (sessionId: string) => {
+    const gen = (launchGenRef.current.get(sessionId) ?? 0) + 1;
+    launchGenRef.current.set(sessionId, gen);
+    return gen;
+  };
+  const isCurrentLaunch = (sessionId: string, gen: number) =>
+    launchGenRef.current.get(sessionId) === gen;
   // Each session's latest prompt: an agent that refuses it for a sign-in hands it back to the composer.
   const lastPromptRef = useRef(new Map<string, { message: ChatMessage; context?: string }>());
   // Hidden context a refused prompt carried (a rewound session's conversation): it goes out with the next message.
@@ -132,7 +154,11 @@ export function useAcpEngine({
         if (profileId) rememberOptions(profileId, { commands: toCommands(update.availableCommands) });
         return;
       }
-      updateMessages(sessionId, (prev) => applyAcpUpdate(prev, update, ctx(sessionId)));
+      updateMessages(sessionId, (prev) =>
+        replayingRef.current.has(sessionId)
+          ? applyReplayUpdate(prev, update, ctx(sessionId))
+          : applyAcpUpdate(prev, update, ctx(sessionId)),
+      );
     }),
     onPermission: unlessStopped((sessionId, request: PermissionRequestPayload) => {
       updateMessages(sessionId, (prev) => applyPermissionRequest(prev, request, ctx(sessionId)));
@@ -166,7 +192,8 @@ export function useAcpEngine({
     onError: reportError,
   });
 
-  // Read when a call settles, long after the render that made it: the latest transcripts, not that render's.
+  // Read when a call settles, long after the render that made it: the latest sessions and transcripts, not that render's.
+  const sessionsRef = useLatest(sessions);
   const transcriptsRef = useLatest(transcripts);
   const transcriptOf = (sessionId: string) => transcriptsRef.current?.[sessionId];
   const elicitations = elicitationActions({ acp, updateMessages, reportError, transcriptOf, inFlight: elicitationsInFlightRef.current });
@@ -267,6 +294,8 @@ export function useAcpEngine({
     // A session ended earlier and now resumed must hear from its agent again.
     stoppedRef.current.delete(session.id);
     refusedChoicesRef.current.delete(session.id);
+    // Taken before the open starts: a later launch or stop supersedes this one.
+    const gen = bumpLaunchGen(session.id);
     const message = options.first ? userMessage(options.first.text, options.first.attachments) : null;
     if (message) updateMessages(session.id, (prev) => [...prev, message]);
     // Busy until the first prompt is out: a message sent meanwhile would race it.
@@ -276,9 +305,20 @@ export function useAcpEngine({
       try {
         info = await open();
       } catch (error) {
+        // A newer launch owns the session now: this failure is not its failure.
+        if (!isCurrentLaunch(session.id, gen)) {
+          // The message this launch showed was never prompted: take it back.
+          if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+          return true;
+        }
         if (isStopped(session.id)) return true;
         if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
         elicitations.abandon(session.id);
+        if (options.onOpenError) {
+          // The caller made this record: it removes it rather than ending a session the user never had.
+          options.onOpenError(error);
+          return false;
+        }
         // The message's hidden context goes out with the next one.
         if (options.first?.context) unsentContextRef.current.set(session.id, options.first.context);
         patchSession(session.id, { status: 'terminated', endedAt: Date.now() });
@@ -292,27 +332,41 @@ export function useAcpEngine({
         reportError(`Failed to ${options.action} ${name}: ${String(error)}`);
         return false;
       }
+      // Stopped or superseded while opening: the agent is already being ended, and
+      // none of the answer belongs to the session anymore.
       if (isStopped(session.id)) {
         // Stopped while starting: the backend could not end an agent it did not know yet.
         acp.stop(session.id).catch(reportFailure('Failed to stop the agent'));
         return true;
       }
+      if (!isCurrentLaunch(session.id, gen)) {
+        // A newer launch owns the session: the message this one showed was never prompted.
+        if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+        return true;
+      }
       rememberOptions(session.profileId, { modes: info.modes, configOptions: info.configOptions });
       if (info.acpSessionId) patchSession(session.id, { acpSessionId: info.acpSessionId });
       const settled = await applyChanges(session.id, info, options);
+      // Superseded while the picks were applied: a newer launch owns the session.
+      if (!isCurrentLaunch(session.id, gen)) {
+        // The message this launch showed was never prompted: take it back.
+        if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+        return true;
+      }
       // What the agent offers now, after the picks: an effort list follows its model,
       // and the next draft should offer what this session ended up with.
       if (settled.configOptions !== info.configOptions) {
         rememberOptions(session.profileId, { configOptions: settled.configOptions });
       }
-      if (message && !isStopped(session.id)) {
+      if (message && isCurrentLaunch(session.id, gen) && !isStopped(session.id)) {
         // A launch's own context (a rewind's) is newer than one a refused prompt left behind.
         const leftOver = takeUnsentContext(session.id);
         return await prompt(session.id, message, options.first?.context ?? leftOver);
       }
       return true;
     } finally {
-      markStarting(session.id, false);
+      // A newer launch owns the starting flag now; it clears it itself.
+      if (isCurrentLaunch(session.id, gen)) markStarting(session.id, false);
     }
   };
 
@@ -324,14 +378,66 @@ export function useAcpEngine({
       action: 'start',
     });
 
-  /** Continues an ended session in a fresh agent process through the agent's own session/load. */
+  /** Continues an ended session in a fresh agent process through the agent's own session/resume or session/load. */
   const resume = (session: Session, acpSessionId: string, first?: FirstMessage, choices: AcpChoices = NO_CHOICES) =>
-    launch(session, () => acp.load(session.id, session.cwd, session.profileId, acpSessionId), {
+    launch(session, () => acp.reopen(session.id, session.cwd, session.profileId, acpSessionId), {
       first,
       choices,
       applySafeMode: true,
       action: 'resume',
     });
+
+  /**
+   * Opens a session the agent started outside Zorvo, folding its
+   * `session/load` replay into the chat. A failure is the caller's to undo:
+   * the record it made was never a session of the user's.
+   */
+  const importSession = async (
+    session: Session,
+    choices: AcpChoices,
+    onOpenError: (error: unknown) => void,
+  ): Promise<boolean> => {
+    const { id, acpSessionId } = session;
+    // Nothing to load without the agent's own id: the backend would send
+    // `session/load` with an empty one, and its error would read as an import
+    // failure. The caller undoes the record it made for the import.
+    if (!acpSessionId) {
+      onOpenError(new Error('This session has no agent session id.'));
+      return false;
+    }
+    // The replay's user chunks open turns only while the import is opening.
+    replayingRef.current.add(id);
+    let reopenedWith: AcpSessionInfo['reopenedWith'];
+    let gen = 0;
+    try {
+      const opening = launch(
+        session,
+        async () => {
+          const info = await acp.importSession(id, session.cwd, session.profileId, acpSessionId);
+          reopenedWith = info.reopenedWith;
+          return info;
+        },
+        { choices, applySafeMode: true, action: 'import', onOpenError },
+      );
+      // `launch` takes its token before it first awaits, so this is this import's.
+      gen = launchGenRef.current.get(id) ?? 0;
+      const isOpened = await opening;
+      // A newer launch (a resume after a stop) owns the session now: a late answer
+      // must not close its live turn or mark its history as elsewhere.
+      if (!isCurrentLaunch(id, gen)) return isOpened;
+      // A deleted session has no transcript to close, and none may be written back;
+      // a stopped one that is still listed still needs its last replay reply closed.
+      if (isOpened) {
+        if (sessionsRef.current.some((s) => s.id === id)) updateMessages(id, closeImportedTurn);
+        if (reopenedWith === 'resume') patchSession(id, { historyElsewhere: true });
+      }
+      return isOpened;
+    } finally {
+      // Only the launch that still owns the session clears its replay route: a newer
+      // import of the same id has its own.
+      if (isCurrentLaunch(id, gen)) replayingRef.current.delete(id);
+    }
+  };
 
   /** The conversation so far, written for a fresh ACP session to read; undefined when there is none. */
   const handoffFor = (session: Session) =>
@@ -345,20 +451,20 @@ export function useAcpEngine({
   /**
    * After a sign-in: sends a refused message in a fresh agent, which picks up
    * the new credentials. The session is reopened through the agent's own
-   * session/load when it has one to reopen, else started anew. Resolves to
-   * false when the message did not go out, for a reason other than a sign-in:
-   * the caller gives it back to the user.
+   * session/resume or session/load when it has one to reopen, else started
+   * anew. Resolves to false when the message did not go out, for a reason
+   * other than a sign-in: the caller gives it back to the user.
    */
   const retryAfterSignIn = async (sessionId: string, message: FirstMessage): Promise<boolean> => {
     const session = sessions.find((s) => s.id === sessionId);
     // Deleted meanwhile: there is no session to give the message back to.
     if (!session) return true;
-    const canLoad = acp.info[sessionId]?.canLoad === true;
+    const canReopen = acp.info[sessionId]?.canReopen === true;
     // Taken before stop, which forgets it.
     const hidden = message.context ?? takeUnsentContext(sessionId);
     const wasTerminated = session.status === 'terminated';
     const { acpSessionId } = session;
-    const startsAnew = !acpSessionId || !(wasTerminated || canLoad);
+    const startsAnew = !acpSessionId || !(wasTerminated || canReopen);
     // A fresh ACP session does not have the conversation: it is handed over, before the old agent stops.
     let handoff: string | undefined;
     if (startsAnew && !hidden) {
@@ -389,12 +495,12 @@ export function useAcpEngine({
         throw error;
       });
     };
-    const load = () => acp.load(session.id, session.cwd, session.profileId, acpSessionId);
+    const reopenSession = () => acp.reopen(session.id, session.cwd, session.profileId, acpSessionId);
     // A session refused at a prompt may have had no turn the agent kept: when the agent does not know it,
     // it starts anew. Any other failure keeps the session, whose conversation the agent may still have.
     const reopen = wasTerminated
-      ? load
-      : () => load().catch((error: unknown) => (isUnknownSessionError(error) ? openNew() : Promise.reject(error)));
+      ? reopenSession
+      : () => reopenSession().catch((error: unknown) => (isUnknownSessionError(error) ? openNew() : Promise.reject(error)));
     return launch(session, reopen, { first, choices, applySafeMode: true, action: 'resume' });
   };
 
@@ -429,6 +535,14 @@ export function useAcpEngine({
     // The backend cancels the open requests, and the agent's later events (its exit) are ignored.
     elicitations.abandon(sessionId);
     stoppedRef.current.add(sessionId);
+    // A launch still opening is superseded. An import that made the record keeps its
+    // token: when it answers it still closes its last reply and sets the history note;
+    // a resume in the meantime bumps the token and makes it stale.
+    if (!replayingRef.current.has(sessionId)) bumpLaunchGen(sessionId);
+    // A stopped import no longer replays: if the session is resumed, its updates fold normally.
+    replayingRef.current.delete(sessionId);
+    // Stopped while opening: it is no longer starting, so its row can be deleted before the open settles.
+    markStarting(sessionId, false);
     lastPromptRef.current.delete(sessionId);
     unsentContextRef.current.delete(sessionId);
     refusedChoicesRef.current.delete(sessionId);
@@ -482,6 +596,8 @@ export function useAcpEngine({
     info: acp.info,
     start,
     resume,
+    importSession,
+    listSessions: acp.listSessions,
     retryAfterSignIn,
     fork,
     send,

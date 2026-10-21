@@ -19,18 +19,20 @@ use super::terminal_auth::{terminal_method, SignInAttempts, TerminalMethodError}
 use crate::pty_session::validate_cwd;
 
 mod elicitation_routes;
+mod reopen;
 mod routing;
 
 pub use elicitation_routes::{
     UrlOpener, ELICITATION_GONE, ELICITATION_INVALID_PREFIX, ELICITATION_UNDELIVERED,
 };
+pub use reopen::{ReopenMethod, ReopenPurpose};
 use routing::{answer, route_event};
 
 /// ACP protocol version this client speaks.
 pub const PROTOCOL_VERSION: u64 = 1;
 /// The first start may download an adapter through npx, so allow a long handshake.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(180);
-const SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+pub(super) const SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// JSON-RPC "method not found", returned for client methods we do not offer.
 const METHOD_NOT_FOUND: i64 = -32601;
 /// ACP's "authentication required" error code.
@@ -59,7 +61,7 @@ pub(super) enum OpenError {
     Transport(String),
 }
 
-/// What the agent reported when a session started (or was forked).
+/// What the agent reported when a session started, was reopened or was forked.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartedSession {
@@ -68,6 +70,9 @@ pub struct StartedSession {
     pub modes: Value,
     pub models: Value,
     pub config_options: Value,
+    /// How an earlier session was reopened; absent for a start or a fork.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reopened_with: Option<ReopenMethod>,
 }
 
 /// Events for the UI, already routed to the app session they belong to.
@@ -124,6 +129,11 @@ struct Routes {
     /// (connection key, acp session id) -> app session id. Keyed by connection
     /// too: two agent processes may give their sessions the same id.
     by_acp_id: HashMap<(u64, String), String>,
+    /// (connection key, acp session id) -> app session id, for an import whose
+    /// `session/load` is replaying: only its `session/update`s are routed.
+    /// Requests keep to `by_acp_id`, so one sent mid-replay is answered as
+    /// during any open instead of waiting on a session that is not registered.
+    replaying: HashMap<(u64, String), String>,
     /// connection key -> the app session `open()` is starting on it, for
     /// requests sent before the answer that routes the session.
     opening: HashMap<u64, String>,
@@ -175,45 +185,9 @@ impl AcpManager {
                 init,
                 "session/new",
                 json!({ "cwd": cwd, "mcpServers": [] }),
-                self.route_on_answer(key, app_session_id, None, true),
+                self.route_on_answer(key, app_session_id, None, true, false),
             )?;
             started_session(session, init["agentCapabilities"].clone()).map_err(OpenError::Agent)
-        })
-    }
-
-    /// Starts an agent process and resumes its earlier session `acp_session_id`.
-    ///
-    /// The agent replays the old conversation as `session/update`s before it
-    /// answers. The session is registered only after that, so the replay is
-    /// not routed to the app, which already has the conversation.
-    pub fn load(
-        &self,
-        app_session_id: &str,
-        cwd: &str,
-        launch: &AcpLaunch,
-        acp_session_id: &str,
-    ) -> Result<StartedSession, String> {
-        self.open(app_session_id, cwd, launch, |connection, init, key| {
-            let capabilities = init["agentCapabilities"].clone();
-            if capabilities["loadSession"] != Value::Bool(true) {
-                return Err(OpenError::Agent(
-                    "This agent cannot resume earlier sessions".to_string(),
-                ));
-            }
-            let response = open_request(
-                connection,
-                init,
-                "session/load",
-                json!({ "sessionId": acp_session_id, "cwd": cwd, "mcpServers": [] }),
-                self.route_on_answer(key, app_session_id, Some(acp_session_id), true),
-            )?;
-            Ok(StartedSession {
-                acp_session_id: acp_session_id.to_string(),
-                agent_capabilities: capabilities,
-                modes: response["modes"].clone(),
-                models: response["models"].clone(),
-                config_options: response["configOptions"].clone(),
-            })
         })
     }
 
@@ -251,6 +225,10 @@ impl AcpManager {
                 self.set_opening(connection_key, None);
                 if let Ok(mut routes) = self.routes.lock() {
                     routes.elicitations.take_session(app_session_id);
+                    // An import that never answered: its replay has nowhere to go.
+                    routes
+                        .replaying
+                        .retain(|_, routed| routed != app_session_id);
                 }
                 return Err(failure_message(&connection, error));
             }
@@ -327,7 +305,7 @@ impl AcpManager {
             "session/fork",
             json!({ "sessionId": acp_id, "cwd": cwd, "mcpServers": [] }),
             SESSION_REQUEST_TIMEOUT,
-            self.route_on_answer(connection_key, new_app_id, None, false),
+            self.route_on_answer(connection_key, new_app_id, None, false, false),
         )?;
         let started = started_session(response, capabilities)?;
         self.register(
@@ -513,6 +491,10 @@ impl AcpManager {
         routes
             .by_acp_id
             .retain(|_, routed| routed != app_session_id);
+        // An import stopped while its replay streams: the rest goes nowhere.
+        routes
+            .replaying
+            .retain(|_, routed| routed != app_session_id);
         let unused = entry.filter(|entry| {
             !routes
                 .sessions
@@ -581,12 +563,15 @@ impl AcpManager {
     /// agent may ask about its new session in its very next message, before
     /// [`register`](Self::register) runs. For a session being opened
     /// (`while_opening`), nothing is routed once it was stopped meanwhile.
+    /// `clears_replay` ends the replay route an import's load started, in the
+    /// same lock, so no update is routed to the replay after the answer.
     fn route_on_answer(
         &self,
         connection_key: u64,
         app_session_id: &str,
         acp_session_id: Option<&str>,
         while_opening: bool,
+        clears_replay: bool,
     ) -> impl FnOnce(&Value) + Send + 'static {
         let routes = Arc::clone(&self.routes);
         let app_session_id = app_session_id.to_string();
@@ -597,12 +582,14 @@ impl AcpManager {
                 return;
             };
             if let Ok(mut routes) = routes.lock() {
+                let key = (connection_key, acp_id.clone());
+                if clears_replay {
+                    routes.replaying.remove(&key);
+                }
                 let stopped =
                     while_opening && routes.opening.get(&connection_key) != Some(&app_session_id);
                 if !stopped {
-                    routes
-                        .by_acp_id
-                        .insert((connection_key, acp_id), app_session_id);
+                    routes.by_acp_id.insert(key, app_session_id);
                 }
             }
         }
@@ -647,14 +634,17 @@ pub(super) fn open_request(
         .map_err(OpenError::Transport)?
     {
         Ok(result) => Ok(result),
-        Err(error) if is_auth_required(&error) => Err(OpenError::Agent(auth_required_error(
-            &auth_methods_of(init),
-        ))),
-        Err(error) => Err(OpenError::Agent(format!(
-            "{} failed: {}",
-            method,
-            error_message(&error)
-        ))),
+        Err(error) => Err(OpenError::Agent(agent_error(method, init, &error))),
+    }
+}
+
+/// The error a request the agent refused reads as: the sign-in error the UI
+/// parses when it is about signing in, else `<method> failed: <its message>`.
+pub(super) fn agent_error(method: &str, init: &Value, error: &Value) -> String {
+    if is_auth_required(error) {
+        auth_required_error(&auth_methods_of(init))
+    } else {
+        format!("{} failed: {}", method, error_message(error))
     }
 }
 
@@ -747,5 +737,6 @@ fn started_session(response: Value, agent_capabilities: Value) -> Result<Started
         modes: response["modes"].clone(),
         models: response["models"].clone(),
         config_options: response["configOptions"].clone(),
+        reopened_with: None,
     })
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAgentProbe } from './useAgentProbe';
 import type { AgentAuth } from './useAgentAuth';
 import { hasReportedOptions, type AgentOptions, type ProbedOptions } from '../lib/acp-draft';
@@ -30,14 +30,19 @@ export interface DraftAgentCheckDeps {
  */
 export function useDraftAgentCheck({ agent, cwd, agentOptions, rememberProbed, auth }: DraftAgentCheckDeps) {
   const { authRequest, requestSignIn, dismiss } = auth;
+  // Memory only: what an agent last said it can list can change with its version, so it is never saved with the options.
+  const [canListByAgent, setCanListByAgent] = useState<Readonly<Record<string, boolean>>>({});
   const probe = useAgentProbe({
     agent,
     cwd,
     isKnown: (profileId) => hasReportedOptions(agentOptions?.[profileId]),
-    onProbed: (profileId, probed, signInChecked) => {
+    onProbed: (profileId, probed, facts) => {
       rememberProbed(profileId, probed);
+      setCanListByAgent((prev) =>
+        prev[profileId] === facts.canListSessions ? prev : { ...prev, [profileId]: facts.canListSessions },
+      );
       // Only an answer that shows someone signed in closes the panel; silence proves nothing.
-      if (signInChecked && authRequest?.profileId === profileId && authRequest.status !== 'signing-in') dismiss();
+      if (facts.signInChecked && authRequest?.profileId === profileId && authRequest.status !== 'signing-in') dismiss();
     },
     onAuthRequired: (profileId, probeCwd, methods) => {
       // A sign-in already under way for this agent (a refused start) is not reset by the probe's own answer.
@@ -71,5 +76,8 @@ export function useDraftAgentCheck({ agent, cwd, agentOptions, rememberProbed, a
     return () => window.removeEventListener('focus', askAgain);
   }, [awaitingAgentId, reprobe]);
 
-  return { isProbing: probe.isProbing };
+  /** Whether the agent last said it can list its other sessions. */
+  const canListSessions = useCallback((profileId: string) => canListByAgent[profileId] === true, [canListByAgent]);
+
+  return { isProbing: probe.isProbing, canListSessions };
 }

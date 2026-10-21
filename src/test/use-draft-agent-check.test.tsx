@@ -47,4 +47,17 @@ describe("useDraftAgentCheck", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(probeCalls(spy)).toHaveLength(2);
   });
+
+  it("remembers that the agent can list its sessions, from its probe answer", async () => {
+    vi.spyOn(tauriInternals(), "invoke").mockResolvedValue({ signInChecked: true, canListSessions: true });
+
+    const { result } = renderHook(() =>
+      useDraftAgentCheck({ agent: QWEN, cwd: CWD, agentOptions: undefined, rememberProbed: () => {}, auth: pendingSignIn }),
+    );
+
+    expect(result.current.canListSessions("qwen-code")).toBe(false);
+
+    await waitFor(() => expect(result.current.canListSessions("qwen-code")).toBe(true));
+    expect(result.current.canListSessions("codex-acp")).toBe(false);
+  });
 });

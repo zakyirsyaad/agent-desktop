@@ -19,7 +19,7 @@ pub(super) fn route_event(
 ) {
     match event {
         ConnectionEvent::Notification { method, params } if method == "session/update" => {
-            if let Some(session_id) = app_id_for(routes, connection_key, &params) {
+            if let Some(session_id) = update_session(routes, connection_key, &params) {
                 sink(AcpEvent::Update {
                     session_id,
                     update: params["update"].clone(),
@@ -50,6 +50,8 @@ pub(super) fn route_event(
                     r.sessions.retain(|_, e| e.connection_key != connection_key);
                     // Also drops a session routed by its answer that never registered.
                     r.by_acp_id.retain(|(key, _), _| *key != connection_key);
+                    // Its replay has nowhere to go any more.
+                    r.replaying.retain(|(key, _), _| *key != connection_key);
                     // Nobody is left to answer: covers a session that never registered.
                     r.elicitations.take_connection(connection_key);
                     r.opening.remove(&connection_key);
@@ -61,6 +63,45 @@ pub(super) fn route_event(
             }
         }
     }
+}
+
+/// Starts routing the `session/update`s of `connection_key`'s `acp_session_id`
+/// to `app_session_id` while an import's `session/load` replays. The route is
+/// installed only while the session is still opening: once it was stopped
+/// (from `initialize` on), its replay has nowhere to go.
+pub(super) fn begin_replay(
+    routes: &Arc<Mutex<Routes>>,
+    connection_key: u64,
+    acp_session_id: &str,
+    app_session_id: &str,
+) {
+    let app_session_id = app_session_id.to_string();
+    if let Ok(mut routes) = routes.lock() {
+        if routes.opening.get(&connection_key) != Some(&app_session_id) {
+            return;
+        }
+        routes
+            .replaying
+            .insert((connection_key, acp_session_id.to_string()), app_session_id);
+    }
+}
+
+/// The app session a `session/update` is for: the session it belongs to, or
+/// the import whose `session/load` replay is streaming into it. Requests keep
+/// to [`app_id_for`], so one sent mid-replay is answered as during any open.
+fn update_session(
+    routes: &Arc<Mutex<Routes>>,
+    connection_key: u64,
+    params: &Value,
+) -> Option<String> {
+    let acp_id = params["sessionId"].as_str()?;
+    let key = (connection_key, acp_id.to_string());
+    let routes = routes.lock().ok()?;
+    routes
+        .by_acp_id
+        .get(&key)
+        .or_else(|| routes.replaying.get(&key))
+        .cloned()
 }
 
 /// The app session a message's `sessionId` belongs to on this connection.

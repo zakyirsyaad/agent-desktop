@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Workspace } from "../../types";
 import type { WorkspaceDetails } from "../../hooks/useWorkspaceDetails";
 import { WorkspaceSummary } from "./WorkspaceSummary";
@@ -8,10 +9,12 @@ export interface NewSessionViewProps {
   agentName?: string;
   /** Why no session can start in the folder (no agent is ready), shown instead of the hint to send a message. */
   unavailableReason?: string;
+  /** The agent's other sessions in the folder, below the workspace summary. */
+  sessionList?: ReactNode;
 }
 
 /** A session that has not started: where it will run, and with which agent. */
-export function NewSessionView({ workspace, details, agentName, unavailableReason }: NewSessionViewProps) {
+export function NewSessionView({ workspace, details, agentName, unavailableReason, sessionList }: NewSessionViewProps) {
   const hint = !workspace
     ? "Open a project folder to start a session in it."
     : (unavailableReason ??
@@ -26,6 +29,7 @@ export function NewSessionView({ workspace, details, agentName, unavailableReaso
             <WorkspaceSummary name={workspace.name} path={workspace.path} details={details} />
           </div>
         )}
+        {sessionList && <div className="mt-5">{sessionList}</div>}
       </div>
     </div>
   );

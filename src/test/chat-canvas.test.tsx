@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { ActionCard, NO_OPTIONS_MESSAGE } from "../components/ActionCard";
 import { ChatCanvas, type ChatMessage } from "../components/ChatCanvas";
+import { HistoryElsewhereNote } from "../components/chat/HistoryElsewhereNote";
 import type { ActionCard as ActionCardType } from "../types";
 import {
   installSpeechMock,
@@ -667,5 +668,21 @@ describe("ChatCanvas: your messages and the session's header", () => {
     expect(screen.queryByRole("button", { name: "Rewind to here" })).toBeNull();
     const container = screen.getByTestId("chat-canvas-container");
     expect(container.firstElementChild?.textContent).toContain("zorvo · ~/developer");
+  });
+
+  it("shows a note naming the agent when the header carries one", () => {
+    render(
+      <ChatCanvas messages={messages} header={<HistoryElsewhereNote agentName="Claude Code" />} />
+    );
+
+    const note = screen.getByRole("note");
+    expect(note.textContent).toBe("Earlier messages stay in Claude Code. They are not shown here.");
+    expect(note.className).toContain("text-fg-muted");
+  });
+
+  it("shows no note when there is no history to explain", () => {
+    render(<ChatCanvas messages={messages} header={<p>zorvo · ~/developer</p>} />);
+
+    expect(screen.queryByRole("note")).toBeNull();
   });
 });

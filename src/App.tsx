@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas } from "./components/ChatCanvas";
+import { HistoryElsewhereNote } from "./components/chat/HistoryElsewhereNote";
 import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { RemovedAgentPanel } from "./components/RemovedAgentPanel";
 import { FilesPanel } from "./components/FilesPanel";
@@ -63,6 +64,8 @@ import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { useBranchPicker } from "./hooks/useBranchPicker";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
+import { useDraftSessionList } from "./hooks/useDraftSessionList";
+import type { OpenNewSessionOptions } from "./hooks/useSessionImport";
 import { useSessionFork } from "./hooks/useSessionFork";
 import { useSessionRewind } from "./hooks/useSessionRewind";
 import { useUnreadMarks } from "./hooks/useUnreadMarks";
@@ -389,11 +392,12 @@ export default function App() {
    * Shows a new, empty session: the folder and agent can still be changed in
    * the composer, and the agent starts with the first message.
    */
-  const openNewSession = (path?: string, agentId?: string) => {
+  const openNewSession = (path?: string, agentId?: string, options?: OpenNewSessionOptions) => {
     if (path) chooseFolder(path);
     setPickedAgentId(agentId ?? null);
     // A fresh draft: picks left from an earlier one would override the model picked last.
-    setAcpChoices(NO_CHOICES);
+    // A failed import returns to the draft it started from, so its picks stay: it did not open.
+    if (!options?.keepChoices) setAcpChoices(NO_CHOICES);
     setActiveSessionId("");
   };
 
@@ -462,6 +466,15 @@ export default function App() {
     navigation,
     acp,
     onNotice: setNotice,
+  });
+
+  // The draft's list of the agent's own sessions, and the import each row starts.
+  const draftSessionList = useDraftSessionList({
+    agent: isNewSessionDraft ? newSessionAgent : undefined, cwd: activeWorkspace?.path, sessions,
+    activeSessionId,
+    isShown: Boolean(isNewSessionDraft && newSessionAgent && agentCheck.canListSessions(newSessionAgent.id) && !(isWorktreeOn && canUseWorktree)),
+    listSessions: acp.listSessions, acp, choices: startChoices, onChoicesUsed: () => setAcpChoices(NO_CHOICES),
+    recordSession, openSession: handleSelectSession, discardSession: sessionActions.discardSession, openNewSession, requestSignIn: signIn.auth.requestSignIn,
   });
 
   const sendTo = async (sessionId: string, message: FirstMessage) => {
@@ -627,7 +640,7 @@ export default function App() {
           />
           <SignInLayer signIn={signIn} agents={agents} />
           {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
-          {activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId)) ? (
+          {activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId) || activeSession.historyElsewhere) ? (
             <ChatCanvas
               conversationId={activeSessionId}
               messages={currentMessages}
@@ -635,7 +648,10 @@ export default function App() {
               onForkBranch={(messageId) => void forkSession(messageId)}
               onRewind={(messageId) => void rewind(activeSession, messageId)}
               header={
-                <div className="rounded-xl border border-border bg-surface-1 px-4 py-3">
+                <div className="space-y-3 rounded-xl border border-border bg-surface-1 px-4 py-3">
+                  {activeSession.historyElsewhere && (
+                    <HistoryElsewhereNote agentName={activeAgent?.name ?? "the agent"} />
+                  )}
                   <WorkspaceSummary
                     name={folderNameOf(workspacePathOf(activeSession))}
                     path={shownFolderPath ?? activeSession.cwd}
@@ -654,6 +670,7 @@ export default function App() {
               details={workspaceDetails}
               agentName={newSessionAgent?.name}
               unavailableReason={areAgentsLoaded && !agentsInUse.some(isAgentReady) ? noAgentNotice(agentsInUse) : undefined}
+              sessionList={draftSessionList.sessionList}
             />
           ) : (
             <EmptySessionState />

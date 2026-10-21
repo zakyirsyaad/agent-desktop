@@ -367,9 +367,10 @@ describe("ACP sessions in the app", () => {
       finishStart();
     });
 
-    await waitFor(() =>
-      expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toContainEqual({ sessionId })
-    );
+    // Stop ends the agent it knows; the open answer then ends the one the
+    // backend registered after that stop, which only the post-open branch can do.
+    await waitFor(() => expect(callsTo(spy, "acp_stop_session")).toHaveLength(2));
+    expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toEqual([{ sessionId }, { sessionId }]);
     expect(callsTo(spy, "acp_prompt")).toHaveLength(0);
     expect(callsTo(spy, "acp_set_mode")).toHaveLength(0);
   });
@@ -551,7 +552,7 @@ describe("ACP sessions in the app", () => {
     await send("next step");
 
     await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
-    expect(callsTo(spy, "acp_load_session")[0][1]).toMatchObject({
+    expect(callsTo(spy, "acp_reopen_session")[0][1]).toMatchObject({
       sessionId: "s-old",
       profileId: "qwen-code",
       cwd: "/Users/test/developer/ai-perpetual-trading",
@@ -587,7 +588,7 @@ describe("ACP sessions in the app", () => {
 
     await send("next step");
 
-    await waitFor(() => expect(callsTo(spy, "acp_load_session")).toHaveLength(1));
+    await waitFor(() => expect(callsTo(spy, "acp_reopen_session")).toHaveLength(1));
     expect(within(sidebar.getByRole("list", { name: /^Sessions in/ })).getByText("Old parser work")).toBeDefined();
     expect(sidebar.queryByRole("button", { name: /^Archived/ })).toBeNull();
   });
@@ -632,7 +633,7 @@ describe("ACP sessions in the app", () => {
     ];
     const spy = await renderWithQwen();
     spy.mockImplementation((cmd, args) =>
-      cmd === "acp_load_session" ? Promise.reject("session not found") : realInvoke(cmd, args)
+      cmd === "acp_reopen_session" ? Promise.reject("session not found") : realInvoke(cmd, args)
     );
 
     await send("next step");

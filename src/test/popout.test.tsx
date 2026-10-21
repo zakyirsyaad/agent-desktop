@@ -108,6 +108,35 @@ describe("Popout windows", () => {
     });
   });
 
+  it("shows the history note for a resumed import with no messages", async () => {
+    await act(async () => {
+      render(<PopoutApp sessionId="s-1" />);
+    });
+    await deliver("session-snapshot", {
+      sessionId: "s-1",
+      session: { ...runningSession, historyElsewhere: true },
+      messages: [],
+    });
+
+    expect(
+      await screen.findByText("Earlier messages stay in Claude Code. They are not shown here."),
+    ).toBeDefined();
+    expect(screen.queryByText("No messages yet.")).toBeNull();
+  });
+
+  it("shows no history note for a session whose history is here", async () => {
+    await act(async () => {
+      render(<PopoutApp sessionId="s-1" />);
+    });
+    await deliver("session-snapshot", {
+      sessionId: "s-1",
+      session: runningSession,
+      messages: [{ id: "m-1", role: "agent", content: "Ready when you are", timestamp: 1 }],
+    });
+
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
   it("main window answers a popout and performs the actions it forwards", async () => {
     const spy = vi.spyOn(tauriInternals(), "invoke");
     const sessionId = await startSessionInMainWindow(spy);

@@ -19,7 +19,19 @@
 //   "elicit-url-deaf" -> closes its stdin, then asks as "elicit-url", so no answer can reach it
 //   --login      -> the terminal sign-in: prints a greeting and exits
 //   anything else -> echoes the text back as an agent message chunk
-import { appendFileSync, closeSync, writeFileSync } from "node:fs";
+// Environment flags add capabilities and record what it was called with:
+//   FAKE_ACP_RESUME   -> advertises sessionCapabilities.resume and answers session/resume
+//   FAKE_ACP_LIST     -> advertises sessionCapabilities.list and answers session/list
+//   FAKE_ACP_LIST_PAGES -> names a JSON file of pages (arrays of SessionInfo); without it
+//                         session/list answers no sessions
+//   FAKE_ACP_LIST_FAIL_AT=<n> -> page n answers with a server error
+//   FAKE_ACP_AUTH_REQUIRED -> session/new and session/list refuse with an auth-required error
+//   FAKE_ACP_CALL_LOG -> appends every received method name to the file it names
+//   FAKE_ACP_SLOW_INIT=<ms> -> answers initialize only after that many milliseconds
+//                         (ten seconds when set without a delay)
+//   FAKE_ACP_SLOW_REPLAY -> session/load sends another chunk three seconds later, then answers
+// (each other FAKE_ACP_* flag is documented where it is read below)
+import { appendFileSync, closeSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 let nextSession = 1;
@@ -38,6 +50,15 @@ const reply = (id, result) => send({ id, result });
 const update = (sessionId, update) => send({ method: "session/update", params: { sessionId, update } });
 const say = (sessionId, text) =>
   update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
+
+// The modes every answer that opens a session reports.
+const defaultModes = () => ({
+  currentModeId: "default",
+  availableModes: [
+    { id: "default", name: "Default" },
+    { id: "yolo", name: "YOLO" },
+  ],
+});
 
 const nameForm = (target) => ({
   ...target,
@@ -143,9 +164,14 @@ const askAfterOpen = (sessionId) => {
 
 const handlers = {
   initialize: (id, params) => {
-    // FAKE_ACP_SLOW_INIT: answers initialize only after ten seconds.
+    // FAKE_ACP_SLOW_INIT: answers initialize only after the delay it names, so a
+    // test can stop a session while it opens. A bare set keeps the ten seconds.
+    const delay = Number(process.env.FAKE_ACP_SLOW_INIT);
     if (process.env.FAKE_ACP_SLOW_INIT && !params?.slowInitDone) {
-      setTimeout(() => handlers.initialize(id, { ...params, slowInitDone: true }), 10000);
+      setTimeout(
+        () => handlers.initialize(id, { ...params, slowInitDone: true }),
+        delay > 1 ? delay : 10000,
+      );
       return;
     }
     // FAKE_ACP_INIT_LOG: writes the client's capabilities to the file it names, as JSON.
@@ -156,8 +182,15 @@ const handlers = {
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: !process.env.FAKE_ACP_NO_LOAD,
-        // FAKE_ACP_NO_FORK: cannot fork a session.
-        sessionCapabilities: process.env.FAKE_ACP_NO_FORK ? { delete: {} } : { fork: {}, delete: {} },
+        sessionCapabilities: {
+          // FAKE_ACP_NO_FORK: cannot fork a session.
+          ...(process.env.FAKE_ACP_NO_FORK ? {} : { fork: {} }),
+          delete: {},
+          // FAKE_ACP_RESUME: reopens a session without replaying its history.
+          ...(process.env.FAKE_ACP_RESUME ? { resume: {} } : {}),
+          // FAKE_ACP_LIST: lists its sessions for a folder.
+          ...(process.env.FAKE_ACP_LIST ? { list: {} } : {}),
+        },
         ...(authStatus ? { _meta: { authStatus: {} } } : {}),
       },
       authMethods: [
@@ -192,15 +225,58 @@ const handlers = {
       askBeforeTheSessionExists("session/load", id, params);
       return;
     }
+    update(params.sessionId, {
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: "earlier question" },
+    });
     say(params.sessionId, "replayed history");
+    // FAKE_ACP_SLOW_REPLAY: lets a test stop the import in the middle of the replay.
+    if (process.env.FAKE_ACP_SLOW_REPLAY) {
+      setTimeout(() => {
+        say(params.sessionId, "late history");
+        reply(id, { modes: defaultModes() });
+      }, 3000);
+      return;
+    }
+    reply(id, { modes: defaultModes() });
+  },
+  // FAKE_ACP_RESUME: reopens the session and answers without replaying anything.
+  "session/resume": (id) => reply(id, { modes: defaultModes() }),
+  // FAKE_ACP_LIST_PAGES: serves the pages from the JSON file it names. A missing
+  // cursor serves page 0 and "page-<n>" serves page n; the answer names the next
+  // page while one remains. Any other cursor is refused as invalid. Without the
+  // file there are no sessions.
+  "session/list": (id, params) => {
+    // Unlike session/new, listing is refused even when signed out.
+    if (process.env.FAKE_ACP_AUTH_REQUIRED) {
+      send({ id, error: { code: -32000, message: process.env.FAKE_ACP_AUTH_MESSAGE ?? "Authentication required" } });
+      return;
+    }
+    const pages = process.env.FAKE_ACP_LIST_PAGES
+      ? JSON.parse(readFileSync(process.env.FAKE_ACP_LIST_PAGES, "utf8"))
+      : [];
+    const cursor = params?.cursor;
+    let page = 0;
+    if (cursor === undefined) {
+      if (pages.length === 0) {
+        reply(id, { sessions: [] });
+        return;
+      }
+    } else {
+      const match = /^page-(\d+)$/.exec(String(cursor));
+      page = match ? Number(match[1]) : -1;
+      if (page < 0 || page >= pages.length) {
+        send({ id, error: { code: -32602, message: `Unknown cursor ${cursor}` } });
+        return;
+      }
+    }
+    if (process.env.FAKE_ACP_LIST_FAIL_AT === String(page)) {
+      send({ id, error: { code: -32603, message: `Page ${page} could not be listed` } });
+      return;
+    }
     reply(id, {
-      modes: {
-        currentModeId: "default",
-        availableModes: [
-          { id: "default", name: "Default" },
-          { id: "yolo", name: "YOLO" },
-        ],
-      },
+      sessions: pages[page],
+      ...(page + 1 < pages.length ? { nextCursor: `page-${page + 1}` } : {}),
     });
   },
   "session/new": (id, params) => {
@@ -231,13 +307,7 @@ const handlers = {
     const sessionId = `fake-${nextSession++}`;
     reply(id, {
       sessionId,
-      modes: {
-        currentModeId: "default",
-        availableModes: [
-          { id: "default", name: "Default" },
-          { id: "yolo", name: "YOLO" },
-        ],
-      },
+      modes: defaultModes(),
       configOptions: [
         {
           id: "model",
@@ -317,8 +387,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const entry = message.method ?? `reply ${message.id} ${JSON.stringify(message.result ?? message.error)}`;
     appendFileSync(process.env.FAKE_ACP_ARRIVAL_LOG, `${entry}\n`);
   }
-  // FAKE_ACP_METHOD_LOG: records each method the client called, one per line.
-  if (process.env.FAKE_ACP_METHOD_LOG && message.method) appendFileSync(process.env.FAKE_ACP_METHOD_LOG, `${message.method}\n`);
+  // FAKE_ACP_METHOD_LOG and FAKE_ACP_CALL_LOG each name a file every method the
+  // client called is appended to, one per line. FAKE_ACP_CALL_LOG is what a test
+  // reads to tell session/resume from a session/load whose replay was dropped.
+  if (message.method) {
+    for (const key of ["FAKE_ACP_METHOD_LOG", "FAKE_ACP_CALL_LOG"]) {
+      const path = process.env[key];
+      if (path) appendFileSync(path, `${message.method}\n`);
+    }
+  }
   if (message.method === "session/cancel" && pendingSlow) {
     reply(pendingSlow.promptId, { stopReason: "cancelled" });
     pendingSlow = null;

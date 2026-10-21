@@ -9,6 +9,7 @@ import { AttachmentChips } from "./composer/AttachmentChips";
 import { ToolCallList } from "./chat/ToolCallList";
 import { PlanList, ThinkingBlock, WorkingIndicator } from "./chat/ReplyExtras";
 import { useReadAloud } from "../hooks/useReadAloud";
+import { formatRelativeTime } from "../lib/relative-time";
 import type { ChatMessage, ElicitationAnswer } from "../types";
 
 export type { ChatMessage, ToolExecution } from "../types";
@@ -47,20 +48,6 @@ export interface ChatCanvasProps {
   onRewind?: (messageId: string) => void;
   /** Shown above the conversation, e.g. the folder and branch the session works in. */
   header?: ReactNode;
-}
-
-/**
- * Format relative timestamp (e.g. "Just now", "2 minutes ago", "5 hours ago")
- */
-function formatRelativeTime(timestamp: number): string {
-  const diffSec = Math.floor((Date.now() - timestamp) / 1000);
-  if (diffSec < 60) return "Just now";
-  const ago = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"} ago`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return ago(diffMin, "minute");
-  const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return ago(diffHour, "hour");
-  return ago(Math.floor(diffHour / 24), "day");
 }
 
 export function ChatCanvas({

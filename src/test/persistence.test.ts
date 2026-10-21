@@ -31,6 +31,19 @@ describe("normalizePersistedState", () => {
     expect(state.sessions[0]).not.toHaveProperty("hasUnread");
   });
 
+  it("keeps a true historyElsewhere flag", () => {
+    const state = normalizePersistedState({ sessions: [{ ...base, historyElsewhere: true }] });
+
+    expect(state.sessions[0].historyElsewhere).toBe(true);
+  });
+
+  it("drops a historyElsewhere that is not a boolean but keeps the session", () => {
+    const state = normalizePersistedState({ sessions: [{ ...base, historyElsewhere: "yes" }] });
+
+    expect(state.sessions).toHaveLength(1);
+    expect(state.sessions[0]).not.toHaveProperty("historyElsewhere");
+  });
+
   it("keeps the model picked last for each agent, dropping malformed picks", () => {
     const state = normalizePersistedState({
       agentOptions: {

@@ -6,6 +6,7 @@ import type {
   ToolDetail,
   ToolExecution,
 } from '../types';
+import { fileNameOf } from './attachments';
 
 /**
  * Folds Agent Client Protocol session updates into chat messages.
@@ -194,6 +195,51 @@ export function applyAcpUpdate(
   }
 }
 
+/** What a replayed user block shows: its text, or the file name of a block that has a URI. */
+function replayContentOf(content: unknown): string | undefined {
+  const text = textOf(content);
+  if (text !== undefined) return text;
+  const uri = isObject(content) ? str(content.uri) : undefined;
+  return uri ? fileNameOf(uri) : undefined;
+}
+
+/**
+ * Applies one `session/update` from a `session/load` replay. A user chunk ends
+ * the agent's open reply and starts (or continues) the user's message; every
+ * other update goes to the normal reducer.
+ */
+export function applyReplayUpdate(
+  messages: ChatMessage[],
+  update: unknown,
+  ctx: AcpReducerContext,
+): ChatMessage[] {
+  if (!isObject(update) || update.sessionUpdate !== 'user_message_chunk') {
+    return applyAcpUpdate(messages, update, ctx);
+  }
+  const chunk = replayContentOf(update.content);
+  if (!chunk) return messages;
+  const messageId = str(update.messageId);
+  const lastIndex = messages.length - 1;
+  const last = messages[lastIndex];
+  // Chunks the agent gave a messageId continue that message; without one, adjacent chunks do.
+  if (last?.role === 'user' && last.replayId === messageId) {
+    return messages.map((m, i) => (i === lastIndex ? { ...m, content: m.content + chunk } : m));
+  }
+  const closed = messages.map((m, i) =>
+    i === lastIndex && m.role === 'agent' && !m.isComplete ? { ...m, isComplete: true } : m,
+  );
+  return [
+    ...closed,
+    {
+      id: ctx.createId('msg'),
+      role: 'user',
+      content: chunk,
+      timestamp: ctx.now,
+      ...(messageId === undefined ? {} : { replayId: messageId }),
+    },
+  ];
+}
+
 function toChoices(options: unknown): PermissionChoice[] {
   if (!Array.isArray(options)) return [];
   return options.filter(isObject).flatMap((option) => {
@@ -280,8 +326,21 @@ export function reopenPermissionCard(messages: ChatMessage[], cardId: string): C
 }
 
 /**
- * Ends the agent's turn: the last reply is complete, and permission requests
+ * Tools still running when an imported turn ended: a replay carries no terminal
+ * update for a tool that was running when the agent stopped, so the tool never
+ * reported success and is shown as failed rather than running forever.
+ */
+function settleTools(tools: ToolExecution[] | undefined): ToolExecution[] | undefined {
+  if (!tools?.some((tool) => tool.status === 'running')) return tools;
+  return tools.map((tool) => (tool.status === 'running' ? { ...tool, status: 'failed' } : tool));
+}
+
+/**
+ * Ends the agent's turn: the last reply is complete and permission requests
  * that were never answered can no longer be (the agent stopped waiting).
+ *
+ * Tools still running keep their real state: a live turn can end while one is
+ * genuinely running (the user stopped it, or it runs in the background).
  */
 export function closeTurn(messages: ChatMessage[]): ChatMessage[] {
   const lastIndex = messages.length - 1;
@@ -291,6 +350,21 @@ export function closeTurn(messages: ChatMessage[]): ChatMessage[] {
       : message.actionCard;
     const isLastReply = index === lastIndex && message.role === 'agent';
     if (card === message.actionCard && !isLastReply) return message;
-    return { ...message, actionCard: card, ...(isLastReply ? { isComplete: true } : {}) };
+    return {
+      ...message,
+      actionCard: card,
+      ...(isLastReply ? { isComplete: true } : {}),
+    };
+  });
+}
+
+/**
+ * Ends a turn folded from a `session/load` replay: like `closeTurn`, and tools
+ * the replay left running are settled as failed — nothing is running now.
+ */
+export function closeImportedTurn(messages: ChatMessage[]): ChatMessage[] {
+  return closeTurn(messages).map((message) => {
+    const tools = settleTools(message.tools);
+    return tools === message.tools ? message : { ...message, tools };
   });
 }
