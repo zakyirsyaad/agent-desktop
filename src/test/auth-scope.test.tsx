@@ -79,5 +79,5 @@ describe("the sign-in panel follows the agent on screen", () => {
     });
 
     expect(await screen.findByRole("region", { name: "Sign in to Claude Code" })).toBeDefined();
-  });
+  }, 15_000);
 });

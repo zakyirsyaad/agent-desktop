@@ -136,6 +136,26 @@ describe("statusLine", () => {
       }),
     ).toBe("Not installed");
   });
+
+  it("says which version it is updating to", () => {
+    expect(
+      statusLine(makeCatalogAgent({ id: "a", name: "Amp", status: "by_zorvo", updateVersion: "0.3.0" }), null, true, {
+        status: "installing",
+        action: "update",
+        error: null,
+      }),
+    ).toBe("Updating to 0.3.0");
+  });
+
+  it("shows why an update failed", () => {
+    expect(
+      statusLine(makeCatalogAgent({ id: "a", name: "Amp", status: "by_zorvo", updateVersion: "0.3.0" }), null, true, {
+        status: "failed",
+        action: "update",
+        error: "npm exited 1",
+      }),
+    ).toBe("Update failed · npm exited 1");
+  });
 });
 
 describe("rowActions", () => {

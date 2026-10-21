@@ -95,6 +95,20 @@ describe("SettingsPanel — dialog", () => {
     expect(dialog.className).toMatch(/(^|\s)h-\[/);
     expect(dialog.className).not.toContain("max-h-[85vh]");
     expect(dialog.parentElement?.className).toContain("items-start");
+    // The body inside scrolls instead of growing the dialog.
+    const panel = screen.getByRole("tabpanel", { name: "General" });
+    expect(panel.className).toContain("min-h-0");
+    expect(panel.className).toContain("overflow-y-auto");
+  });
+
+  it("gives the Agents tab the same scrolling body inside the fixed dialog", () => {
+    renderSettings({ initialTab: "agents" });
+
+    const panel = screen.getByRole("tabpanel", { name: "Agents" });
+
+    expect(panel.className).toContain("min-h-0");
+    expect(panel.className).toContain("overflow-y-auto");
+    expect(panel.closest("[role='dialog']")).toBe(screen.getByRole("dialog", { name: "Settings" }));
   });
 
   it("moves keyboard focus into the dialog when it opens", () => {

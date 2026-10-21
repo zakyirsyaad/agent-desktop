@@ -9,6 +9,7 @@ const commands: SlashCommand[] = [
   command("code-review"),
   command("review"),
   command("deploy"),
+  command("git:code"),
 ];
 
 describe("matchingCommands", () => {
@@ -28,7 +29,7 @@ describe("matchingCommands", () => {
   it("keeps prefix matches before segment matches", () => {
     const names = matchingCommands(commands, "code").map((c) => c.name);
 
-    expect(names).toEqual(["code-review"]);
+    expect(names).toEqual(["code-review", "git:code"]);
   });
 
   it("does not match inside a segment", () => {
