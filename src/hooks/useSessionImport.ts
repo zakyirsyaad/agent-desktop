@@ -1,5 +1,6 @@
 import type { AcpEngine } from './session-engine/useAcpEngine';
 import type { AgentAuth } from './useAgentAuth';
+import { useLatest } from './useLatest';
 import { parseAuthRequired } from '../lib/acp-auth';
 import type { AcpChoices } from '../lib/acp-draft';
 import { importedSessionSpec, type SessionSpec } from '../lib/session-start';
@@ -19,6 +20,8 @@ export interface SessionImportDeps {
   agent: AgentProfile | undefined;
   /** The draft's folder: where the agent's session is. */
   cwd: string | undefined;
+  /** The session open now: a slow import that fails only returns to the draft when it is still this one. */
+  activeSessionId: string;
   acp: Pick<AcpEngine, 'importSession'>;
   /** What the user picked in the composer: the import applies it as a start would. */
   choices: AcpChoices;
@@ -41,6 +44,7 @@ export function useSessionImport({
   sessions,
   agent,
   cwd,
+  activeSessionId,
   acp,
   choices,
   onChoicesUsed,
@@ -51,6 +55,8 @@ export function useSessionImport({
   requestSignIn,
   onImportError,
 }: SessionImportDeps): (listed: ListedSession) => void {
+  // Read when the agent answers, seconds after the click: the user may have opened another session.
+  const activeSessionIdRef = useLatest(activeSessionId);
   return (listed: ListedSession) => {
     // A double click, or a list that no longer matches: show the session Zorvo has.
     const held = sessions.find((session) => session.acpSessionId === listed.acpSessionId);
@@ -62,9 +68,10 @@ export function useSessionImport({
     const session = recordSession(importedSessionSpec(listed, agent, cwd));
     onChoicesUsed();
     void acp.importSession(session, choices, (error) => {
-      // The record was only made for the import: it and its transcript go, and the draft comes back.
+      // The record was only made for the import: it and its transcript go, and the
+      // draft it started from comes back — unless the user has opened another session.
       discardSession(session.id);
-      openNewSession(cwd, agent.id);
+      if (activeSessionIdRef.current === session.id) openNewSession(cwd, agent.id);
       const methods = parseAuthRequired(error);
       if (methods) requestSignIn(agent.id, cwd, methods);
       else onImportError(`Could not open the session: ${messageOf(error)}`);

@@ -15,6 +15,8 @@ export interface DraftSessionListDeps {
   /** The draft's folder. */
   cwd: string | undefined;
   sessions: readonly Session[];
+  /** The session open now, so a slow import that fails does not pull the user back from another one. */
+  activeSessionId: string;
   /** Whether the agent offered `session/list` and the draft is not making a worktree. */
   isShown: boolean;
   listSessions: (profileId: string, cwd: string) => Promise<ListedSessions>;
@@ -36,7 +38,7 @@ export interface DraftSessionListDeps {
 export function useDraftSessionList(deps: DraftSessionListDeps): {
   sessionList: ReactNode;
 } {
-  const { agent, cwd, sessions, isShown, listSessions, acp, choices, ...actions } = deps;
+  const { agent, cwd, sessions, activeSessionId, isShown, listSessions, acp, choices, ...actions } = deps;
   // While an imported session opens, the draft's agent is still the list's
   // agent: a failed import must come back to the draft with its error, not
   // start the list over because the draft left the screen for a moment.
@@ -55,6 +57,7 @@ export function useDraftSessionList(deps: DraftSessionListDeps): {
     sessions,
     agent,
     cwd,
+    activeSessionId,
     acp,
     choices,
     onChoicesUsed: actions.onChoicesUsed,

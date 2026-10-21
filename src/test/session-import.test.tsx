@@ -236,6 +236,55 @@ describe("Importing a session the agent listed", () => {
     expect(callsTo(spy, "save_transcript").filter(([, args]) => args?.sessionId === importedId)).toHaveLength(0);
   });
 
+  it("stays on the session the user opened when a slow import fails", async () => {
+    const other: Session = {
+      id: "s-other",
+      name: "Earlier chat",
+      profileId: "claude-acp",
+      cwd: "/Users/test/developer/ai-perpetual-trading",
+      status: "terminated",
+      createdAt: 1,
+      transport: "acp",
+    };
+    fakeStore().state.sessions = [other];
+    let rejectImport: (reason: unknown) => void = () => {};
+    const spy = await renderDraft({
+      importSession: () =>
+        new Promise((_resolve, reject) => {
+          rejectImport = reject;
+        }),
+    });
+    // The app opens the saved session; New goes back to the draft it came from.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+    await openList();
+    await clickRow();
+    await waitFor(() => expect(callsTo(spy, "acp_import_session")).toHaveLength(1));
+    const importedId = String(callsTo(spy, "acp_import_session")[0][1]?.sessionId);
+
+    // The import is still loading: the user opens the session they already had.
+    await act(async () => {
+      fireEvent.click(sidebar().getByText("Earlier chat"));
+    });
+
+    await act(async () => {
+      rejectImport("session/load failed: Unknown session");
+    });
+    await flushSaves();
+
+    // The other session stays open: the failed import does not pull the draft back.
+    expect(within(screen.getByRole("banner")).getByText("Earlier chat")).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "New session" })).toBeNull();
+    // Its record and transcript still go, and no error is raised over another session.
+    expect(sidebar().queryByText("Fix the login")).toBeNull();
+    expect(fakeStore().state.sessions.map((session) => (session as { id: string }).id)).toEqual(["s-other"]);
+    expect(fakeStore().transcripts[importedId]).toBeUndefined();
+    expect(callsTo(spy, "delete_transcript").map(([, args]) => args)).toContainEqual({ sessionId: importedId });
+    expect(callsTo(spy, "save_transcript").filter(([, args]) => args?.sessionId === importedId)).toHaveLength(0);
+    expect(screen.queryByText(/Could not open the session:/)).toBeNull();
+  });
+
   it("opens the sign-in panel when the import needs a sign-in", async () => {
     const methods = [{ id: "browser", name: "Browser" }];
     await renderDraft({
@@ -366,6 +415,7 @@ describe("Importing a session a Zorvo session already holds", () => {
         sessions: [HELD],
         agent: CLAUDE,
         cwd: HELD.cwd,
+        activeSessionId: HELD.id,
         acp: { importSession },
         choices: NO_CHOICES,
         onChoicesUsed: vi.fn(),

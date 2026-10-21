@@ -472,6 +472,7 @@ export default function App() {
   // The draft's list of the agent's own sessions, and the import each row starts.
   const draftSessionList = useDraftSessionList({
     agent: isNewSessionDraft ? newSessionAgent : undefined, cwd: activeWorkspace?.path, sessions,
+    activeSessionId,
     isShown: Boolean(isNewSessionDraft && newSessionAgent && agentCheck.canListSessions(newSessionAgent.id) && !(isWorktreeOn && canUseWorktree)),
     listSessions: acp.listSessions, acp, choices: startChoices, onChoicesUsed: () => setAcpChoices(NO_CHOICES),
     recordSession, openSession: handleSelectSession, discardSession, openNewSession, requestSignIn: signIn.auth.requestSignIn,
