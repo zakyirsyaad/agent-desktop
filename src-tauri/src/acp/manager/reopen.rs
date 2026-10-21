@@ -3,6 +3,7 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use super::routing::begin_replay;
 use super::{open_request, AcpLaunch, AcpManager, OpenError, StartedSession};
 
 /// Why an agent's earlier session is being reopened.
@@ -41,8 +42,9 @@ impl AcpManager {
     /// `app_session_id`, with `session/resume` or `session/load`, whichever
     /// `purpose` prefers and the agent offers.
     ///
-    /// The session is registered only once the agent answers, so nothing it
-    /// sends while reopening is routed to the app yet.
+    /// The session is registered only once the agent answers. A continue's
+    /// replay is dropped; an import's, from `session/load`, is routed to
+    /// `app_session_id` while it streams.
     pub fn reopen(
         &self,
         app_session_id: &str,
@@ -56,12 +58,25 @@ impl AcpManager {
             let Some(method) = reopen_method(&capabilities, purpose) else {
                 return Err(OpenError::Agent(CANNOT_REOPEN.to_string()));
             };
+            // An import needs the history the agent replays, so it goes to the
+            // app session until the load answers. Its requests stay unrouted:
+            // they are answered as during any open (see `Routes::replaying`).
+            let replay_routed = purpose == ReopenPurpose::Import && method == ReopenMethod::Load;
+            if replay_routed {
+                begin_replay(&self.routes, key, acp_session_id, app_session_id);
+            }
             let response = open_request(
                 connection,
                 init,
                 method.acp_method(),
                 json!({ "sessionId": acp_session_id, "cwd": cwd, "mcpServers": [] }),
-                self.route_on_answer(key, app_session_id, Some(acp_session_id), true),
+                self.route_on_answer(
+                    key,
+                    app_session_id,
+                    Some(acp_session_id),
+                    true,
+                    replay_routed,
+                ),
             )?;
             Ok(StartedSession {
                 // Neither answer names the session: it is the one asked for.

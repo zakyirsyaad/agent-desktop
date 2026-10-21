@@ -338,6 +338,7 @@ pub fn run() {
             write_fork_handoff,
             acp::commands::acp_start_session,
             acp::commands::acp_reopen_session,
+            acp::commands::acp_import_session,
             acp::commands::acp_authenticate,
             acp::commands::acp_probe_agent,
             acp::commands::acp_fork_session,

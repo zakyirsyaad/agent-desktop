@@ -129,6 +129,11 @@ struct Routes {
     /// (connection key, acp session id) -> app session id. Keyed by connection
     /// too: two agent processes may give their sessions the same id.
     by_acp_id: HashMap<(u64, String), String>,
+    /// (connection key, acp session id) -> app session id, for an import whose
+    /// `session/load` is replaying: only its `session/update`s are routed.
+    /// Requests keep to `by_acp_id`, so one sent mid-replay is answered as
+    /// during any open instead of waiting on a session that is not registered.
+    replaying: HashMap<(u64, String), String>,
     /// connection key -> the app session `open()` is starting on it, for
     /// requests sent before the answer that routes the session.
     opening: HashMap<u64, String>,
@@ -180,7 +185,7 @@ impl AcpManager {
                 init,
                 "session/new",
                 json!({ "cwd": cwd, "mcpServers": [] }),
-                self.route_on_answer(key, app_session_id, None, true),
+                self.route_on_answer(key, app_session_id, None, true, false),
             )?;
             started_session(session, init["agentCapabilities"].clone()).map_err(OpenError::Agent)
         })
@@ -220,6 +225,10 @@ impl AcpManager {
                 self.set_opening(connection_key, None);
                 if let Ok(mut routes) = self.routes.lock() {
                     routes.elicitations.take_session(app_session_id);
+                    // An import that never answered: its replay has nowhere to go.
+                    routes
+                        .replaying
+                        .retain(|_, routed| routed != app_session_id);
                 }
                 return Err(failure_message(&connection, error));
             }
@@ -296,7 +305,7 @@ impl AcpManager {
             "session/fork",
             json!({ "sessionId": acp_id, "cwd": cwd, "mcpServers": [] }),
             SESSION_REQUEST_TIMEOUT,
-            self.route_on_answer(connection_key, new_app_id, None, false),
+            self.route_on_answer(connection_key, new_app_id, None, false, false),
         )?;
         let started = started_session(response, capabilities)?;
         self.register(
@@ -482,6 +491,10 @@ impl AcpManager {
         routes
             .by_acp_id
             .retain(|_, routed| routed != app_session_id);
+        // An import stopped while its replay streams: the rest goes nowhere.
+        routes
+            .replaying
+            .retain(|_, routed| routed != app_session_id);
         let unused = entry.filter(|entry| {
             !routes
                 .sessions
@@ -550,12 +563,15 @@ impl AcpManager {
     /// agent may ask about its new session in its very next message, before
     /// [`register`](Self::register) runs. For a session being opened
     /// (`while_opening`), nothing is routed once it was stopped meanwhile.
+    /// `clears_replay` ends the replay route an import's load started, in the
+    /// same lock, so no update is routed to the replay after the answer.
     fn route_on_answer(
         &self,
         connection_key: u64,
         app_session_id: &str,
         acp_session_id: Option<&str>,
         while_opening: bool,
+        clears_replay: bool,
     ) -> impl FnOnce(&Value) + Send + 'static {
         let routes = Arc::clone(&self.routes);
         let app_session_id = app_session_id.to_string();
@@ -566,12 +582,14 @@ impl AcpManager {
                 return;
             };
             if let Ok(mut routes) = routes.lock() {
+                let key = (connection_key, acp_id.clone());
+                if clears_replay {
+                    routes.replaying.remove(&key);
+                }
                 let stopped =
                     while_opening && routes.opening.get(&connection_key) != Some(&app_session_id);
                 if !stopped {
-                    routes
-                        .by_acp_id
-                        .insert((connection_key, acp_id), app_session_id);
+                    routes.by_acp_id.insert(key, app_session_id);
                 }
             }
         }

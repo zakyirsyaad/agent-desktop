@@ -22,6 +22,7 @@
 // Environment flags add capabilities and record what it was called with:
 //   FAKE_ACP_RESUME   -> advertises sessionCapabilities.resume and answers session/resume
 //   FAKE_ACP_CALL_LOG -> appends every received method name to the file it names
+//   FAKE_ACP_SLOW_REPLAY -> session/load sends another chunk three seconds later, then answers
 // (each other FAKE_ACP_* flag is documented where it is read below)
 import { appendFileSync, closeSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -215,6 +216,14 @@ const handlers = {
       content: { type: "text", text: "earlier question" },
     });
     say(params.sessionId, "replayed history");
+    // FAKE_ACP_SLOW_REPLAY: lets a test stop the import in the middle of the replay.
+    if (process.env.FAKE_ACP_SLOW_REPLAY) {
+      setTimeout(() => {
+        say(params.sessionId, "late history");
+        reply(id, { modes: defaultModes() });
+      }, 3000);
+      return;
+    }
     reply(id, { modes: defaultModes() });
   },
   // FAKE_ACP_RESUME: reopens the session and answers without replaying anything.

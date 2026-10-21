@@ -254,6 +254,27 @@ pub fn acp_reopen_session(
     )
 }
 
+/// Imports the agent's earlier session `acp_session_id` as app session
+/// `session_id`, with `session/load` when the agent offers it, so the history
+/// Zorvo does not have is replayed into the chat.
+#[tauri::command(async)]
+pub fn acp_import_session(
+    manager: State<'_, AcpManager>,
+    store: State<'_, AppStore>,
+    session_id: String,
+    cwd: String,
+    profile_id: String,
+    acp_session_id: String,
+) -> Result<StartedSession, String> {
+    manager.reopen(
+        &session_id,
+        &cwd,
+        &launch_in_workspace(&store, &cwd, &profile_id)?,
+        &acp_session_id,
+        ReopenPurpose::Import,
+    )
+}
+
 /// Forks `source_session_id` into `session_id` in `cwd`, which must be one of
 /// the user's workspaces (the source's folder or worktree is).
 fn fork_in_workspace(
