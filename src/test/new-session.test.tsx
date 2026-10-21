@@ -258,6 +258,68 @@ describe("Starting a new session", () => {
     });
   });
 
+  it("forgets the worktree's starting branch once a session used it", async () => {
+    stubInvoke({
+      list_branches: () => Promise.resolve(["release", "main"]),
+      create_session_worktree: () =>
+        Promise.resolve({
+          path: "/data/worktrees/ai-perpetual-trading/get-started",
+          cwd: "/data/worktrees/ai-perpetual-trading/get-started",
+          branch: "agent/get-started",
+        }),
+    });
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("switch", { name: "Worktree" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("option", { name: "release" }));
+    });
+    await sendFirst();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+
+    expect(await screen.findByRole("button", { name: "Branch: main" })).toBeDefined();
+    const workspace = within(screen.getByRole("group", { name: "Workspace" }));
+    expect(workspace.getByLabelText("Branch main")).toBeDefined();
+  });
+
+  it("shows the branch the worktree will start from on the new-session card", async () => {
+    stubInvoke({ list_branches: () => Promise.resolve(["release", "main"]) });
+    await act(async () => {
+      render(<App />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Folder: ai-perpetual-trading" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("switch", { name: "Worktree" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("option", { name: "release" }));
+    });
+
+    const workspace = within(screen.getByRole("group", { name: "Workspace" }));
+    expect(workspace.getByLabelText("Branch release")).toBeDefined();
+  });
+
   it("switches the folder to the branch picked while Worktree is off", async () => {
     const invokeSpy = stubInvoke({ list_branches: () => Promise.resolve(["release", "main"]) });
     await act(async () => {

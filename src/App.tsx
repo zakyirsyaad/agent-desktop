@@ -380,6 +380,8 @@ export default function App() {
     }
     setPickedAgentId(null);
     startSession({ agent: newSessionAgent, cwd, name, worktree }, first);
+    // The base was this session's: the next draft starts from the folder's own branch.
+    if (worktree) branchPicker.reset();
   };
 
   /** Makes `path` the active workspace; a folder only old sessions still use is added back to the recents. */
@@ -670,6 +672,7 @@ export default function App() {
               details={workspaceDetails}
               agentName={newSessionAgent?.name}
               unavailableReason={areAgentsLoaded && !agentsInUse.some(isAgentReady) ? noAgentNotice(agentsInUse) : undefined}
+              worktreeBaseBranch={isWorktreeOn && canUseWorktree ? branchPicker.baseBranch : undefined}
               sessionList={draftSessionList.sessionList}
             />
           ) : (

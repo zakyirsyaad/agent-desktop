@@ -30,6 +30,7 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 ### Fixed
 
+- **A worktree's starting branch stays with its session.** Once a session starts from the branch you picked, the next draft starts from the folder's own branch again. The new-session card also names the branch the worktree will start from.
 - **A sign-in request stays with its agent.** When Claude Code needs a sign-in, the panel no longer shows above a Qwen Code session or draft. It comes back when you return to a Claude Code session.
 - **An agent being installed says so.** While an install or update runs, its row says **Installing …** instead of **Not installed**, and a failure shows its reason in the status line.
 - **Slash command search finds a name by any segment.** Typing `/brainst` now finds `superpowers:brainstorming`, and a prefix match still comes first.
