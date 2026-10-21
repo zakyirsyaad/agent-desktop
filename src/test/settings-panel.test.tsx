@@ -87,6 +87,16 @@ describe("SettingsPanel — dialog", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps the dialog at a fixed height, anchored near the top, while its content changes", () => {
+    renderSettings();
+
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    // A height that follows the content would move the close button as the list changes.
+    expect(dialog.className).toMatch(/(^|\s)h-\[/);
+    expect(dialog.className).not.toContain("max-h-[85vh]");
+    expect(dialog.parentElement?.className).toContain("items-start");
+  });
+
   it("moves keyboard focus into the dialog when it opens", () => {
     renderSettings();
 
