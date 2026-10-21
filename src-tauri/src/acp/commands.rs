@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use serde_json::{json, Value};
 use tauri::State;
 
-use super::manager::{AcpEvent, AcpLaunch, AcpManager, StartedSession};
+use super::manager::{AcpEvent, AcpLaunch, AcpManager, ReopenPurpose, StartedSession};
 use super::probe::ProbedAgent;
 use super::terminal_auth::{is_sign_in_terminal_id, CANCELLED_MESSAGE};
 use crate::env_resolver::cached_user_env;
@@ -233,9 +233,11 @@ pub fn acp_authenticate(
     )
 }
 
-/// Resumes the agent's earlier session `acp_session_id` as app session `session_id`.
+/// Reopens the agent's earlier session `acp_session_id` as app session
+/// `session_id`, with `session/resume` or `session/load`, whichever the agent
+/// offers.
 #[tauri::command(async)]
-pub fn acp_load_session(
+pub fn acp_reopen_session(
     manager: State<'_, AcpManager>,
     store: State<'_, AppStore>,
     session_id: String,
@@ -243,11 +245,12 @@ pub fn acp_load_session(
     profile_id: String,
     acp_session_id: String,
 ) -> Result<StartedSession, String> {
-    manager.load(
+    manager.reopen(
         &session_id,
         &cwd,
         &launch_in_workspace(&store, &cwd, &profile_id)?,
         &acp_session_id,
+        ReopenPurpose::Continue,
     )
 }
 

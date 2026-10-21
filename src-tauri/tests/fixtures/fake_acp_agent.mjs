@@ -19,6 +19,10 @@
 //   "elicit-url-deaf" -> closes its stdin, then asks as "elicit-url", so no answer can reach it
 //   --login      -> the terminal sign-in: prints a greeting and exits
 //   anything else -> echoes the text back as an agent message chunk
+// Environment flags add capabilities and record what it was called with:
+//   FAKE_ACP_RESUME   -> advertises sessionCapabilities.resume and answers session/resume
+//   FAKE_ACP_CALL_LOG -> appends every received method name to the file it names
+// (each other FAKE_ACP_* flag is documented where it is read below)
 import { appendFileSync, closeSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
@@ -38,6 +42,15 @@ const reply = (id, result) => send({ id, result });
 const update = (sessionId, update) => send({ method: "session/update", params: { sessionId, update } });
 const say = (sessionId, text) =>
   update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
+
+// The modes every answer that opens a session reports.
+const defaultModes = () => ({
+  currentModeId: "default",
+  availableModes: [
+    { id: "default", name: "Default" },
+    { id: "yolo", name: "YOLO" },
+  ],
+});
 
 const nameForm = (target) => ({
   ...target,
@@ -156,8 +169,13 @@ const handlers = {
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: !process.env.FAKE_ACP_NO_LOAD,
-        // FAKE_ACP_NO_FORK: cannot fork a session.
-        sessionCapabilities: process.env.FAKE_ACP_NO_FORK ? { delete: {} } : { fork: {}, delete: {} },
+        sessionCapabilities: {
+          // FAKE_ACP_NO_FORK: cannot fork a session.
+          ...(process.env.FAKE_ACP_NO_FORK ? {} : { fork: {} }),
+          delete: {},
+          // FAKE_ACP_RESUME: reopens a session without replaying its history.
+          ...(process.env.FAKE_ACP_RESUME ? { resume: {} } : {}),
+        },
         ...(authStatus ? { _meta: { authStatus: {} } } : {}),
       },
       authMethods: [
@@ -192,17 +210,15 @@ const handlers = {
       askBeforeTheSessionExists("session/load", id, params);
       return;
     }
-    say(params.sessionId, "replayed history");
-    reply(id, {
-      modes: {
-        currentModeId: "default",
-        availableModes: [
-          { id: "default", name: "Default" },
-          { id: "yolo", name: "YOLO" },
-        ],
-      },
+    update(params.sessionId, {
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: "earlier question" },
     });
+    say(params.sessionId, "replayed history");
+    reply(id, { modes: defaultModes() });
   },
+  // FAKE_ACP_RESUME: reopens the session and answers without replaying anything.
+  "session/resume": (id) => reply(id, { modes: defaultModes() }),
   "session/new": (id, params) => {
     // FAKE_ACP_EARLY_REQUESTS: asks the client things before the session exists and answers
     // session/new (or session/load) only once both are answered, or with an error after
@@ -231,13 +247,7 @@ const handlers = {
     const sessionId = `fake-${nextSession++}`;
     reply(id, {
       sessionId,
-      modes: {
-        currentModeId: "default",
-        availableModes: [
-          { id: "default", name: "Default" },
-          { id: "yolo", name: "YOLO" },
-        ],
-      },
+      modes: defaultModes(),
       configOptions: [
         {
           id: "model",
@@ -317,8 +327,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const entry = message.method ?? `reply ${message.id} ${JSON.stringify(message.result ?? message.error)}`;
     appendFileSync(process.env.FAKE_ACP_ARRIVAL_LOG, `${entry}\n`);
   }
-  // FAKE_ACP_METHOD_LOG: records each method the client called, one per line.
-  if (process.env.FAKE_ACP_METHOD_LOG && message.method) appendFileSync(process.env.FAKE_ACP_METHOD_LOG, `${message.method}\n`);
+  // FAKE_ACP_METHOD_LOG and FAKE_ACP_CALL_LOG each name a file every method the
+  // client called is appended to, one per line. FAKE_ACP_CALL_LOG is what a test
+  // reads to tell session/resume from a session/load whose replay was dropped.
+  if (message.method) {
+    for (const key of ["FAKE_ACP_METHOD_LOG", "FAKE_ACP_CALL_LOG"]) {
+      const path = process.env[key];
+      if (path) appendFileSync(path, `${message.method}\n`);
+    }
+  }
   if (message.method === "session/cancel" && pendingSlow) {
     reply(pendingSlow.promptId, { stopReason: "cancelled" });
     pendingSlow = null;

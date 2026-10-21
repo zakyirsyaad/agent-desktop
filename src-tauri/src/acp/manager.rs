@@ -19,11 +19,13 @@ use super::terminal_auth::{terminal_method, SignInAttempts, TerminalMethodError}
 use crate::pty_session::validate_cwd;
 
 mod elicitation_routes;
+mod reopen;
 mod routing;
 
 pub use elicitation_routes::{
     UrlOpener, ELICITATION_GONE, ELICITATION_INVALID_PREFIX, ELICITATION_UNDELIVERED,
 };
+pub use reopen::{ReopenMethod, ReopenPurpose};
 use routing::{answer, route_event};
 
 /// ACP protocol version this client speaks.
@@ -59,7 +61,7 @@ pub(super) enum OpenError {
     Transport(String),
 }
 
-/// What the agent reported when a session started (or was forked).
+/// What the agent reported when a session started, was reopened or was forked.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartedSession {
@@ -68,6 +70,9 @@ pub struct StartedSession {
     pub modes: Value,
     pub models: Value,
     pub config_options: Value,
+    /// How an earlier session was reopened; absent for a start or a fork.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reopened_with: Option<ReopenMethod>,
 }
 
 /// Events for the UI, already routed to the app session they belong to.
@@ -178,42 +183,6 @@ impl AcpManager {
                 self.route_on_answer(key, app_session_id, None, true),
             )?;
             started_session(session, init["agentCapabilities"].clone()).map_err(OpenError::Agent)
-        })
-    }
-
-    /// Starts an agent process and resumes its earlier session `acp_session_id`.
-    ///
-    /// The agent replays the old conversation as `session/update`s before it
-    /// answers. The session is registered only after that, so the replay is
-    /// not routed to the app, which already has the conversation.
-    pub fn load(
-        &self,
-        app_session_id: &str,
-        cwd: &str,
-        launch: &AcpLaunch,
-        acp_session_id: &str,
-    ) -> Result<StartedSession, String> {
-        self.open(app_session_id, cwd, launch, |connection, init, key| {
-            let capabilities = init["agentCapabilities"].clone();
-            if capabilities["loadSession"] != Value::Bool(true) {
-                return Err(OpenError::Agent(
-                    "This agent cannot resume earlier sessions".to_string(),
-                ));
-            }
-            let response = open_request(
-                connection,
-                init,
-                "session/load",
-                json!({ "sessionId": acp_session_id, "cwd": cwd, "mcpServers": [] }),
-                self.route_on_answer(key, app_session_id, Some(acp_session_id), true),
-            )?;
-            Ok(StartedSession {
-                acp_session_id: acp_session_id.to_string(),
-                agent_capabilities: capabilities,
-                modes: response["modes"].clone(),
-                models: response["models"].clone(),
-                config_options: response["configOptions"].clone(),
-            })
         })
     }
 
@@ -747,5 +716,6 @@ fn started_session(response: Value, agent_capabilities: Value) -> Result<Started
         modes: response["modes"].clone(),
         models: response["models"].clone(),
         config_options: response["configOptions"].clone(),
+        reopened_with: None,
     })
 }
