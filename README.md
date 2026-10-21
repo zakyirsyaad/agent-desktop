@@ -7,9 +7,10 @@
 
 **Every coding agent. One desktop.**
 
-A desktop app for the coding agents you already use. Qwen Code, Claude Code
-and Codex run in a real chat UI. It is like Claude Code Desktop, but for whichever agent
-you have.
+A desktop app for the coding agents you already use. Claude Code, Codex,
+Qwen Code, Gemini CLI and the other agents in the
+[ACP registry](https://agentclientprotocol.com) run in a real chat UI. It is
+like Claude Code Desktop, but for whichever agent you have.
 
 - [Highlights](#highlights)
 - [Supported agents](#supported-agents)
@@ -26,15 +27,24 @@ you have.
 
 ## Highlights
 
-- **The agent's own data.** Qwen Code, Claude Code and Codex are driven over
-  the [Agent Client Protocol](https://agentclientprotocol.com). You get:
+- **The agent's own data.** Every agent is driven over the
+  [Agent Client Protocol](https://agentclientprotocol.com). You get:
   - their real modes and models;
   - permission requests with the agent's own choices;
   - a diff of every file change;
-  - slash commands and context usage;
+  - slash commands, including the ones your skills and plugins add, and
+    context usage;
   - sessions that resume after a restart.
+- **An agent catalog.** Settings → Agents lists every agent in the ACP
+  registry, with search. Add, install, update and remove agents there;
+  Zorvo installs what an agent needs, Node.js or `uv` included.
 - **Sign in from inside Zorvo.** An agent's own login runs in a terminal in
   the app.
+- **Agents can ask you.** An agent can show a form in the chat, or send you
+  to a web page to sign in. What you type there goes to the agent and is
+  never saved.
+- **Pick up where you left off.** Continue a session you started in the
+  agent's own CLI from the new-session screen.
 - **Workspaces and sessions.** Sessions are grouped by folder, titled from
   the first message, and saved on disk. You can rename, pin and archive them.
   An unread mark shows which agent finished while you were elsewhere, and a
@@ -61,7 +71,7 @@ you have.
 Zorvo reads the [ACP agent registry](https://agentclientprotocol.com) and runs
 its agents as chats. Zorvo checks the registry in the background at startup
 when the last check is over a day old, and when you click **Check again** in
-Settings. Only the agents in use show up: Claude Code, Codex and Qwen Code by
+Settings → Agents. Only the agents in use show up: Claude Code, Codex and Qwen Code by
 default, plus any registry agent that is already installed on your Mac. Add
 other registry agents from Settings → Agents. A new version of an agent is
 offered a week after it was published, and never one the registry has
@@ -73,18 +83,21 @@ withdrawn.
 | View | chat | chat | chat |
 | Models, effort, modes | from the agent | from the agent | from the agent |
 | Approvals | in the chat | in the chat | in the chat |
-| Resume after a restart | when the agent can load sessions | when the agent can load sessions | when the agent can load sessions |
+| Resume after a restart | when the agent can resume or load sessions | when the agent can resume or load sessions | when the agent can resume or load sessions |
 | Rewind | yes | yes | yes |
 | Fork | yes | yes | yes |
 
-The ACP agents report their own models, efforts and approval modes for each
-session, so the app offers whatever your install has. An agent that cannot
-load an earlier session (ACP `session/load`) says so when you try to
+The table shows the default agents; every other registry agent works the
+same way. The ACP agents report their own models, efforts and approval modes
+for each session, so the app offers whatever your install has. Zorvo
+continues an earlier session with the agent's own resume (ACP
+`session/resume`) when it offers one, and otherwise loads it
+(`session/load`). An agent that can do neither says so when you try to
 continue one.
 
 A fork from the latest reply uses the agent's own fork when it has one.
 Otherwise it is done by handoff: the conversation is written to a file, and
-the new agent is asked to read it.
+the new agent is asked to read it and wait for your next message.
 
 ## Requirements
 
@@ -101,7 +114,7 @@ the new agent is asked to read it.
   | Agent | Optional global install | Sign in |
   |---|---|---|
   | Qwen Code | `npm i -g @qwen-code/qwen-code` | run `qwen` once |
-  | Claude Code | `npm i -g @anthropic-ai/claude-code` | `claude`, then `/login` |
+  | Claude Code | `npm i -g @anthropic-ai/claude-code` | `claude`, then `/login` (or the app's sign-in panel) |
   | Codex | `npm i -g @openai/codex` | `codex login` (or the app's sign-in panel) |
 
 - **Optional: the [GitHub CLI](https://cli.github.com)**, signed in with
@@ -109,7 +122,7 @@ the new agent is asked to read it.
 
 The app reads your login shell's environment, so anything your terminal finds,
 it finds too. If you install an agent while the app runs, click **Check again**
-in Settings.
+in Settings → Agents.
 
 ## Install
 
@@ -136,11 +149,12 @@ identifier.
 ## Getting started
 
 1. **Onboarding.** The first run checks which agents are installed, lets you
-   pick a default, and asks for a project folder.
-2. **Start a session.** Click **+ New session** (or the **+** next to a
-   folder to choose its agent). Pick the model, effort and permission mode
-   in the composer, and send your first message. Turn on **Worktree** first
-   to give the session its own checkout.
+   pick a default, and asks for a project folder. Add more agents later in
+   Settings → Agents.
+2. **Start a session.** Click **+ New** (or the **+** next to a folder to
+   choose its agent). Pick the folder, branch, model, effort and permission
+   mode in the composer, and send your first message. Turn on **Worktree**
+   first to give the session its own checkout.
 3. **Work with the agent.**
    - Answer its permission requests in the chat.
    - Open **Files** to browse the folder and **Changes** to review and commit
@@ -152,8 +166,9 @@ identifier.
      before it and puts the message in the composer to edit. It needs a
      confirming second click, and files the agent changed stay as they are.
 
-Permission mode **Ask** is the default: the agent asks before it edits files
-or runs commands.
+Each session starts in the safest permission mode its agent offers (its
+**Default**, **Manual**, **Ask** or **Read-only** mode), so the agent asks
+before it edits files or runs commands. Pick another mode in the composer.
 
 ## Privacy and your data
 
@@ -194,7 +209,7 @@ or runs commands.
 
 | Problem | What to try |
 |---|---|
-| An agent shows as not installed | Choose it in a new session's agent picker (it is labelled "(not installed)") and click **Install**. Zorvo brings Node.js when yours is missing or older than 22, and `uv` for agents that need it. A registry agent also counts as installed when its binary is on your `PATH` or its npm package is installed globally. Then click **Check again** in Settings. |
+| An agent shows as not installed | Click **Add** or **Install** next to it in Settings → Agents, or choose it in a new session's agent picker (it is labelled "(not installed)") and click **Install**. Zorvo brings Node.js when yours is missing or older than 22, and `uv` for agents that need it. A registry agent also counts as installed when its binary is on your `PATH` or its npm package is installed globally. Then click **Check again** in Settings. |
 | "Sign in to *agent*": the agent needs you to sign in before it can start | Use a sign-in method the panel offers, or sign in once in a terminal (see [Requirements](#requirements)), then send your message again. |
 | Claude Code, Codex or Qwen Code does not start | When you click **Install** and your Node.js is missing or older than 22, Zorvo installs Node.js for them. The first start downloads the agent's pinned package, so it can take a moment. |
 | No pull request status | Install `gh` and run `gh auth login`. A repository without a GitHub remote has none to show. |
@@ -206,7 +221,7 @@ or runs commands.
 ```mermaid
 flowchart LR
   UI["React UI<br/>(src/)"] <-- "Tauri commands<br/>and events" --> Core["Rust backend<br/>(src-tauri/)"]
-  Core -- "ACP: JSON-RPC over stdio" --> ACP["Qwen Code · Claude Code · Codex"]
+  Core -- "ACP: JSON-RPC over stdio" --> ACP["ACP agents<br/>(Claude Code · Codex · Qwen Code · …)"]
   Core -- "git · gh" --> Repo[("Your repository")]
   Core --> Store[("state.json<br/>transcripts/")]
 ```
@@ -218,9 +233,11 @@ flowchart LR
   - `pty_session.rs`: the terminal an agent's own sign-in runs in;
   - `registry/`: the ACP agent registry, its dated version history and the
     agents you use;
+  - `installer/`: installing agents, Node.js and `uv`, every download checked
+    against a pinned hash;
   - `profiles.rs`: the agent profiles and how agents are found;
   - `store.rs`: state and transcripts;
-  - `changes.rs` and `worktrees.rs`: git;
+  - `changes.rs`, `worktrees.rs` and `branches.rs`: git;
   - `pull_requests.rs`: `gh`.
 
 ## Development
