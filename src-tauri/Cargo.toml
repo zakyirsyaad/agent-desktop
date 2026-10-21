@@ -1,6 +1,6 @@
 [package]
 name = "zorvo"
-version = "0.2.0"
+version = "0.3.0"
 description = "Every coding agent, one desktop."
 authors = ["zakyirsyaad <zkyxentertain@gmail.com>"]
 edition = "2021"
