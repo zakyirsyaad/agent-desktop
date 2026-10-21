@@ -243,12 +243,12 @@ export function SettingsPanel({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay px-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-overlay px-4 pt-[8vh]">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col gap-4 rounded-xl border border-border bg-surface-1 p-5 text-fg-secondary shadow-dialog"
+        className="flex h-[min(85vh,44rem)] w-full max-w-2xl flex-col gap-4 rounded-xl border border-border bg-surface-1 p-5 text-fg-secondary shadow-dialog"
       >
         <header className="flex items-center justify-between">
           <h2 id={titleId} className="text-base font-semibold text-fg">

@@ -19,6 +19,8 @@ export interface AcpReducerContext {
   sessionId: string;
   now: number;
   createId: (prefix: string) => string;
+  /** False while folding a replay: the agent gives no per-message time. */
+  hasKnownTime?: boolean;
 }
 
 export interface PermissionRequestPayload {
@@ -35,6 +37,13 @@ function isObject(value: unknown): value is Json {
 
 function str(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+/** The time fields for a new message: a replay's messages carry no known time. */
+function messageTime(ctx: AcpReducerContext): Pick<ChatMessage, 'timestamp' | 'hasKnownTime'> {
+  return ctx.hasKnownTime === false
+    ? { timestamp: ctx.now, hasKnownTime: false }
+    : { timestamp: ctx.now };
 }
 
 /** The text of a content block, or undefined for images, audio and the like. */
@@ -70,7 +79,7 @@ export function withOpenReply(
   if (index >= 0) {
     return messages.map((m, i) => (i === index ? change(m) : m));
   }
-  const fresh: ChatMessage = { id: ctx.createId('msg'), role: 'agent', content: '', timestamp: ctx.now };
+  const fresh: ChatMessage = { id: ctx.createId('msg'), role: 'agent', content: '', ...messageTime(ctx) };
   return [...messages, change(fresh)];
 }
 
@@ -213,8 +222,10 @@ export function applyReplayUpdate(
   update: unknown,
   ctx: AcpReducerContext,
 ): ChatMessage[] {
+  // A replay carries no per-message time, so nothing it adds gets one.
+  const replayCtx: AcpReducerContext = { ...ctx, hasKnownTime: false };
   if (!isObject(update) || update.sessionUpdate !== 'user_message_chunk') {
-    return applyAcpUpdate(messages, update, ctx);
+    return applyAcpUpdate(messages, update, replayCtx);
   }
   const chunk = replayContentOf(update.content);
   if (!chunk) return messages;
@@ -234,7 +245,7 @@ export function applyReplayUpdate(
       id: ctx.createId('msg'),
       role: 'user',
       content: chunk,
-      timestamp: ctx.now,
+      ...messageTime(replayCtx),
       ...(messageId === undefined ? {} : { replayId: messageId }),
     },
   ];
@@ -274,7 +285,7 @@ export function applyPermissionRequest(
   // A reply holds one card: a second request while the first waits gets its own message.
   const open = messages[openReplyIndex(messages)];
   if (open?.actionCard) {
-    return [...messages, withCard({ id: ctx.createId('msg'), role: 'agent', content: '', timestamp: ctx.now })];
+    return [...messages, withCard({ id: ctx.createId('msg'), role: 'agent', content: '', ...messageTime(ctx) })];
   }
   return withOpenReply(messages, ctx, withCard);
 }

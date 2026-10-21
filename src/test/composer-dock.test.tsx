@@ -40,6 +40,15 @@ describe("ComposerDock", () => {
     expect(screen.queryByRole("button", { name: /voice dictation/i })).toBeNull();
   });
 
+  it("turns off macOS smart substitutions and autocorrection in the prompt", () => {
+    render(<ComposerDock controls={controls()} onSendMessage={() => {}} />);
+    const box = prompt();
+
+    expect(box.getAttribute("autocorrect")).toBe("off");
+    expect(box.getAttribute("autocapitalize")).toBe("off");
+    expect(box.getAttribute("spellcheck")).toBe("false");
+  });
+
   describe("sending", () => {
     it("submits on Enter without Shift and clears the input", () => {
       const onSendMessage = vi.fn();

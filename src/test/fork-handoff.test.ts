@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  FORK_FIRST_MESSAGE,
   MAX_HANDOFF_CHARS,
   buildForkHandoff,
   buildForkPrompt,
@@ -281,14 +282,23 @@ describe("buildForkHandoff truncation", () => {
 });
 
 describe("buildForkPrompt", () => {
-  it("asks the agent to read the handoff file and confirm readiness", () => {
+  it("tells the fresh agent to read the handoff and wait, without naming the file", () => {
     const prompt = buildForkPrompt("/data/handoffs/abc-123.md");
 
     expect(prompt).toBe(
-      'Read the file "/data/handoffs/abc-123.md" for the context of a previous session, ' +
-        "then continue from where it left off. Reply briefly that you are ready.",
+      'Read the file "/data/handoffs/abc-123.md" for the context of a previous session. ' +
+        "Do not mention the file. Do not continue any task or make changes yet: " +
+        "reply briefly that you are ready and wait for my next message.",
     );
     expect(prompt).toContain("/data/handoffs/abc-123.md");
+  });
+
+  it("forbids resuming the previous task, so the fork waits for the user", () => {
+    const prompt = buildForkPrompt("/data/handoffs/abc-123.md");
+
+    expect(prompt).toContain("Do not continue any task or make changes yet");
+    expect(prompt).toContain("wait for my next message");
+    expect(prompt).not.toContain("continue from where it left off");
   });
 
   it("quotes the path so a space in the app data dir cannot split it", () => {
@@ -311,7 +321,15 @@ describe("buildForkPrompt", () => {
     expect(prompt).not.toContain("\r");
     expect(prompt.replace(/\s+/g, " ")).toContain("/data/hand offs/ab c.md");
     expect(prompt.startsWith('Read the file "')).toBe(true);
-    expect(prompt.endsWith("Reply briefly that you are ready.")).toBe(true);
+    expect(prompt.endsWith("wait for my next message.")).toBe(true);
+  });
+});
+
+describe("FORK_FIRST_MESSAGE", () => {
+  it("is a neutral message that does not ask the agent to keep working", () => {
+    expect(FORK_FIRST_MESSAGE).toBe("Pick up from the previous session.");
+    expect(FORK_FIRST_MESSAGE).not.toContain("/");
+    expect(FORK_FIRST_MESSAGE).not.toMatch(/continue/i);
   });
 });
 

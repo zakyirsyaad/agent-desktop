@@ -1,5 +1,6 @@
 import type { CatalogAgent, CatalogStatus, InstallStep, Settings } from '../types';
 import { describePlan } from './install-plan';
+import type { InstallStatus } from './agent-installs';
 
 const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = 3_600;
@@ -39,6 +40,13 @@ export function catalogSections(
   return { inUse, others };
 }
 
+/** How an agent's install or update is going, for its status line. */
+export interface InstallLine {
+  status: InstallStatus;
+  action: 'install' | 'update';
+  error: string | null;
+}
+
 function baseStatusLine(agent: CatalogAgent, plan: readonly InstallStep[] | null, isInUse: boolean): string {
   switch (agent.status) {
     case 'by_zorvo':
@@ -58,9 +66,29 @@ function baseStatusLine(agent: CatalogAgent, plan: readonly InstallStep[] | null
 }
 
 /** The line under an agent's name; `plan` is what Add or Install would install, when known. */
-export function statusLine(agent: CatalogAgent, plan: readonly InstallStep[] | null, isInUse = false): string {
-  const line = baseStatusLine(agent, plan, isInUse);
+export function statusLine(
+  agent: CatalogAgent,
+  plan: readonly InstallStep[] | null,
+  isInUse = false,
+  install?: InstallLine,
+): string {
+  const line = jobLine(agent, plan, install) ?? baseStatusLine(agent, plan, isInUse);
   return agent.listed ? line : `${line} · No longer listed`;
+}
+
+/** What the agent is doing instead of its usual status line while an install or update runs, or why it failed. */
+function jobLine(
+  agent: CatalogAgent,
+  plan: readonly InstallStep[] | null,
+  install: InstallLine | undefined,
+): string | null {
+  if (!install || install.status === 'idle') return null;
+  const isUpdate = install.action === 'update';
+  if (install.status === 'failed') {
+    return `${isUpdate ? 'Update' : 'Install'} failed · ${install.error ?? 'Unknown error'}`;
+  }
+  if (isUpdate) return agent.updateVersion ? `Updating to ${agent.updateVersion}` : `Updating ${agent.name}`;
+  return `Installing ${plan && plan.length > 0 ? describePlan(plan) : agent.name}`;
 }
 
 export interface RowActions {

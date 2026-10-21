@@ -18,6 +18,8 @@ export interface BranchPicker {
   control: BranchControl | undefined;
   /** The branch a new worktree starts from, when one was picked; undefined means the folder's HEAD. */
   baseBranch: string | undefined;
+  /** Forgets a picked starting branch, once a session has started from it. */
+  reset: () => void;
 }
 
 /**
@@ -38,8 +40,9 @@ export function useBranchPicker({
   const [base, setBase] = useState<{ path: string; branch: string } | null>(null);
   // Two git switches at once would race on the repository's index lock.
   const isSwitchingRef = useRef(false);
+  const reset = () => setBase(null);
 
-  if (!folderPath || !checkedOut) return { control: undefined, baseBranch: undefined };
+  if (!folderPath || !checkedOut) return { control: undefined, baseBranch: undefined, reset };
 
   const baseBranch = isWorktreeOn && base?.path === folderPath ? base.branch : undefined;
   const branches = listed?.path === folderPath ? listed.branches : null;
@@ -77,5 +80,6 @@ export function useBranchPicker({
       },
     },
     baseBranch,
+    reset,
   };
 }

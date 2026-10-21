@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Check, Copy, RotateCcw } from "lucide-react";
 
 export interface UserMessageBarProps {
-  timeLabel: string;
+  /** Undefined for a replayed message, whose time the agent did not report. */
+  timeLabel?: string;
   copied: boolean;
   onCopy: () => void;
   /** Takes the conversation back to before this message; offered only when the host can. */
@@ -60,7 +61,7 @@ function RewindButton({ onRewind }: { onRewind: () => void }) {
 export function UserMessageBar({ timeLabel, copied, onCopy, onRewind }: UserMessageBarProps) {
   return (
     <div className="mt-1.5 flex items-center gap-2 px-1 text-xs text-fg-subtle">
-      <span>{timeLabel}</span>
+      {timeLabel && <span>{timeLabel}</span>}
       <button type="button" onClick={onCopy} aria-label="Copy message" title="Copy" className={ICON_BUTTON}>
         {copied ? <Check className="h-3.5 w-3.5 text-status-running" /> : <Copy className="h-3.5 w-3.5" />}
       </button>

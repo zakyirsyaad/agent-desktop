@@ -380,6 +380,8 @@ export default function App() {
     }
     setPickedAgentId(null);
     startSession({ agent: newSessionAgent, cwd, name, worktree }, first);
+    // The base was this session's: the next draft starts from the folder's own branch.
+    if (worktree) branchPicker.reset();
   };
 
   /** Makes `path` the active workspace; a folder only old sessions still use is added back to the recents. */
@@ -638,7 +640,7 @@ export default function App() {
             onShow={() => { agentUpdates.acknowledge(); setSettingsTab("agents"); }}
             onDismiss={agentUpdates.acknowledge}
           />
-          <SignInLayer signIn={signIn} agents={agents} />
+          <SignInLayer signIn={signIn} agents={agents} agentId={activeSession?.profileId ?? newSessionAgent?.id} />
           {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
           {activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId) || activeSession.historyElsewhere) ? (
             <ChatCanvas
@@ -670,6 +672,7 @@ export default function App() {
               details={workspaceDetails}
               agentName={newSessionAgent?.name}
               unavailableReason={areAgentsLoaded && !agentsInUse.some(isAgentReady) ? noAgentNotice(agentsInUse) : undefined}
+              worktreeBaseBranch={isWorktreeOn && canUseWorktree ? branchPicker.baseBranch : undefined}
               sessionList={draftSessionList.sessionList}
             />
           ) : (

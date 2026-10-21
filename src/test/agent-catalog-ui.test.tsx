@@ -301,7 +301,7 @@ describe("Catalog actions — Add", () => {
       fireEvent.click(within(row("Gemini CLI")).getByRole("button", { name: "Add" }));
     });
 
-    expect(await within(row("Gemini CLI")).findByText("Install failed: network down")).toBeInTheDocument();
+    expect(await within(row("Gemini CLI")).findByText("Install failed · network down")).toBeInTheDocument();
     expect(within(row("Gemini CLI")).getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(within(section(/^In use/)).getByRole("listitem", { name: "Gemini CLI" })).toBeInTheDocument();
   });
@@ -325,12 +325,15 @@ describe("Catalog actions — Install", () => {
 
     await waitFor(() => expect(callsTo(spy, "install_agent")).toEqual([["install_agent", { agentId: "gemini" }]]));
     expect(within(gemini()).getByText("Starting the install…")).toBeInTheDocument();
+    expect(gemini()).toHaveTextContent("Installing Gemini CLI 0.2.0");
     expect(within(gemini()).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(within(gemini()).queryByRole("button", { name: "Install" })).toBeNull();
 
     await act(async () => failInstall("network down"));
 
-    expect(await within(gemini()).findByText("Install failed: network down")).toBeInTheDocument();
+    expect(await within(gemini()).findByText("Install failed · network down")).toBeInTheDocument();
+    // The reason lives in the status line; the Retry button stands alone.
+    expect(within(gemini()).getAllByText(/Install failed/)).toHaveLength(1);
     expect(within(gemini()).getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(within(gemini()).queryByRole("button", { name: "Install" })).toBeNull();
   });
@@ -425,7 +428,7 @@ describe("Catalog actions — Update", () => {
       fireEvent.click(within(row("Claude Code")).getByRole("button", { name: "Update to 1.1.0" }));
     });
 
-    expect(await within(row("Claude Code")).findByText("Update failed: Could not save version 1.1.0: disk full"))
+    expect(await within(row("Claude Code")).findByText("Update failed · Could not save version 1.1.0: disk full"))
       .toBeInTheDocument();
     expect(within(row("Claude Code")).getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(callsTo(spy, "get_agent_profiles")).toHaveLength(profileLoads);
@@ -444,7 +447,7 @@ describe("Catalog actions — Update", () => {
       fireEvent.click(within(row("Claude Code")).getByRole("button", { name: "Update to 1.1.0" }));
     });
 
-    expect(await within(row("Claude Code")).findByText("Update failed: no update")).toBeInTheDocument();
+    expect(await within(row("Claude Code")).findByText("Update failed · no update")).toBeInTheDocument();
     await waitFor(() => expect(callsTo(spy, "get_agent_catalog").length).toBeGreaterThan(catalogLoads));
   });
 });
