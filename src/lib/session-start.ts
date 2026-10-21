@@ -64,7 +64,9 @@ export function importedSessionSpec(
     .split('\n')
     .map((line) => line.trim())
     .find((line) => line !== '');
-  const updatedAt = new Date(listed.updatedAt ?? now);
+  const parsed = new Date(listed.updatedAt ?? now);
+  // Rust accepts a leap second (`:60`), which Date reads as invalid: date it by the import time instead.
+  const updatedAt = Number.isNaN(parsed.getTime()) ? new Date(now) : parsed;
   const date = updatedAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   return {
     agent,

@@ -102,6 +102,14 @@ describe("importedSessionSpec", () => {
     );
   });
 
+  it("dates a session with an unreadable updated time by the import time", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+
+    expect(importedSessionSpec(listed(undefined, "2026-10-20T08:00:60Z"), CLAUDE, "/w/zorvo", now).name).toBe(
+      "Claude Code session, 20 Oct",
+    );
+  });
+
   it("keeps a multi-line markdown title on one line", () => {
     const spec = importedSessionSpec(
       listed("# Fix the login\n\nSome **details**\nand more"),

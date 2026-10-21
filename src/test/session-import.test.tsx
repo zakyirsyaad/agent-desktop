@@ -402,7 +402,7 @@ describe("Stopping an import before it answers", () => {
     listeners.clear();
   });
 
-  it("folds a late update normally once a stopped import is resumed", async () => {
+  it("ignores a stopped import that settles after the session is resumed", async () => {
     const internals = tauriInternals();
     const original = internals.invoke;
     let finishImport: (value: unknown) => void = () => {};
@@ -415,16 +415,19 @@ describe("Stopping an import before it answers", () => {
       return original(cmd, args);
     });
 
-    const messages = new Map<string, ChatMessage[]>();
+    const messages = new Map<string, ChatMessage[]>([
+      [IMPORTED.id, [{ id: "m-live", role: "agent", content: "live reply", timestamp: 1 }]],
+    ]);
     const updateMessages = (sessionId: string, change: (prev: ChatMessage[]) => ChatMessage[]) => {
       messages.set(sessionId, change(messages.get(sessionId) ?? []));
     };
+    const patches: { sessionId: string; patch: Partial<Session> }[] = [];
     const { result } = renderHook(() =>
       useAcpEngine({
         sessions: [IMPORTED],
         agents: fakeProfiles,
         updateMessages,
-        patchSession: () => {},
+        patchSession: (sessionId, patch) => patches.push({ sessionId, patch }),
         reportError: () => {},
         rememberOptions: () => {},
         onAuthRequired: () => {},
@@ -451,12 +454,16 @@ describe("Stopping an import before it answers", () => {
       } } });
     });
 
-    expect(messages.get(IMPORTED.id) ?? []).toEqual([]);
+    expect(messages.get(IMPORTED.id)).toHaveLength(1);
 
-    // Let the pending import settle so no update lands after the test.
+    // The old import answers along with the resumed session's live turn.
     await act(async () => {
-      finishImport(importAnswer());
+      finishImport(importAnswer({ reopenedWith: "resume" }));
       await opened;
     });
+
+    // The stale import neither marks the session's history as elsewhere nor closes its live reply.
+    expect(patches.some(({ sessionId, patch }) => sessionId === IMPORTED.id && patch.historyElsewhere)).toBe(false);
+    expect(messages.get(IMPORTED.id)?.at(-1)?.isComplete).not.toBe(true);
   });
 });
