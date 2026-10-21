@@ -6,6 +6,7 @@ import type {
   ToolDetail,
   ToolExecution,
 } from '../types';
+import { fileNameOf } from './attachments';
 
 /**
  * Folds Agent Client Protocol session updates into chat messages.
@@ -192,6 +193,51 @@ export function applyAcpUpdate(
     default:
       return messages;
   }
+}
+
+/** What a replayed user block shows: its text, or the file name of a block that has a URI. */
+function replayContentOf(content: unknown): string | undefined {
+  const text = textOf(content);
+  if (text !== undefined) return text;
+  const uri = isObject(content) ? str(content.uri) : undefined;
+  return uri ? fileNameOf(uri) : undefined;
+}
+
+/**
+ * Applies one `session/update` from a `session/load` replay. A user chunk ends
+ * the agent's open reply and starts (or continues) the user's message; every
+ * other update goes to the normal reducer.
+ */
+export function applyReplayUpdate(
+  messages: ChatMessage[],
+  update: unknown,
+  ctx: AcpReducerContext,
+): ChatMessage[] {
+  if (!isObject(update) || update.sessionUpdate !== 'user_message_chunk') {
+    return applyAcpUpdate(messages, update, ctx);
+  }
+  const chunk = replayContentOf(update.content);
+  if (!chunk) return messages;
+  const messageId = str(update.messageId);
+  const lastIndex = messages.length - 1;
+  const last = messages[lastIndex];
+  // Chunks the agent gave a messageId continue that message; without one, adjacent chunks do.
+  if (last?.role === 'user' && last.replayId === messageId) {
+    return messages.map((m, i) => (i === lastIndex ? { ...m, content: m.content + chunk } : m));
+  }
+  const closed = messages.map((m, i) =>
+    i === lastIndex && m.role === 'agent' && !m.isComplete ? { ...m, isComplete: true } : m,
+  );
+  return [
+    ...closed,
+    {
+      id: ctx.createId('msg'),
+      role: 'user',
+      content: chunk,
+      timestamp: ctx.now,
+      ...(messageId === undefined ? {} : { replayId: messageId }),
+    },
+  ];
 }
 
 function toChoices(options: unknown): PermissionChoice[] {

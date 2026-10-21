@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   applyAcpUpdate,
   applyPermissionRequest,
+  applyReplayUpdate,
   closeTurn,
   isAwaitingPermission,
   pendingCardsInTurn,
@@ -293,3 +294,96 @@ describe("permission requests", () => {
   });
 });
 
+const userChunk = (t: string, messageId?: string) => ({
+  sessionUpdate: "user_message_chunk",
+  content: { type: "text", text: t },
+  ...(messageId === undefined ? {} : { messageId }),
+});
+
+describe("applyReplayUpdate", () => {
+  it("splits a replayed conversation into user and agent turns", () => {
+    const c = ctx();
+    let messages = applyReplayUpdate([], userChunk("first"), c);
+    messages = applyReplayUpdate(messages, text("one"), c);
+    messages = applyReplayUpdate(messages, userChunk("second"), c);
+    messages = applyReplayUpdate(messages, text("two"), c);
+
+    expect(messages.map((m) => [m.role, m.content])).toEqual([
+      ["user", "first"],
+      ["agent", "one"],
+      ["user", "second"],
+      ["agent", "two"],
+    ]);
+    expect(messages.map((m) => m.isComplete)).toEqual([undefined, true, undefined, undefined]);
+  });
+
+  it("joins user chunks that share a messageId", () => {
+    const c = ctx();
+    const first = applyReplayUpdate([], userChunk("Hello", "m-1"), c);
+    const result = applyReplayUpdate(first, userChunk(" world", "m-1"), c);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ role: "user", content: "Hello world", replayId: "m-1" });
+  });
+
+  it("keeps user chunks with different messageIds apart", () => {
+    const c = ctx();
+    const first = applyReplayUpdate([], userChunk("one", "m-1"), c);
+    const result = applyReplayUpdate(first, userChunk("two", "m-2"), c);
+
+    expect(result.map((m) => m.content)).toEqual(["one", "two"]);
+    expect(result.map((m) => m.replayId)).toEqual(["m-1", "m-2"]);
+  });
+
+  it("changes nothing for an empty user chunk, not even a closing reply", () => {
+    const c = ctx();
+    const messages = applyAcpUpdate([], text("still going"), c);
+
+    expect(applyReplayUpdate(messages, userChunk(""), c)).toBe(messages);
+  });
+
+  it("shows a non-text block as its file's name", () => {
+    const result = applyReplayUpdate(
+      [],
+      { sessionUpdate: "user_message_chunk", content: { type: "resource_link", uri: "file:///repo/docs/design.md" } },
+      ctx(),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ role: "user", content: "design.md" });
+  });
+
+  it("hands agent text and tool calls to the normal reducer", () => {
+    const base: ChatMessage[] = [{ id: "u-1", role: "user", content: "go", timestamp: 1 }];
+    const toolCall = { sessionUpdate: "tool_call", toolCallId: "t-1", title: "Read", status: "in_progress" };
+
+    expect(applyReplayUpdate(base, text("Done"), ctx())).toEqual(applyAcpUpdate(base, text("Done"), ctx()));
+    expect(applyReplayUpdate(base, toolCall, ctx())).toEqual(applyAcpUpdate(base, toolCall, ctx()));
+  });
+
+  it("settles the last turn of a replay whose tool call and request never finished", () => {
+    const c = ctx();
+    let messages = applyReplayUpdate([], userChunk("run the tests", "m-1"), c);
+    messages = applyReplayUpdate(
+      messages,
+      { sessionUpdate: "tool_call", toolCallId: "t-1", title: "pnpm test", status: "in_progress" },
+      c,
+    );
+    messages = applyPermissionRequest(
+      messages,
+      {
+        requestId: "perm-1",
+        toolCall: { toolCallId: "t-1", title: "Run the tests", kind: "execute" },
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      },
+      c,
+    );
+
+    const closed = closeTurn(messages);
+    const last = closed[closed.length - 1];
+
+    expect(last.isComplete).toBe(true);
+    expect(last.actionCard?.status).toBe("rejected");
+    expect(pendingCardsInTurn(closed)).toEqual([]);
+  });
+});

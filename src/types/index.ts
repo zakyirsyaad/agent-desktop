@@ -224,6 +224,8 @@ export interface ChatMessage {
   isComplete?: boolean;
   /** Files the user sent with the message (ACP agents). */
   attachments?: string[];
+  /** The agent's `messageId` for a user message replayed by `session/load`; its chunks share it. */
+  replayId?: string;
   /** A question the agent asked the user (ACP elicitation); never holds the answer. */
   elicitation?: ElicitationCard;
 }
