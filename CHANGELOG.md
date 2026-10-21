@@ -32,7 +32,7 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 - **The prompt no longer turns `--flag` into an en dash or straight quotes into curly ones.** Zorvo now registers the WebView's smart dashes, quotes, text replacement and spelling correction as off for the app, and the composer turns off autocorrection and spellcheck.
 - **The Settings dialog no longer moves while you use it.** It sits near the top at a fixed height, with the list scrolling inside, so typing in the search or removing an agent no longer slides the close button away.
-- **A fork's first message no longer shows a handoff file path.** When an agent has no native fork, the new session's chat now says "Continue from where the previous session left off." The path goes to the agent as hidden context.
+- **A fork's first message no longer shows a handoff file path.** When an agent has no native fork, the new session's chat says "Pick up from the previous session." The path goes to the agent as hidden context, along with an instruction to reply that it is ready and wait for your next message instead of resuming the old task.
 - **An imported session no longer says "Just now" on every message.** A replay from the agent carries no per-message time, so Zorvo shows no time there instead of one it made up.
 - **A worktree's starting branch stays with its session.** Once a session starts from the branch you picked, the next draft starts from the folder's own branch again. The new-session card also names the branch the worktree will start from.
 - **A sign-in request stays with its agent.** When Claude Code needs a sign-in, the panel no longer shows above a Qwen Code session or draft. It comes back when you return to a Claude Code session.

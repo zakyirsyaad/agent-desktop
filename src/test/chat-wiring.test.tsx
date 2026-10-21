@@ -107,7 +107,8 @@ describe("Chat wiring", () => {
     expect(promptArgs?.sessionId).toBe(startArgs?.sessionId);
     // The handoff path goes to the agent as hidden context, not as the fork's first message.
     expect(String(promptArgs?.text)).toContain(`/fake/app-data/handoffs/${startArgs?.sessionId}.md`);
-    expect(screen.getByText("Continue from where the previous session left off.")).toBeDefined();
+    expect(String(promptArgs?.text)).toContain("wait for my next message");
+    expect(screen.getByText("Pick up from the previous session.")).toBeDefined();
     expect(screen.queryByText(/Read the file/)).toBeNull();
   });
 
