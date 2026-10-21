@@ -638,7 +638,7 @@ export default function App() {
             onShow={() => { agentUpdates.acknowledge(); setSettingsTab("agents"); }}
             onDismiss={agentUpdates.acknowledge}
           />
-          <SignInLayer signIn={signIn} agents={agents} />
+          <SignInLayer signIn={signIn} agents={agents} agentId={activeSession?.profileId ?? newSessionAgent?.id} />
           {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
           {activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId) || activeSession.historyElsewhere) ? (
             <ChatCanvas
