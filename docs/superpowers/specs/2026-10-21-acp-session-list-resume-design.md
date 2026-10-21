@@ -120,9 +120,8 @@ replaying: HashMap<(u64, String), String>,
 - **`acp_import_session(sessionId, cwd, profileId, acpSessionId)`** (purpose `Import`).
 - **`acp_list_sessions(profileId, cwd)`**.
 
-All three are `#[tauri::command(async)]` and go through `launch_in_workspace`. As with
-`fork_in_workspace`, each has a plain helper (`reopen_in_workspace`, `list_in_workspace`)
-that the unit tests call.
+All three are `#[tauri::command(async)]` and go through `launch_in_workspace`, whose folder
+check is already covered by `commands.rs` unit tests; the commands add no logic of their own.
 
 ### Listing (`acp/session_list.rs`)
 
@@ -137,8 +136,8 @@ pub struct ListedSessions {
 `AcpManager::list_sessions(cwd, launch)`:
 
 1. `validate_cwd(cwd)`, `spawn_unrouted`, then `initialize` (`HANDSHAKE_TIMEOUT`).
-2. Without `sessionCapabilities.list`: error `"<agent> cannot list its sessions"`. The agent
-   name comes from the caller, which knows the profile.
+2. Without `sessionCapabilities.list`: error `"This agent cannot list its sessions"` (worded
+   like the existing "This agent cannot resume earlier sessions").
 3. Loop `session/list { cwd, cursor }`: `SESSION_REQUEST_TIMEOUT` per page, a 120 s budget
    after `initialize`, at most `MAX_LIST_PAGES = 10` pages and `MAX_LISTED_SESSIONS = 200`
    sessions. Stop at a missing or empty `nextCursor`.
@@ -256,7 +255,7 @@ stays hidden until the agent is signed in and probed again.
 |---|---|
 | Resume or load fails while continuing | As today: "Failed to resume <Agent>: …", session ended; the sign-in retry turns an unknown session into a fresh one plus handoff. |
 | Agent offers neither resume nor load | "This agent cannot resume earlier sessions" (as today). |
-| Agent has no `list` | "<Agent> cannot list its sessions." (rare, since the button is hidden). |
+| Agent has no `list` | "This agent cannot list its sessions" (rare, since the button is hidden). |
 | List needs a sign-in | The draft's sign-in panel opens. |
 | First list page fails or times out | Error in the list, **Try again**. |
 | A later page fails | The pages already read, plus "Some sessions could not be listed." |
@@ -313,8 +312,6 @@ The load replay gains a `user_message_chunk` before its `agent_message_chunk`.
 - Unit tests in `session_list.rs` for validation, title cleaning and the `cwd` comparison.
 - Probe tests check `can_list_sessions` on both paths, including the sign-in-only path
   (`!needs_options && reports_auth`).
-- `commands.rs` tests check that `list_in_workspace` and `reopen_in_workspace` refuse a
-  folder that is not a workspace.
 
 ### Vitest
 
