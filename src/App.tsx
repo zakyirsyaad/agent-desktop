@@ -40,7 +40,6 @@ import {
   mostRecentSessionId,
   nextSessionName,
   patchSessionIn,
-  removeSessionFrom,
 } from "./lib/session-helpers";
 import { useAppearance } from "./hooks/useAppearance";
 import { usePersistedState } from "./hooks/usePersistedState";
@@ -469,15 +468,13 @@ export default function App() {
     onNotice: setNotice,
   });
 
-  /** Removes a session an import made and then failed: its record, its history and its transcript. */
-  const discardSession = (id: string) => { navigation.remove(id); updateState((prev) => removeSessionFrom(prev, id)); removeTranscript(id); };
   // The draft's list of the agent's own sessions, and the import each row starts.
   const draftSessionList = useDraftSessionList({
     agent: isNewSessionDraft ? newSessionAgent : undefined, cwd: activeWorkspace?.path, sessions,
     activeSessionId,
     isShown: Boolean(isNewSessionDraft && newSessionAgent && agentCheck.canListSessions(newSessionAgent.id) && !(isWorktreeOn && canUseWorktree)),
     listSessions: acp.listSessions, acp, choices: startChoices, onChoicesUsed: () => setAcpChoices(NO_CHOICES),
-    recordSession, openSession: handleSelectSession, discardSession, openNewSession, requestSignIn: signIn.auth.requestSignIn,
+    recordSession, openSession: handleSelectSession, discardSession: sessionActions.discardSession, openNewSession, requestSignIn: signIn.auth.requestSignIn,
   });
 
   const sendTo = async (sessionId: string, message: FirstMessage) => {

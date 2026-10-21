@@ -21,12 +21,13 @@ export interface SessionActionsDeps {
 
 export interface SessionActions {
   deleteSession: (sessionId: string) => void;
+  discardSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => void;
   pinSession: (sessionId: string, isPinned: boolean) => void;
   archiveSession: (sessionId: string, isArchived: boolean) => Promise<void>;
 }
 
-/** What the sidebar's session rows can do to a session: delete, rename, pin and archive. */
+/** What can be done to a session: the sidebar's delete, rename, pin and archive, and an import's discard. */
 export function useSessionActions(deps: SessionActionsDeps): SessionActions {
   const { sessions, setActiveSessionId, patchSession, acp, onNotice } = deps;
   const sessionsRef = useLatest(sessions);
@@ -62,6 +63,17 @@ export function useSessionActions(deps: SessionActionsDeps): SessionActions {
     selectNextAfter(sessionId);
   };
 
+  /**
+   * Removes a session an import made and then failed: its record, its history
+   * and its transcript. Nothing was started for it, so no agent is stopped and
+   * the session open now does not change.
+   */
+  const discardSession = (sessionId: string) => {
+    deps.navigation.remove(sessionId);
+    deps.updateState((prev) => removeSessionFrom(prev, sessionId));
+    deps.removeTranscript(sessionId);
+  };
+
   const renameSession = (sessionId: string, name: string) => patchSession(sessionId, { name, namedByUser: true });
 
   const pinSession = (sessionId: string, isPinned: boolean) => patchSession(sessionId, { pinned: isPinned });
@@ -89,5 +101,5 @@ export function useSessionActions(deps: SessionActionsDeps): SessionActions {
     selectNextAfter(sessionId);
   };
 
-  return { deleteSession, renameSession, pinSession, archiveSession };
+  return { deleteSession, discardSession, renameSession, pinSession, archiveSession };
 }
