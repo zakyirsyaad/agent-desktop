@@ -135,6 +135,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
     session: Session,
     patchSession: (sessionId: string, patch: Partial<Session>) => void = () => {},
     transcripts: Readonly<Record<string, ChatMessage[]>> = {},
+    reportError: (message: string) => void = () => {},
   ) {
     return renderHook(
       ({ current }: { current: Session }) =>
@@ -144,7 +145,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
           transcripts,
           updateMessages: () => {},
           patchSession,
-          reportError: () => {},
+          reportError,
           rememberOptions: () => {},
           onAuthRequired: () => {},
         }),
@@ -337,6 +338,45 @@ describe("useAcpEngine retryAfterSignIn", () => {
       "acp_prompt",
     ]);
     expect(promptsSent(spy)).toEqual(["try again"]);
+  });
+
+  it("hands the conversation to a new ACP session when a resume-only agent no longer knows the old one", async () => {
+    let starts = 0;
+    const errors: string[] = [];
+    const spy = spyWith({
+      acp_start_session: () =>
+        Promise.resolve({ acpSessionId: `acp-${++starts}`, agentCapabilities: { sessionCapabilities: { resume: {} } } }),
+      acp_reopen_session: () => Promise.reject("session/resume failed: Resource not found: acp-1"),
+    });
+    const { result } = renderEngine(
+      { ...SESSION, acpSessionId: "acp-1" },
+      () => {},
+      EARLIER,
+      (message) => errors.push(message),
+    );
+    await act(async () => {
+      await result.current.start(SESSION);
+    });
+    await refuseAtPrompt();
+    spy.mockClear();
+
+    let isHandled: boolean | undefined;
+    await act(async () => {
+      isHandled = await result.current.retryAfterSignIn("s-1", { text: "try again" });
+    });
+
+    expect(callsOf(spy, "acp_stop_session", "acp_reopen_session", "write_fork_handoff", "acp_start_session", "acp_prompt")).toEqual([
+      "acp_stop_session",
+      "acp_reopen_session",
+      "write_fork_handoff",
+      "acp_start_session",
+      "acp_prompt",
+    ]);
+    expect(promptsSent(spy)[0]).toMatch(HANDOFF);
+    expect(promptsSent(spy)[0]).toMatch(/\n\ntry again$/);
+    // It did not end as a failed resume: the message went out in a fresh session.
+    expect(isHandled).toBe(true);
+    expect(errors).toEqual([]);
   });
 
   it("hands the conversation to a new ACP session when the agent no longer knows the old one", async () => {
