@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AgentAuth } from './useAgentAuth';
 import { useLatest } from './useLatest';
 import { parseAuthRequired } from '../lib/acp-auth';
+import { errorMessage } from '../lib/files';
 import { sessionsToOffer, type ListedSession, type ListedSessions } from '../lib/session-list';
 import type { Session } from '../types';
 
@@ -23,12 +24,6 @@ export interface AgentSessionListDeps {
   listSessions: (profileId: string, cwd: string) => Promise<ListedSessions>;
   /** The draft's sign-in panel: a list that needs a sign-in opens it instead of failing. */
   requestSignIn: AgentAuth['requestSignIn'];
-}
-
-function messageOf(error: unknown): string {
-  if (typeof error === 'string') return error;
-  if (error instanceof Error) return error.message;
-  return String(error);
 }
 
 /** Whether two offered lists hold the same entries, in the same order. */
@@ -103,7 +98,7 @@ export function useAgentSessionList({ profileId, cwd, sessions, listSessions, re
           setState({ kind: 'idle' });
           return;
         }
-        setState({ kind: 'failed', message: messageOf(error) });
+        setState({ kind: 'failed', message: errorMessage(error) });
       },
     );
   }, [profileId, cwd, currentRef, listSessionsRef, requestSignInRef, sessionsRef]);

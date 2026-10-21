@@ -3,15 +3,10 @@ import type { AgentAuth } from './useAgentAuth';
 import { useLatest } from './useLatest';
 import { parseAuthRequired } from '../lib/acp-auth';
 import type { AcpChoices } from '../lib/acp-draft';
+import { errorMessage } from '../lib/files';
 import { importedSessionSpec, type SessionSpec } from '../lib/session-start';
 import type { ListedSession } from '../lib/session-list';
 import type { AgentProfile, Session } from '../types';
-
-function messageOf(error: unknown): string {
-  if (typeof error === 'string') return error;
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
 
 export interface OpenNewSessionOptions {
   /** Leave the composer's picks for the draft that comes back: a failed import did not consume them. */
@@ -83,7 +78,7 @@ export function useSessionImport({
         if (activeSessionIdRef.current === session.id) openNewSession(cwd, agent.id, { keepChoices: true });
         const methods = parseAuthRequired(error);
         if (methods) requestSignIn(agent.id, cwd, methods);
-        else onImportError(`Could not open the session: ${messageOf(error)}`);
+        else onImportError(`Could not open the session: ${errorMessage(error)}`);
       })
       // The picks went with the import only once it opened: a failed one returns the draft as it was.
       .then((opened) => {
