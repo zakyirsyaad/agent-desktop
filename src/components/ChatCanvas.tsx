@@ -21,6 +21,11 @@ const COPIED_FEEDBACK_MS = 2000;
 /** How close to the bottom still counts as "following" new output. */
 const STICK_TO_BOTTOM_PX = 80;
 
+/** No label for a message replayed from the agent's history, which gives no per-message time. */
+function timeLabelOf(message: ChatMessage): string | undefined {
+  return message.hasKnownTime === false ? undefined : formatRelativeTime(message.timestamp);
+}
+
 /** An agent reply with no text, reasoning, plan, tools or card is noise, not a message. */
 function hasSomethingToShow(msg: ChatMessage): boolean {
   if (msg.role === "user") return true;
@@ -187,7 +192,7 @@ export function ChatCanvas({
 
             {isUser && (
               <UserMessageBar
-                timeLabel={formatRelativeTime(msg.timestamp)}
+                timeLabel={timeLabelOf(msg)}
                 copied={copiedMessageId === msg.id}
                 onCopy={() => handleCopyMessage(msg.id, msg.content)}
                 onRewind={onRewind ? () => onRewind(msg.id) : undefined}
@@ -198,7 +203,7 @@ export function ChatCanvas({
             {!isUser && (
               <MessageActionBar
                 copied={copiedMessageId === msg.id}
-                timeLabel={formatRelativeTime(msg.timestamp)}
+                timeLabel={timeLabelOf(msg)}
                 onCopy={() => handleCopyMessage(msg.id, msg.content)}
                 onFork={onForkBranch ? () => onForkBranch(msg.id) : undefined}
                 readAloud={

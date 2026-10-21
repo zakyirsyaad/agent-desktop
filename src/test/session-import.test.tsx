@@ -216,6 +216,10 @@ describe("Importing a session the agent listed", () => {
     await waitFor(() => expect(callsTo(spy, "acp_import_session")).toHaveLength(1));
     expect(await screen.findByText("earlier question")).toBeDefined();
     expect(screen.getByText("replayed history")).toBeDefined();
+    // The agent gives no per-message time: the replay must not claim "Just now".
+    const replayedMessages = Array.from(document.querySelectorAll("[data-testid^='chat-message-']"));
+    expect(replayedMessages).toHaveLength(2);
+    replayedMessages.forEach((message) => expect(message.textContent).not.toContain("Just now"));
     expect(sidebar().getByText("Fix the login")).toBeDefined();
     await waitFor(() =>
       expect(callsTo(spy, "acp_set_config_option").map(([, args]) => args)).toContainEqual({

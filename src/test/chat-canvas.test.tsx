@@ -642,6 +642,29 @@ describe("ChatCanvas: your messages and the session's header", () => {
     expect(onRewind).toHaveBeenCalledWith("u-1");
   });
 
+  it("shows no time under a message replayed without one", () => {
+    const replayed: ChatMessage[] = [
+      { id: "u-2", role: "user", content: "earlier", timestamp: Date.now(), hasKnownTime: false },
+      {
+        id: "a-2",
+        role: "agent",
+        content: "reply",
+        timestamp: Date.now(),
+        isComplete: true,
+        hasKnownTime: false,
+      },
+    ];
+
+    render(<ChatCanvas messages={replayed} />);
+
+    const yours = within(screen.getByTestId("chat-message-u-2"));
+    expect(yours.queryByText("Just now")).toBeNull();
+    expect(yours.getByRole("button", { name: "Copy message" })).toBeDefined();
+    const reply = within(screen.getByTestId("chat-message-a-2"));
+    expect(reply.queryByText("Just now")).toBeNull();
+    expect(reply.getByRole("button", { name: "Copy message" })).toBeDefined();
+  });
+
   it("turns a Rewind left unconfirmed back by itself", () => {
     vi.useFakeTimers();
     try {

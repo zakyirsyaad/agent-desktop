@@ -2,7 +2,8 @@ import { Copy, Check, GitBranch, Volume2, Square } from "lucide-react";
 
 export interface MessageActionBarProps {
   copied: boolean;
-  timeLabel: string;
+  /** Undefined for a replayed message, whose time the agent did not report. */
+  timeLabel?: string;
   onCopy: () => void;
   /** Fork is offered only when the host app can fork a session. */
   onFork?: () => void;
@@ -71,7 +72,7 @@ export function MessageActionBar({
         </button>
       )}
 
-      <span className="text-fg-muted">{timeLabel}</span>
+      {timeLabel && <span className="text-fg-muted">{timeLabel}</span>}
     </div>
   );
 }

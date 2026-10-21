@@ -217,6 +217,8 @@ export interface ChatMessage {
   role: 'user' | 'agent';
   content: string;
   timestamp: number;
+  /** False for a message replayed from the agent's history, which gives no per-message time. */
+  hasKnownTime?: boolean;
   tools?: ToolExecution[];
   actionCard?: ActionCard;
   /** The agent's visible reasoning for this reply, when it streams any. */

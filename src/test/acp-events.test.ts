@@ -456,8 +456,25 @@ describe("applyReplayUpdate", () => {
   it("hands agent text and tool calls to the normal reducer", () => {
     const base: ChatMessage[] = [{ id: "u-1", role: "user", content: "go", timestamp: 1 }];
     const toolCall = { sessionUpdate: "tool_call", toolCallId: "t-1", title: "Read", status: "in_progress" };
+    // The replay's missing time is its only difference: the rest is the normal reducer's work.
+    const withoutTime = (messages: ChatMessage[]) =>
+      messages.map(({ hasKnownTime: _hasKnownTime, ...message }) => message);
 
-    expect(applyReplayUpdate(base, text("Done"), ctx())).toEqual(applyAcpUpdate(base, text("Done"), ctx()));
-    expect(applyReplayUpdate(base, toolCall, ctx())).toEqual(applyAcpUpdate(base, toolCall, ctx()));
+    expect(withoutTime(applyReplayUpdate(base, text("Done"), ctx()))).toEqual(applyAcpUpdate(base, text("Done"), ctx()));
+    expect(withoutTime(applyReplayUpdate(base, toolCall, ctx()))).toEqual(applyAcpUpdate(base, toolCall, ctx()));
+  });
+
+  it("marks replayed messages as having no known time", () => {
+    const c = ctx();
+    const user = applyReplayUpdate([], userChunk("first"), c);
+    const messages = applyReplayUpdate(user, text("one"), c);
+
+    expect(messages.map((m) => m.hasKnownTime)).toEqual([false, false]);
+  });
+
+  it("leaves a live message's time known", () => {
+    const message = applyAcpUpdate([], text("live"), ctx())[0];
+
+    expect(message.hasKnownTime).toBeUndefined();
   });
 });
