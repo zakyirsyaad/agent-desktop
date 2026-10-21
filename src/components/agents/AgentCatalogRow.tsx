@@ -62,14 +62,9 @@ export function AgentCatalogRow({
         {isBusy && <InstallProgressLine progress={job.progress} onCancel={job.cancel} action={job.action} />}
         {isBusy && job.error && <p className="mt-2 text-danger">{job.error}</p>}
         {hasFailed && (
-          <>
-            <p className="mt-2 text-danger">
-              {job.action === "update" ? "Update" : "Install"} failed: {job.error}
-            </p>
-            <Button onClick={retry} icon={<RotateCcw size={12} aria-hidden="true" />} className="mt-2">
-              Retry
-            </Button>
-          </>
+          <Button onClick={retry} icon={<RotateCcw size={12} aria-hidden="true" />} className="mt-2">
+            Retry
+          </Button>
         )}
 
         {isConfirmingRemove && (
