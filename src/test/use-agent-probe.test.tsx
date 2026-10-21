@@ -28,6 +28,7 @@ const PROBED = {
   ],
   commands: [{ name: "review", description: "Review the changes" }],
   signInChecked: true,
+  canListSessions: true,
 };
 
 function probeCalls(spy: { mock: { calls: unknown[][] } }) {
@@ -56,13 +57,26 @@ describe("useAgentProbe", () => {
 
     await waitFor(() => expect(props.onProbed).toHaveBeenCalledTimes(1));
     expect(probeCalls(spy)[0][1]).toEqual({ profileId: "qwen-code", cwd: CWD, needsOptions: true });
-    const [profileId, options, signInChecked] = props.onProbed.mock.calls[0];
-    expect(signInChecked).toBe(true);
+    const [profileId, options, facts] = props.onProbed.mock.calls[0];
+    expect(facts).toEqual({ signInChecked: true, canListSessions: true });
     expect(profileId).toBe("qwen-code");
     expect(options.modes?.currentModeId).toBe("default");
     expect(options.configOptions[0].id).toBe("model");
     expect(options.commands).toEqual([{ name: "review", description: "Review the changes" }]);
     expect(result.current.isProbing("qwen-code")).toBe(false);
+  });
+
+  it("reports no session list when the probe answer does not say the agent has one", async () => {
+    const answer: Record<string, unknown> = { ...structuredClone(PROBED) };
+    delete answer.canListSessions;
+    vi.spyOn(tauriInternals(), "invoke").mockResolvedValue(answer);
+    const props = deps();
+
+    renderHook(() => useAgentProbe(props));
+
+    await waitFor(() => expect(props.onProbed).toHaveBeenCalledTimes(1));
+    const [, , facts] = props.onProbed.mock.calls[0];
+    expect(facts).toEqual({ signInChecked: true, canListSessions: false });
   });
 
   it("says which agent it is asking while it waits", async () => {
