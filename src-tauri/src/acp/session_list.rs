@@ -42,8 +42,8 @@ pub struct ListedSession {
     pub updated_at: Option<String>,
 }
 
-/// What one listing read: `truncated` when a cap was reached, `incomplete`
-/// when a later page failed and only the earlier ones are included.
+/// What one listing read: `truncated` when entries were left unread,
+/// `incomplete` when a later page failed and only the earlier ones are included.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListedSessions {
@@ -78,7 +78,7 @@ fn read_pages(connection: &AcpConnection, cwd: &str) -> Result<ListedSessions, S
     let mut cursor: Option<String> = None;
     let mut pages = 0;
     loop {
-        if pages >= MAX_LIST_PAGES || sessions.len() >= MAX_LISTED_SESSIONS {
+        if pages >= MAX_LIST_PAGES {
             return Ok(ListedSessions {
                 sessions,
                 truncated: true,
@@ -109,7 +109,12 @@ fn read_pages(connection: &AcpConnection, cwd: &str) -> Result<ListedSessions, S
         ) {
             Ok(Ok(page)) => {
                 pages += 1;
-                for entry in page["sessions"].as_array().into_iter().flatten() {
+                let mut unread = false;
+                let entries = page["sessions"]
+                    .as_array()
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                for (index, entry) in entries.iter().enumerate() {
                     let Some(session) = listed_session(entry, folder) else {
                         continue;
                     };
@@ -119,21 +124,25 @@ fn read_pages(connection: &AcpConnection, cwd: &str) -> Result<ListedSessions, S
                     }
                     sessions.push(session);
                     if sessions.len() == MAX_LISTED_SESSIONS {
+                        unread = index + 1 < entries.len();
                         break;
                     }
                 }
+                // A missing or empty cursor is the end; a cursor is otherwise
+                // opaque and passed back exactly as the agent gave it.
+                let next = page["nextCursor"].as_str().filter(|next| !next.is_empty());
                 if sessions.len() >= MAX_LISTED_SESSIONS {
+                    // The cap only truncates the list when this page has
+                    // entries left or another page follows.
                     return Ok(ListedSessions {
                         sessions,
-                        truncated: true,
+                        truncated: unread || next.is_some(),
                         incomplete: false,
                     });
                 }
-                // A missing or empty cursor is the end; a cursor is otherwise
-                // opaque and passed back exactly as the agent gave it.
-                match page["nextCursor"].as_str() {
-                    Some(next) if !next.is_empty() => cursor = Some(next.to_string()),
-                    _ => {
+                match next {
+                    Some(next) => cursor = Some(next.to_string()),
+                    None => {
                         return Ok(ListedSessions {
                             sessions,
                             truncated: false,

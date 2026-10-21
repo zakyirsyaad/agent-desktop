@@ -160,6 +160,53 @@ fn stops_at_the_session_cap() {
 }
 
 #[test]
+fn does_not_truncate_an_exact_cap_on_the_last_page() {
+    let cwd = cwd();
+    let page: Vec<Value> = (0..MAX_LISTED_SESSIONS)
+        .map(|index| session(&format!("s-{index}"), &cwd))
+        .collect();
+    let pages = PagesFile::new("exact-cap", json!([page]));
+    let (manager, _rx) = manager();
+
+    let listed = manager
+        .list_sessions(&cwd, &listing_agent(&pages))
+        .expect("list the sessions");
+
+    assert_eq!(listed.sessions.len(), MAX_LISTED_SESSIONS);
+    assert_eq!(
+        listed.sessions[MAX_LISTED_SESSIONS - 1].acp_session_id,
+        format!("s-{}", MAX_LISTED_SESSIONS - 1)
+    );
+    assert!(
+        !listed.truncated,
+        "an exact cap on the last page is complete"
+    );
+    assert!(!listed.incomplete);
+}
+
+#[test]
+fn truncates_when_a_page_holds_more_than_the_cap() {
+    let cwd = cwd();
+    let page: Vec<Value> = (0..MAX_LISTED_SESSIONS + 1)
+        .map(|index| session(&format!("s-{index}"), &cwd))
+        .collect();
+    let pages = PagesFile::new("over-cap", json!([page]));
+    let (manager, _rx) = manager();
+
+    let listed = manager
+        .list_sessions(&cwd, &listing_agent(&pages))
+        .expect("list the sessions");
+
+    assert_eq!(listed.sessions.len(), MAX_LISTED_SESSIONS);
+    assert_eq!(
+        listed.sessions[MAX_LISTED_SESSIONS - 1].acp_session_id,
+        format!("s-{}", MAX_LISTED_SESSIONS - 1)
+    );
+    assert!(listed.truncated, "an unread entry remains");
+    assert!(!listed.incomplete);
+}
+
+#[test]
 fn keeps_earlier_pages_when_a_later_one_fails() {
     let cwd = cwd();
     let pages = PagesFile::new(
