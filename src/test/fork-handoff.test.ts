@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  FORK_FIRST_MESSAGE,
   MAX_HANDOFF_CHARS,
   buildForkHandoff,
   buildForkPrompt,
@@ -281,12 +282,12 @@ describe("buildForkHandoff truncation", () => {
 });
 
 describe("buildForkPrompt", () => {
-  it("asks the agent to read the handoff file and confirm readiness", () => {
+  it("tells the fresh agent to read the handoff and carry on, without naming the file", () => {
     const prompt = buildForkPrompt("/data/handoffs/abc-123.md");
 
     expect(prompt).toBe(
       'Read the file "/data/handoffs/abc-123.md" for the context of a previous session, ' +
-        "then continue from where it left off. Reply briefly that you are ready.",
+        "then continue from where it left off. Do not mention the file.",
     );
     expect(prompt).toContain("/data/handoffs/abc-123.md");
   });
@@ -311,7 +312,14 @@ describe("buildForkPrompt", () => {
     expect(prompt).not.toContain("\r");
     expect(prompt.replace(/\s+/g, " ")).toContain("/data/hand offs/ab c.md");
     expect(prompt.startsWith('Read the file "')).toBe(true);
-    expect(prompt.endsWith("Reply briefly that you are ready.")).toBe(true);
+    expect(prompt.endsWith("Do not mention the file.")).toBe(true);
+  });
+});
+
+describe("FORK_FIRST_MESSAGE", () => {
+  it("is the short message the chat shows instead of the handoff instruction", () => {
+    expect(FORK_FIRST_MESSAGE).toBe("Continue from where the previous session left off.");
+    expect(FORK_FIRST_MESSAGE).not.toContain("/");
   });
 });
 

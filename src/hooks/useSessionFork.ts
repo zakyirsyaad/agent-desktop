@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { AcpEngine, FirstMessage } from './session-engine/useAcpEngine';
-import { buildForkHandoff, buildForkPrompt } from '../lib/fork-handoff';
+import { buildForkHandoff, buildForkPrompt, FORK_FIRST_MESSAGE } from '../lib/fork-handoff';
 import { createId } from '../lib/ids';
 import type { SessionSpec } from '../lib/session-start';
 import type { AgentProfile, ChatMessage, Session } from '../types';
@@ -59,7 +59,8 @@ export function useSessionFork(deps: SessionForkDeps): (messageId: string) => Pr
         createdAt: Date.now(),
       });
       const handoffPath = await invoke<string>('write_fork_handoff', { handoffId: spec.id, content });
-      startSession(spec, { text: buildForkPrompt(handoffPath) });
+      // The path stays hidden: the chat shows only the short continue message.
+      startSession(spec, { text: FORK_FIRST_MESSAGE, context: buildForkPrompt(handoffPath) });
     } catch (error) {
       onNotice(`Could not fork the session: ${String(error)}`);
     }

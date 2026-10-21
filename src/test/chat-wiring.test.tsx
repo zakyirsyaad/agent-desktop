@@ -105,8 +105,10 @@ describe("Chat wiring", () => {
     await waitFor(() => expect(callsTo(spy, "acp_prompt")).toHaveLength(1));
     const [, promptArgs] = callsTo(spy, "acp_prompt")[0];
     expect(promptArgs?.sessionId).toBe(startArgs?.sessionId);
+    // The handoff path goes to the agent as hidden context, not as the fork's first message.
     expect(String(promptArgs?.text)).toContain(`/fake/app-data/handoffs/${startArgs?.sessionId}.md`);
-    expect(String(promptArgs?.text).trimEnd()).not.toContain("\n");
+    expect(screen.getByText("Continue from where the previous session left off.")).toBeDefined();
+    expect(screen.queryByText(/Read the file/)).toBeNull();
   });
 
   it("attaches files picked with Attach to the message", async () => {
