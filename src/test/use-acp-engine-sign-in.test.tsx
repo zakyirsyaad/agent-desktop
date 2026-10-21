@@ -172,12 +172,12 @@ describe("useAcpEngine retryAfterSignIn", () => {
       await result.current.retryAfterSignIn("s-1", { text: "try again" });
     });
 
-    expect(callsOf(spy, "acp_stop_session", "acp_load_session", "acp_prompt")).toEqual([
+    expect(callsOf(spy, "acp_stop_session", "acp_reopen_session", "acp_prompt")).toEqual([
       "acp_stop_session",
-      "acp_load_session",
+      "acp_reopen_session",
       "acp_prompt",
     ]);
-    const load = spy.mock.calls.find(([cmd]) => cmd === "acp_load_session");
+    const load = spy.mock.calls.find(([cmd]) => cmd === "acp_reopen_session");
     expect((load?.[1] as { acpSessionId: string }).acpSessionId).toBe("acp-1");
     expect(promptsSent(spy)).toEqual(["try again"]);
   });
@@ -194,7 +194,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
       await result.current.retryAfterSignIn("s-1", { text: "try again" });
     });
 
-    expect(callsOf(spy, "acp_stop_session", "acp_start_session", "acp_load_session", "acp_prompt")).toEqual([
+    expect(callsOf(spy, "acp_stop_session", "acp_start_session", "acp_reopen_session", "acp_prompt")).toEqual([
       "acp_stop_session",
       "acp_start_session",
       "acp_prompt",
@@ -241,7 +241,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
     let starts = 0;
     const spy = spyWith({
       acp_start_session: () => Promise.resolve({ acpSessionId: `acp-${++starts}`, agentCapabilities: { loadSession: true } }),
-      acp_load_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
+      acp_reopen_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
     });
     const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" });
     await act(async () => {
@@ -254,9 +254,9 @@ describe("useAcpEngine retryAfterSignIn", () => {
       isHandled = await result.current.retryAfterSignIn("s-1", { text: "try again" });
     });
 
-    expect(callsOf(spy, "acp_stop_session", "acp_load_session", "acp_start_session", "acp_prompt")).toEqual([
+    expect(callsOf(spy, "acp_stop_session", "acp_reopen_session", "acp_start_session", "acp_prompt")).toEqual([
       "acp_stop_session",
-      "acp_load_session",
+      "acp_reopen_session",
       "acp_start_session",
       "acp_prompt",
     ]);
@@ -271,7 +271,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
     let starts = 0;
     const spy = spyWith({
       acp_start_session: () => Promise.resolve({ acpSessionId: `acp-${++starts}`, agentCapabilities: { loadSession: true } }),
-      acp_load_session: () => Promise.reject(loadError),
+      acp_reopen_session: () => Promise.reject(loadError),
     });
     const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" });
     await act(async () => {
@@ -285,7 +285,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
     });
 
     // A fresh ACP session would lose the conversation the agent still has.
-    expect(callsOf(spy, "acp_load_session", "acp_start_session")).toEqual(["acp_load_session"]);
+    expect(callsOf(spy, "acp_reopen_session", "acp_start_session")).toEqual(["acp_reopen_session"]);
     expect(promptsSent(spy)).toEqual([]);
     expect(isHandled).toBe(false);
   });
@@ -318,11 +318,32 @@ describe("useAcpEngine retryAfterSignIn", () => {
     expect(promptsSent(spy)[0]).toMatch(/\n\ntry again$/);
   });
 
+  it("continues a resume-only agent after a sign-in", async () => {
+    const spy = spyOnInvoke({ sessionCapabilities: { resume: {} } });
+    const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" }, () => {}, EARLIER);
+    await act(async () => {
+      await result.current.start(SESSION);
+    });
+    await refuseAtPrompt();
+    spy.mockClear();
+
+    await act(async () => {
+      await result.current.retryAfterSignIn("s-1", { text: "try again" });
+    });
+
+    expect(callsOf(spy, "acp_stop_session", "write_fork_handoff", "acp_start_session", "acp_reopen_session", "acp_prompt")).toEqual([
+      "acp_stop_session",
+      "acp_reopen_session",
+      "acp_prompt",
+    ]);
+    expect(promptsSent(spy)).toEqual(["try again"]);
+  });
+
   it("hands the conversation to a new ACP session when the agent no longer knows the old one", async () => {
     let starts = 0;
     const spy = spyWith({
       acp_start_session: () => Promise.resolve({ acpSessionId: `acp-${++starts}`, agentCapabilities: { loadSession: true } }),
-      acp_load_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
+      acp_reopen_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
     });
     const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" }, () => {}, EARLIER);
     await act(async () => {
@@ -334,8 +355,8 @@ describe("useAcpEngine retryAfterSignIn", () => {
       await result.current.retryAfterSignIn("s-1", { text: "try again" });
     });
 
-    expect(callsOf(spy, "acp_load_session", "write_fork_handoff", "acp_start_session")).toEqual([
-      "acp_load_session",
+    expect(callsOf(spy, "acp_reopen_session", "write_fork_handoff", "acp_start_session")).toEqual([
+      "acp_reopen_session",
       "write_fork_handoff",
       "acp_start_session",
     ]);
@@ -349,7 +370,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
         starts++ === 0
           ? Promise.resolve({ acpSessionId: "acp-1", agentCapabilities: { loadSession: true } })
           : Promise.reject("spawn failed"),
-      acp_load_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
+      acp_reopen_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
     });
     const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" }, () => {}, EARLIER);
     await act(async () => {
@@ -374,7 +395,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
         starts++ === 0
           ? Promise.resolve({ acpSessionId: "acp-1", agentCapabilities: { loadSession: true } })
           : Promise.reject("spawn failed"),
-      acp_load_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
+      acp_reopen_session: () => Promise.reject("session/load failed: Resource not found: acp-1"),
     });
     const { result } = renderEngine({ ...SESSION, acpSessionId: "acp-1" });
     await act(async () => {
@@ -410,7 +431,7 @@ describe("useAcpEngine retryAfterSignIn", () => {
     });
 
     expect(isHandled).toBe(false);
-    expect(callsOf(spy, "acp_load_session", "acp_start_session")).toEqual(["acp_start_session"]);
+    expect(callsOf(spy, "acp_reopen_session", "acp_start_session")).toEqual(["acp_start_session"]);
     expect(promptsSent(spy)[1]).toBe("EARLIER CONVERSATION\n\ntry again");
   });
 

@@ -59,7 +59,8 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
       return Promise.resolve(undefined);
     case "acp_start_session":
     case "acp_fork_session":
-    case "acp_load_session":
+    case "acp_reopen_session":
+    case "acp_import_session":
       // Shaped like Qwen Code's real answer; it starts in YOLO like the user's own config.
       return Promise.resolve({
         acpSessionId:
@@ -75,6 +76,10 @@ function handleStoreCommand(cmd: string, args: StoreArgs | undefined): Promise<u
         models: null,
         configOptions: [],
       });
+    case "acp_list_sessions": {
+      const fake = (window as unknown as { __FAKE_ACP_LIST__?: unknown }).__FAKE_ACP_LIST__;
+      return Promise.resolve(structuredClone(fake ?? { sessions: [], truncated: false, incomplete: false }));
+    }
     case "acp_set_config_option":
       return Promise.resolve([]);
     case "acp_cancel":
@@ -119,6 +124,7 @@ if (typeof window !== "undefined") {
     // Imported here, not at the top: a static import would load the module before a test file's vi.mock applies.
     (await import("../lib/agent-icons")).resetAgentIcons();
     (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
+    delete (window as unknown as { __FAKE_ACP_LIST__?: unknown }).__FAKE_ACP_LIST__;
   });
 }
 

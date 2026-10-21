@@ -324,9 +324,9 @@ export function useAcpEngine({
       action: 'start',
     });
 
-  /** Continues an ended session in a fresh agent process through the agent's own session/load. */
+  /** Continues an ended session in a fresh agent process through the agent's own session/resume or session/load. */
   const resume = (session: Session, acpSessionId: string, first?: FirstMessage, choices: AcpChoices = NO_CHOICES) =>
-    launch(session, () => acp.load(session.id, session.cwd, session.profileId, acpSessionId), {
+    launch(session, () => acp.reopen(session.id, session.cwd, session.profileId, acpSessionId), {
       first,
       choices,
       applySafeMode: true,
@@ -353,12 +353,12 @@ export function useAcpEngine({
     const session = sessions.find((s) => s.id === sessionId);
     // Deleted meanwhile: there is no session to give the message back to.
     if (!session) return true;
-    const canLoad = acp.info[sessionId]?.canLoad === true;
+    const canReopen = acp.info[sessionId]?.canReopen === true;
     // Taken before stop, which forgets it.
     const hidden = message.context ?? takeUnsentContext(sessionId);
     const wasTerminated = session.status === 'terminated';
     const { acpSessionId } = session;
-    const startsAnew = !acpSessionId || !(wasTerminated || canLoad);
+    const startsAnew = !acpSessionId || !(wasTerminated || canReopen);
     // A fresh ACP session does not have the conversation: it is handed over, before the old agent stops.
     let handoff: string | undefined;
     if (startsAnew && !hidden) {
@@ -389,12 +389,12 @@ export function useAcpEngine({
         throw error;
       });
     };
-    const load = () => acp.load(session.id, session.cwd, session.profileId, acpSessionId);
+    const reopenSession = () => acp.reopen(session.id, session.cwd, session.profileId, acpSessionId);
     // A session refused at a prompt may have had no turn the agent kept: when the agent does not know it,
     // it starts anew. Any other failure keeps the session, whose conversation the agent may still have.
     const reopen = wasTerminated
-      ? load
-      : () => load().catch((error: unknown) => (isUnknownSessionError(error) ? openNew() : Promise.reject(error)));
+      ? reopenSession
+      : () => reopenSession().catch((error: unknown) => (isUnknownSessionError(error) ? openNew() : Promise.reject(error)));
     return launch(session, reopen, { first, choices, applySafeMode: true, action: 'resume' });
   };
 

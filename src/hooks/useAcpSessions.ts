@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useLatest } from './useLatest';
 import type { PermissionRequestPayload } from '../lib/acp-events';
 import { toElicitationCard } from '../lib/acp-elicitation';
+import { toListedSessions, type ListedSessions } from '../lib/session-list';
 import type { ContextUsage, ElicitationAnswer, ElicitationCard, SlashCommand } from '../types';
 
 /** The one event channel the backend emits ACP traffic on. */
@@ -38,8 +39,10 @@ export interface AcpSessionInfo {
   /** Context window use, from the agent's latest usage_update. */
   usage?: ContextUsage;
   canFork: boolean;
-  /** The agent can reopen a session of its own (session/load). */
-  canLoad: boolean;
+  /** The agent can reopen a session of its own (session/resume or session/load). */
+  canReopen: boolean;
+  /** How the backend reopened an earlier session; absent for a start or a fork. */
+  reopenedWith?: 'resume' | 'load';
   isBusy: boolean;
 }
 
@@ -109,13 +112,16 @@ function toInfo(raw: unknown): AcpSessionInfo {
   const started = isObject(raw) ? raw : {};
   const capabilities = isObject(started.agentCapabilities) ? started.agentCapabilities : {};
   const sessionCaps = isObject(capabilities.sessionCapabilities) ? capabilities.sessionCapabilities : {};
+  const reopenedWith =
+    started.reopenedWith === 'resume' || started.reopenedWith === 'load' ? started.reopenedWith : undefined;
   return {
     acpSessionId: isString(started.acpSessionId) ? started.acpSessionId : '',
     modes: toModes(started.modes),
     configOptions: toConfigOptions(started.configOptions),
     commands: [],
     canFork: isObject(sessionCaps.fork),
-    canLoad: capabilities.loadSession === true,
+    canReopen: capabilities.loadSession === true || isObject(sessionCaps.resume),
+    ...(reopenedWith ? { reopenedWith } : {}),
     isBusy: false,
   };
 }
@@ -245,10 +251,23 @@ export function useAcpSessions(handlers: AcpHandlers) {
     [remember],
   );
 
-  const load = useCallback(
+  const reopen = useCallback(
     async (sessionId: string, cwd: string, profileId: string, acpSessionId: string) =>
-      remember(sessionId, await invoke('acp_load_session', { sessionId, cwd, profileId, acpSessionId })),
+      remember(sessionId, await invoke('acp_reopen_session', { sessionId, cwd, profileId, acpSessionId })),
     [remember],
+  );
+
+  const importSession = useCallback(
+    async (sessionId: string, cwd: string, profileId: string, acpSessionId: string) =>
+      remember(sessionId, await invoke('acp_import_session', { sessionId, cwd, profileId, acpSessionId })),
+    [remember],
+  );
+
+  /** The agent's sessions in `cwd`, as the backend validated them. */
+  const listSessions = useCallback(
+    async (profileId: string, cwd: string): Promise<ListedSessions> =>
+      toListedSessions(await invoke('acp_list_sessions', { profileId, cwd })),
+    [],
   );
 
   const fork = useCallback(
@@ -334,7 +353,9 @@ export function useAcpSessions(handlers: AcpHandlers) {
   return {
     info,
     start,
-    load,
+    reopen,
+    importSession,
+    listSessions,
     fork,
     prompt,
     cancel,
