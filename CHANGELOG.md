@@ -4,6 +4,8 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-22
+
 ### Added
 
 - **Install agents from Zorvo.** Choose an agent that is not installed and click **Install**. Zorvo downloads it, and Node.js or uv when you need them, and checks every download against its SHA-256 hash. You can write your first message while it installs. Setup no longer needs an installed agent: on a Mac without Node.js, the first new session offers **Install**.
@@ -94,7 +96,8 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 - Approval safety, terminal handling, the stream parser and working folders. ([#1])
 
-[Unreleased]: https://github.com/zakyirsyaad/zorvo/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/zakyirsyaad/zorvo/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/zakyirsyaad/zorvo/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zakyirsyaad/zorvo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zakyirsyaad/zorvo/releases/tag/v0.1.0
 [#1]: https://github.com/zakyirsyaad/zorvo/pull/1
