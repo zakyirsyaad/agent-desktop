@@ -397,7 +397,14 @@ export function useAcpEngine({
     choices: AcpChoices,
     onOpenError: (error: unknown) => void,
   ): Promise<boolean> => {
-    const { id } = session;
+    const { id, acpSessionId } = session;
+    // Nothing to load without the agent's own id: the backend would send
+    // `session/load` with an empty one, and its error would read as an import
+    // failure. The caller undoes the record it made for the import.
+    if (!acpSessionId) {
+      onOpenError(new Error('This session has no agent session id.'));
+      return false;
+    }
     // The replay's user chunks open turns only while the import is opening.
     replayingRef.current.add(id);
     let reopenedWith: AcpSessionInfo['reopenedWith'];
@@ -406,7 +413,7 @@ export function useAcpEngine({
       const opening = launch(
         session,
         async () => {
-          const info = await acp.importSession(id, session.cwd, session.profileId, session.acpSessionId ?? '');
+          const info = await acp.importSession(id, session.cwd, session.profileId, acpSessionId);
           reopenedWith = info.reopenedWith;
           return info;
         },

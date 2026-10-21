@@ -17,6 +17,7 @@ import App from "../App";
 import { useAcpEngine } from "../hooks/session-engine/useAcpEngine";
 import { useSessionImport } from "../hooks/useSessionImport";
 import { NO_CHOICES } from "../lib/acp-draft";
+import { newSessionRecord } from "../lib/session-start";
 import { fakeProfiles } from "./fixtures/agents";
 import type { AgentProfile, ChatMessage, Session } from "../types";
 
@@ -479,6 +480,74 @@ describe("Importing a session a Zorvo session already holds", () => {
     expect(openSession).toHaveBeenCalledWith("s-held");
     expect(recordSession).not.toHaveBeenCalled();
     expect(importSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("Importing a record with no agent session id", () => {
+  const CLAUDE = { id: "claude-acp", name: "Claude Code" } as AgentProfile;
+  const LISTED = { acpSessionId: "listed-1", title: "Fix the login" };
+  const CWD = "/Users/test/developer/ai-perpetual-trading";
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    listeners.clear();
+  });
+
+  it("refuses before asking the agent and leaves no record or transcript behind", async () => {
+    const spy = stubInvoke({});
+    const onImportError = vi.fn();
+    const onChoicesUsed = vi.fn();
+    let sessions: Session[] = [];
+    let recordedId = "";
+
+    const { result } = renderHook(() => {
+      const engine = useAcpEngine({
+        sessions,
+        agents: fakeProfiles,
+        updateMessages: vi.fn(),
+        patchSession: vi.fn(),
+        reportError: vi.fn(),
+        rememberOptions: vi.fn(),
+        onAuthRequired: vi.fn(),
+      });
+      return useSessionImport({
+        sessions,
+        agent: CLAUDE,
+        cwd: CWD,
+        activeSessionId: "",
+        acp: engine,
+        choices: NO_CHOICES,
+        onChoicesUsed,
+        recordSession: (spec) => {
+          // The app's own helper, with the agent's id lost on the way.
+          const session = newSessionRecord({ ...spec, acpSessionId: undefined });
+          recordedId = session.id;
+          sessions = [session, ...sessions];
+          return session;
+        },
+        openSession: vi.fn(),
+        discardSession: (sessionId) => {
+          sessions = sessions.filter((session) => session.id !== sessionId);
+        },
+        openNewSession: vi.fn(),
+        requestSignIn: vi.fn(),
+        onImportError,
+      });
+    });
+
+    await act(async () => {
+      result.current(LISTED);
+    });
+
+    // The backend was never asked to load an empty id, so no agent was launched.
+    expect(callsTo(spy, "acp_import_session")).toHaveLength(0);
+    expect(onImportError).toHaveBeenCalledWith("Could not open the session: This session has no agent session id.");
+    // The record made for the import was taken back, with nothing written for it.
+    expect(sessions).toHaveLength(0);
+    expect(recordedId).not.toBe("");
+    expect(callsTo(spy, "save_transcript").filter(([, args]) => args?.sessionId === recordedId)).toHaveLength(0);
+    expect(fakeStore().transcripts[recordedId]).toBeUndefined();
+    expect(onChoicesUsed).not.toHaveBeenCalled();
   });
 });
 
