@@ -61,7 +61,7 @@ function isWorktree(value: unknown): value is SessionWorktree {
 
 /** A session keeps everything else when one of its optional fields is malformed. */
 function withValidFields(session: Session): Session {
-  const { worktree, pinned, archivedAt, namedByUser, hasUnread, ...rest } = session;
+  const { worktree, pinned, archivedAt, namedByUser, hasUnread, historyElsewhere, ...rest } = session;
   return {
     ...rest,
     ...(worktree == null || isWorktree(worktree) ? { worktree } : {}),
@@ -69,6 +69,7 @@ function withValidFields(session: Session): Session {
     ...(archivedAt == null || typeof archivedAt === 'number' ? { archivedAt } : {}),
     ...(typeof namedByUser === 'boolean' ? { namedByUser } : {}),
     ...(typeof hasUnread === 'boolean' ? { hasUnread } : {}),
+    ...(typeof historyElsewhere === 'boolean' ? { historyElsewhere } : {}),
   };
 }
 

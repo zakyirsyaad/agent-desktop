@@ -124,6 +124,8 @@ export interface Session {
   namedByUser?: boolean;
   /** The agent finished while the user was looking at another session. */
   hasUnread?: boolean;
+  /** The session was imported where the agent kept it, so its earlier messages are not shown here. */
+  historyElsewhere?: boolean;
 }
 
 export interface Settings {

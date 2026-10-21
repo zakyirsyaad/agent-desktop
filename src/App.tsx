@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatCanvas } from "./components/ChatCanvas";
+import { HistoryElsewhereNote } from "./components/chat/HistoryElsewhereNote";
 import { ComposerDock, type ComposerHandle } from "./components/ComposerDock";
 import { RemovedAgentPanel } from "./components/RemovedAgentPanel";
 import { FilesPanel } from "./components/FilesPanel";
@@ -627,7 +628,7 @@ export default function App() {
           />
           <SignInLayer signIn={signIn} agents={agents} />
           {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
-          {activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId)) ? (
+          {activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId) || activeSession.historyElsewhere) ? (
             <ChatCanvas
               conversationId={activeSessionId}
               messages={currentMessages}
@@ -635,7 +636,10 @@ export default function App() {
               onForkBranch={(messageId) => void forkSession(messageId)}
               onRewind={(messageId) => void rewind(activeSession, messageId)}
               header={
-                <div className="rounded-xl border border-border bg-surface-1 px-4 py-3">
+                <div className="space-y-3 rounded-xl border border-border bg-surface-1 px-4 py-3">
+                  {activeSession.historyElsewhere && (
+                    <HistoryElsewhereNote agentName={activeAgent?.name ?? "the agent"} />
+                  )}
                   <WorkspaceSummary
                     name={folderNameOf(workspacePathOf(activeSession))}
                     path={shownFolderPath ?? activeSession.cwd}
