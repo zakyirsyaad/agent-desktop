@@ -32,7 +32,7 @@ use routing::{answer, route_event};
 pub const PROTOCOL_VERSION: u64 = 1;
 /// The first start may download an adapter through npx, so allow a long handshake.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(180);
-const SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+pub(super) const SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// JSON-RPC "method not found", returned for client methods we do not offer.
 const METHOD_NOT_FOUND: i64 = -32601;
 /// ACP's "authentication required" error code.
@@ -634,14 +634,17 @@ pub(super) fn open_request(
         .map_err(OpenError::Transport)?
     {
         Ok(result) => Ok(result),
-        Err(error) if is_auth_required(&error) => Err(OpenError::Agent(auth_required_error(
-            &auth_methods_of(init),
-        ))),
-        Err(error) => Err(OpenError::Agent(format!(
-            "{} failed: {}",
-            method,
-            error_message(&error)
-        ))),
+        Err(error) => Err(OpenError::Agent(agent_error(method, init, &error))),
+    }
+}
+
+/// The error a request the agent refused reads as: the sign-in error the UI
+/// parses when it is about signing in, else `<method> failed: <its message>`.
+pub(super) fn agent_error(method: &str, init: &Value, error: &Value) -> String {
+    if is_auth_required(error) {
+        auth_required_error(&auth_methods_of(init))
+    } else {
+        format!("{} failed: {}", method, error_message(error))
     }
 }
 

@@ -10,6 +10,7 @@ use tauri::State;
 
 use super::manager::{AcpEvent, AcpLaunch, AcpManager, ReopenPurpose, StartedSession};
 use super::probe::ProbedAgent;
+use super::session_list::ListedSessions;
 use super::terminal_auth::{is_sign_in_terminal_id, CANCELLED_MESSAGE};
 use crate::env_resolver::cached_user_env;
 use crate::files::ensure_known_workspace;
@@ -273,6 +274,17 @@ pub fn acp_import_session(
         &acp_session_id,
         ReopenPurpose::Import,
     )
+}
+
+/// Lists the agent's sessions in `cwd`, for the draft to offer them.
+#[tauri::command(async)]
+pub fn acp_list_sessions(
+    manager: State<'_, AcpManager>,
+    store: State<'_, AppStore>,
+    profile_id: String,
+    cwd: String,
+) -> Result<ListedSessions, String> {
+    manager.list_sessions(&cwd, &launch_in_workspace(&store, &cwd, &profile_id)?)
 }
 
 /// Forks `source_session_id` into `session_id` in `cwd`, which must be one of

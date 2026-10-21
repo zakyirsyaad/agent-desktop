@@ -21,10 +21,15 @@
 //   anything else -> echoes the text back as an agent message chunk
 // Environment flags add capabilities and record what it was called with:
 //   FAKE_ACP_RESUME   -> advertises sessionCapabilities.resume and answers session/resume
+//   FAKE_ACP_LIST     -> advertises sessionCapabilities.list and answers session/list
+//   FAKE_ACP_LIST_PAGES -> names a JSON file of pages (arrays of SessionInfo); without it
+//                         session/list answers no sessions
+//   FAKE_ACP_LIST_FAIL_AT=<n> -> page n answers with a server error
+//   FAKE_ACP_AUTH_REQUIRED -> session/new and session/list refuse with an auth-required error
 //   FAKE_ACP_CALL_LOG -> appends every received method name to the file it names
 //   FAKE_ACP_SLOW_REPLAY -> session/load sends another chunk three seconds later, then answers
 // (each other FAKE_ACP_* flag is documented where it is read below)
-import { appendFileSync, closeSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 let nextSession = 1;
@@ -176,6 +181,8 @@ const handlers = {
           delete: {},
           // FAKE_ACP_RESUME: reopens a session without replaying its history.
           ...(process.env.FAKE_ACP_RESUME ? { resume: {} } : {}),
+          // FAKE_ACP_LIST: lists its sessions for a folder.
+          ...(process.env.FAKE_ACP_LIST ? { list: {} } : {}),
         },
         ...(authStatus ? { _meta: { authStatus: {} } } : {}),
       },
@@ -228,6 +235,43 @@ const handlers = {
   },
   // FAKE_ACP_RESUME: reopens the session and answers without replaying anything.
   "session/resume": (id) => reply(id, { modes: defaultModes() }),
+  // FAKE_ACP_LIST_PAGES: serves the pages from the JSON file it names. A missing
+  // cursor serves page 0 and "page-<n>" serves page n; the answer names the next
+  // page while one remains. Any other cursor is refused as invalid. Without the
+  // file there are no sessions.
+  "session/list": (id, params) => {
+    // Unlike session/new, listing is refused even when signed out.
+    if (process.env.FAKE_ACP_AUTH_REQUIRED) {
+      send({ id, error: { code: -32000, message: process.env.FAKE_ACP_AUTH_MESSAGE ?? "Authentication required" } });
+      return;
+    }
+    const pages = process.env.FAKE_ACP_LIST_PAGES
+      ? JSON.parse(readFileSync(process.env.FAKE_ACP_LIST_PAGES, "utf8"))
+      : [];
+    const cursor = params?.cursor;
+    let page = 0;
+    if (cursor === undefined) {
+      if (pages.length === 0) {
+        reply(id, { sessions: [] });
+        return;
+      }
+    } else {
+      const match = /^page-(\d+)$/.exec(String(cursor));
+      page = match ? Number(match[1]) : -1;
+      if (page < 0 || page >= pages.length) {
+        send({ id, error: { code: -32602, message: `Unknown cursor ${cursor}` } });
+        return;
+      }
+    }
+    if (process.env.FAKE_ACP_LIST_FAIL_AT === String(page)) {
+      send({ id, error: { code: -32603, message: `Page ${page} could not be listed` } });
+      return;
+    }
+    reply(id, {
+      sessions: pages[page],
+      ...(page + 1 < pages.length ? { nextCursor: `page-${page + 1}` } : {}),
+    });
+  },
   "session/new": (id, params) => {
     // FAKE_ACP_EARLY_REQUESTS: asks the client things before the session exists and answers
     // session/new (or session/load) only once both are answered, or with an error after
