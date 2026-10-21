@@ -326,8 +326,9 @@ export function reopenPermissionCard(messages: ChatMessage[], cardId: string): C
 }
 
 /**
- * Tools still running when the turn ends: a turn cannot end with one genuinely
- * running, so a tool whose terminal update never arrived never reported success.
+ * Tools still running when an imported turn ended: a replay carries no terminal
+ * update for a tool that was running when the agent stopped, so the tool never
+ * reported success and is shown as failed rather than running forever.
  */
 function settleTools(tools: ToolExecution[] | undefined): ToolExecution[] | undefined {
   if (!tools?.some((tool) => tool.status === 'running')) return tools;
@@ -335,9 +336,11 @@ function settleTools(tools: ToolExecution[] | undefined): ToolExecution[] | unde
 }
 
 /**
- * Ends the agent's turn: the last reply is complete, permission requests that
- * were never answered can no longer be (the agent stopped waiting), and tools
- * still running are settled as failed rather than shown as running forever.
+ * Ends the agent's turn: the last reply is complete and permission requests
+ * that were never answered can no longer be (the agent stopped waiting).
+ *
+ * Tools still running keep their real state: a live turn can end while one is
+ * genuinely running (the user stopped it, or it runs in the background).
  */
 export function closeTurn(messages: ChatMessage[]): ChatMessage[] {
   const lastIndex = messages.length - 1;
@@ -345,14 +348,23 @@ export function closeTurn(messages: ChatMessage[]): ChatMessage[] {
     const card = isPendingRequest(message.actionCard)
       ? { ...message.actionCard, status: 'rejected' as const }
       : message.actionCard;
-    const tools = settleTools(message.tools);
     const isLastReply = index === lastIndex && message.role === 'agent';
-    if (card === message.actionCard && tools === message.tools && !isLastReply) return message;
+    if (card === message.actionCard && !isLastReply) return message;
     return {
       ...message,
       actionCard: card,
-      ...(tools === message.tools ? {} : { tools }),
       ...(isLastReply ? { isComplete: true } : {}),
     };
+  });
+}
+
+/**
+ * Ends a turn folded from a `session/load` replay: like `closeTurn`, and tools
+ * the replay left running are settled as failed — nothing is running now.
+ */
+export function closeImportedTurn(messages: ChatMessage[]): ChatMessage[] {
+  return closeTurn(messages).map((message) => {
+    const tools = settleTools(message.tools);
+    return tools === message.tools ? message : { ...message, tools };
   });
 }

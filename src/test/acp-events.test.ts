@@ -3,6 +3,7 @@ import {
   applyAcpUpdate,
   applyPermissionRequest,
   applyReplayUpdate,
+  closeImportedTurn,
   closeTurn,
   isAwaitingPermission,
   pendingCardsInTurn,
@@ -304,13 +305,84 @@ describe("closeTurn", () => {
     tools,
   });
 
+  it("leaves a running tool running, rejects an unanswered card and completes the last reply", () => {
+    const messages: ChatMessage[] = [
+      reply("a-1", [tool("t-done", "completed"), tool("t-running", "running")]),
+      {
+        ...reply("a-2", [tool("t-failed", "failed"), tool("t-running-2", "running")]),
+        actionCard: {
+          id: "act-1",
+          sessionId: "s-1",
+          title: "Permission requested",
+          prompt: "Run the tests",
+          status: "pending",
+          timestamp: 1,
+          options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+          requestId: "perm-1",
+        },
+      },
+    ];
+
+    const closed = closeTurn(messages);
+
+    expect(closed.flatMap((m) => m.tools?.map((t) => [t.id, t.status]) ?? [])).toEqual([
+      ["t-done", "completed"],
+      ["t-running", "running"],
+      ["t-failed", "failed"],
+      ["t-running-2", "running"],
+    ]);
+    expect(closed[0].isComplete).toBeUndefined();
+    expect(closed[1].actionCard?.status).toBe("rejected");
+    expect(closed[1].isComplete).toBe(true);
+    expect(messages[0].tools?.map((t) => t.status)).toEqual(["completed", "running"]);
+  });
+});
+
+describe("closeImportedTurn", () => {
+  const tool = (id: string, status: ToolExecution["status"]): ToolExecution => ({ id, name: id, status });
+  const reply = (id: string, tools: ToolExecution[]): ChatMessage => ({
+    id,
+    role: "agent",
+    content: "",
+    timestamp: 1,
+    tools,
+  });
+
+  it("settles the last turn of a replay whose tool call and request never finished", () => {
+    const c = ctx();
+    let messages = applyReplayUpdate([], userChunk("run the tests", "m-1"), c);
+    messages = applyReplayUpdate(
+      messages,
+      { sessionUpdate: "tool_call", toolCallId: "t-1", title: "pnpm test", status: "in_progress" },
+      c,
+    );
+    messages = applyPermissionRequest(
+      messages,
+      {
+        requestId: "perm-1",
+        toolCall: { toolCallId: "t-1", title: "Run the tests", kind: "execute" },
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      },
+      c,
+    );
+
+    const closed = closeImportedTurn(messages);
+    const last = closed[closed.length - 1];
+
+    expect(last.isComplete).toBe(true);
+    expect(last.actionCard?.status).toBe("rejected");
+    expect(last.tools?.map((t) => t.status)).toEqual(["failed"]);
+    expect(pendingCardsInTurn(closed)).toEqual([]);
+    expect(messages[messages.length - 1].tools?.map((t) => t.status)).toEqual(["running"]);
+  });
+
   it("settles running tools as failed and leaves settled ones alone", () => {
     const messages = [
       reply("a-1", [tool("t-done", "completed"), tool("t-running", "running")]),
       reply("a-2", [tool("t-failed", "failed"), tool("t-running-2", "running")]),
     ];
 
-    const closed = closeTurn(messages);
+    const closed = closeImportedTurn(messages);
 
     expect(closed.flatMap((m) => m.tools?.map((t) => [t.id, t.status]) ?? [])).toEqual([
       ["t-done", "completed"],
@@ -387,32 +459,5 @@ describe("applyReplayUpdate", () => {
 
     expect(applyReplayUpdate(base, text("Done"), ctx())).toEqual(applyAcpUpdate(base, text("Done"), ctx()));
     expect(applyReplayUpdate(base, toolCall, ctx())).toEqual(applyAcpUpdate(base, toolCall, ctx()));
-  });
-
-  it("settles the last turn of a replay whose tool call and request never finished", () => {
-    const c = ctx();
-    let messages = applyReplayUpdate([], userChunk("run the tests", "m-1"), c);
-    messages = applyReplayUpdate(
-      messages,
-      { sessionUpdate: "tool_call", toolCallId: "t-1", title: "pnpm test", status: "in_progress" },
-      c,
-    );
-    messages = applyPermissionRequest(
-      messages,
-      {
-        requestId: "perm-1",
-        toolCall: { toolCallId: "t-1", title: "Run the tests", kind: "execute" },
-        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
-      },
-      c,
-    );
-
-    const closed = closeTurn(messages);
-    const last = closed[closed.length - 1];
-
-    expect(last.isComplete).toBe(true);
-    expect(last.actionCard?.status).toBe("rejected");
-    expect(last.tools?.map((t) => t.status)).toEqual(["failed"]);
-    expect(pendingCardsInTurn(closed)).toEqual([]);
   });
 });

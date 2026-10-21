@@ -3,6 +3,7 @@ import {
   applyAcpUpdate,
   applyPermissionRequest,
   applyReplayUpdate,
+  closeImportedTurn,
   closeTurn,
   pendingCardsInTurn,
   reopenPermissionCard,
@@ -420,7 +421,7 @@ export function useAcpEngine({
       // A deleted session has no transcript to close, and none may be written back;
       // a stopped one that is still listed still needs its last replay reply closed.
       if (isOpened) {
-        if (sessionsRef.current.some((s) => s.id === id)) updateMessages(id, closeTurn);
+        if (sessionsRef.current.some((s) => s.id === id)) updateMessages(id, closeImportedTurn);
         if (reopenedWith === 'resume') patchSession(id, { historyElsewhere: true });
       }
       return isOpened;
