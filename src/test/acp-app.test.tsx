@@ -367,9 +367,10 @@ describe("ACP sessions in the app", () => {
       finishStart();
     });
 
-    await waitFor(() =>
-      expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toContainEqual({ sessionId })
-    );
+    // Stop ends the agent it knows; the open answer then ends the one the
+    // backend registered after that stop, which only the post-open branch can do.
+    await waitFor(() => expect(callsTo(spy, "acp_stop_session")).toHaveLength(2));
+    expect(callsTo(spy, "acp_stop_session").map(([, a]) => a)).toEqual([{ sessionId }, { sessionId }]);
     expect(callsTo(spy, "acp_prompt")).toHaveLength(0);
     expect(callsTo(spy, "acp_set_mode")).toHaveLength(0);
   });

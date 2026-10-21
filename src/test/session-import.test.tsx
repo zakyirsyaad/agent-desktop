@@ -467,3 +467,72 @@ describe("Stopping an import before it answers", () => {
     expect(messages.get(IMPORTED.id)?.at(-1)?.isComplete).not.toBe(true);
   });
 });
+
+describe("Stopping a launch before its open answers", () => {
+  const STARTING: Session = {
+    id: "s-starting",
+    name: "Fix the login",
+    profileId: "claude-acp",
+    cwd: "/Users/test/developer/ai-perpetual-trading",
+    status: "running",
+    createdAt: 1,
+    acpSessionId: "listed-1",
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    listeners.clear();
+  });
+
+  it("takes back the first message of a launch a resume superseded", async () => {
+    const internals = tauriInternals();
+    const original = internals.invoke;
+    let finishStart: (value: unknown) => void = () => {};
+    vi.spyOn(internals, "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "acp_start_session") {
+        return new Promise((resolve) => {
+          finishStart = resolve;
+        });
+      }
+      return original(cmd, args);
+    });
+
+    const messages = new Map<string, ChatMessage[]>();
+    const updateMessages = (sessionId: string, change: (prev: ChatMessage[]) => ChatMessage[]) => {
+      messages.set(sessionId, change(messages.get(sessionId) ?? []));
+    };
+    const { result } = renderHook(() =>
+      useAcpEngine({
+        sessions: [STARTING],
+        agents: fakeProfiles,
+        updateMessages,
+        patchSession: () => {},
+        reportError: () => {},
+        rememberOptions: () => {},
+        onAuthRequired: () => {},
+      }),
+    );
+
+    let started: Promise<boolean> = Promise.resolve(false);
+    await act(async () => {
+      started = result.current.start(STARTING, { text: "never prompted" });
+    });
+    expect(messages.get(STARTING.id)?.map((message) => message.content)).toEqual(["never prompted"]);
+
+    // Stop ends the start, then the user resumes the same session before the open answers.
+    await act(async () => {
+      await result.current.stop(STARTING.id);
+    });
+    await act(async () => {
+      await result.current.resume(STARTING, "listed-1");
+    });
+
+    await act(async () => {
+      finishStart(importAnswer());
+      await started;
+    });
+
+    // The superseded launch's message was never prompted: the resumed session stays empty.
+    expect(messages.get(STARTING.id)).toEqual([]);
+  });
+});

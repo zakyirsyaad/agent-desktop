@@ -305,7 +305,11 @@ export function useAcpEngine({
         info = await open();
       } catch (error) {
         // A newer launch owns the session now: this failure is not its failure.
-        if (!isCurrentLaunch(session.id, gen)) return true;
+        if (!isCurrentLaunch(session.id, gen)) {
+          // The message this launch showed was never prompted: take it back.
+          if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+          return true;
+        }
         if (isStopped(session.id)) return true;
         if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
         elicitations.abandon(session.id);
@@ -329,17 +333,25 @@ export function useAcpEngine({
       }
       // Stopped or superseded while opening: the agent is already being ended, and
       // none of the answer belongs to the session anymore.
-      if (!isCurrentLaunch(session.id, gen)) return true;
       if (isStopped(session.id)) {
         // Stopped while starting: the backend could not end an agent it did not know yet.
         acp.stop(session.id).catch(reportFailure('Failed to stop the agent'));
+        return true;
+      }
+      if (!isCurrentLaunch(session.id, gen)) {
+        // A newer launch owns the session: the message this one showed was never prompted.
+        if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
         return true;
       }
       rememberOptions(session.profileId, { modes: info.modes, configOptions: info.configOptions });
       if (info.acpSessionId) patchSession(session.id, { acpSessionId: info.acpSessionId });
       const settled = await applyChanges(session.id, info, options);
       // Superseded while the picks were applied: a newer launch owns the session.
-      if (!isCurrentLaunch(session.id, gen)) return true;
+      if (!isCurrentLaunch(session.id, gen)) {
+        // The message this launch showed was never prompted: take it back.
+        if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+        return true;
+      }
       // What the agent offers now, after the picks: an effort list follows its model,
       // and the next draft should offer what this session ended up with.
       if (settled.configOptions !== info.configOptions) {
