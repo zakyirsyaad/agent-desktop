@@ -275,6 +275,9 @@ export function ComposerDock({
           disabled={disabled}
           placeholder={placeholder ?? (commands.length > 0 ? PLACEHOLDER_WITH_COMMANDS : PLACEHOLDER)}
           aria-label="Prompt"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           className="w-full bg-transparent text-sm text-fg-secondary placeholder-fg-subtle outline-none resize-none leading-relaxed min-h-[26px] max-h-[180px]"
         />
 

@@ -231,8 +231,45 @@ fn report_migration_failure(app: &AppHandle, error: &str) {
         .show(|_| {});
 }
 
+/// WKWebView turns `--flag` into an en dash and straight quotes into curly
+/// ones unless the app's defaults say otherwise.
+#[cfg(target_os = "macos")]
+const WEB_TEXT_SUBSTITUTION_KEYS: [&str; 4] = [
+    "WebAutomaticDashSubstitutionEnabled",
+    "WebAutomaticQuoteSubstitutionEnabled",
+    "WebAutomaticTextReplacementEnabled",
+    "WebAutomaticSpellingCorrectionEnabled",
+];
+
+/// Registers the WebView text-substitution defaults as off for the whole app.
+#[cfg(target_os = "macos")]
+fn disable_web_text_substitutions() {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSDictionary, NSNumber, NSString, NSUserDefaults};
+
+    let keys: Vec<Retained<NSString>> = WEB_TEXT_SUBSTITUTION_KEYS
+        .iter()
+        .map(|key| NSString::from_str(key))
+        .collect();
+    let values: Vec<Retained<AnyObject>> = keys
+        .iter()
+        .map(|_| Retained::from(NSNumber::new_bool(false)))
+        .collect();
+    let key_refs: Vec<&NSString> = keys.iter().map(|key| &**key).collect();
+    let value_refs: Vec<&AnyObject> = values.iter().map(|value| &**value).collect();
+    let registration = NSDictionary::<NSString, AnyObject>::from_slices(&key_refs, &value_refs);
+
+    // SAFETY: the dictionary is keyed by NSString and holds objects, as the
+    // method requires; registered values are never written to the user's defaults.
+    unsafe { NSUserDefaults::standardUserDefaults().registerDefaults(&registration) };
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    disable_web_text_substitutions();
+
     let app_handle_holder: Arc<std::sync::Mutex<Option<AppHandle>>> =
         Arc::new(std::sync::Mutex::new(None));
     let holder_clone = Arc::clone(&app_handle_holder);
@@ -361,4 +398,24 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::{disable_web_text_substitutions, WEB_TEXT_SUBSTITUTION_KEYS};
+    use objc2_foundation::{NSNumber, NSString, NSUserDefaults};
+
+    #[test]
+    fn web_view_text_substitutions_are_registered_off() {
+        disable_web_text_substitutions();
+
+        let defaults = NSUserDefaults::standardUserDefaults();
+        for key in WEB_TEXT_SUBSTITUTION_KEYS {
+            let value = defaults.objectForKey(&NSString::from_str(key));
+            let is_false = value
+                .and_then(|value| value.downcast::<NSNumber>().ok())
+                .map(|number| number.boolValue());
+            assert_eq!(is_false, Some(false), "{key} should be registered as false");
+        }
+    }
 }
