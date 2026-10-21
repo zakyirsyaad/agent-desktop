@@ -325,6 +325,7 @@ describe("Catalog actions — Install", () => {
 
     await waitFor(() => expect(callsTo(spy, "install_agent")).toEqual([["install_agent", { agentId: "gemini" }]]));
     expect(within(gemini()).getByText("Starting the install…")).toBeInTheDocument();
+    expect(gemini()).toHaveTextContent("Installing Gemini CLI 0.2.0");
     expect(within(gemini()).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(within(gemini()).queryByRole("button", { name: "Install" })).toBeNull();
 

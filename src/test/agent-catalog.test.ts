@@ -96,6 +96,46 @@ describe("statusLine", () => {
       "Installed by Zorvo · No longer listed",
     );
   });
+
+  it("says what it is installing while the job runs", () => {
+    expect(
+      statusLine(makeCatalogAgent({ id: "a", name: "OpenCode", status: "not_installed" }), plan, false, {
+        status: "installing",
+        action: "install",
+        error: null,
+      }),
+    ).toBe("Installing Node.js 24.11.1 (50 MB) and OpenCode 1.19.3");
+  });
+
+  it("names the agent while installing when the plan is unknown", () => {
+    expect(
+      statusLine(makeCatalogAgent({ id: "a", name: "Amp", status: "not_installed" }), null, false, {
+        status: "installing",
+        action: "install",
+        error: null,
+      }),
+    ).toBe("Installing Amp");
+  });
+
+  it("shows why an install failed", () => {
+    expect(
+      statusLine(makeCatalogAgent({ id: "a", name: "Amp", status: "not_installed" }), null, false, {
+        status: "failed",
+        action: "install",
+        error: "The download timed out",
+      }),
+    ).toBe("Install failed · The download timed out");
+  });
+
+  it("keeps the ordinary line when no install is running", () => {
+    expect(
+      statusLine(makeCatalogAgent({ id: "a", name: "Amp", status: "not_installed" }), null, false, {
+        status: "idle",
+        action: "install",
+        error: null,
+      }),
+    ).toBe("Not installed");
+  });
 });
 
 describe("rowActions", () => {

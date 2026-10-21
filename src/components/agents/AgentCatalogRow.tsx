@@ -54,7 +54,9 @@ export function AgentCatalogRow({
           <span className="truncate font-medium text-fg">{agent.name}</span>
           {shownVersion && <span className="shrink-0 font-mono text-[11px] text-fg-subtle">{shownVersion}</span>}
         </div>
-        <p className="mt-0.5 text-[11px] text-fg-muted">{statusLine(agent, plan, isInUse)}</p>
+        <p className="mt-0.5 text-[11px] text-fg-muted">
+          {statusLine(agent, plan, isInUse, { status: job.status, action: job.action, error: job.error })}
+        </p>
         {agent.description && <p className="mt-1 line-clamp-2 text-[11px] text-fg-subtle">{agent.description}</p>}
 
         {isBusy && <InstallProgressLine progress={job.progress} onCancel={job.cancel} action={job.action} />}
