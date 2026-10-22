@@ -6,7 +6,7 @@ import { useDismiss } from "../../hooks/useDismiss";
 import { AgentLogo } from "../AgentLogo";
 
 const ROW_ACTION =
-  "mr-1 rounded p-1 text-fg-subtle opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-danger focus-ring";
+  "mr-1 rounded p-1 text-fg-subtle opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:text-danger focus-ring";
 const MENU_ITEM =
   "flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg";
 
@@ -169,6 +169,28 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
   const isBusy = context.isSessionBusy(session.id);
   const isWaiting = context.isSessionWaiting(session.id);
   const agentName = context.agentNameOf(session.profileId);
+  const status = isWaiting
+    ? {
+        label: "Waiting for your answer",
+        title: "The agent waits for your answer",
+        dot: "bg-status-attention",
+        pulse: false,
+      }
+    : isBusy
+      ? {
+          label: "Agent working",
+          title: "The agent is working",
+          dot: "bg-status-running",
+          pulse: true,
+        }
+      : session.hasUnread
+        ? {
+            label: "New activity",
+            title: "The agent finished while you were in another session",
+            dot: "bg-status-unread",
+            pulse: false,
+          }
+        : null;
 
   if (isRenaming) {
     return (
@@ -187,7 +209,8 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
 
   return (
     <div
-      className={`group flex items-center rounded-md transition-colors ${
+      data-testid={`session-row-${session.id}`}
+      className={`group relative flex items-center rounded-md transition-colors ${
         isActive
           ? "bg-surface-hover text-fg font-medium"
           : "text-fg-muted hover:bg-surface-hover hover:text-fg-secondary"
@@ -197,7 +220,7 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
         type="button"
         onClick={() => context.onSelectSession(session.id)}
         title={[session.name, agentName, session.worktree?.branch].filter(Boolean).join(" · ")}
-        className="flex-1 min-w-0 flex items-center justify-between px-2 py-1.5 text-left"
+        className="flex-1 min-w-0 flex items-center px-2 py-1.5 pr-12 text-left"
       >
         <span className="flex min-w-0 items-center gap-1.5">
           <AgentLogo profileId={session.profileId} name={agentName ?? session.profileId} size={12} />
@@ -208,46 +231,39 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
             {session.name}
           </span>
         </span>
-        {isWaiting ? (
+      </button>
+      {/* One fixed slot at the row's edge: the dot, replaced by the actions on hover or focus. */}
+      <div data-testid="session-row-trailing" className="absolute inset-y-0 right-1 flex items-center">
+        {status && (
           <span
             role="status"
-            aria-label="Waiting for your answer"
-            title="The agent waits for your answer"
-            className="h-1.5 w-1.5 rounded-full bg-status-attention shrink-0 ml-1"
-          />
-        ) : isBusy ? (
-          <span
-            role="status"
-            aria-label="Agent working"
-            title="The agent is working"
-            className="h-1.5 w-1.5 rounded-full bg-status-running shrink-0 ml-1 animate-pulse motion-reduce:animate-none"
-          />
-        ) : session.hasUnread && (
-          <span
-            role="status"
-            aria-label="New activity"
-            title="The agent finished while you were in another session"
-            className="h-1.5 w-1.5 rounded-full bg-status-unread shrink-0 ml-1"
+            aria-label={status.label}
+            title={status.title}
+            className={`h-1.5 w-1.5 rounded-full shrink-0 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 ${status.dot} ${
+              status.pulse ? "animate-pulse motion-reduce:animate-none" : ""
+            }`}
           />
         )}
-      </button>
-      <SessionMenu
-        session={session}
-        onRename={onRenameSession ? () => setIsRenaming(true) : undefined}
-        context={context}
-      />
-      {isBusy && onStopSession && (
-        <button
-          type="button"
-          aria-label="Stop session"
-          title="Stop the agent's current turn"
-          onClick={() => onStopSession(session.id)}
-          className={ROW_ACTION}
-        >
-          <Square size={11} />
-        </button>
-      )}
-      {!isBusy && onDeleteSession && <DeleteButton onDelete={() => onDeleteSession(session.id)} />}
+        <div className="absolute inset-y-0 right-0 flex items-center">
+          <SessionMenu
+            session={session}
+            onRename={onRenameSession ? () => setIsRenaming(true) : undefined}
+            context={context}
+          />
+          {isBusy && onStopSession && (
+            <button
+              type="button"
+              aria-label="Stop session"
+              title="Stop the agent's current turn"
+              onClick={() => onStopSession(session.id)}
+              className={ROW_ACTION}
+            >
+              <Square size={11} />
+            </button>
+          )}
+          {!isBusy && onDeleteSession && <DeleteButton onDelete={() => onDeleteSession(session.id)} />}
+        </div>
+      </div>
     </div>
   );
 }
