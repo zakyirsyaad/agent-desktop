@@ -219,7 +219,7 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
       <button
         type="button"
         onClick={() => context.onSelectSession(session.id)}
-        title={[session.name, agentName, session.worktree?.branch].filter(Boolean).join(" · ")}
+        title={[session.name, agentName, session.worktree?.branch, status?.title].filter(Boolean).join(" · ")}
         className="flex-1 min-w-0 flex items-center px-2 py-1.5 pr-12 text-left"
       >
         <span className="flex min-w-0 items-center gap-1.5">
@@ -238,8 +238,7 @@ function SessionRow({ session, context }: { session: Session; context: SessionLi
           <span
             role="status"
             aria-label={status.label}
-            title={status.title}
-            className={`h-1.5 w-1.5 rounded-full shrink-0 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 ${status.dot} ${
+            className={`pointer-events-none h-1.5 w-1.5 rounded-full shrink-0 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 ${status.dot} ${
               status.pulse ? "animate-pulse motion-reduce:animate-none" : ""
             }`}
           />

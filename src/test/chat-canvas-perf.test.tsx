@@ -43,7 +43,7 @@ describe("ChatCanvas rendering", () => {
     expect(toolRenders).toHaveBeenCalledWith("t-199");
   });
 
-  it("renders an unchanged message once more when the turn ends, not on every chunk", () => {
+  it("re-renders only the changed message on a streamed chunk", () => {
     const messages = conversation(200);
     const { rerender } = render(<ChatCanvas messages={messages} isWorking />);
     toolRenders.mockClear();

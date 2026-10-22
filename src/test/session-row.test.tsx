@@ -44,14 +44,16 @@ describe("SessionRow trailing slot", () => {
     const row = renderRow(busy, { isSessionBusy: () => true, onStopSession: vi.fn() });
 
     const trailing = within(row).getByTestId("session-row-trailing");
-    expect(within(trailing).getByLabelText("Agent working")).toBeDefined();
+    const dot = within(trailing).getByLabelText("Agent working");
+    expect(dot.className).toContain("pointer-events-none");
     expect(within(trailing).getByRole("button", { name: "Stop session" })).toBeDefined();
     expect(within(trailing).getByRole("button", { name: `More actions for ${busy.name}` })).toBeDefined();
 
     // The dot left the select button: its width no longer depends on the actions beside it.
     const select = within(row).getByText(busy.name).closest("button");
     expect(select).not.toBeNull();
-    expect(select?.contains(within(row).getByLabelText("Agent working"))).toBe(false);
+    expect(select?.contains(dot)).toBe(false);
+    expect(select?.title).toContain("The agent is working");
   });
 
   it("keeps the unread dot in the same slot as the row actions", () => {

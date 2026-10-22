@@ -4,6 +4,7 @@ import { WorkingIndicator } from "./chat/ReplyExtras";
 import { useLatest } from "../hooks/useLatest";
 import { useReadAloud } from "../hooks/useReadAloud";
 import { useStickToBottom } from "../hooks/useStickToBottom";
+import { isAwaitingUser } from "../lib/acp-elicitation";
 import type { ChatMessage, ElicitationAnswer } from "../types";
 
 export type { ChatMessage, ToolExecution } from "../types";
@@ -66,7 +67,10 @@ export function ChatCanvas({
       break;
     }
   }
-  const runningTurnStartsAt = isWorking ? lastUserIndex + 1 : visibleMessages.length;
+  // The turn stays open while the agent works or waits on the user; the
+  // working indicator hides in the latter case, but its replies are unfinished.
+  const isTurnOpen = isWorking || isAwaitingUser(messages);
+  const runningTurnStartsAt = isTurnOpen ? lastUserIndex + 1 : visibleMessages.length;
 
   // Follow new output to the bottom while the user is there; once they scroll
   // up to read, leave the view alone.

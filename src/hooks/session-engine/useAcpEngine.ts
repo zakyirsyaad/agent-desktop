@@ -630,6 +630,8 @@ export function useAcpEngine({
     setMode,
     setConfigOption,
     stop,
+    /** Drops a removed session's queued transcript changes before its transcript is deleted. */
+    forgetQueued: queued.forget,
     isBusy,
     busySinceOf: acp.busySinceOf,
     canFork: acp.canFork,

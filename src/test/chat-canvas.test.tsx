@@ -116,7 +116,8 @@ All systems ready for compilation.`,
         prompt: "Run command `pnpm test` in background?",
         commandSnippet: "pnpm test",
         toolName: "Bash",
-        status: "pending",
+        status: "approved",
+        chosenOptionId: "allow",
         timestamp: Date.now() - 30000,
         requestId: "perm-1",
         options: [
@@ -211,8 +212,13 @@ All systems ready for compilation.`,
 
   it("renders the ActionCard of a message with a permission request and reports the pick with its card", () => {
     const onChooseOption = vi.fn();
+    const waiting = mockMessages.map((message) =>
+      message.actionCard
+        ? { ...message, actionCard: { ...message.actionCard, status: "pending" as const, chosenOptionId: undefined } }
+        : message,
+    );
 
-    render(<ChatCanvas messages={mockMessages} onChooseOption={onChooseOption} />);
+    render(<ChatCanvas messages={waiting} onChooseOption={onChooseOption} />);
 
     expect(screen.getByText("Permission requested")).toBeDefined();
     expect(screen.getByText("Run command `pnpm test` in background?")).toBeDefined();
@@ -599,6 +605,21 @@ describe("ACP chat content", () => {
     expect(ended.getByRole("button", { name: "Fork branch" })).toBeDefined();
   });
 
+  it("keeps reply actions off a turn that waits for a permission answer", () => {
+    const messages: ChatMessage[] = [
+      { id: "u-1", role: "user", content: "first", timestamp: 1 },
+      { id: "a-1", role: "agent", content: "finished reply", timestamp: 2, isComplete: true },
+      { id: "u-2", role: "user", content: "run it", timestamp: 3 },
+      { id: "a-2", role: "agent", content: "half an answer", timestamp: 4 },
+      { id: "a-3", role: "agent", content: "", timestamp: 5, actionCard: permissionCard },
+    ];
+    render(<ChatCanvas messages={messages} isWorking={false} onForkBranch={() => {}} />);
+
+    expect(within(screen.getByTestId("chat-message-a-1")).getByRole("button", { name: "Copy message" })).toBeDefined();
+    expect(within(screen.getByTestId("chat-message-a-2")).queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(within(screen.getByTestId("chat-message-a-3")).queryByRole("button", { name: "Copy message" })).toBeNull();
+  });
+
   it("marks reasoning done once a later message follows, even without isComplete", () => {
     render(
       <ChatCanvas
@@ -661,6 +682,48 @@ describe("ACP chat content", () => {
     );
 
     expect(container.scrollTop).toBe(1000);
+  });
+
+  it("keeps following when an upward wheel cannot move the view", () => {
+    const first = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
+    const { rerender } = render(<ChatCanvas messages={first} />);
+    const container = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
+    rerender(<ChatCanvas messages={first} isWorking />);
+
+    // A real browser clamps the earlier scroll to 0 while the list is still
+    // short; the wheel then has nowhere to go.
+    container.scrollTop = 0;
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 400 });
+    fireEvent.wheel(container, { deltaY: -8 });
+
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 800 });
+    rerender(
+      <ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "a longer reply", timestamp: 2 }]} isWorking />
+    );
+
+    expect(container.scrollTop).toBe(800);
+  });
+
+  it("keeps following when keys move up while the view cannot", () => {
+    const first = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
+    const { rerender } = render(<ChatCanvas messages={first} />);
+    const container = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
+    rerender(<ChatCanvas messages={first} isWorking />);
+
+    container.scrollTop = 0;
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 400 });
+    fireEvent.keyDown(container, { key: "PageUp" });
+
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 800 });
+    rerender(
+      <ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "a longer reply", timestamp: 2 }]} isWorking />
+    );
+
+    expect(container.scrollTop).toBe(800);
   });
 
   it("stops following when keys move the view up", () => {

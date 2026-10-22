@@ -74,26 +74,44 @@ export function useStickToBottom(): StickToBottom {
     lastScrollTopRef.current = top;
   }, []);
 
-  const onWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
-    if (event.deltaY < 0) isFollowingRef.current = false;
+  /** An upward signal only leaves the bottom when the view can actually move up. */
+  const leaveIfScrollable = useCallback(() => {
+    const el = containerRef.current;
+    if (el && el.scrollTop > 0) isFollowingRef.current = false;
   }, []);
 
-  const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-    if (KEYS_THAT_MOVE_UP.has(event.key)) isFollowingRef.current = false;
-  }, []);
+  const onWheel = useCallback(
+    (event: WheelEvent<HTMLDivElement>) => {
+      if (event.deltaY < 0) leaveIfScrollable();
+    },
+    [leaveIfScrollable],
+  );
+
+  const onKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      // Keys belong to the chat only when the chat itself has focus: an
+      // ArrowUp inside a form is the input's, not the list's.
+      if (event.target !== event.currentTarget) return;
+      if (KEYS_THAT_MOVE_UP.has(event.key)) leaveIfScrollable();
+    },
+    [leaveIfScrollable],
+  );
 
   const onTouchStart = useCallback((event: TouchEvent<HTMLDivElement>) => {
     lastTouchYRef.current = event.touches[0]?.clientY ?? null;
   }, []);
 
-  const onTouchMove = useCallback((event: TouchEvent<HTMLDivElement>) => {
-    const y = event.touches[0]?.clientY;
-    if (y === undefined) return;
-    const last = lastTouchYRef.current;
-    // A finger moving down pulls earlier content into view.
-    if (last !== null && y > last) isFollowingRef.current = false;
-    lastTouchYRef.current = y;
-  }, []);
+  const onTouchMove = useCallback(
+    (event: TouchEvent<HTMLDivElement>) => {
+      const y = event.touches[0]?.clientY;
+      if (y === undefined) return;
+      const last = lastTouchYRef.current;
+      // A finger moving down pulls earlier content into view.
+      if (last !== null && y > last) leaveIfScrollable();
+      lastTouchYRef.current = y;
+    },
+    [leaveIfScrollable],
+  );
 
   return {
     containerRef,
