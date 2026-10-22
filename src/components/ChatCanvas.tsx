@@ -9,6 +9,7 @@ import { AttachmentChips } from "./composer/AttachmentChips";
 import { ToolCallList } from "./chat/ToolCallList";
 import { PlanList, ThinkingBlock, WorkingIndicator } from "./chat/ReplyExtras";
 import { useReadAloud } from "../hooks/useReadAloud";
+import { useStickToBottom } from "../hooks/useStickToBottom";
 import { formatRelativeTime } from "../lib/relative-time";
 import type { ChatMessage, ElicitationAnswer } from "../types";
 
@@ -17,9 +18,6 @@ export type { ChatMessage, ToolExecution } from "../types";
 /** Header label for agent messages when the host does not name the agent. */
 const DEFAULT_AGENT_NAME = "Agent";
 const COPIED_FEEDBACK_MS = 2000;
-
-/** How close to the bottom still counts as "following" new output. */
-const STICK_TO_BOTTOM_PX = 80;
 
 /** No label for a message replayed from the agent's history, which gives no per-message time. */
 function timeLabelOf(message: ChatMessage): string | undefined {
@@ -74,28 +72,22 @@ export function ChatCanvas({
 
   // Follow new output to the bottom while the user is there; once they scroll
   // up to read, leave the view alone.
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isAtBottomRef = useRef(true);
-  const handleScroll = () => {
-    const el = containerRef.current;
-    if (el) isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_PX;
-  };
+  const stickToBottom = useStickToBottom();
   // A message the user just sent, or another conversation opened, always
   // brings the view down to the newest output. The view itself stays mounted,
   // so switching conversations does not stop Read aloud.
   const lastIdRef = useRef(lastMessage?.id);
   const conversationRef = useRef(conversationId);
   useLayoutEffect(() => {
-    const el = containerRef.current;
     const isNewUserMessage = lastMessage?.role === "user" && lastMessage.id !== lastIdRef.current;
     const isOtherConversation = conversationId !== conversationRef.current;
     lastIdRef.current = lastMessage?.id;
     conversationRef.current = conversationId;
-    if (isNewUserMessage || isOtherConversation) isAtBottomRef.current = true;
-    if (el && isAtBottomRef.current) el.scrollTop = el.scrollHeight;
+    if (isNewUserMessage || isOtherConversation) stickToBottom.scrollToBottom();
+    else stickToBottom.followNewContent();
     // lastMessage derives from messages, so messages is the dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, isWorking, conversationId]);
+  }, [messages, isWorking, conversationId, stickToBottom.scrollToBottom, stickToBottom.followNewContent]);
 
   const handleCopyMessage = (id: string, content: string) => {
     if (navigator?.clipboard?.writeText) {
@@ -107,8 +99,12 @@ export function ChatCanvas({
 
   return (
     <div
-      ref={containerRef}
-      onScroll={handleScroll}
+      ref={stickToBottom.containerRef}
+      onScroll={stickToBottom.onScroll}
+      onWheel={stickToBottom.onWheel}
+      onKeyDown={stickToBottom.onKeyDown}
+      onTouchStart={stickToBottom.onTouchStart}
+      onTouchMove={stickToBottom.onTouchMove}
       data-testid="chat-canvas-container"
       className="flex-1 overflow-y-auto px-6 py-6 space-y-6"
     >

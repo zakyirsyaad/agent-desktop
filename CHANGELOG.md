@@ -4,6 +4,10 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 ## [Unreleased]
 
+### Fixed
+
+- **Scrolling up while the agent streams leaves the bottom at once.** A small upward scroll, wheel or key keeps your place, so a streaming reply no longer shakes the view or snaps it back down while you read.
+
 ## [0.3.0] - 2026-10-22
 
 ### Added

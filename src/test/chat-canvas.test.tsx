@@ -618,6 +618,99 @@ describe("ACP chat content", () => {
 
     expect(container.scrollTop).toBe(2000);
   });
+
+  it("stops following on a small upward wheel, even while still near the bottom", () => {
+    const first = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
+    const { rerender } = render(<ChatCanvas messages={first} />);
+    const container = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
+    rerender(<ChatCanvas messages={first} isWorking />);
+    expect(container.scrollTop).toBe(1000);
+
+    fireEvent.wheel(container, { deltaY: -8 });
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1200 });
+    rerender(
+      <ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "a longer reply", timestamp: 2 }]} isWorking />
+    );
+
+    expect(container.scrollTop).toBe(1000);
+  });
+
+  it("stops following when keys move the view up", () => {
+    const first = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
+    const { rerender } = render(<ChatCanvas messages={first} />);
+    const container = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
+    rerender(<ChatCanvas messages={first} isWorking />);
+
+    fireEvent.keyDown(container, { key: "PageUp" });
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1200 });
+    rerender(
+      <ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "a longer reply", timestamp: 2 }]} isWorking />
+    );
+
+    expect(container.scrollTop).toBe(1000);
+  });
+
+  it("stops following when a touch drag moves the view up", () => {
+    const first = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
+    const { rerender } = render(<ChatCanvas messages={first} />);
+    const container = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
+    rerender(<ChatCanvas messages={first} isWorking />);
+
+    fireEvent.touchStart(container, { touches: [{ clientY: 100 }] });
+    fireEvent.touchMove(container, { touches: [{ clientY: 140 }] });
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1200 });
+    rerender(
+      <ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "a longer reply", timestamp: 2 }]} isWorking />
+    );
+
+    expect(container.scrollTop).toBe(1000);
+  });
+
+  it("follows again once the user scrolls back to the bottom", () => {
+    const first = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
+    const { rerender } = render(<ChatCanvas messages={first} />);
+    const container = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
+    rerender(<ChatCanvas messages={first} isWorking />);
+
+    fireEvent.wheel(container, { deltaY: -8 });
+    container.scrollTop = 1200;
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1200 });
+    fireEvent.scroll(container);
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1400 });
+    rerender(
+      <ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "a longer reply", timestamp: 2 }]} isWorking />
+    );
+
+    expect(container.scrollTop).toBe(1400);
+  });
+
+  it("keeps following when its own scroll reports after the content grew", () => {
+    const first = [{ id: "u-1", role: "user" as const, content: "go", timestamp: 1 }];
+    const { rerender } = render(<ChatCanvas messages={first} />);
+    const container = screen.getByTestId("chat-canvas-container");
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
+    rerender(<ChatCanvas messages={first} isWorking />);
+
+    // The streamed chunk grows the list before the scroll event for our own
+    // assignment arrives; that event must not count as the user leaving.
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1600 });
+    fireEvent.scroll(container);
+    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 1800 });
+    rerender(
+      <ChatCanvas messages={[...first, { id: "a-1", role: "agent", content: "a longer reply", timestamp: 2 }]} isWorking />
+    );
+
+    expect(container.scrollTop).toBe(1800);
+  });
 });
 
 
