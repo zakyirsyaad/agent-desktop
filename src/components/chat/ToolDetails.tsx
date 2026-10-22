@@ -98,7 +98,7 @@ function TextOutput({ text }: { text: string }) {
 /** What a tool produced: file diffs and text output. */
 export function ToolDetails({ details }: { details: ToolDetail[] }) {
   return (
-    <div className="space-y-2 px-3 pb-2.5 pt-1">
+    <div className="space-y-2">
       {details.map((detail, index) =>
         detail.kind === "diff" ? (
           <DiffView key={index} path={detail.path} oldText={detail.oldText} newText={detail.newText} />

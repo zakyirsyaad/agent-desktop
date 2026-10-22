@@ -10,7 +10,7 @@ export interface ToolsPartProps {
   isCurrentTurn: boolean;
 }
 
-/** One compact row for a stretch of tool calls; opens into the full tool list. */
+/** One card for a stretch of tool calls: the summary opens into the flat rows. */
 export function ToolsPart({ tools, isCurrentTurn }: ToolsPartProps) {
   const hasDiff = tools.some((tool) => tool.details?.some((detail) => detail.kind === "diff"));
   // Only an explicit click overrides the turn rule: an auto-opened part closes
@@ -24,13 +24,15 @@ export function ToolsPart({ tools, isCurrentTurn }: ToolsPartProps) {
   const Chevron = isOpen ? ChevronDown : ChevronRight;
 
   return (
-    <div>
+    <div className="rounded-lg border border-border bg-bg">
       <button
         type="button"
         aria-expanded={isOpen}
         onClick={() => setUserOpen(!isOpen)}
         title={label}
-        className="focus-ring flex w-full items-center gap-2 rounded-lg border border-border bg-bg px-3 py-1.5 text-left font-mono text-xs text-fg-secondary transition-colors hover:bg-surface-hover"
+        className={`focus-ring flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-xs text-fg-secondary transition-colors hover:bg-surface-hover ${
+          isOpen ? "rounded-t-lg" : "rounded-lg"
+        }`}
       >
         <Chevron size={14} aria-hidden="true" className="shrink-0 text-fg-subtle" />
         <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -40,7 +42,7 @@ export function ToolsPart({ tools, isCurrentTurn }: ToolsPartProps) {
         {running && failed > 0 && <span className="shrink-0 text-[11px] text-danger">{failed} failed</span>}
       </button>
       {isOpen && (
-        <div className="mt-2">
+        <div className="border-t border-border">
           <ToolCallList tools={tools} defaultOpenDiffs={isCurrentTurn} />
         </div>
       )}
