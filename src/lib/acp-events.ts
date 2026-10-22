@@ -93,8 +93,8 @@ function textOfParts(parts: readonly ChatMessagePart[]): string {
 }
 
 /** A reply's parts, treating a message saved before parts as its tools, then its text. */
-function partsOf(reply: ChatMessage): ChatMessagePart[] {
-  if (reply.parts) return reply.parts;
+export function partsOf(reply: ChatMessage): ChatMessagePart[] {
+  if (reply.parts?.length) return reply.parts;
   const parts: ChatMessagePart[] = [];
   if (reply.tools?.length) parts.push({ kind: 'tools', toolIds: reply.tools.map((tool) => tool.id) });
   if (reply.content) parts.push({ kind: 'text', text: reply.content });

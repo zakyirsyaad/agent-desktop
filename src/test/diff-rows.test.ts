@@ -28,11 +28,11 @@ describe("diffRows", () => {
     expect(countChanges(diffRows(null, "x\ny\n"))).toEqual({ added: 2, removed: 0 });
   });
 
-  it("stops after a bounded number of rows, saying how many it left out", () => {
+  it("keeps every row of a large new file for the renderer to bound", () => {
     const rows = diffRows(null, lines(5000));
 
-    expect(rows.length).toBe(1501);
-    expect(rows[1500]).toEqual({ kind: "skipped", text: "3500 more lines not shown" });
+    expect(rows).toHaveLength(5000);
+    expect(countChanges(rows)).toEqual({ added: 5000, removed: 0 });
   });
 });
 

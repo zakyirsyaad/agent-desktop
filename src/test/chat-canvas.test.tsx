@@ -194,20 +194,21 @@ All systems ready for compilation.`,
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("pnpm install && pnpm build");
   });
 
-  it("renders tool execution chips with completed and running statuses", () => {
+  it("shows a running tool on the collapsed summary row and reveals the rest on click", () => {
     render(
       <ChatCanvas
         messages={mockMessages}
       />
     );
 
-    // Tool chip 1: completed
+    const summary = screen.getByRole("button", { name: /Bash/ });
+    expect(summary.textContent).toContain("Running");
+    expect(screen.queryByText("Edit")).toBeNull();
+
+    fireEvent.click(summary);
+
     expect(screen.getByText("Edit")).toBeDefined();
     expect(screen.getByText(/Completed/i)).toBeDefined();
-
-    // Tool chip 2: running
-    expect(screen.getByText("Bash")).toBeDefined();
-    expect(screen.getByText(/Running/i)).toBeDefined();
   });
 
   it("renders the ActionCard of a message with a permission request and reports the pick with its card", () => {
@@ -539,6 +540,8 @@ describe("ACP chat content", () => {
       />
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Read a file" }));
+
     expect(screen.getByText("Read src/App.tsx")).toBeDefined();
     expect(screen.queryByText(/\(\)/)).toBeNull();
   });
@@ -673,7 +676,7 @@ describe("ACP chat content", () => {
     expect(summary.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("renders a message saved without parts as it always did", () => {
+  it("gives a message saved without parts the same compact tool rows", () => {
     render(
       <ChatCanvas
         messages={[
@@ -688,9 +691,18 @@ describe("ACP chat content", () => {
       />
     );
 
-    const row = screen.getByTestId("chat-message-m-1");
-    const text = row.textContent ?? "";
-    expect(text.indexOf("Read src/App.tsx")).toBeLessThan(text.indexOf("The answer."));
+    const message = screen.getByTestId("chat-message-m-1");
+    const row = within(message);
+    expect(row.getByRole("button", { name: "Read a file" })).toBeDefined();
+    expect(row.getByText("The answer.")).toBeDefined();
+    expect(row.queryByText("Read src/App.tsx")).toBeNull();
+
+    const text = message.textContent ?? "";
+    expect(text.indexOf("Read a file")).toBeLessThan(text.indexOf("The answer."));
+
+    fireEvent.click(row.getByRole("button", { name: "Read a file" }));
+
+    expect(row.getByText("Read src/App.tsx")).toBeDefined();
   });
 
   it("does not show an agent reply that has nothing in it", () => {

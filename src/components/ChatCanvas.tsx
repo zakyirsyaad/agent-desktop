@@ -61,12 +61,15 @@ export function ChatCanvas({
   // While a turn runs, its replies (one or more, after the last user message)
   // are still being written: copying or forking them makes no sense yet.
   let lastUserIndex = -1;
+  let lastAgentIndex = -1;
   for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
-    if (visibleMessages[i].role === "user") {
-      lastUserIndex = i;
-      break;
-    }
+    if (lastUserIndex === -1 && visibleMessages[i].role === "user") lastUserIndex = i;
+    if (lastAgentIndex === -1 && visibleMessages[i].role === "agent") lastAgentIndex = i;
+    if (lastUserIndex !== -1 && lastAgentIndex !== -1) break;
   }
+  // The turn the user is watching is the newest reply (or replies) after their
+  // last message. A transcript with no user message has only its newest reply.
+  const currentTurnStartsAt = lastUserIndex >= 0 ? lastUserIndex + 1 : Math.max(lastAgentIndex, 0);
   // The turn stays open while the agent works or waits on the user; the
   // working indicator hides in the latter case, but its replies are unfinished.
   const isTurnOpen = isWorking || isAwaitingUser(messages);
@@ -144,6 +147,7 @@ export function ChatCanvas({
           message={msg}
           agentName={agentName}
           isLast={msg === lastMessage}
+          isCurrentTurn={msg.role === "agent" && index >= currentTurnStartsAt}
           showActions={msg.role !== "user" && index < runningTurnStartsAt}
           copied={copiedMessageId === msg.id}
           speaking={readAloud.speakingMessageId === msg.id}
