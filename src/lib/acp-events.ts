@@ -1,6 +1,7 @@
 import type {
   ActionCard,
   ChatMessage,
+  ChatMessagePart,
   PermissionChoice,
   PlanEntry,
   ToolDetail,
@@ -83,6 +84,42 @@ export function withOpenReply(
   return [...messages, change(fresh)];
 }
 
+/** The reply's text parts joined by a blank line, the way `content` holds them. */
+function textOfParts(parts: readonly ChatMessagePart[]): string {
+  return parts
+    .filter((part): part is Extract<ChatMessagePart, { kind: 'text' }> => part.kind === 'text')
+    .map((part) => part.text)
+    .join('\n\n');
+}
+
+/** A reply's parts, treating a message saved before parts as one text part. */
+function partsOf(reply: ChatMessage): ChatMessagePart[] {
+  if (reply.parts) return reply.parts;
+  return reply.content ? [{ kind: 'text', text: reply.content }] : [];
+}
+
+/** Appends a text chunk; a chunk after tools starts a new text part. */
+function appendText(reply: ChatMessage, chunk: string): ChatMessage {
+  const parts = partsOf(reply);
+  const last = parts[parts.length - 1];
+  const next: ChatMessagePart[] =
+    last?.kind === 'text'
+      ? [...parts.slice(0, -1), { kind: 'text', text: last.text + chunk }]
+      : [...parts, { kind: 'text', text: chunk }];
+  return { ...reply, parts: next, content: textOfParts(next) };
+}
+
+/** Adds a tool id to the open tools part, or starts one after text. */
+function appendTool(reply: ChatMessage, toolId: string): ChatMessage {
+  const parts = partsOf(reply);
+  const last = parts[parts.length - 1];
+  const next: ChatMessagePart[] =
+    last?.kind === 'tools'
+      ? [...parts.slice(0, -1), { kind: 'tools', toolIds: [...last.toolIds, toolId] }]
+      : [...parts, { kind: 'tools', toolIds: [toolId] }];
+  return { ...reply, parts: next };
+}
+
 /** Tool output is kept in memory and in the saved transcript, so it is bounded. */
 const MAX_TOOL_TEXT = 50_000;
 const MAX_DIFF_TEXT = 200_000;
@@ -135,7 +172,7 @@ function addToolCall(messages: readonly ChatMessage[], update: Json, ctx: AcpRed
     details: toDetails(update.content),
     locations: toLocations(update.locations),
   };
-  return withOpenReply(messages, ctx, (reply) => ({ ...reply, tools: [...(reply.tools ?? []), tool] }));
+  return withOpenReply(messages, ctx, (reply) => appendTool({ ...reply, tools: [...(reply.tools ?? []), tool] }, id));
 }
 
 /** Applies a tool_call_update: fields it carries replace the old ones (content as a whole), the rest stay. */
@@ -186,7 +223,7 @@ export function applyAcpUpdate(
       // Agents send stray empty chunks (Qwen Code does after a turn); they must not open a blank reply.
       const chunk = textOf(update.content);
       if (!chunk) return messages;
-      return withOpenReply(messages, ctx, (reply) => ({ ...reply, content: reply.content + chunk }));
+      return withOpenReply(messages, ctx, (reply) => appendText(reply, chunk));
     }
     case 'agent_thought_chunk': {
       const chunk = textOf(update.content);

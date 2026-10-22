@@ -205,6 +205,12 @@ export type ToolDetail =
   /** `oldText` is null for a file the tool created. */
   | { kind: 'diff'; path: string; oldText: string | null; newText: string };
 
+/** One stretch of a reply, kept in the order the agent produced it. */
+export type ChatMessagePart =
+  | { kind: 'text'; text: string }
+  /** Consecutive tool calls share one part. */
+  | { kind: 'tools'; toolIds: string[] };
+
 /** One step of an agent's plan, as reported over ACP. */
 export interface PlanEntry {
   content: string;
@@ -220,6 +226,8 @@ export interface ChatMessage {
   /** False for a message replayed from the agent's history, which gives no per-message time. */
   hasKnownTime?: boolean;
   tools?: ToolExecution[];
+  /** The reply's text and tool calls in the order the agent produced them; absent in older transcripts. */
+  parts?: ChatMessagePart[];
   actionCard?: ActionCard;
   /** The agent's visible reasoning for this reply, when it streams any. */
   thinking?: string;

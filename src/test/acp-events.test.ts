@@ -127,6 +127,70 @@ describe("applyAcpUpdate", () => {
   });
 });
 
+describe("reply parts", () => {
+  const toolCall = (id: string, kind = "read", title = `Tool ${id}`) => ({
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title,
+    kind,
+    status: "pending",
+  });
+
+  it("keeps text and tools in the order they happened", () => {
+    const c = ctx();
+    let messages = applyAcpUpdate([], text("Let me look."), c);
+    messages = applyAcpUpdate(messages, toolCall("t-1"), c);
+    messages = applyAcpUpdate(messages, text("Found it."), c);
+    messages = applyAcpUpdate(messages, toolCall("t-2"), c);
+
+    expect(messages[0].parts).toEqual([
+      { kind: "text", text: "Let me look." },
+      { kind: "tools", toolIds: ["t-1"] },
+      { kind: "text", text: "Found it." },
+      { kind: "tools", toolIds: ["t-2"] },
+    ]);
+  });
+
+  it("keeps two text chunks in a row as one text part", () => {
+    const c = ctx();
+    const messages = applyAcpUpdate(applyAcpUpdate([], text("Hello "), c), text("world"), c);
+
+    expect(messages[0].parts).toEqual([{ kind: "text", text: "Hello world" }]);
+  });
+
+  it("keeps consecutive tool calls in one tools part", () => {
+    const c = ctx();
+    const once = applyAcpUpdate([], toolCall("t-1"), c);
+    const messages = applyAcpUpdate(once, toolCall("t-2"), c);
+
+    expect(messages[0].parts).toEqual([{ kind: "tools", toolIds: ["t-1", "t-2"] }]);
+  });
+
+  it("joins separate text parts with a blank line in content", () => {
+    const c = ctx();
+    let messages = applyAcpUpdate([], text("files"), c);
+    messages = applyAcpUpdate(messages, toolCall("t-1"), c);
+    messages = applyAcpUpdate(messages, text("Let me"), c);
+
+    expect(messages[0].content).toBe("files\n\nLet me");
+  });
+
+  it("keeps the order in a replay", () => {
+    const c = ctx();
+    let messages = applyReplayUpdate([], userChunk("go", "m-1"), c);
+    messages = applyReplayUpdate(messages, text("Reading."), c);
+    messages = applyReplayUpdate(messages, toolCall("t-1"), c);
+    messages = applyReplayUpdate(messages, text("Done."), c);
+
+    expect(messages[1].parts).toEqual([
+      { kind: "text", text: "Reading." },
+      { kind: "tools", toolIds: ["t-1"] },
+      { kind: "text", text: "Done." },
+    ]);
+    expect(messages[1].content).toBe("Reading.\n\nDone.");
+  });
+});
+
 describe("tool call details", () => {
   const edit = {
     sessionUpdate: "tool_call",
