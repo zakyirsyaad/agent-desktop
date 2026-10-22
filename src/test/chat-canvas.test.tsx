@@ -573,6 +573,32 @@ describe("ACP chat content", () => {
     expect(screen.queryByTestId("agent-working")).toBeNull();
   });
 
+  it("keeps the reply actions off the turn that is still running", () => {
+    const messages: ChatMessage[] = [
+      { id: "u-1", role: "user", content: "first", timestamp: 1 },
+      { id: "a-1", role: "agent", content: "finished reply", timestamp: 2, isComplete: true },
+      { id: "u-2", role: "user", content: "follow-up", timestamp: 3 },
+      { id: "a-2", role: "agent", content: "still working", timestamp: 4 },
+    ];
+    const { rerender } = render(<ChatCanvas messages={messages} isWorking onForkBranch={() => {}} />);
+
+    const finished = within(screen.getByTestId("chat-message-a-1"));
+    expect(finished.getByRole("button", { name: "Copy message" })).toBeDefined();
+    expect(finished.getByRole("button", { name: "Fork branch" })).toBeDefined();
+
+    const running = within(screen.getByTestId("chat-message-a-2"));
+    expect(running.queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(running.queryByRole("button", { name: "Fork branch" })).toBeNull();
+    expect(running.queryByRole("button", { name: "Read aloud" })).toBeNull();
+    expect(running.queryByText(/ago/i)).toBeNull();
+
+    rerender(<ChatCanvas messages={messages} isWorking={false} onForkBranch={() => {}} />);
+
+    const ended = within(screen.getByTestId("chat-message-a-2"));
+    expect(ended.getByRole("button", { name: "Copy message" })).toBeDefined();
+    expect(ended.getByRole("button", { name: "Fork branch" })).toBeDefined();
+  });
+
   it("marks reasoning done once a later message follows, even without isComplete", () => {
     render(
       <ChatCanvas

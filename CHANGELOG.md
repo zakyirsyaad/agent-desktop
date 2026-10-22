@@ -7,6 +7,7 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 ### Fixed
 
 - **Scrolling up while the agent streams leaves the bottom at once.** A small upward scroll, wheel or key keeps your place, so a streaming reply no longer shakes the view or snaps it back down while you read.
+- **A reply shows Copy, Fork and Read aloud once its turn ends.** The reply the agent is still writing no longer offers actions or a timestamp, so you cannot copy or fork half an answer.
 
 ## [0.3.0] - 2026-10-22
 

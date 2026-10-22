@@ -69,6 +69,16 @@ export function ChatCanvas({
   const readAloud = useReadAloud();
   const visibleMessages = messages.filter(hasSomethingToShow);
   const lastMessage = visibleMessages[visibleMessages.length - 1];
+  // While a turn runs, its replies (one or more, after the last user message)
+  // are still being written: copying or forking them makes no sense yet.
+  let lastUserIndex = -1;
+  for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
+    if (visibleMessages[i].role === "user") {
+      lastUserIndex = i;
+      break;
+    }
+  }
+  const runningTurnStartsAt = isWorking ? lastUserIndex + 1 : visibleMessages.length;
 
   // Follow new output to the bottom while the user is there; once they scroll
   // up to read, leave the view alone.
@@ -109,7 +119,7 @@ export function ChatCanvas({
       className="flex-1 overflow-y-auto px-6 py-6 space-y-6"
     >
       {header && <div className="mx-auto w-full max-w-3xl">{header}</div>}
-      {visibleMessages.map((msg) => {
+      {visibleMessages.map((msg, index) => {
         const isUser = msg.role === "user";
 
         return (
@@ -195,8 +205,8 @@ export function ChatCanvas({
               />
             )}
 
-            {/* Message Action Bar at bottom of Agent message */}
-            {!isUser && (
+            {/* Message Action Bar at bottom of Agent message, once its turn has ended */}
+            {!isUser && index < runningTurnStartsAt && (
               <MessageActionBar
                 copied={copiedMessageId === msg.id}
                 timeLabel={timeLabelOf(msg)}
