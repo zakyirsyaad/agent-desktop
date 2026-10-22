@@ -15,6 +15,7 @@ import { findCard, titleFromPrompt, userMessage, withoutMessage } from '../../li
 import { createId } from '../../lib/ids';
 import { toCommands, useAcpSessions, type AcpSessionInfo, type TurnResult } from '../useAcpSessions';
 import { useLatest } from '../useLatest';
+import { useBatchedUpdates } from '../useBatchedUpdates';
 import type { AgentProfile, ChatMessage, ElicitationCard, Session } from '../../types';
 import { parseAuthRequired, type AuthMethod } from '../../lib/acp-auth';
 import { isUnknownSessionError } from '../../lib/acp-load-error';
@@ -104,6 +105,16 @@ export function useAcpEngine({
   transcripts,
 }: AcpEngineDeps) {
   const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
+  // An agent streams many updates per second: they apply once a frame, still in order.
+  const queued = useBatchedUpdates(updateMessages);
+  /**
+   * A change that is not a streamed chunk (the user answered, the turn ended):
+   * land what the agent already sent first, then apply this at once.
+   */
+  const updateNow = (sessionId: string, updater: (prev: ChatMessage[]) => ChatMessage[]) => {
+    queued.flush();
+    updateMessages(sessionId, updater);
+  };
   // Sessions the app stopped (deleted, or stopped while starting): their late
   // events must not write a transcript back, and a start still in flight must
   // end the agent as soon as it is up.
@@ -154,25 +165,25 @@ export function useAcpEngine({
         if (profileId) rememberOptions(profileId, { commands: toCommands(update.availableCommands) });
         return;
       }
-      updateMessages(sessionId, (prev) =>
+      queued.update(sessionId, (prev) =>
         replayingRef.current.has(sessionId)
           ? applyReplayUpdate(prev, update, ctx(sessionId))
           : applyAcpUpdate(prev, update, ctx(sessionId)),
       );
     }),
     onPermission: unlessStopped((sessionId, request: PermissionRequestPayload) => {
-      updateMessages(sessionId, (prev) => applyPermissionRequest(prev, request, ctx(sessionId)));
+      updateNow(sessionId, (prev) => applyPermissionRequest(prev, request, ctx(sessionId)));
       onAttention?.(sessionId, 'needs-answer');
     }),
     onElicitation: unlessStopped((sessionId, card: ElicitationCard) => {
-      updateMessages(sessionId, (prev) => applyElicitation(prev, card, ctx(sessionId)));
+      updateNow(sessionId, (prev) => applyElicitation(prev, card, ctx(sessionId)));
       onAttention?.(sessionId, 'needs-answer');
     }),
     onElicitationComplete: unlessStopped((sessionId, key: string) => {
-      updateMessages(sessionId, (prev) => completeElicitation(prev, key));
+      updateNow(sessionId, (prev) => completeElicitation(prev, key));
     }),
     onTurnEnd: unlessStopped((sessionId, { stopReason, error }: TurnResult) => {
-      updateMessages(sessionId, closeTurn);
+      updateNow(sessionId, closeTurn);
       const authMethods = parseAuthRequired(error);
       if (authMethods) {
         handBackForSignIn(sessionId, authMethods);
@@ -185,7 +196,8 @@ export function useAcpEngine({
       if (stopReason !== 'cancelled') onAttention?.(sessionId, notice ? 'failed' : 'finished');
     }),
     onExit: unlessStopped((sessionId, code: number | null) => {
-      updateMessages(sessionId, closeTurn);
+      updateNow(sessionId, closeTurn);
+      // The agent leaves no more updates: the cards it showed are the ones marked unanswered.
       elicitations.abandon(sessionId);
       patchSession(sessionId, { status: 'terminated', endedAt: Date.now(), exitCode: code });
     }),
@@ -196,7 +208,13 @@ export function useAcpEngine({
   const sessionsRef = useLatest(sessions);
   const transcriptsRef = useLatest(transcripts);
   const transcriptOf = (sessionId: string) => transcriptsRef.current?.[sessionId];
-  const elicitations = elicitationActions({ acp, updateMessages, reportError, transcriptOf, inFlight: elicitationsInFlightRef.current });
+  const elicitations = elicitationActions({
+    acp,
+    updateMessages: updateNow,
+    reportError,
+    transcriptOf,
+    inFlight: elicitationsInFlightRef.current,
+  });
 
   const markStarting = useCallback((sessionId: string, isStarting: boolean) => {
     setStarting((prev) => {
@@ -213,7 +231,8 @@ export function useAcpEngine({
     const refused = lastPromptRef.current.get(sessionId);
     lastPromptRef.current.delete(sessionId);
     const message = refused?.message;
-    if (message) updateMessages(sessionId, (prev) => withoutMessage(prev, message.id));
+    // The turn end before this one lands first; the message goes back at once.
+    if (message) updateNow(sessionId, (prev) => withoutMessage(prev, message.id));
     if (refused?.context) unsentContextRef.current.set(sessionId, refused.context);
     if (!session) return;
     const unsent = message ? { text: message.content, attachments: message.attachments } : undefined;
@@ -238,7 +257,7 @@ export function useAcpEngine({
     } catch (error) {
       lastPromptRef.current.delete(sessionId);
       if (context) unsentContextRef.current.set(sessionId, context);
-      updateMessages(sessionId, (prev) => withoutMessage(prev, message.id));
+      updateNow(sessionId, (prev) => withoutMessage(prev, message.id));
       reportError(`Failed to send the message: ${String(error)}`);
       return false;
     }
@@ -248,7 +267,7 @@ export function useAcpEngine({
   const send = async (sessionId: string, text: string, attachments: readonly string[] = []): Promise<boolean> => {
     // Shown before the prompt goes out, so the agent's reply always lands after it.
     const message = userMessage(text, attachments);
-    updateMessages(sessionId, (prev) => [...prev, message]);
+    updateNow(sessionId, (prev) => [...prev, message]);
     return prompt(sessionId, message, takeUnsentContext(sessionId));
   };
 
@@ -297,7 +316,7 @@ export function useAcpEngine({
     // Taken before the open starts: a later launch or stop supersedes this one.
     const gen = bumpLaunchGen(session.id);
     const message = options.first ? userMessage(options.first.text, options.first.attachments) : null;
-    if (message) updateMessages(session.id, (prev) => [...prev, message]);
+    if (message) updateNow(session.id, (prev) => [...prev, message]);
     // Busy until the first prompt is out: a message sent meanwhile would race it.
     markStarting(session.id, true);
     try {
@@ -308,11 +327,11 @@ export function useAcpEngine({
         // A newer launch owns the session now: this failure is not its failure.
         if (!isCurrentLaunch(session.id, gen)) {
           // The message this launch showed was never prompted: take it back.
-          if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+          if (message) updateNow(session.id, (prev) => withoutMessage(prev, message.id));
           return true;
         }
         if (isStopped(session.id)) return true;
-        if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+        if (message) updateNow(session.id, (prev) => withoutMessage(prev, message.id));
         elicitations.abandon(session.id);
         if (options.onOpenError) {
           // The caller made this record: it removes it rather than ending a session the user never had.
@@ -341,7 +360,7 @@ export function useAcpEngine({
       }
       if (!isCurrentLaunch(session.id, gen)) {
         // A newer launch owns the session: the message this one showed was never prompted.
-        if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+        if (message) updateNow(session.id, (prev) => withoutMessage(prev, message.id));
         return true;
       }
       rememberOptions(session.profileId, { modes: info.modes, configOptions: info.configOptions });
@@ -350,7 +369,7 @@ export function useAcpEngine({
       // Superseded while the picks were applied: a newer launch owns the session.
       if (!isCurrentLaunch(session.id, gen)) {
         // The message this launch showed was never prompted: take it back.
-        if (message) updateMessages(session.id, (prev) => withoutMessage(prev, message.id));
+        if (message) queued.update(session.id, (prev) => withoutMessage(prev, message.id));
         return true;
       }
       // What the agent offers now, after the picks: an effort list follows its model,
@@ -428,7 +447,7 @@ export function useAcpEngine({
       // A deleted session has no transcript to close, and none may be written back;
       // a stopped one that is still listed still needs its last replay reply closed.
       if (isOpened) {
-        if (sessionsRef.current.some((s) => s.id === id)) updateMessages(id, closeImportedTurn);
+        if (sessionsRef.current.some((s) => s.id === id)) updateNow(id, closeImportedTurn);
         if (reopenedWith === 'resume') patchSession(id, { historyElsewhere: true });
       }
       return isOpened;
@@ -518,10 +537,10 @@ export function useAcpEngine({
       reportError('This request can no longer be answered.');
       return;
     }
-    updateMessages(sessionId, (prev) => resolvePermissionCard(prev, cardId, optionId));
+    updateNow(sessionId, (prev) => resolvePermissionCard(prev, cardId, optionId));
     acp.respondPermission(sessionId, card.requestId, optionId).catch((error) => {
       // The agent is still waiting, so the card must stay answerable.
-      updateMessages(sessionId, (prev) => reopenPermissionCard(prev, cardId));
+      updateNow(sessionId, (prev) => reopenPermissionCard(prev, cardId));
       reportError(`Could not answer the agent: ${String(error)}`);
     });
   };
@@ -532,6 +551,9 @@ export function useAcpEngine({
    * the backend has done it.
    */
   const stop = (sessionId: string): Promise<boolean> => {
+    // What the agent already sent belongs before anything this stop makes:
+    // a deleted session's transcript goes away after these land, not before.
+    queued.flush();
     // The backend cancels the open requests, and the agent's later events (its exit) are ignored.
     elicitations.abandon(sessionId);
     stoppedRef.current.add(sessionId);
@@ -574,7 +596,7 @@ export function useAcpEngine({
     // The backend answers the open elicitations as cancelled and names them; one that comes after stays open.
     elicitations.forget(sessionId);
     acp.cancel(sessionId).then(
-      (cancelled) => updateMessages(sessionId, (prev) => dismissPendingElicitations(prev, new Set(cancelled))),
+      (cancelled) => updateNow(sessionId, (prev) => dismissPendingElicitations(prev, new Set(cancelled))),
       reportFailure('Failed to stop the agent'),
     );
   };

@@ -40,6 +40,8 @@ function tauriInternals(): TauriInternals {
 async function deliver(event: string, payload: unknown) {
   await act(async () => {
     (listeners.get(event) ?? []).forEach((cb) => cb({ payload }));
+    // Stream updates apply once a frame; let that frame land inside act.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 

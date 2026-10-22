@@ -33,6 +33,8 @@ function callsTo(spy: { mock: { calls: unknown[][] } }, cmd: string) {
 async function acpEvent(payload: Record<string, unknown>) {
   await act(async () => {
     listeners.get("acp-event")?.({ payload });
+    // Stream updates apply once a frame; let that frame land inside act.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
