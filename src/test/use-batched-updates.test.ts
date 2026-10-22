@@ -12,7 +12,10 @@ const closeTurn = (prev: ChatMessage[]) =>
 
 describe("useBatchedUpdates", () => {
   beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it("applies updates queued in one frame once, in order", async () => {
     const updateMessages = vi.fn();
@@ -107,5 +110,45 @@ describe("useBatchedUpdates", () => {
     const [sessionId, apply] = updateMessages.mock.calls[0];
     expect(sessionId).toBe("s-2");
     expect(apply([]).map((m: ChatMessage) => m.id)).toEqual(["kept"]);
+  });
+
+  it("flushes from a timer when animation frames never fire, as in a hidden window", async () => {
+    const frame = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    const updateMessages = vi.fn();
+    const { result } = renderHook(() => useBatchedUpdates(updateMessages));
+
+    act(() => {
+      result.current.update("s-1", (prev) => [...prev, message("a")]);
+    });
+    expect(updateMessages).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(updateMessages).toHaveBeenCalledTimes(1);
+    const [, apply] = updateMessages.mock.calls[0];
+    expect(apply([]).map((m: ChatMessage) => m.id)).toEqual(["a"]);
+
+    frame.mockRestore();
+  });
+
+  it("does not flush again when the frame fires before the fallback timer", async () => {
+    const updateMessages = vi.fn();
+    const { result } = renderHook(() => useBatchedUpdates(updateMessages));
+
+    act(() => {
+      result.current.update("s-1", (prev) => [...prev, message("a")]);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(16);
+    });
+    expect(updateMessages).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(updateMessages).toHaveBeenCalledTimes(1);
   });
 });

@@ -19,6 +19,8 @@ export interface BatchedUpdates {
   forget: (sessionId: string) => void;
 }
 
+const MAX_FLUSH_DELAY_MS = 50;
+
 /**
  * Coalesces transcript changes that arrive many times a second: an agent
  * streams a chunk per event, and React would otherwise render for each one.
@@ -31,11 +33,16 @@ export function useBatchedUpdates(
   const updateMessagesRef = useLatest(updateMessages);
   const pendingRef = useRef<QueuedUpdate[]>([]);
   const frameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flush = useCallback(() => {
     if (frameRef.current !== null) {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
+    }
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
     const pending = pendingRef.current;
     if (pending.length === 0) return;
@@ -60,11 +67,11 @@ export function useBatchedUpdates(
   const update = useCallback(
     (sessionId: string, updater: MessageUpdater) => {
       pendingRef.current.push({ sessionId, updater });
-      if (frameRef.current === null) {
-        frameRef.current = requestAnimationFrame(() => {
-          frameRef.current = null;
-          flush();
-        });
+      if (frameRef.current === null && timerRef.current === null) {
+        frameRef.current = requestAnimationFrame(flush);
+        // A hidden or minimized window pauses animation frames, and the main
+        // window is the only writer: the timer keeps it parsing and saving.
+        timerRef.current = setTimeout(flush, MAX_FLUSH_DELAY_MS);
       }
     },
     [flush],
@@ -77,6 +84,7 @@ export function useBatchedUpdates(
   useEffect(
     () => () => {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
     },
     [],
   );
