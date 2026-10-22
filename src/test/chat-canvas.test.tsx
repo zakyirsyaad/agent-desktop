@@ -543,6 +543,156 @@ describe("ACP chat content", () => {
     expect(screen.queryByText(/\(\)/)).toBeNull();
   });
 
+  it("renders a reply's text and tools in the order they happened", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          {
+            id: "m-1",
+            role: "agent",
+            content: "Before\n\nAfter",
+            timestamp: 1,
+            tools: [
+              { id: "t-1", name: "pnpm test", status: "completed", kind: "execute" },
+              { id: "t-2", name: "Read src/App.tsx", status: "completed", kind: "read" },
+            ],
+            parts: [
+              { kind: "text", text: "Before" },
+              { kind: "tools", toolIds: ["t-1", "t-2"] },
+              { kind: "text", text: "After" },
+            ],
+          },
+        ]}
+      />
+    );
+
+    const row = screen.getByTestId("chat-message-m-1");
+    const text = row.textContent ?? "";
+    expect(text.indexOf("Before")).toBeLessThan(text.indexOf("Ran a command"));
+    expect(text.indexOf("Ran a command")).toBeLessThan(text.indexOf("After"));
+  });
+
+  it("shows a tools part as one summary row, collapsed", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          {
+            id: "m-1",
+            role: "agent",
+            content: "",
+            timestamp: 1,
+            tools: [
+              { id: "t-1", name: "pnpm test", status: "completed", kind: "execute" },
+              { id: "t-2", name: "Read src/App.tsx", status: "completed", kind: "read" },
+            ],
+            parts: [{ kind: "tools", toolIds: ["t-1", "t-2"] }],
+          },
+        ]}
+      />
+    );
+
+    const summary = screen.getByRole("button", { name: "Ran a command, read a file" });
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("pnpm test")).toBeNull();
+  });
+
+  it("shows the tools when a summary row is expanded", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          {
+            id: "m-1",
+            role: "agent",
+            content: "",
+            timestamp: 1,
+            tools: [
+              { id: "t-1", name: "pnpm test", status: "completed", kind: "execute" },
+              { id: "t-2", name: "Read src/App.tsx", status: "completed", kind: "read" },
+            ],
+            parts: [{ kind: "tools", toolIds: ["t-1", "t-2"] }],
+          },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Ran a command, read a file" }));
+
+    expect(screen.getByRole("button", { name: "Ran a command, read a file" }).getAttribute("aria-expanded")).toBe(
+      "true"
+    );
+    expect(screen.getByText("pnpm test")).toBeTruthy();
+    expect(screen.getByText("Read src/App.tsx")).toBeTruthy();
+  });
+
+  it("opens a tools part with a diff without a click", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          {
+            id: "m-1",
+            role: "agent",
+            content: "",
+            timestamp: 1,
+            tools: [
+              {
+                id: "t-1",
+                name: "Edit src/app.ts",
+                status: "completed",
+                kind: "edit",
+                details: [{ kind: "diff", path: "src/app.ts", oldText: "a", newText: "b" }],
+              },
+            ],
+            parts: [{ kind: "tools", toolIds: ["t-1"] }],
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Edited a file" }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("src/app.ts")).toBeTruthy();
+  });
+
+  it("shows a running tool's title and state on its summary row", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          {
+            id: "m-1",
+            role: "agent",
+            content: "",
+            timestamp: 1,
+            tools: [{ id: "t-1", name: "pnpm test", status: "running", kind: "execute" }],
+            parts: [{ kind: "tools", toolIds: ["t-1"] }],
+          },
+        ]}
+      />
+    );
+
+    const summary = screen.getByRole("button", { name: /pnpm test/ });
+    expect(summary.textContent).toContain("Running");
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("renders a message saved without parts as it always did", () => {
+    render(
+      <ChatCanvas
+        messages={[
+          {
+            id: "m-1",
+            role: "agent",
+            content: "The answer.",
+            timestamp: 1,
+            tools: [{ id: "t-1", name: "Read src/App.tsx", status: "completed", kind: "read" }],
+          },
+        ]}
+      />
+    );
+
+    const row = screen.getByTestId("chat-message-m-1");
+    const text = row.textContent ?? "";
+    expect(text.indexOf("Read src/App.tsx")).toBeLessThan(text.indexOf("The answer."));
+  });
+
   it("does not show an agent reply that has nothing in it", () => {
     render(
       <ChatCanvas
