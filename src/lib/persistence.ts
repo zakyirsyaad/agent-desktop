@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { TRANSPORT_ACP, type ChatMessage, type PersistedState, type Session, type SessionWorktree } from '../types';
+import { TRANSPORT_ACP, type ChatMessage, type ChatMessagePart, type PersistedState, type Session, type SessionWorktree } from '../types';
 import { markElicitationsUnanswered } from './acp-elicitation';
 import { normalizeAppearance } from './appearance';
 import type { AgentOptions } from './acp-draft';
@@ -201,9 +201,34 @@ export function saveAppState(state: PersistedState): Promise<void> {
   return invoke('save_app_state', { state });
 }
 
+function isMessagePart(value: unknown): value is ChatMessagePart {
+  if (!isObject(value)) return false;
+  if (value.kind === 'text') return typeof value.text === 'string';
+  return (
+    value.kind === 'tools' &&
+    Array.isArray(value.toolIds) &&
+    value.toolIds.every((id) => typeof id === 'string')
+  );
+}
+
+/**
+ * Keeps every saved message, dropping a `parts` list that does not match the
+ * shape. Messages saved before parts existed simply have none, and render the
+ * way they always did.
+ */
+export function normalizeTranscript(raw: unknown): ChatMessage[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((message) => {
+    if (!isObject(message) || !('parts' in message)) return message as ChatMessage;
+    const { parts, ...rest } = message;
+    const isWellFormed = Array.isArray(parts) && parts.length > 0 && parts.every(isMessagePart);
+    return (isWellFormed ? { ...rest, parts } : rest) as unknown as ChatMessage;
+  });
+}
+
 export async function loadTranscript(sessionId: string): Promise<ChatMessage[]> {
   const messages = await invoke<unknown>('load_transcript', { sessionId });
-  return Array.isArray(messages) ? markElicitationsUnanswered(messages as ChatMessage[]) : [];
+  return markElicitationsUnanswered(normalizeTranscript(messages));
 }
 
 export function saveTranscript(sessionId: string, messages: ChatMessage[]): Promise<void> {

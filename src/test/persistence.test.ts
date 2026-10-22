@@ -209,10 +209,57 @@ describe("normalizePersistedState - removed agents", () => {
 });
 
 describe("loadTranscript", () => {
+  const store = () =>
+    (window as unknown as { __FAKE_TAURI_STORE__: { transcripts: Record<string, unknown[]> } }).__FAKE_TAURI_STORE__;
+
+  it("keeps a valid parts list and loads a message saved without one", async () => {
+    store().transcripts["s-1"] = [
+      { id: "old", role: "agent", content: "one\n\ntwo", timestamp: 1 },
+      {
+        id: "new",
+        role: "agent",
+        content: "one\n\ntwo",
+        timestamp: 2,
+        tools: [{ id: "t-1", name: "Read src/app.ts", status: "completed", kind: "read" }],
+        parts: [
+          { kind: "text", text: "one" },
+          { kind: "tools", toolIds: ["t-1"] },
+          { kind: "text", text: "two" },
+        ],
+      },
+    ];
+
+    const messages = await loadTranscript("s-1");
+
+    expect(messages[0].parts).toBeUndefined();
+    expect(messages[0].content).toBe("one\n\ntwo");
+    expect(messages[1].parts).toEqual([
+      { kind: "text", text: "one" },
+      { kind: "tools", toolIds: ["t-1"] },
+      { kind: "text", text: "two" },
+    ]);
+    expect(messages[1].tools).toHaveLength(1);
+  });
+
+  it("drops a malformed parts list but keeps the rest of the message", async () => {
+    store().transcripts["s-1"] = [
+      { id: "a", role: "agent", content: "a", timestamp: 1, parts: "nope" },
+      { id: "b", role: "agent", content: "b", timestamp: 2, parts: [{ kind: "text" }] },
+      { id: "c", role: "agent", content: "c", timestamp: 3, parts: [{ kind: "tools", toolIds: [1] }] },
+      { id: "d", role: "agent", content: "d", timestamp: 4, parts: [{ kind: "unknown" }] },
+      { id: "e", role: "agent", content: "e", timestamp: 5, parts: [] },
+    ];
+
+    const messages = await loadTranscript("s-1");
+
+    expect(messages.map((m) => m.id)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(messages.map((m) => m.parts)).toEqual([undefined, undefined, undefined, undefined, undefined]);
+    expect(messages.map((m) => m.content)).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
   it("settles open elicitations", async () => {
-    const store = (window as unknown as { __FAKE_TAURI_STORE__: { transcripts: Record<string, unknown[]> } }).__FAKE_TAURI_STORE__;
     const card = { sessionId: "s-1", message: "m", timestamp: 1, host: "example.com" };
-    store.transcripts["s-1"] = [
+    store().transcripts["s-1"] = [
       { id: "a", role: "agent", content: "", timestamp: 1, elicitation: { ...card, key: "k1", mode: "form", status: "pending", fields: [{ name: "x", required: false, kind: { type: "boolean" } }], errors: { x: "bad" } } },
       { id: "b", role: "agent", content: "", timestamp: 1, elicitation: { ...card, key: "k2", mode: "url", status: "opened", url: "https://example.com/auth" } },
     ];
