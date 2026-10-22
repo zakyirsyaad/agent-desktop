@@ -458,13 +458,24 @@ export default function App() {
 
   useUnreadMarks(sessions, activeSessionId, isSessionBusy, patchSession);
 
+  // A removed session may still have a streamed change queued: drop it before
+  // the transcript is deleted, so a late frame cannot write it back.
+  const { forgetQueued } = acp;
+  const forgetTranscript = useCallback(
+    (sessionId: string) => {
+      forgetQueued(sessionId);
+      removeTranscript(sessionId);
+    },
+    [forgetQueued, removeTranscript],
+  );
+
   const sessionActions = useSessionActions({
     sessions,
     setActiveSessionId,
     patchSession,
     updateState,
     updateMessages,
-    removeTranscript,
+    removeTranscript: forgetTranscript,
     navigation,
     acp,
     onNotice: setNotice,

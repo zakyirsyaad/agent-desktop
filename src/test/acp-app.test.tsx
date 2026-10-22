@@ -33,6 +33,8 @@ function callsTo(spy: { mock: { calls: unknown[][] } }, cmd: string) {
 async function acpEvent(payload: Record<string, unknown>) {
   await act(async () => {
     listeners.get("acp-event")?.({ payload });
+    // Stream updates apply once a frame; let that frame land inside act.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -123,6 +125,32 @@ describe("ACP sessions in the app", () => {
 
     expect(screen.getByText("Hello from Qwen")).toBeDefined();
     expect(screen.queryByTestId("agent-working")).toBeNull();
+  });
+
+  it("applies a streamed chunk before the turn end that closes it", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("hi");
+
+    // No yield between the two events: the chunk is still queued when the
+    // turn end flushes the queue, which is the production ordering path.
+    await act(async () => {
+      listeners.get("acp-event")?.({
+        payload: {
+          sessionId,
+          kind: "update",
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "One frame" } },
+        },
+      });
+      listeners.get("acp-event")?.({ payload: { sessionId, kind: "turn-end", stopReason: "end_turn" } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByText("One frame")).toBeDefined();
+    expect(screen.queryByTestId("agent-working")).toBeNull();
+    // The turn ended with the chunk in it: the reply now offers its actions.
+    const reply = screen.getByText("One frame").closest('[data-testid^="chat-message-"]') as HTMLElement;
+    expect(within(reply).getByRole("button", { name: "Copy message" })).toBeDefined();
   });
 
   it("answers a permission request with the option the user picks", async () => {
