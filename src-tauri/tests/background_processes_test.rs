@@ -204,6 +204,35 @@ fn lists_a_group_leader_once_and_stops_at_its_subtree() {
     assert_eq!(tasks[0].subtree, vec![12, 11]);
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn lists_a_command_that_replaced_its_shell_in_a_real_tree() {
+    // Qwen Code's shell tool starts the command in its own process group and
+    // bash execs it; `setsid` and `exec` reproduce that shape with no shell.
+    let root = Command::new("/bin/sh")
+        .args([
+            "-c",
+            "/usr/bin/python3 -c 'import os; os.setsid(); os.execvp(\"sleep\", [\"sleep\", \"30\"])' & wait",
+        ])
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn the root");
+    let guard = TreeGuard(root);
+    let roots = [("s1".to_string(), guard.0.id())];
+
+    let mut task = None;
+    let found = eventually(Duration::from_secs(5), || {
+        task = scan(&roots, false)
+            .expect("scan")
+            .into_iter()
+            .find(|t| t.command.starts_with("sleep"));
+        task.is_some()
+    });
+
+    assert!(found, "the command that replaced its shell never showed up");
+    assert_eq!(task.expect("task").session_id, "s1");
+}
+
 #[test]
 fn never_lists_a_process_outside_every_root() {
     let tasks = select_tasks(&tree(), &[("s1".to_string(), 10)]);
