@@ -1,11 +1,10 @@
-//! The shell commands agents started that are still running (dev servers,
-//! watchers, long builds): finding them, and stopping one with everything it
-//! started.
+//! The commands agents started that are still running (dev servers, watchers,
+//! long builds): finding them, and stopping one with everything it started.
 //!
 //! A task is a shell under an agent's process whose path up to the agent has
-//! no other shell, so a command a shell runs belongs to that shell's task. A
-//! shell that started together with the agent launched the agent's own
-//! program, so it is looked through rather than listed.
+//! no other task, or a command that replaced its shell and leads its own
+//! process group. A shell that started together with the agent launched the
+//! agent's own program, so it is looked through rather than listed.
 //! Stopping only ever signals a task a fresh scan reports at that moment, so
 //! a pid the UI held on to cannot reach a process that reused it.
 
@@ -48,7 +47,7 @@ pub struct ProcessRow {
     pub command: String,
 }
 
-/// A task: a shell an agent started, with every process under it.
+/// A task: a shell or command an agent started, with every process under it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskProcess {
     pub pid: u32,
@@ -81,7 +80,7 @@ fn next_field(text: &str) -> Option<(&str, &str)> {
     Some(text.split_once(char::is_whitespace).unwrap_or((text, "")))
 }
 
-/// Reads `ps -o pid=,ppid=,etime=,command=` output; a line that does not
+/// Reads `ps -o pid=,ppid=,pgid=,etime=,command=` output; a line that does not
 /// parse is left out.
 pub fn parse_ps(output: &str) -> Vec<ProcessRow> {
     output.lines().filter_map(parse_ps_line).collect()

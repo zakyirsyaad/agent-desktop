@@ -34,7 +34,6 @@ const subagent: BackgroundTask = {
   status: "Running",
   startedAt: NOW - 5_000,
   sessionId: "s3",
-  toolId: "t1",
 };
 
 const shellTool: BackgroundTask = {
@@ -45,7 +44,6 @@ const shellTool: BackgroundTask = {
   status: "Running",
   startedAt: NOW - 3_000,
   sessionId: "s1",
-  toolId: "t2",
 };
 
 function setup(overrides: Partial<BackgroundTasksMenuProps> = {}) {

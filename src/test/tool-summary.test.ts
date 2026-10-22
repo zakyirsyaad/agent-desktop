@@ -46,6 +46,13 @@ describe("summarizeTools", () => {
     expect(summarizeTools(tools)).toBe("Ran 2 commands · 1 failed");
   });
 
+  it("treats a kind that names an object member as a tool", () => {
+    expect(summarizeTools([tool("t1", "execute"), tool("t2", "constructor")])).toBe(
+      "Ran a command, used a tool",
+    );
+    expect(summarizeTools([tool("t1", "__proto__")])).toBe("Used a tool");
+  });
+
   it("has nothing to say about no tools", () => {
     expect(summarizeTools([])).toBe("");
   });

@@ -1,3 +1,4 @@
+import { openReplyIndex } from './acp-events';
 import type { ChatMessage, Session, ToolExecution } from '../types';
 
 /** What a background row stands for. */
@@ -22,8 +23,6 @@ export interface BackgroundTask {
   sessionId: string;
   /** The OS process a shell task can be stopped through. */
   pid?: number;
-  /** The tool call a running-tool task points at. */
-  toolId?: string;
 }
 
 export interface BackgroundTasksInput {
@@ -56,33 +55,37 @@ function toolKind(tool: ToolExecution): 'shell' | 'subagent' | undefined {
   return tool.kind === 'execute' ? 'shell' : undefined;
 }
 
-/** Every running tool call that is work of its own: a shell command or a subagent. */
+/**
+ * The running tool calls in each session's open reply. A finished reply keeps a
+ * running tool in the transcript (`closeTurn` leaves it alone), so scanning
+ * older messages would keep a row after its turn ended. A command that outlives
+ * its turn shows through its process instead.
+ */
 export function runningToolTasks(
   transcripts: Readonly<Record<string, readonly ChatMessage[]>>,
   sessions: readonly Session[],
 ): BackgroundTask[] {
-  return sessions.flatMap((session) =>
-    (transcripts[session.id] ?? []).flatMap((message) =>
-      message.role !== 'agent'
-        ? []
-        : (message.tools ?? []).flatMap((tool): BackgroundTask[] => {
-            const kind = toolKind(tool);
-            if (tool.status !== 'running' || !kind) return [];
-            return [
-              {
-                id: `tool:${session.id}:${tool.id}`,
-                kind,
-                name: tool.name,
-                detail: session.name,
-                status: 'Running',
-                startedAt: tool.startedAt ?? message.timestamp,
-                sessionId: session.id,
-                toolId: tool.id,
-              },
-            ];
-          }),
-    ),
-  );
+  return sessions.flatMap((session) => {
+    const messages = transcripts[session.id] ?? [];
+    const index = openReplyIndex(messages);
+    if (index < 0) return [];
+    const message = messages[index];
+    return (message.tools ?? []).flatMap((tool): BackgroundTask[] => {
+      const kind = toolKind(tool);
+      if (tool.status !== 'running' || !kind) return [];
+      return [
+        {
+          id: `tool:${session.id}:${tool.id}`,
+          kind,
+          name: tool.name,
+          detail: session.name,
+          status: 'Running',
+          startedAt: tool.startedAt ?? message.timestamp,
+          sessionId: session.id,
+        },
+      ];
+    });
+  });
 }
 
 function normalized(value: string): string {
@@ -97,26 +100,38 @@ function namesSameWork(tool: BackgroundTask, process: BackgroundTask): boolean {
 }
 
 /**
- * Drops the tool row for each process already listed, preferring the process:
- * it carries the ports and can be stopped. A process matches its tool by
- * command text, or by having started while that tool was the latest one running.
+ * Drops the shell tool row for each process already listed, preferring the
+ * process: it carries the ports and can be stopped. A process matches by
+ * command first; a process with no command match claims a tool only when
+ * exactly one unclaimed tool of its session started before it, so a second
+ * running command is never hidden behind the first one. Subagent rows stand on
+ * their own and are never claimed by a process.
  */
 function dedupeToolTasks(
   tools: readonly BackgroundTask[],
   processes: readonly BackgroundTask[],
 ): BackgroundTask[] {
-  const newestFirst = [...tools].sort((a, b) => b.startedAt - a.startedAt);
+  const shells = tools.filter((tool) => tool.kind === 'shell');
+  const newestFirst = [...shells].sort((a, b) => b.startedAt - a.startedAt);
   const claimed = new Set<string>();
+
+  const unmatched: BackgroundTask[] = [];
   for (const process of processes) {
     const match = newestFirst.find(
-      (tool) =>
-        !claimed.has(tool.id) &&
-        tool.sessionId === process.sessionId &&
-        (namesSameWork(tool, process) || process.startedAt >= tool.startedAt),
+      (tool) => !claimed.has(tool.id) && tool.sessionId === process.sessionId && namesSameWork(tool, process),
     );
     if (match) claimed.add(match.id);
+    else unmatched.push(process);
   }
-  return tools.filter((tool) => !claimed.has(tool.id));
+
+  for (const process of unmatched) {
+    const candidates = shells.filter(
+      (tool) => !claimed.has(tool.id) && tool.sessionId === process.sessionId && process.startedAt >= tool.startedAt,
+    );
+    if (candidates.length === 1) claimed.add(candidates[0].id);
+  }
+
+  return tools.filter((tool) => tool.kind !== 'shell' || !claimed.has(tool.id));
 }
 
 /** Everything running in the background, oldest first. */

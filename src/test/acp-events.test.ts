@@ -175,6 +175,26 @@ describe("reply parts", () => {
     expect(messages[0].content).toBe("files\n\nLet me");
   });
 
+  it("keeps a saved reply's tools when new text arrives", () => {
+    const c = ctx();
+    const old = {
+      id: "m-1",
+      role: "agent" as const,
+      content: "Before",
+      timestamp: 1,
+      isComplete: false,
+      tools: [{ id: "t-0", name: "Read", status: "completed" as const, kind: "read" }],
+    };
+
+    const messages = applyAcpUpdate([old], text("After"), c);
+
+    expect(messages[0].parts).toEqual([
+      { kind: "tools", toolIds: ["t-0"] },
+      { kind: "text", text: "BeforeAfter" },
+    ]);
+    expect(messages[0].content).toBe("BeforeAfter");
+  });
+
   it("keeps the order in a replay", () => {
     const c = ctx();
     let messages = applyReplayUpdate([], userChunk("go", "m-1"), c);

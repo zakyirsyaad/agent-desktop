@@ -92,10 +92,13 @@ function textOfParts(parts: readonly ChatMessagePart[]): string {
     .join('\n\n');
 }
 
-/** A reply's parts, treating a message saved before parts as one text part. */
+/** A reply's parts, treating a message saved before parts as its tools, then its text. */
 function partsOf(reply: ChatMessage): ChatMessagePart[] {
   if (reply.parts) return reply.parts;
-  return reply.content ? [{ kind: 'text', text: reply.content }] : [];
+  const parts: ChatMessagePart[] = [];
+  if (reply.tools?.length) parts.push({ kind: 'tools', toolIds: reply.tools.map((tool) => tool.id) });
+  if (reply.content) parts.push({ kind: 'text', text: reply.content });
+  return parts;
 }
 
 /** Appends a text chunk; a chunk after tools starts a new text part. */
@@ -109,15 +112,15 @@ function appendText(reply: ChatMessage, chunk: string): ChatMessage {
   return { ...reply, parts: next, content: textOfParts(next) };
 }
 
-/** Adds a tool id to the open tools part, or starts one after text. */
-function appendTool(reply: ChatMessage, toolId: string): ChatMessage {
+/** Appends a tool call to the reply and to the open tools part, or starts one. */
+function appendTool(reply: ChatMessage, tool: ToolExecution): ChatMessage {
   const parts = partsOf(reply);
   const last = parts[parts.length - 1];
   const next: ChatMessagePart[] =
     last?.kind === 'tools'
-      ? [...parts.slice(0, -1), { kind: 'tools', toolIds: [...last.toolIds, toolId] }]
-      : [...parts, { kind: 'tools', toolIds: [toolId] }];
-  return { ...reply, parts: next };
+      ? [...parts.slice(0, -1), { kind: 'tools', toolIds: [...last.toolIds, tool.id] }]
+      : [...parts, { kind: 'tools', toolIds: [tool.id] }];
+  return { ...reply, tools: [...(reply.tools ?? []), tool], parts: next };
 }
 
 /** Tool output is kept in memory and in the saved transcript, so it is bounded. */
@@ -181,7 +184,7 @@ function addToolCall(messages: readonly ChatMessage[], update: Json, ctx: AcpRed
     details: toDetails(update.content),
     locations: toLocations(update.locations),
   };
-  return withOpenReply(messages, ctx, (reply) => appendTool({ ...reply, tools: [...(reply.tools ?? []), tool] }, id));
+  return withOpenReply(messages, ctx, (reply) => appendTool(reply, tool));
 }
 
 /** Applies a tool_call_update: fields it carries replace the old ones (content as a whole), the rest stay. */

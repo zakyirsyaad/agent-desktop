@@ -24,9 +24,9 @@ const PHRASES: Readonly<Record<string, KindPhrase>> = {
 
 const OTHER: KindPhrase = { one: 'Used a tool', many: (n) => `Used ${n} tools` };
 
-/** The summary's key for a tool kind; null kinds and the rest share one phrase. */
+/** The summary's key for a tool kind; null kinds, inherited names and the rest share one phrase. */
 function phraseOf(tool: ToolExecution): KindPhrase {
-  return (tool.kind && PHRASES[tool.kind]) || OTHER;
+  return tool.kind && Object.prototype.hasOwnProperty.call(PHRASES, tool.kind) ? PHRASES[tool.kind] : OTHER;
 }
 
 /** "Ran 2 commands · 1 failed" for a part of a reply, in the order the kinds first appear. */

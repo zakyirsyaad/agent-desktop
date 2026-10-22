@@ -257,6 +257,20 @@ describe("loadTranscript", () => {
     expect(messages.map((m) => m.content)).toEqual(["a", "b", "c", "d", "e"]);
   });
 
+  it("drops an entry that is not a message", async () => {
+    store().transcripts["s-1"] = [
+      null,
+      { id: "a", role: "agent", content: "a", timestamp: 1 },
+      { id: "b", role: "agent", content: "b" },
+      { id: "c", role: "system", content: "c", timestamp: 3 },
+      "nope",
+    ];
+
+    const messages = await loadTranscript("s-1");
+
+    expect(messages.map((m) => m.id)).toEqual(["a"]);
+  });
+
   it("settles open elicitations", async () => {
     const card = { sessionId: "s-1", message: "m", timestamp: 1, host: "example.com" };
     store().transcripts["s-1"] = [

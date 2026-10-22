@@ -55,7 +55,6 @@ describe("runningToolTasks", () => {
         status: "Running",
         startedAt: 70_000,
         sessionId: "s1",
-        toolId: "t1",
       },
     ]);
   });
@@ -101,6 +100,21 @@ describe("runningToolTasks", () => {
             { id: "t2", name: "pnpm test", status: "completed", kind: "execute" },
             { id: "t3", name: "Read src/App.tsx", status: "running", kind: "read" },
           ]),
+        ],
+      },
+      [session({})],
+    );
+
+    expect(tasks).toEqual([]);
+  });
+it("does not list a running tool whose reply already finished", () => {
+    const tasks = runningToolTasks(
+      {
+        s1: [
+          message(
+            [{ id: "t1", name: "pnpm test:unit", status: "running", kind: "execute", startedAt: 70_000 }],
+            { isComplete: true },
+          ),
         ],
       },
       [session({})],
@@ -171,7 +185,7 @@ describe("backgroundTasksOf", () => {
       },
     });
 
-    expect(tasks).toEqual([expect.objectContaining({ kind: "shell", name: "pnpm test:unit", toolId: "t1" })]);
+    expect(tasks).toEqual([expect.objectContaining({ kind: "shell", name: "pnpm test:unit" })]);
   });
 
   it("lists a shell tool and its process once, keeping the process row", () => {
@@ -200,6 +214,48 @@ describe("backgroundTasksOf", () => {
 
     expect(tasks).toHaveLength(1);
     expect(tasks[0].id).toBe("process:11");
+  });
+
+  it("keeps a subagent row when a later process appears", () => {
+    const tasks = backgroundTasksOf({
+      ...base,
+      sessions: [session({})],
+      transcripts: {
+        s1: [
+          message([
+            {
+              id: "t1",
+              name: "Explore the auth module",
+              status: "running",
+              kind: "think",
+              providerToolName: "Task",
+              startedAt: 90_000,
+            },
+          ]),
+        ],
+      },
+      processes: [{ pid: 11, sessionId: "s1", command: "node /app/mcp", elapsedSecs: 5, ports: [] }],
+    });
+
+    expect(tasks.map((t) => t.kind)).toEqual(["subagent", "shell"]);
+  });
+
+  it("does not hide a second running command behind an unrelated process", () => {
+    const tasks = backgroundTasksOf({
+      ...base,
+      sessions: [session({})],
+      transcripts: {
+        s1: [
+          message([
+            { id: "t1", name: "pnpm test:unit", status: "running", kind: "execute", startedAt: 90_000 },
+            { id: "t2", name: "pnpm lint", status: "running", kind: "execute", startedAt: 91_000 },
+          ]),
+        ],
+      },
+      processes: [{ pid: 11, sessionId: "s1", command: "node /app/dev", elapsedSecs: 5, ports: [] }],
+    });
+
+    expect(tasks.map((t) => t.id)).toEqual(["tool:s1:t1", "tool:s1:t2", "process:11"]);
   });
 
   it("keeps a background command after its tool call completed", () => {

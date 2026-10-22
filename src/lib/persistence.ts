@@ -211,18 +211,29 @@ function isMessagePart(value: unknown): value is ChatMessagePart {
   );
 }
 
+function isMessage(value: unknown): value is ChatMessage {
+  return (
+    isObject(value) &&
+    typeof value.id === 'string' &&
+    (value.role === 'user' || value.role === 'agent') &&
+    typeof value.content === 'string' &&
+    typeof value.timestamp === 'number'
+  );
+}
+
 /**
- * Keeps every saved message, dropping a `parts` list that does not match the
- * shape. Messages saved before parts existed simply have none, and render the
- * way they always did.
+ * Keeps every well-formed saved message, dropping a `parts` list that does not
+ * match the shape and dropping entries that are not messages. Messages saved
+ * before parts existed simply have none, and render the way they always did.
  */
 export function normalizeTranscript(raw: unknown): ChatMessage[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((message) => {
-    if (!isObject(message) || !('parts' in message)) return message as ChatMessage;
+  return raw.flatMap((message): ChatMessage[] => {
+    if (!isMessage(message)) return [];
+    if (!('parts' in message)) return [message];
     const { parts, ...rest } = message;
     const isWellFormed = Array.isArray(parts) && parts.length > 0 && parts.every(isMessagePart);
-    return (isWellFormed ? { ...rest, parts } : rest) as unknown as ChatMessage;
+    return [isWellFormed ? { ...rest, parts } : (rest as ChatMessage)];
   });
 }
 
