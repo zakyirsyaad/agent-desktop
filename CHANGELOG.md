@@ -7,8 +7,11 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 ### Added
 
 - **Tool calls sit where they happened in a reply.** Each run of tools folds into one line, such as "Ran 2 commands, read 3 files", that opens on a click; a part that changes a file opens on its own so you see the diff. Older saved conversations render as they did.
+- **Background tasks lists the work itself, not only the session.** A running shell command or subagent gets its own row with its session and how long it has run, and Open jumps to it. A shell row that matches a running process is shown once, as the process, so Stop still works.
 
 ### Fixed
+
+- **A shell command that replaces its shell shows up in Background tasks.** Qwen Code starts each command in its own process group and a simple command replaces the shell, so the scan saw no shell and listed nothing; it now lists the group leader too.
 
 - **Scrolling up while the agent streams leaves the bottom at once.** A small upward scroll, wheel or key keeps your place, so a streaming reply no longer shakes the view or snaps it back down while you read.
 - **A reply shows Copy, Fork and Read aloud once its turn ends.** The reply the agent is still writing no longer offers actions or a timestamp, so you cannot copy or fork half an answer.

@@ -194,6 +194,10 @@ export interface ToolExecution {
   status: 'running' | 'completed' | 'failed';
   /** ACP tool kind, e.g. "read", "edit", "execute". */
   kind?: string;
+  /** The tool's own name in its agent (e.g. Claude's "Task"), when the adapter reports one. */
+  providerToolName?: string;
+  /** When the agent announced the tool, in ms. */
+  startedAt?: number;
   /** What the tool produced: diffs of files it changed and text output. */
   details?: ToolDetail[];
   /** Files it touched, as "path" or "path:line". */

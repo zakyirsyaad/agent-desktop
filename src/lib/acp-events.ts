@@ -161,6 +161,13 @@ function toLocations(locations: unknown): string[] | undefined {
   });
 }
 
+/** The tool's own name from the adapter's metadata: Claude nests it, Qwen sends it at the top. */
+function providerToolNameOf(meta: unknown): string | undefined {
+  if (!isObject(meta)) return undefined;
+  const claude = isObject(meta.claudeCode) ? str(meta.claudeCode.toolName) : undefined;
+  return claude ?? str(meta.toolName);
+}
+
 function addToolCall(messages: readonly ChatMessage[], update: Json, ctx: AcpReducerContext): ChatMessage[] {
   const id = str(update.toolCallId);
   if (!id) return [...messages];
@@ -169,6 +176,8 @@ function addToolCall(messages: readonly ChatMessage[], update: Json, ctx: AcpRed
     name: str(update.title) ?? 'Tool',
     status: toToolStatus(update.status) ?? 'running',
     kind: str(update.kind),
+    providerToolName: providerToolNameOf(update._meta),
+    startedAt: ctx.now,
     details: toDetails(update.content),
     locations: toLocations(update.locations),
   };
@@ -182,6 +191,7 @@ function updateToolCall(messages: readonly ChatMessage[], update: Json): ChatMes
   const title = str(update.title);
   const details = toDetails(update.content);
   const locations = toLocations(update.locations);
+  const providerToolName = providerToolNameOf(update._meta);
   return messages.map((message) => {
     if (!message.tools?.some((t) => t.id === id)) return message;
     return {
@@ -192,6 +202,7 @@ function updateToolCall(messages: readonly ChatMessage[], update: Json): ChatMes
               ...tool,
               status: status ?? tool.status,
               name: title ?? tool.name,
+              providerToolName: providerToolName ?? tool.providerToolName,
               details: details ?? tool.details,
               locations: locations ?? tool.locations,
             }

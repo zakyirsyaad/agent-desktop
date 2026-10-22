@@ -8,7 +8,7 @@ const NOW = 1_700_000_000_000;
 
 const devServer: BackgroundTask = {
   id: "process:41",
-  kind: "process",
+  kind: "shell",
   name: "npm run dev",
   detail: "Fix login · localhost:5173",
   status: "Running",
@@ -24,6 +24,28 @@ const agent: BackgroundTask = {
   status: "Needs approval",
   startedAt: NOW - 10_000,
   sessionId: "s2",
+};
+
+const subagent: BackgroundTask = {
+  id: "tool:s3:t1",
+  kind: "subagent",
+  name: "Explore the migration",
+  detail: "Audit",
+  status: "Running",
+  startedAt: NOW - 5_000,
+  sessionId: "s3",
+  toolId: "t1",
+};
+
+const shellTool: BackgroundTask = {
+  id: "tool:s1:t2",
+  kind: "shell",
+  name: "pnpm test:unit",
+  detail: "Fix login",
+  status: "Running",
+  startedAt: NOW - 3_000,
+  sessionId: "s1",
+  toolId: "t2",
 };
 
 function setup(overrides: Partial<BackgroundTasksMenuProps> = {}) {
@@ -74,6 +96,19 @@ describe("BackgroundTasksMenu", () => {
     expect(within(rows[0]).getByText("Fix login · localhost:5173")).toBeTruthy();
     expect(within(rows[0]).getByText("45s")).toBeTruthy();
     expect(within(rows[1]).getByText("Needs approval")).toBeTruthy();
+  });
+
+  it("renders one row of each kind, with Stop only where it can act", () => {
+    setup({ tasks: [devServer, agent, subagent, shellTool] });
+    expect(screen.getByRole("button", { name: "Background tasks (4 running)" })).toBeTruthy();
+    const rows = within(screen.getByRole("list", { name: "Running tasks" })).getAllByRole("listitem");
+    expect(rows).toHaveLength(4);
+    expect(within(rows[0]).getByRole("button", { name: "Stop npm run dev" })).toBeTruthy();
+    expect(within(rows[1]).getByRole("button", { name: "Stop Refactor auth" })).toBeTruthy();
+    expect(within(rows[2]).getByText("Explore the migration")).toBeTruthy();
+    expect(within(rows[2]).queryByRole("button", { name: /Stop/ })).toBeNull();
+    expect(within(rows[3]).getByText("pnpm test:unit")).toBeTruthy();
+    expect(within(rows[3]).queryByRole("button", { name: /Stop/ })).toBeNull();
   });
 
   it("ticks the duration every second while open", () => {
