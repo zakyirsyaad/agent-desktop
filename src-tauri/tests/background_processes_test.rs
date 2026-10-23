@@ -12,6 +12,8 @@ fn row(pid: u32, ppid: u32, command: &str) -> ProcessRow {
     ProcessRow {
         pid,
         ppid,
+        // Not its own group: only the tests that say so are group leaders.
+        pgid: 1,
         elapsed_secs: 60,
         command: command.to_string(),
     }
@@ -49,7 +51,7 @@ fn parses_elapsed_times() {
 #[test]
 fn parses_ps_rows() {
     let rows = parse_ps(
-        "  10     1   01:00 /usr/bin/agent --acp\n  11    10   00:30 /bin/zsh -c npm run dev\n",
+        "  10     1     9   01:00 /usr/bin/agent --acp\n  11    10    11   00:30 /bin/zsh -c npm run dev\n",
     );
     assert_eq!(
         rows,
@@ -57,12 +59,14 @@ fn parses_ps_rows() {
             ProcessRow {
                 pid: 10,
                 ppid: 1,
+                pgid: 9,
                 elapsed_secs: 60,
                 command: "/usr/bin/agent --acp".to_string(),
             },
             ProcessRow {
                 pid: 11,
                 ppid: 10,
+                pgid: 11,
                 elapsed_secs: 30,
                 command: "/bin/zsh -c npm run dev".to_string(),
             },
@@ -142,6 +146,91 @@ fn looks_through_a_launcher_shell_deeper_down_and_a_little_later() {
 
     let pids: Vec<u32> = tasks.iter().map(|t| t.pid).collect();
     assert_eq!(pids, vec![14]);
+}
+
+#[test]
+fn lists_a_command_that_replaced_its_shell() {
+    // Qwen Code's shell tool starts the command in its own group, and bash
+    // execs a simple command, so `pnpm test:unit` is the group leader and no
+    // shell is left under the agent.
+    let rows = vec![
+        ProcessRow {
+            elapsed_secs: 600,
+            ..row(10, 1, "npm exec @qwen-code/qwen-code@0.25.1")
+        },
+        ProcessRow {
+            elapsed_secs: 600,
+            ..row(11, 10, "node /app/cli-entry.js --acp")
+        },
+        ProcessRow {
+            pgid: 12,
+            elapsed_secs: 30,
+            ..row(12, 11, "node /app/pnpm test:unit")
+        },
+        // An MCP server, like the agent's own CLI, inherits the agent's group.
+        ProcessRow {
+            elapsed_secs: 600,
+            ..row(13, 11, "npm exec @playwright/mcp")
+        },
+    ];
+
+    let tasks = select_tasks(&rows, &[("s1".to_string(), 10)]);
+
+    let pids: Vec<u32> = tasks.iter().map(|t| t.pid).collect();
+    assert_eq!(pids, vec![12]);
+    assert_eq!(tasks[0].subtree, vec![12]);
+}
+
+#[test]
+fn lists_a_group_leader_once_and_stops_at_its_subtree() {
+    let rows = vec![
+        row(10, 1, "node agent"),
+        ProcessRow {
+            pgid: 11,
+            elapsed_secs: 30,
+            ..row(11, 10, "bash -c npm run dev")
+        },
+        ProcessRow {
+            pgid: 11,
+            elapsed_secs: 30,
+            ..row(12, 11, "node vite")
+        },
+    ];
+
+    let tasks = select_tasks(&rows, &[("s1".to_string(), 10)]);
+
+    let pids: Vec<u32> = tasks.iter().map(|t| t.pid).collect();
+    assert_eq!(pids, vec![11]);
+    assert_eq!(tasks[0].subtree, vec![12, 11]);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn lists_a_command_that_replaced_its_shell_in_a_real_tree() {
+    // Qwen Code's shell tool starts the command in its own process group and
+    // bash execs it; `setsid` and `exec` reproduce that shape with no shell.
+    let root = Command::new("/bin/sh")
+        .args([
+            "-c",
+            "/usr/bin/python3 -c 'import os; os.setsid(); os.execvp(\"sleep\", [\"sleep\", \"30\"])' & wait",
+        ])
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn the root");
+    let guard = TreeGuard(root);
+    let roots = [("s1".to_string(), guard.0.id())];
+
+    let mut task = None;
+    let found = eventually(Duration::from_secs(5), || {
+        task = scan(&roots, false)
+            .expect("scan")
+            .into_iter()
+            .find(|t| t.command.starts_with("sleep"));
+        task.is_some()
+    });
+
+    assert!(found, "the command that replaced its shell never showed up");
+    assert_eq!(task.expect("task").session_id, "s1");
 }
 
 #[test]
@@ -249,7 +338,7 @@ impl Drop for TreeGuard {
     fn drop(&mut self) {
         let root = self.0.id();
         if let Ok(output) = Command::new("/bin/ps")
-            .args(["-axo", "pid=,ppid=,etime=,command="])
+            .args(["-axo", "pid=,ppid=,pgid=,etime=,command="])
             .output()
         {
             let rows = parse_ps(&String::from_utf8_lossy(&output.stdout));
@@ -294,7 +383,7 @@ fn stops_a_running_task_and_everything_it_started() {
     assert_eq!(task.session_id, "s1");
     let sleeper = eventually(Duration::from_secs(5), || {
         let output = Command::new("/bin/ps")
-            .args(["-axo", "pid=,ppid=,etime=,command="])
+            .args(["-axo", "pid=,ppid=,pgid=,etime=,command="])
             .output()
             .expect("run ps");
         parse_ps(&String::from_utf8_lossy(&output.stdout))
@@ -303,7 +392,7 @@ fn stops_a_running_task_and_everything_it_started() {
     });
     assert!(sleeper, "the task never started sleep");
     let output = Command::new("/bin/ps")
-        .args(["-axo", "pid=,ppid=,etime=,command="])
+        .args(["-axo", "pid=,ppid=,pgid=,etime=,command="])
         .output()
         .expect("run ps");
     let sleep_pid = parse_ps(&String::from_utf8_lossy(&output.stdout))
@@ -324,7 +413,7 @@ fn stops_a_running_task_and_everything_it_started() {
 /// Every process, from `ps`.
 fn ps_rows() -> Vec<ProcessRow> {
     let output = Command::new("/bin/ps")
-        .args(["-axo", "pid=,ppid=,etime=,command="])
+        .args(["-axo", "pid=,ppid=,pgid=,etime=,command="])
         .output()
         .expect("run ps");
     parse_ps(&String::from_utf8_lossy(&output.stdout))

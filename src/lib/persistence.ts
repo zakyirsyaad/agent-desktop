@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { TRANSPORT_ACP, type ChatMessage, type PersistedState, type Session, type SessionWorktree } from '../types';
+import { TRANSPORT_ACP, type ChatMessage, type ChatMessagePart, type PersistedState, type Session, type SessionWorktree } from '../types';
 import { markElicitationsUnanswered } from './acp-elicitation';
 import { normalizeAppearance } from './appearance';
 import type { AgentOptions } from './acp-draft';
@@ -201,9 +201,45 @@ export function saveAppState(state: PersistedState): Promise<void> {
   return invoke('save_app_state', { state });
 }
 
+function isMessagePart(value: unknown): value is ChatMessagePart {
+  if (!isObject(value)) return false;
+  if (value.kind === 'text') return typeof value.text === 'string';
+  return (
+    value.kind === 'tools' &&
+    Array.isArray(value.toolIds) &&
+    value.toolIds.every((id) => typeof id === 'string')
+  );
+}
+
+function isMessage(value: unknown): value is ChatMessage {
+  return (
+    isObject(value) &&
+    typeof value.id === 'string' &&
+    (value.role === 'user' || value.role === 'agent') &&
+    typeof value.content === 'string' &&
+    typeof value.timestamp === 'number'
+  );
+}
+
+/**
+ * Keeps every well-formed saved message, dropping a `parts` list that does not
+ * match the shape and dropping entries that are not messages. Messages saved
+ * before parts existed simply have none, and render the way they always did.
+ */
+export function normalizeTranscript(raw: unknown): ChatMessage[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((message): ChatMessage[] => {
+    if (!isMessage(message)) return [];
+    if (!('parts' in message)) return [message];
+    const { parts, ...rest } = message;
+    const isWellFormed = Array.isArray(parts) && parts.length > 0 && parts.every(isMessagePart);
+    return [isWellFormed ? { ...rest, parts } : (rest as ChatMessage)];
+  });
+}
+
 export async function loadTranscript(sessionId: string): Promise<ChatMessage[]> {
   const messages = await invoke<unknown>('load_transcript', { sessionId });
-  return Array.isArray(messages) ? markElicitationsUnanswered(messages as ChatMessage[]) : [];
+  return markElicitationsUnanswered(normalizeTranscript(messages));
 }
 
 export function saveTranscript(sessionId: string, messages: ChatMessage[]): Promise<void> {

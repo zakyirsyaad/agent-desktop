@@ -6,8 +6,9 @@ import { MarkdownRenderer } from "../MarkdownRenderer";
 import { MessageActionBar } from "../MessageActionBar";
 import { UserMessageBar } from "./UserMessageBar";
 import { AttachmentChips } from "../composer/AttachmentChips";
-import { ToolCallList } from "./ToolCallList";
+import { ToolsPart } from "./ToolsPart";
 import { PlanList, ThinkingBlock } from "./ReplyExtras";
+import { partsOf } from "../../lib/acp-events";
 import { formatRelativeTime } from "../../lib/relative-time";
 import type { ChatMessage, ElicitationAnswer } from "../../types";
 
@@ -21,6 +22,8 @@ export interface MessageRowProps {
   agentName: string;
   /** True for the newest visible message: its reasoning is not done yet. */
   isLast: boolean;
+  /** True for the turn the user is watching: its diffs open themselves. */
+  isCurrentTurn: boolean;
   /** True once the agent's turn has ended: only then are its actions offered. */
   showActions: boolean;
   copied: boolean;
@@ -45,6 +48,7 @@ export const MessageRow = memo(function MessageRow({
   message,
   agentName,
   isLast,
+  isCurrentTurn,
   showActions,
   copied,
   speaking,
@@ -58,6 +62,10 @@ export const MessageRow = memo(function MessageRow({
   onReopenElicitationUrl,
 }: MessageRowProps) {
   const isUser = message.role === "user";
+  const toolsById = new Map((message.tools ?? []).map((tool) => [tool.id, tool]));
+  // Older transcripts have no parts; render them with the same tool rows as a
+  // reply saved with parts, without rewriting the saved data.
+  const parts = partsOf(message);
 
   return (
     <div
@@ -96,10 +104,16 @@ export const MessageRow = memo(function MessageRow({
           <ThinkingBlock text={message.thinking} isDone={Boolean(message.isComplete) || !isLast} />
         )}
         {message.plan && message.plan.length > 0 && <PlanList entries={message.plan} />}
-        {message.tools && message.tools.length > 0 && <ToolCallList tools={message.tools} />}
-
-        {/* Message Markdown Body */}
-        {message.content && <MarkdownRenderer content={message.content} />}
+        {parts.length > 0 && (
+          <div className="space-y-4">
+            {parts.map((part, index) => {
+              if (part.kind === "text") return <MarkdownRenderer key={index} content={part.text} />;
+              const tools = part.toolIds.flatMap((id) => toolsById.get(id) ?? []);
+              if (tools.length === 0) return null;
+              return <ToolsPart key={index} tools={tools} isCurrentTurn={isCurrentTurn} />;
+            })}
+          </div>
+        )}
         {message.attachments && message.attachments.length > 0 && (
           <div className={message.content ? "mt-2" : undefined}>
             <AttachmentChips paths={message.attachments} />

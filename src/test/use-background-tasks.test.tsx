@@ -27,6 +27,7 @@ function setup(sessions: readonly Session[], options: SetupOptions = {}) {
     ({ list }) =>
       useBackgroundTasks({
         sessions: list,
+        transcripts: {},
         isBusy: () => false,
         busySince: () => undefined,
         needsApproval: options.needsApproval ?? (() => false),
@@ -52,7 +53,7 @@ describe("useBackgroundTasks", () => {
     await advance(0);
     const results: boolean[] = [];
     await act(async () => { results.push(await result.current.stop(task({ kind: "agent" }))); });
-    await act(async () => { await result.current.stop(task({ kind: "process", pid: 7 })); });
+    await act(async () => { await result.current.stop(task({ kind: "shell", pid: 7 })); });
     expect(results).toEqual([true]);
     expect(stopAgent).toHaveBeenCalledWith("s1");
     expect(spy).not.toHaveBeenCalledWith("acp_cancel", expect.anything(), undefined);
@@ -86,7 +87,7 @@ describe("useBackgroundTasks", () => {
     );
     const { result, onError } = setup([SESSION]);
     let isStopped: boolean | undefined;
-    await act(async () => { isStopped = await result.current.stop(task({ kind: "process", pid: 7, name: "Alpha" })); });
+    await act(async () => { isStopped = await result.current.stop(task({ kind: "shell", pid: 7, name: "Alpha" })); });
     expect(isStopped).toBe(false);
     expect(onError).toHaveBeenCalledWith("Could not stop Alpha: boom");
   });

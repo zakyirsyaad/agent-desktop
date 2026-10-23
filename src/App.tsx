@@ -431,6 +431,7 @@ export default function App() {
 
   const backgroundTasks = useBackgroundTasks({
     sessions,
+    transcripts,
     isBusy: acp.isBusy,
     busySince: acp.busySinceOf,
     needsApproval: (id) => isAwaitingUser(transcripts[id] ?? []),

@@ -1,15 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { backgroundTasksOf, formatElapsed } from "../lib/background-tasks";
-import type { Session } from "../types";
+import { backgroundTasksOf, formatElapsed, runningToolTasks } from "../lib/background-tasks";
+import type { ChatMessage, Session, ToolExecution } from "../types";
 
 function session(over: Partial<Session>): Session {
   return { id: "s1", name: "Alpha", profileId: "p", cwd: "/w", status: "running", createdAt: 500, ...over };
+}
+
+function message(tools: ToolExecution[], over: Partial<ChatMessage> = {}): ChatMessage {
+  return { id: "m1", role: "agent", content: "", timestamp: 80_000, tools, ...over };
 }
 
 const base = {
   isBusy: () => false,
   busySince: () => undefined,
   needsApproval: () => false,
+  transcripts: {},
   processes: [],
   processesReadAt: 100_000,
 };
@@ -19,6 +24,103 @@ describe("formatElapsed", () => {
     expect(formatElapsed(45_000)).toBe("45s");
     expect(formatElapsed(133_000)).toBe("2m 13s");
     expect(formatElapsed(3_840_000)).toBe("1h 04m");
+  });
+});
+
+describe("runningToolTasks", () => {
+  it("lists a running shell tool by its title", () => {
+    const tasks = runningToolTasks(
+      {
+        s1: [
+          message([
+            {
+              id: "t1",
+              name: "pnpm test:unit",
+              status: "running",
+              kind: "execute",
+              startedAt: 70_000,
+            },
+          ]),
+        ],
+      },
+      [session({})],
+    );
+
+    expect(tasks).toEqual([
+      {
+        id: "tool:s1:t1",
+        kind: "shell",
+        name: "pnpm test:unit",
+        detail: "Alpha",
+        status: "Running",
+        startedAt: 70_000,
+        sessionId: "s1",
+      },
+    ]);
+  });
+
+  it("lists a running subagent from the agent's own tool name", () => {
+    const tasks = runningToolTasks(
+      {
+        s1: [
+          message([
+            {
+              id: "t1",
+              name: "Explore the auth module",
+              status: "running",
+              kind: "think",
+              providerToolName: "Task",
+              startedAt: 70_000,
+            },
+          ]),
+        ],
+      },
+      [session({})],
+    );
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({ kind: "subagent", name: "Explore the auth module" });
+  });
+
+  it("lists a subagent by a title that names it, for older adapters", () => {
+    const tasks = runningToolTasks(
+      { s1: [message([{ id: "t1", name: "Agent: audit the migrations", status: "running", kind: "other" }])] },
+      [session({})],
+    );
+
+    expect(tasks[0]).toMatchObject({ kind: "subagent", name: "Agent: audit the migrations" });
+  });
+
+  it("does not list plain reasoning or a finished tool", () => {
+    const tasks = runningToolTasks(
+      {
+        s1: [
+          message([
+            { id: "t1", name: "Thinking", status: "running", kind: "think" },
+            { id: "t2", name: "pnpm test", status: "completed", kind: "execute" },
+            { id: "t3", name: "Read src/App.tsx", status: "running", kind: "read" },
+          ]),
+        ],
+      },
+      [session({})],
+    );
+
+    expect(tasks).toEqual([]);
+  });
+it("does not list a running tool whose reply already finished", () => {
+    const tasks = runningToolTasks(
+      {
+        s1: [
+          message(
+            [{ id: "t1", name: "pnpm test:unit", status: "running", kind: "execute", startedAt: 70_000 }],
+            { isComplete: true },
+          ),
+        ],
+      },
+      [session({})],
+    );
+
+    expect(tasks).toEqual([]);
   });
 });
 
@@ -45,7 +147,7 @@ describe("backgroundTasksOf", () => {
     expect(backgroundTasksOf({ ...base, sessions: [session({ transport: "acp" })] })).toEqual([]);
   });
 
-  it("lists processes with the session name and ports", () => {
+  it("lists processes as shell tasks with the session name and ports", () => {
     const tasks = backgroundTasksOf({
       ...base,
       sessions: [session({ status: "idle" })],
@@ -54,7 +156,7 @@ describe("backgroundTasksOf", () => {
     expect(tasks).toEqual([
       {
         id: "process:11",
-        kind: "process",
+        kind: "shell",
         name: "npm run dev",
         detail: "Alpha · localhost:5173",
         status: "Running",
@@ -72,6 +174,115 @@ describe("backgroundTasksOf", () => {
       processes: [{ pid: 12, sessionId: "gone", command: "sleep 9", elapsedSecs: 1, ports: [] }],
     });
     expect(tasks[0].detail).toBeUndefined();
+  });
+
+  it("lists a running shell tool while no process is known yet", () => {
+    const tasks = backgroundTasksOf({
+      ...base,
+      sessions: [session({})],
+      transcripts: {
+        s1: [message([{ id: "t1", name: "pnpm test:unit", status: "running", kind: "execute", startedAt: 90_000 }])],
+      },
+    });
+
+    expect(tasks).toEqual([expect.objectContaining({ kind: "shell", name: "pnpm test:unit" })]);
+  });
+
+  it("lists a shell tool and its process once, keeping the process row", () => {
+    const tasks = backgroundTasksOf({
+      ...base,
+      sessions: [session({})],
+      transcripts: {
+        s1: [message([{ id: "t1", name: "pnpm test:unit", status: "running", kind: "execute", startedAt: 90_000 }])],
+      },
+      processes: [{ pid: 11, sessionId: "s1", command: "pnpm test:unit", elapsedSecs: 5, ports: [] }],
+    });
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({ id: "process:11", kind: "shell", pid: 11 });
+  });
+
+  it("matches a process started while its tool ran, even when the titles differ", () => {
+    const tasks = backgroundTasksOf({
+      ...base,
+      sessions: [session({})],
+      transcripts: {
+        s1: [message([{ id: "t1", name: "Run the unit tests", status: "running", kind: "execute", startedAt: 90_000 }])],
+      },
+      processes: [{ pid: 11, sessionId: "s1", command: "node /app/pnpm test:unit", elapsedSecs: 5, ports: [] }],
+    });
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].id).toBe("process:11");
+  });
+
+  it("keeps a subagent row when a later process appears", () => {
+    const tasks = backgroundTasksOf({
+      ...base,
+      sessions: [session({})],
+      transcripts: {
+        s1: [
+          message([
+            {
+              id: "t1",
+              name: "Explore the auth module",
+              status: "running",
+              kind: "think",
+              providerToolName: "Task",
+              startedAt: 90_000,
+            },
+          ]),
+        ],
+      },
+      processes: [{ pid: 11, sessionId: "s1", command: "node /app/mcp", elapsedSecs: 5, ports: [] }],
+    });
+
+    expect(tasks.map((t) => t.kind)).toEqual(["subagent", "shell"]);
+  });
+
+  it("does not hide a second running command behind an unrelated process", () => {
+    const tasks = backgroundTasksOf({
+      ...base,
+      sessions: [session({})],
+      transcripts: {
+        s1: [
+          message([
+            { id: "t1", name: "pnpm test:unit", status: "running", kind: "execute", startedAt: 90_000 },
+            { id: "t2", name: "pnpm lint", status: "running", kind: "execute", startedAt: 91_000 },
+          ]),
+        ],
+      },
+      processes: [{ pid: 11, sessionId: "s1", command: "node /app/dev", elapsedSecs: 5, ports: [] }],
+    });
+
+    expect(tasks.map((t) => t.id)).toEqual(["tool:s1:t1", "tool:s1:t2", "process:11"]);
+  });
+
+  it("keeps a background command after its tool call completed", () => {
+    const tasks = backgroundTasksOf({
+      ...base,
+      sessions: [session({})],
+      transcripts: {
+        s1: [message([{ id: "t1", name: "next dev", status: "completed", kind: "execute", startedAt: 90_000 }])],
+      },
+      processes: [{ pid: 11, sessionId: "s1", command: "node next dev", elapsedSecs: 30, ports: [3000] }],
+    });
+
+    expect(tasks).toEqual([expect.objectContaining({ id: "process:11" })]);
+  });
+
+  it("does not match a process to a tool in another session", () => {
+    const tasks = backgroundTasksOf({
+      ...base,
+      sessions: [session({ id: "s1" }), session({ id: "s2", name: "Beta" })],
+      transcripts: {
+        s1: [message([{ id: "t1", name: "pnpm test:unit", status: "running", kind: "execute", startedAt: 90_000 }])],
+        s2: [],
+      },
+      processes: [{ pid: 11, sessionId: "s2", command: "pnpm test:unit", elapsedSecs: 5, ports: [] }],
+    });
+
+    expect(tasks.map((t) => t.id)).toEqual(["tool:s1:t1", "process:11"]);
   });
 
   it("sorts oldest first", () => {

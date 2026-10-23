@@ -194,6 +194,10 @@ export interface ToolExecution {
   status: 'running' | 'completed' | 'failed';
   /** ACP tool kind, e.g. "read", "edit", "execute". */
   kind?: string;
+  /** The tool's own name in its agent (e.g. Claude's "Task"), when the adapter reports one. */
+  providerToolName?: string;
+  /** When the agent announced the tool, in ms. */
+  startedAt?: number;
   /** What the tool produced: diffs of files it changed and text output. */
   details?: ToolDetail[];
   /** Files it touched, as "path" or "path:line". */
@@ -204,6 +208,12 @@ export type ToolDetail =
   | { kind: 'text'; text: string }
   /** `oldText` is null for a file the tool created. */
   | { kind: 'diff'; path: string; oldText: string | null; newText: string };
+
+/** One stretch of a reply, kept in the order the agent produced it. */
+export type ChatMessagePart =
+  | { kind: 'text'; text: string }
+  /** Consecutive tool calls share one part. */
+  | { kind: 'tools'; toolIds: string[] };
 
 /** One step of an agent's plan, as reported over ACP. */
 export interface PlanEntry {
@@ -220,6 +230,8 @@ export interface ChatMessage {
   /** False for a message replayed from the agent's history, which gives no per-message time. */
   hasKnownTime?: boolean;
   tools?: ToolExecution[];
+  /** The reply's text and tool calls in the order the agent produced them; absent in older transcripts. */
+  parts?: ChatMessagePart[];
   actionCard?: ActionCard;
   /** The agent's visible reasoning for this reply, when it streams any. */
   thinking?: string;

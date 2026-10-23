@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Cog, ListChecks, type LucideIcon } from "lucide-react";
+import { Bot, Terminal, Users, ListChecks, type LucideIcon } from "lucide-react";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { useDismiss } from "../../hooks/useDismiss";
@@ -17,7 +17,8 @@ const TICK_MS = 1000;
 
 const KIND_ICONS: Record<BackgroundTaskKind, LucideIcon> = {
   agent: Bot,
-  process: Cog,
+  shell: Terminal,
+  subagent: Users,
 };
 
 const STATUS_CLASSES: Record<BackgroundTask["status"], string> = {
@@ -120,15 +121,17 @@ export function BackgroundTasksMenu({ tasks, isOpen, onOpenChange, onOpenTask, o
                     >
                       Open
                     </Button>
-                    <Button
-                      variant="outline"
-                      aria-label={`Stop ${task.name}`}
-                      className="shrink-0"
-                      disabled={isStopping}
-                      onClick={() => stop(task)}
-                    >
-                      {isStopping ? "Stopping…" : "Stop"}
-                    </Button>
+                    {(task.kind === "agent" || task.pid !== undefined) && (
+                      <Button
+                        variant="outline"
+                        aria-label={`Stop ${task.name}`}
+                        className="shrink-0"
+                        disabled={isStopping}
+                        onClick={() => stop(task)}
+                      >
+                        {isStopping ? "Stopping…" : "Stop"}
+                      </Button>
+                    )}
                   </li>
                 );
               })}

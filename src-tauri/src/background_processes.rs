@@ -1,11 +1,10 @@
-//! The shell commands agents started that are still running (dev servers,
-//! watchers, long builds): finding them, and stopping one with everything it
-//! started.
+//! The commands agents started that are still running (dev servers, watchers,
+//! long builds): finding them, and stopping one with everything it started.
 //!
 //! A task is a shell under an agent's process whose path up to the agent has
-//! no other shell, so a command a shell runs belongs to that shell's task. A
-//! shell that started together with the agent launched the agent's own
-//! program, so it is looked through rather than listed.
+//! no other task, or a command that replaced its shell and leads its own
+//! process group. A shell that started together with the agent launched the
+//! agent's own program, so it is looked through rather than listed.
 //! Stopping only ever signals a task a fresh scan reports at that moment, so
 //! a pid the UI held on to cannot reach a process that reused it.
 
@@ -40,11 +39,15 @@ const ESCAPED_QUOTE: &str = "'\"'\"'";
 pub struct ProcessRow {
     pub pid: u32,
     pub ppid: u32,
+    /// The process group the row belongs to. A shell tool that starts a
+    /// command in its own group leaves the group leader as the command
+    /// itself when the shell execs it (`pnpm test:unit`, `sleep 300`).
+    pub pgid: u32,
     pub elapsed_secs: u64,
     pub command: String,
 }
 
-/// A task: a shell an agent started, with every process under it.
+/// A task: a shell or command an agent started, with every process under it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskProcess {
     pub pid: u32,
@@ -77,7 +80,7 @@ fn next_field(text: &str) -> Option<(&str, &str)> {
     Some(text.split_once(char::is_whitespace).unwrap_or((text, "")))
 }
 
-/// Reads `ps -o pid=,ppid=,etime=,command=` output; a line that does not
+/// Reads `ps -o pid=,ppid=,pgid=,etime=,command=` output; a line that does not
 /// parse is left out.
 pub fn parse_ps(output: &str) -> Vec<ProcessRow> {
     output.lines().filter_map(parse_ps_line).collect()
@@ -86,10 +89,12 @@ pub fn parse_ps(output: &str) -> Vec<ProcessRow> {
 fn parse_ps_line(line: &str) -> Option<ProcessRow> {
     let (pid, rest) = next_field(line)?;
     let (ppid, rest) = next_field(rest)?;
+    let (pgid, rest) = next_field(rest)?;
     let (etime, rest) = next_field(rest)?;
     Some(ProcessRow {
         pid: pid.parse().ok()?,
         ppid: ppid.parse().ok()?,
+        pgid: pgid.parse().ok()?,
         elapsed_secs: parse_etime(etime)?,
         command: rest.trim().to_string(),
     })
@@ -141,7 +146,7 @@ pub fn select_tasks(rows: &[ProcessRow], roots: &[(String, u32)]) -> Vec<TaskPro
         if !seen_roots.insert(*root) {
             continue;
         }
-        for row in shells_below(&children, *root, elapsed.get(root).copied()) {
+        for row in tasks_below(&children, *root, elapsed.get(root).copied()) {
             if listed.insert(row.pid) {
                 tasks.push(TaskProcess {
                     pid: row.pid,
@@ -164,9 +169,22 @@ fn is_launcher(row: &ProcessRow, root_elapsed: Option<u64>) -> bool {
     })
 }
 
-/// The shells under `root` with no other shell between them and it, a shell
+/// Whether `row` is work the agent started rather than part of its own launch:
+/// a shell that did not launch the agent, or a command that leads its own
+/// process group. A shell tool starts each command in its own group, and bash
+/// execs a simple one, so `node …/pnpm test:unit` replaces the shell and only
+/// the group leader is left. The agent's own program, MCP servers and helper
+/// daemons inherit the agent's group, so they are looked through instead.
+fn is_task(row: &ProcessRow, root_elapsed: Option<u64>) -> bool {
+    if is_shell(&row.command) {
+        return !is_launcher(row, root_elapsed);
+    }
+    row.pgid == row.pid
+}
+
+/// The tasks under `root` with no other task between them and it, a shell
 /// that launched the agent itself looked through.
-fn shells_below<'a>(
+fn tasks_below<'a>(
     children: &HashMap<u32, Vec<&'a ProcessRow>>,
     root: u32,
     root_elapsed: Option<u64>,
@@ -184,7 +202,7 @@ fn shells_below<'a>(
         if !visited.insert(row.pid) {
             continue;
         }
-        if is_shell(&row.command) && !is_launcher(row, root_elapsed) {
+        if is_task(row, root_elapsed) {
             found.push(row);
         } else if let Some(list) = children.get(&row.pid) {
             stack.extend(list.iter().rev().copied());
@@ -319,7 +337,7 @@ pub fn parse_lsof_ports(output: &str) -> HashMap<u32, Vec<u16>> {
 #[cfg(target_os = "macos")]
 fn read_processes() -> Result<Vec<ProcessRow>, String> {
     let output = Command::new("/bin/ps")
-        .args(["-axo", "pid=,ppid=,etime=,command="])
+        .args(["-axo", "pid=,ppid=,pgid=,etime=,command="])
         .output()
         .map_err(|e| format!("Could not list processes: {e}"))?;
     if !output.status.success() {

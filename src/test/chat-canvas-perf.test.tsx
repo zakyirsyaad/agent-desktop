@@ -2,12 +2,12 @@ import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
 import type { ChatMessage } from "../types";
 
-const { toolRenders } = vi.hoisted(() => ({ toolRenders: vi.fn() }));
+const { partRenders } = vi.hoisted(() => ({ partRenders: vi.fn() }));
 
-vi.mock("../components/chat/ToolCallList", () => ({
-  ToolCallList: ({ tools }: { tools: { id: string; name: string }[] }) => {
-    toolRenders(tools[0]?.id);
-    return <div data-testid="tool-list">{tools.map((tool) => tool.name).join(", ")}</div>;
+vi.mock("../components/chat/ToolsPart", () => ({
+  ToolsPart: ({ tools }: { tools: { id: string; name: string }[] }) => {
+    partRenders(tools[0]?.id);
+    return <div data-testid="tool-part">{tools.map((tool) => tool.name).join(", ")}</div>;
   },
 }));
 
@@ -32,26 +32,26 @@ describe("ChatCanvas rendering", () => {
   it("re-renders only the message that changed in a long conversation", () => {
     const messages = conversation(200);
     const { rerender } = render(<ChatCanvas messages={messages} />);
-    expect(toolRenders).toHaveBeenCalledTimes(200);
-    toolRenders.mockClear();
+    expect(partRenders).toHaveBeenCalledTimes(200);
+    partRenders.mockClear();
 
     const changed = [...messages];
     changed[changed.length - 1] = { ...changed[changed.length - 1], content: "reply 199, still streaming" };
     rerender(<ChatCanvas messages={changed} />);
 
-    expect(toolRenders).toHaveBeenCalledTimes(1);
-    expect(toolRenders).toHaveBeenCalledWith("t-199");
+    expect(partRenders).toHaveBeenCalledTimes(1);
+    expect(partRenders).toHaveBeenCalledWith("t-199");
   });
 
   it("re-renders only the changed message on a streamed chunk", () => {
     const messages = conversation(200);
     const { rerender } = render(<ChatCanvas messages={messages} isWorking />);
-    toolRenders.mockClear();
+    partRenders.mockClear();
 
     const changed = [...messages];
     changed[changed.length - 1] = { ...changed[changed.length - 1], content: "reply 199, still streaming" };
     rerender(<ChatCanvas messages={changed} isWorking />);
 
-    expect(toolRenders).toHaveBeenCalledTimes(1);
+    expect(partRenders).toHaveBeenCalledTimes(1);
   });
 });
