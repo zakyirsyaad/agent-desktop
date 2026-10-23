@@ -94,17 +94,18 @@ pub fn close(manager: &PtySessionManager, id: &str) -> Result<(), String> {
     tree
 }
 
-/// Ends every workspace shell with everything it started, at once: used when
-/// Zorvo quits, where a delayed escalation would not run. Other sessions are
-/// left to the caller. Returns how many shells were ended.
-pub fn end_all(manager: &PtySessionManager) -> usize {
-    let ids: Vec<String> = manager
-        .session_ids()
-        .into_iter()
-        .filter(|id| is_workspace_terminal_id(id))
-        .collect();
+/// Ends exactly the PTY sessions in `ids`: a workspace shell with everything
+/// it started (KILL at once, for a quit where a delayed escalation would not
+/// run), any other session by killing its process. A session not in `ids`,
+/// such as one started after the list was taken, is left running. Returns how
+/// many of the listed sessions were ended.
+pub fn end_sessions(manager: &PtySessionManager, ids: &[String]) -> usize {
     // One read of the processes for every shell, however many there are.
-    let pids: Vec<u32> = ids.iter().filter_map(|id| manager.pid_of(id)).collect();
+    let pids: Vec<u32> = ids
+        .iter()
+        .filter(|id| is_workspace_terminal_id(id))
+        .filter_map(|id| manager.pid_of(id))
+        .collect();
     if let Err(error) = end_trees(&pids) {
         eprintln!("Could not end the processes of the terminals: {error}");
     }
@@ -115,10 +116,21 @@ pub fn end_all(manager: &PtySessionManager) -> usize {
         .count()
 }
 
+/// Ends every workspace shell with everything it started; other sessions are
+/// left to the caller. Returns how many shells were ended.
+pub fn end_all(manager: &PtySessionManager) -> usize {
+    let shells: Vec<String> = manager
+        .session_ids()
+        .into_iter()
+        .filter(|id| is_workspace_terminal_id(id))
+        .collect();
+    end_sessions(manager, &shells)
+}
+
 /// Ends every PTY session: workspace shells with their trees, then the rest.
 /// Returns how many sessions were ended.
 pub fn end_all_sessions(manager: &PtySessionManager) -> usize {
-    end_all(manager) + manager.kill_all()
+    end_sessions(manager, &manager.session_ids())
 }
 
 /// The payload of a `workspace-terminal` event: the same shape as a sign-in
@@ -183,8 +195,9 @@ pub fn workspace_terminal_open(
     pty: State<'_, PtySessionManager>,
     path: String,
 ) -> Result<OpenedTerminal, String> {
-    // The shell starts in the very folder that was checked, not in a second
-    // resolution of `path` that a repointed symlink could send elsewhere.
+    // The shell starts from the canonical folder that was checked, so a symlink
+    // in `path` repointed after the check no longer redirects it. (A component
+    // of that canonical path swapped for a link later is still followed.)
     let mut checked = None;
     ensure_known_workspace(&path, |canonical| {
         checked = Some(canonical.to_path_buf());

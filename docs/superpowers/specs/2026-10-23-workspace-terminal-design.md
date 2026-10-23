@@ -79,13 +79,15 @@ New module `src-tauri/src/workspace_terminal.rs`.
   Zorvo. On `RunEvent::Exit` the handler first ends every workspace shell's process tree with
   KILL at once (a delayed escalation would not run while the app quits), then calls
   `PtySessionManager::kill_all` for the other sessions, sign-in terminals included, which is
-  right. `end_orphaned_sessions`, which the UI calls when it loads, does the same, because a
-  webview reload leaves the shells running while the new UI has no tabs for them; it is
-  `async` because it reads processes. All the shells' trees are read from one `ps` and ended
-  with one KILL (`background_processes::end_trees`). The UI starts this sweep from `App`'s mount
-  effect (`lib/orphan-sweep.ts`), and `useWorkspaceTerminals.open` waits for it to settle before
-  it invokes `workspace_terminal_open`, so the sweep cannot end a shell opened just after a
-  launch or reload.
+  right. `end_orphaned_sessions`, which the UI calls from `App`'s mount effect
+  (`lib/orphan-sweep.ts`), ends what a webview reload left running while the new UI has no tabs
+  for it. It is a sync command: sync commands run on the main thread in the order the webview
+  sent them, so it lists the PTY and agent sessions alive at that moment, before any session the
+  new UI starts later is registered, and ends exactly those (`workspace_terminal::end_sessions`,
+  and for agents `AcpManager::detach` at once, since a reopened session reuses its saved id, then
+  `DetachedSession::end`) on a thread of its own. All the listed shells' trees are read from one
+  `ps` and ended with one KILL (`background_processes::end_trees`). Nothing the new UI starts
+  waits for the sweep, and the sweep cannot end it.
 - **Privacy.** Nothing logs what goes into or comes out of a shell.
 
 ## Frontend
@@ -158,8 +160,9 @@ Rust (`src-tauri/tests/workspace_terminal_test.rs`, and unit tests in the module
   write `pwd` and read the folder back from its output. CI runs Rust on `macos-latest`;
 - close ends the process, closing a shell that already exited succeeds, and ids from the counter
   never repeat;
-- `RunEvent::Exit` and `end_orphaned_sessions` end every PTY: both call one `end_all_sessions`
-  function, which is tested directly, with a shell's `nohup`ed job and another session;
+- `RunEvent::Exit` ends every PTY through `end_all_sessions`, tested with a shell's `nohup`ed job
+  and another session; `end_sessions`, which `end_orphaned_sessions` uses, ends only the listed
+  sessions and leaves one started after the list running;
 - closing a shell ends what it started, and `pid_of` does not wait for the child's lock;
 - close and the id check refuse an id without the `shell-` prefix, and a `signin-` id;
 - the shell falls back to `/bin/zsh` when `SHELL` is missing or not an executable path;

@@ -101,24 +101,21 @@ describe("useWorkspaceTerminals", () => {
     ]);
   });
 
-  it("waits for the startup orphan sweep before it opens a shell", async () => {
+  it("opens a shell at once, even while the startup orphan sweep runs", async () => {
+    // The sweep ends only the shells it listed when the window loaded.
     const { result } = await setup();
     let finishSweep: () => void = () => {};
     sweepImpl = () => new Promise((resolve) => (finishSweep = () => resolve(0)));
-    void sweepOrphans();
-
-    let opened: Promise<string | null> = Promise.resolve(null);
-    await act(async () => {
-      opened = result.current.open("/w/a");
-    });
-    expect(callsTo(invokeSpy, "workspace_terminal_open")).toHaveLength(0);
+    const sweep = sweepOrphans();
 
     await act(async () => {
-      finishSweep();
-      await opened;
+      await result.current.open("/w/a");
     });
     expect(callsTo(invokeSpy, "workspace_terminal_open")).toHaveLength(1);
     expect(result.current.tabsFor("/w/a")).toHaveLength(1);
+
+    finishSweep();
+    await sweep;
   });
 
   it("keeps one tab list for spellings of a folder that differ by trailing slashes", async () => {

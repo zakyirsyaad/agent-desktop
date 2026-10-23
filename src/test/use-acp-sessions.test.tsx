@@ -94,8 +94,8 @@ describe("useAcpSessions", () => {
     expect(result.current.canFork("s-1")).toBe(true);
   });
 
-  it("starts, reopens, imports and forks a session only once the startup orphan sweep is done", async () => {
-    // The sweep stops every agent it finds, so one started before it ran would be stopped with the rest.
+  it("starts, reopens, imports and forks a session at once, even while the startup orphan sweep runs", async () => {
+    // The sweep ends only the sessions it listed when the window loaded, so a start need not wait for it.
     let finishSweep = () => {};
     const spy = stubInvoke({
       end_orphaned_sessions: () => new Promise((resolve) => (finishSweep = () => resolve(0))),
@@ -104,35 +104,24 @@ describe("useAcpSessions", () => {
       acp_import_session: () => Promise.resolve(STARTED),
       acp_fork_session: () => Promise.resolve(STARTED),
     });
-    void sweepOrphans();
+    const sweep = sweepOrphans();
     const { result } = renderHook(() => useAcpSessions(handlers()));
 
-    let calls: Promise<unknown>[] = [];
     await act(async () => {
-      calls = [
+      await Promise.all([
         result.current.start("s-1", "/w", "qwen"),
         result.current.reopen("s-2", "/w", "qwen", "acp-2"),
         result.current.importSession("s-3", "/w", "qwen", "acp-3"),
         result.current.fork("s-1", "s-4", "/w"),
-      ];
-      for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+      ]);
     });
-    const started = () =>
-      spy.mock.calls.filter(([cmd]) =>
-        ["acp_start_session", "acp_reopen_session", "acp_import_session", "acp_fork_session"].includes(cmd),
-      );
-    expect(started()).toHaveLength(0);
+    const started = spy.mock.calls
+      .map(([cmd]) => cmd)
+      .filter((cmd) => ["acp_start_session", "acp_reopen_session", "acp_import_session", "acp_fork_session"].includes(cmd));
+    expect(started.sort()).toEqual(["acp_fork_session", "acp_import_session", "acp_reopen_session", "acp_start_session"]);
 
-    await act(async () => {
-      finishSweep();
-      await Promise.all(calls);
-    });
-    expect(started().map(([cmd]) => cmd).sort()).toEqual([
-      "acp_fork_session",
-      "acp_import_session",
-      "acp_reopen_session",
-      "acp_start_session",
-    ]);
+    finishSweep();
+    await sweep;
   });
 
   it("is busy from prompt until the turn ends, and forwards the turn result", async () => {
