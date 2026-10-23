@@ -42,7 +42,7 @@ already give.
 
 New module `src-tauri/src/workspace_terminal.rs`.
 
-- `workspace_terminal_open(path: String) -> Result<String, String>`, `#[tauri::command(async)]`:
+- `workspace_terminal_open(path: String) -> Result<OpenedTerminal, String>`, `#[tauri::command(async)]`:
   1. `files::ensure_known_workspace(&path, |p| store.is_known_workspace(p))`. A session's
      worktree passes, because session folders are known workspaces (`workspaces_in` in
      `store.rs`); a draft's picked folder passes through recent folders.
@@ -54,7 +54,9 @@ New module `src-tauri/src/workspace_terminal.rs`.
   4. `PtySessionManager::start_session(id, canonical_path, shell, ["-l"], [])`, through a
      helper `start_shell(manager, id, folder, shell)` that tests can call with an explicit
      shell.
-  5. Return the id.
+  5. Return `OpenedTerminal { id, folder }` (camelCase), where `folder` is the canonical path the
+     shell started in. Steps 2 to 4 are `open_shell(manager, folder, env)`, which canonicalizes the
+     folder itself so that a test can call it with a symlink.
 - `workspace_terminal_close(id: String) -> Result<(), String>`: accepts only an id with the
   `shell-` prefix. It reads the shell's process tree while the shell still runs (afterwards
   launchd adopts the children) and ends it with TERM, then KILL after a grace period
@@ -79,13 +81,17 @@ New module `src-tauri/src/workspace_terminal.rs`.
   `PtySessionManager::kill_all` for the other sessions, sign-in terminals included, which is
   right. `end_orphaned_sessions`, which the UI calls when it loads, does the same, because a
   webview reload leaves the shells running while the new UI has no tabs for them; it is
-  `async` because it reads processes.
+  `async` because it reads processes. All the shells' trees are read from one `ps` and ended
+  with one KILL (`background_processes::end_trees`). The UI starts this sweep from `App`'s mount
+  effect (`lib/orphan-sweep.ts`), and `useWorkspaceTerminals.open` waits for it to settle before
+  it invokes `workspace_terminal_open`, so the sweep cannot end a shell opened just after a
+  launch or reload.
 - **Privacy.** Nothing logs what goes into or comes out of a shell.
 
 ## Frontend
 
 - **`src/hooks/useWorkspaceTerminals.ts`** owns, in the main window:
-  - the tabs, keyed by the folder's canonical path: `{ id, folderPath, label, status: "live" | "exited" }`;
+  - the tabs, keyed by the canonical folder the backend returned from `open`: `{ id, folderPath, number, status: "live" | "exited" }`. The hook remembers which canonical folder each path the UI opened with resolved to (trailing slashes stripped), so `tabsFor` and `closeFolder` find the same tabs for `/w/a/`, `/w/a` and a symlinked spelling;
   - one `PtyOutputStore`, fed by `workspace-terminal` output events.
 
   Because the store outlives the drawer, a tab shown again replays its scrollback through
