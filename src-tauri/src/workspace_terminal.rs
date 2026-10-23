@@ -86,13 +86,28 @@ pub fn close(manager: &PtySessionManager, id: &str) -> Result<(), String> {
     let tree = manager.pid_of(id).map_or(Ok(()), |pid| end_tree(pid, true));
     // The shell is ended even when its tree could not be read; that error
     // still goes back to the caller.
-    manager.kill_session(id).and(tree)
+    settle_close(manager.kill_session(id), manager.has_session(id), tree)
+}
+
+/// What `close` reports, given how the kill went, whether the shell still
+/// runs and how ending its tree went.
+fn settle_close(
+    killed: Result<(), String>,
+    still_running: bool,
+    tree: Result<(), String>,
+) -> Result<(), String> {
+    match killed {
+        // The shell exited between the check and the kill: it is closed.
+        Err(error) if still_running => Err(error),
+        _ => tree,
+    }
 }
 
 /// Ends every workspace shell with everything it started, at once: used when
 /// Zorvo quits, where a delayed escalation would not run. Other sessions are
-/// left to the caller.
-pub fn end_all(manager: &PtySessionManager) {
+/// left to the caller. Returns how many shells were ended.
+pub fn end_all(manager: &PtySessionManager) -> usize {
+    let mut ended = 0;
     for id in manager
         .session_ids()
         .iter()
@@ -103,8 +118,17 @@ pub fn end_all(manager: &PtySessionManager) {
                 eprintln!("Could not end the processes of terminal {id}: {error}");
             }
         }
-        let _ = manager.kill_session(id);
+        if manager.kill_session(id).is_ok() {
+            ended += 1;
+        }
     }
+    ended
+}
+
+/// Ends every PTY session: workspace shells with their trees, then the rest.
+/// Returns how many sessions were ended.
+pub fn end_all_sessions(manager: &PtySessionManager) -> usize {
+    end_all(manager) + manager.kill_all()
 }
 
 /// The payload of a `workspace-terminal` event: the same shape as a sign-in
@@ -148,4 +172,37 @@ pub fn workspace_terminal_close(
     id: String,
 ) -> Result<(), String> {
     close(&pty, &id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::settle_close;
+
+    #[test]
+    fn a_shell_that_exited_before_the_kill_is_closed() {
+        assert_eq!(
+            settle_close(
+                Err("Session 'shell-1' not found".to_string()),
+                false,
+                Ok(())
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_kill_that_failed_on_a_running_shell_is_an_error() {
+        assert_eq!(
+            settle_close(Err("Lock poisoned".to_string()), true, Ok(())),
+            Err("Lock poisoned".to_string())
+        );
+    }
+
+    #[test]
+    fn a_tree_that_could_not_be_read_is_still_reported() {
+        assert_eq!(
+            settle_close(Ok(()), false, Err("ps failed".to_string())),
+            Err("ps failed".to_string())
+        );
+    }
 }

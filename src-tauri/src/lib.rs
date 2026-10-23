@@ -44,9 +44,10 @@ use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 // resolve the login-shell environment or wait on a child process are marked
 // `async` so they run on the async runtime and cannot freeze the window.
 //
-// `send_input` stays sync deliberately. It only enqueues a sign-in terminal's
-// keystrokes to the PTY's writer thread, which drains the queue in order, so it
-// never blocks on a full PTY input buffer. Marking it `async` would run
+// `send_input` stays sync deliberately. It carries the keystrokes of a sign-in
+// terminal and of a workspace shell, where typing order matters most. It only
+// enqueues them to the PTY's writer thread, which drains the queue in order, so
+// it never blocks on a full PTY input buffer. Marking it `async` would run
 // keystrokes on a thread pool, where concurrent calls could reach the PTY out
 // of order.
 
@@ -151,13 +152,15 @@ fn terminate_session(
 /// Ends every agent the backend still runs. The UI calls this when it loads:
 /// a webview reload leaves the backend (and its agents) running, but the new
 /// UI knows none of them and shows their sessions as ended, so they would
-/// only linger, holding sessions the UI may resume in a new process.
-#[tauri::command]
+/// only linger, holding sessions the UI may resume in a new process. Workspace
+/// shells go with the processes under them: the new UI has no tabs for them.
+/// Reading those processes runs `ps`, so the command is `async`.
+#[tauri::command(async)]
 fn end_orphaned_sessions(
     pty: State<'_, PtySessionManager>,
     acp: State<'_, acp::manager::AcpManager>,
 ) -> usize {
-    pty.kill_all() + acp.stop_all()
+    workspace_terminal::end_all_sessions(&pty) + acp.stop_all()
 }
 
 /// Reads the state file from disk, so it stays off the main thread.
@@ -420,8 +423,7 @@ pub fn run() {
             // job they started does not outlive Zorvo; other sessions are only killed.
             if let tauri::RunEvent::Exit = event {
                 let pty = app.state::<PtySessionManager>();
-                workspace_terminal::end_all(&pty);
-                pty.kill_all();
+                workspace_terminal::end_all_sessions(&pty);
             }
         });
 }

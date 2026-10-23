@@ -8,8 +8,8 @@ use serde_json::json;
 use zorvo_lib::background_processes::{read_processes, subtree_of};
 use zorvo_lib::pty_session::{PtyEvent, PtySessionManager};
 use zorvo_lib::workspace_terminal::{
-    close, end_all, event_payload, is_workspace_terminal_id, next_terminal_id, pty_event_route,
-    shell_from, start_shell, EVENT,
+    close, end_all, end_all_sessions, event_payload, is_workspace_terminal_id, next_terminal_id,
+    pty_event_route, shell_from, start_shell, EVENT,
 };
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -245,4 +245,26 @@ fn end_all_ends_every_shell_and_what_it_started_but_not_other_sessions() {
     assert!(gone_within_wait(job_pid), "the nohup job outlived Zorvo");
     assert!(manager.has_session("signin-probe"));
     manager.kill_all();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn end_all_sessions_ends_a_shells_jobs_and_every_other_session() {
+    let dir = unique_dir("nohup reload");
+    let manager = PtySessionManager::default_manager();
+    let id = next_terminal_id();
+    let (_shell_pid, job_pid) = shell_with_nohup_job(&manager, &id, &dir);
+    let cwd = dir.to_string_lossy().to_string();
+    manager
+        .start_session("signin-probe", &cwd, "/bin/cat", &[], &[])
+        .expect("start a sign-in style session");
+
+    assert_eq!(end_all_sessions(&manager), 2);
+
+    assert!(!manager.has_session(&id));
+    assert!(!manager.has_session("signin-probe"));
+    assert!(
+        gone_within_wait(job_pid),
+        "the nohup job outlived the reload"
+    );
 }
