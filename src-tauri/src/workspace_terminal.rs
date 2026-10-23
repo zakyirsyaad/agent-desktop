@@ -9,6 +9,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use serde::Serialize;
 use serde_json::Value;
 use tauri::State;
 
@@ -136,20 +137,49 @@ pub fn pty_event_route(id: &str) -> Option<PtyRoute> {
     }
 }
 
-/// Opens a login shell in one of the user's workspace folders; returns its id.
+/// A shell that was started: its id, and the folder it runs in as the backend
+/// resolved it (symlinks followed), which is how the UI keys the shell's tab.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenedTerminal {
+    pub id: String,
+    pub folder: String,
+}
+
+/// Starts a login shell in `folder`, resolved to its canonical path, with the
+/// shell from the login environment `env`.
+pub fn open_shell(
+    manager: &PtySessionManager,
+    folder: &Path,
+    env: &HashMap<String, String>,
+) -> Result<OpenedTerminal, String> {
+    let folder = folder
+        .to_str()
+        .ok_or_else(|| format!("Folder {} is not valid UTF-8", folder.display()))?;
+    let folder = canonical_root(folder)?;
+    let id = next_terminal_id();
+    start_shell(manager, &id, &folder, &shell_from(env))?;
+    Ok(OpenedTerminal {
+        id,
+        folder: folder.to_string_lossy().into_owned(),
+    })
+}
+
+/// Opens a login shell in one of the user's workspace folders; returns its id
+/// and the canonical folder it runs in.
 #[tauri::command(async)]
 pub fn workspace_terminal_open(
     store: State<'_, AppStore>,
     pty: State<'_, PtySessionManager>,
     path: String,
-) -> Result<String, String> {
+) -> Result<OpenedTerminal, String> {
     ensure_known_workspace(&path, |p| store.is_known_workspace(p))?;
-    let folder = canonical_root(&path)?;
     // A login environment that cannot be read still gives a shell.
-    let shell = shell_from(&cached_user_env().unwrap_or_default());
-    let id = next_terminal_id();
-    start_shell(&pty, &id, &folder, &shell)?;
-    Ok(id)
+    open_shell(
+        &pty,
+        Path::new(&path),
+        &cached_user_env().unwrap_or_default(),
+    )
 }
 
 /// Ends a workspace shell and everything it started.

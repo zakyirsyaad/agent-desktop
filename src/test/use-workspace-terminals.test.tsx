@@ -38,6 +38,9 @@ async function emitAct(payload: Record<string, unknown>) {
 
 let nextShell = 1;
 let openImpl: (path: string) => Promise<unknown>;
+/** What the fake backend resolves a folder to: symlinks followed. */
+let canonicalFolders: Record<string, string>;
+const canonical = (path: string) => canonicalFolders[path] ?? path;
 let closeImpl: (id: string) => Promise<unknown>;
 let sweepImpl: () => Promise<unknown>;
 let invokeSpy: ReturnType<typeof vi.spyOn>;
@@ -45,7 +48,8 @@ let invokeSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   attached.length = 0;
   nextShell = 1;
-  openImpl = async () => `shell-${nextShell++}`;
+  canonicalFolders = {};
+  openImpl = async (path) => ({ id: `shell-${nextShell++}`, folder: canonical(path) });
   closeImpl = async () => undefined;
   sweepImpl = async () => 0;
   const real = internals().invoke;
@@ -117,6 +121,55 @@ describe("useWorkspaceTerminals", () => {
     expect(result.current.tabsFor("/w/a")).toHaveLength(1);
   });
 
+  it("keeps one tab list for spellings of a folder that differ by trailing slashes", async () => {
+    const { result } = await setup();
+    canonicalFolders = { "/w/a/": "/w/a" };
+    await open(result, "/w/a/");
+    await open(result, "/w/a");
+
+    expect(result.current.tabsFor("/w/a").map((tab) => [tab.id, tab.number])).toEqual([
+      ["shell-1", 1],
+      ["shell-2", 2],
+    ]);
+    expect(result.current.tabsFor("/w/a/")).toEqual(result.current.tabsFor("/w/a"));
+    expect(result.current.tabsFor("/w/a")[0].folderPath).toBe("/w/a");
+  });
+
+  it("finds a tab by the folder it was opened with when the backend resolved it elsewhere", async () => {
+    const { result } = await setup();
+    canonicalFolders = { "/link": "/real" };
+    await open(result, "/link");
+
+    expect(result.current.tabsFor("/link")).toEqual([
+      { id: "shell-1", folderPath: "/real", number: 1, status: "live" },
+    ]);
+    expect(result.current.tabsFor("/real")).toHaveLength(1);
+
+    await open(result, "/real");
+    expect(result.current.tabsFor("/link").map((tab) => tab.number)).toEqual([1, 2]);
+  });
+
+  it("closes a folder's tabs through the spelling it was opened with", async () => {
+    const { result } = await setup();
+    canonicalFolders = { "/link": "/real" };
+    await open(result, "/link");
+    await open(result, "/other");
+
+    act(() => result.current.closeFolder("/link"));
+
+    expect(result.current.tabsFor("/link")).toEqual([]);
+    expect(result.current.tabsFor("/other")).toHaveLength(1);
+    expect(callsTo(invokeSpy, "workspace_terminal_close").map(([, args]) => args?.id)).toEqual(["shell-1"]);
+  });
+
+  it("keeps the root folder's slash", async () => {
+    const { result } = await setup();
+    await open(result, "/");
+
+    expect(result.current.tabsFor("/")).toHaveLength(1);
+    expect(callsTo(invokeSpy, "workspace_terminal_open")[0][1]).toEqual({ path: "/" });
+  });
+
   it("numbers a folder's tabs and keeps them", async () => {
     const { result } = await setup();
     await open(result, "/w/a");
@@ -134,9 +187,9 @@ describe("useWorkspaceTerminals", () => {
 
   it("keeps output that arrives before open resolves", async () => {
     const { result } = await setup();
-    openImpl = async () => {
+    openImpl = async (path) => {
       emit({ terminalId: "shell-1", kind: "output", data: "$ " });
-      return "shell-1";
+      return { id: "shell-1", folder: path };
     };
     await open(result, "/w/a");
 
@@ -145,9 +198,9 @@ describe("useWorkspaceTerminals", () => {
 
   it("marks a shell that exits before open resolves as exited", async () => {
     const { result } = await setup();
-    openImpl = async () => {
+    openImpl = async (path) => {
       emit({ terminalId: "shell-1", kind: "exit", exitCode: 1 });
-      return "shell-1";
+      return { id: "shell-1", folder: path };
     };
     await open(result, "/w/a");
 

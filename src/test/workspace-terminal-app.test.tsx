@@ -78,7 +78,7 @@ async function renderApp(
     if (cmd === "workspace_terminal_open") {
       if (options.openFails?.()) return Promise.reject("The folder is gone");
       const id = `shell-${nextShell++}`;
-      return (options.openGate ?? Promise.resolve()).then(() => id);
+      return (options.openGate ?? Promise.resolve()).then(() => ({ id, folder: String(args?.path) }));
     }
     if (cmd === "workspace_terminal_close") return Promise.resolve(undefined);
     if (cmd === "remove_session_worktree" && options.removeWorktree) return options.removeWorktree();
