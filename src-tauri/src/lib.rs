@@ -413,8 +413,14 @@ pub fn run() {
             installer::commands::cancel_agent_install,
             installer::commands::remove_agent_install
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // A `nohup`ed job in a shell would otherwise outlive Zorvo.
+            if let tauri::RunEvent::Exit = event {
+                app.state::<PtySessionManager>().kill_all();
+            }
+        });
 }
 
 #[cfg(all(test, target_os = "macos"))]
