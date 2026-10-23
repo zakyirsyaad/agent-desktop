@@ -115,6 +115,65 @@ fn closing_a_shell_that_already_exited_succeeds() {
     assert_eq!(close(&manager, &id), Ok(()));
 }
 
+/// A shell can exit while a job it started still holds its terminal (macOS
+/// `nohup` keeps stdin on it). The exit is still seen at once: the shell leads
+/// the PTY's session, and when a session leader exits macOS revokes its
+/// terminal, so the reader gets the end of the output. This guards that the
+/// exit is reported once and the session removed while the job still runs.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_shell_that_exits_while_a_job_holds_its_terminal_reports_its_exit_once() {
+    let dir = unique_dir("exit with job");
+    let (tx, rx) = mpsc::channel();
+    let manager = PtySessionManager::new(Box::new(move |event| {
+        let _ = tx.send(event);
+    }));
+    let id = next_terminal_id();
+    let (_shell_pid, job_pid) = shell_with_nohup_job(&manager, &id, &dir);
+
+    manager.write_stdin(&id, "exit\n").expect("write");
+    let exits_within = |rx: &mpsc::Receiver<PtyEvent>, wait: Duration, stop_at_first: bool| {
+        let started = Instant::now();
+        let mut exits = 0;
+        while started.elapsed() < wait && !(stop_at_first && exits > 0) {
+            if let Ok(PtyEvent::Exit { session_id, .. }) =
+                rx.recv_timeout(Duration::from_millis(50))
+            {
+                if session_id == id {
+                    exits += 1;
+                }
+            }
+        }
+        exits
+    };
+    let first = exits_within(&rx, WAIT, true);
+    // The reader removes the session right after it sends the exit.
+    let started = Instant::now();
+    while started.elapsed() < WAIT && manager.has_session(&id) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let removed = !manager.has_session(&id);
+    let job_was_running = !gone_within(job_pid, Duration::ZERO);
+
+    // The job ends, its terminal closes and the reader sees the end of the output:
+    // that must not report the same exit a second time.
+    let _ = std::process::Command::new("/bin/kill")
+        .args(["-KILL", &job_pid.to_string()])
+        .status();
+    let later = exits_within(&rx, Duration::from_millis(500), false);
+
+    assert!(
+        job_was_running,
+        "the job ended with the shell, so nothing held the terminal"
+    );
+    assert_eq!(
+        first, 1,
+        "the shell's exit was not reported while the job ran"
+    );
+    assert!(removed, "the exited shell stayed in the manager");
+    assert_eq!(later, 0, "the exit was reported twice");
+}
+
 #[test]
 fn closing_a_running_shell_ends_it() {
     let dir = unique_dir("running");
@@ -199,8 +258,14 @@ fn shell_with_nohup_job(
 /// Whether `pid` is gone from a fresh `ps` read within `WAIT`.
 #[cfg(target_os = "macos")]
 fn gone_within_wait(pid: u32) -> bool {
+    gone_within(pid, WAIT)
+}
+
+/// Whether `pid` is gone from a fresh `ps` read within `wait`; read at least once.
+#[cfg(target_os = "macos")]
+fn gone_within(pid: u32, wait: Duration) -> bool {
     let started = Instant::now();
-    while started.elapsed() < WAIT {
+    loop {
         if !read_processes()
             .expect("list processes")
             .iter()
@@ -208,9 +273,11 @@ fn gone_within_wait(pid: u32) -> bool {
         {
             return true;
         }
+        if started.elapsed() >= wait {
+            return false;
+        }
         std::thread::sleep(Duration::from_millis(100));
     }
-    false
 }
 
 #[cfg(target_os = "macos")]
