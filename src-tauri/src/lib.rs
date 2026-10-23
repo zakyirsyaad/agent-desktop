@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod appearance;
+pub mod attachments;
 pub mod background_processes;
 pub mod branches;
 pub mod changes;
@@ -358,6 +359,7 @@ pub fn run() {
             files::list_directory,
             files::open_path,
             files::remember_workspace,
+            attachments::attachment_preview,
             workspace_files::workspace_files,
             git_info::workspace_details,
             branches::list_branches,

@@ -123,6 +123,7 @@ if (typeof window !== "undefined") {
   afterEach(async () => {
     // Imported here, not at the top: a static import would load the module before a test file's vi.mock applies.
     (await import("../lib/agent-icons")).resetAgentIcons();
+    (await import("../lib/attachment-previews")).clearAttachmentPreviews();
     (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
     delete (window as unknown as { __FAKE_ACP_LIST__?: unknown }).__FAKE_ACP_LIST__;
   });
@@ -134,6 +135,9 @@ if (typeof window !== "undefined") {
  * `invoke` it read before spying: that may already be a spy, and Vitest
  * hands back the same spy, so calling it would recurse.
  */
+export const FAKE_IMAGE_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
 export function fakeTauriInvoke(cmd: string, args?: unknown): Promise<unknown> {
   const storeResult = handleStoreCommand(cmd, args as StoreArgs | undefined);
   if (storeResult) {
@@ -164,6 +168,9 @@ export function fakeTauriInvoke(cmd: string, args?: unknown): Promise<unknown> {
   }
   if (cmd === "workspace_details") {
     return Promise.resolve({ location: "~/developer", branch: "main" });
+  }
+  if (cmd === "attachment_preview") {
+    return Promise.resolve(FAKE_IMAGE_DATA_URL);
   }
   return Promise.resolve(undefined);
 }

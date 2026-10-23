@@ -104,6 +104,11 @@ export const MessageRow = memo(function MessageRow({
           <ThinkingBlock text={message.thinking} isDone={Boolean(message.isComplete) || !isLast} />
         )}
         {message.plan && message.plan.length > 0 && <PlanUpdatedRow />}
+        {message.attachments && message.attachments.length > 0 && (
+          <div className={parts.length > 0 ? "mb-2" : undefined}>
+            <AttachmentChips paths={message.attachments} />
+          </div>
+        )}
         {parts.length > 0 && (
           <div className="space-y-4">
             {parts.map((part, index) => {
@@ -112,11 +117,6 @@ export const MessageRow = memo(function MessageRow({
               if (tools.length === 0) return null;
               return <ToolsPart key={index} tools={tools} isCurrentTurn={isCurrentTurn} />;
             })}
-          </div>
-        )}
-        {message.attachments && message.attachments.length > 0 && (
-          <div className={message.content ? "mt-2" : undefined}>
-            <AttachmentChips paths={message.attachments} />
           </div>
         )}
 
