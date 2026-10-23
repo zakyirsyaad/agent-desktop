@@ -15,6 +15,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 import { useWorkspaceTerminals } from "../hooks/useWorkspaceTerminals";
+import { sweepOrphans } from "../lib/orphan-sweep";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 type InvokeCall = [string, Record<string, unknown> | undefined];
@@ -38,6 +39,7 @@ async function emitAct(payload: Record<string, unknown>) {
 let nextShell = 1;
 let openImpl: (path: string) => Promise<unknown>;
 let closeImpl: (id: string) => Promise<unknown>;
+let sweepImpl: () => Promise<unknown>;
 let invokeSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
@@ -45,10 +47,12 @@ beforeEach(() => {
   nextShell = 1;
   openImpl = async () => `shell-${nextShell++}`;
   closeImpl = async () => undefined;
+  sweepImpl = async () => 0;
   const real = internals().invoke;
   invokeSpy = vi.spyOn(internals(), "invoke").mockImplementation((cmd, args) => {
     if (cmd === "workspace_terminal_open") return openImpl(String(args?.path));
     if (cmd === "workspace_terminal_close") return closeImpl(String(args?.id));
+    if (cmd === "end_orphaned_sessions") return sweepImpl();
     if (cmd === "send_input" || cmd === "resize_session") return Promise.resolve();
     return real(cmd, args);
   });
@@ -91,6 +95,26 @@ describe("useWorkspaceTerminals", () => {
     expect(result.current.tabsFor("/w/a")).toEqual([
       { id: "shell-1", folderPath: "/w/a", number: 1, status: "live" },
     ]);
+  });
+
+  it("waits for the startup orphan sweep before it opens a shell", async () => {
+    const { result } = await setup();
+    let finishSweep: () => void = () => {};
+    sweepImpl = () => new Promise((resolve) => (finishSweep = () => resolve(0)));
+    void sweepOrphans();
+
+    let opened: Promise<string | null> = Promise.resolve(null);
+    await act(async () => {
+      opened = result.current.open("/w/a");
+    });
+    expect(callsTo(invokeSpy, "workspace_terminal_open")).toHaveLength(0);
+
+    await act(async () => {
+      finishSweep();
+      await opened;
+    });
+    expect(callsTo(invokeSpy, "workspace_terminal_open")).toHaveLength(1);
+    expect(result.current.tabsFor("/w/a")).toHaveLength(1);
   });
 
   it("numbers a folder's tabs and keeps them", async () => {

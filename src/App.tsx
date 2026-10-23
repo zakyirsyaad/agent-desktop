@@ -26,6 +26,7 @@ import { useAgentSignIn } from "./hooks/useAgentSignIn";
 import { useDraftAgentCheck } from "./hooks/useDraftAgentCheck";
 import { useLatest } from "./hooks/useLatest";
 import { createSessionWorktree } from "./lib/session-worktree";
+import { sweepOrphans } from "./lib/orphan-sweep";
 import {
   isWaitingForAnswer,
   newSessionRecord,
@@ -181,7 +182,7 @@ export default function App() {
   // alive) are unknown to this one, which shows their sessions as ended;
   // end them so a resume does not collide with a still-open session.
   useEffect(() => {
-    invoke("end_orphaned_sessions").catch((error) => {
+    sweepOrphans().catch((error) => {
       setNotice(`Could not stop agents left from before: ${String(error)}`);
     });
   }, []);

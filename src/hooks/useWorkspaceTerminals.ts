@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { orphanSweepDone } from '../lib/orphan-sweep';
 import { createPtyOutputStore, type PtyOutputStore } from '../lib/pty-output-store';
 
 export interface WorkspaceTerminalTab {
@@ -83,6 +84,8 @@ export function useWorkspaceTerminals(onNotice: (message: string) => void): Work
     async (folderPath: string) => {
       let id: string;
       try {
+        // The startup sweep ends every shell it finds, so a shell opened before it ran would be ended with the rest.
+        await orphanSweepDone();
         id = await invoke<string>('workspace_terminal_open', { path: folderPath });
       } catch (error) {
         onNoticeRef.current(`Could not open a terminal: ${errorText(error)}`);
