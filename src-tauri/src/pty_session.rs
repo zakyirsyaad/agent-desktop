@@ -276,7 +276,11 @@ impl PtySessionManager {
                     }
                 }
 
-                // Process exited or reader stream closed
+                // Process exited or reader stream closed. The end of the output is
+                // enough to know a shell exited even when a job it started still
+                // holds the terminal: the child leads the PTY's session, and macOS
+                // revokes a session's terminal when its leader exits (see
+                // `a_shell_that_exits_while_a_job_holds_its_terminal_reports_its_exit_once`).
                 let exit_code = match child_for_wait.lock() {
                     Ok(mut ch) => match ch.wait() {
                         Ok(status) => status.exit_code(),
