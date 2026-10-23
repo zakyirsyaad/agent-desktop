@@ -19,6 +19,7 @@ pub mod store;
 pub mod user_profile;
 pub mod windows;
 pub mod workspace_files;
+pub mod workspace_terminal;
 pub mod workspaces;
 pub mod worktrees;
 
@@ -27,13 +28,14 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use acp::commands::{event_payload, ACP_EVENT};
 use acp::manager::AcpManager;
-use acp::terminal_auth::{is_sign_in_terminal_id, sign_in_event_payload, SIGN_IN_TERMINAL_EVENT};
+use acp::terminal_auth::{sign_in_event_payload, SIGN_IN_TERMINAL_EVENT};
 use installer::commands::{clean_up_at_start, versions_in_use, AppInstaller};
 use installer::layout::ToolsDir;
 use profiles::{agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
 use registry::{Catalog, AGENT_PROFILES_CHANGED};
 use store::{AppStore, PersistedState};
+use workspace_terminal::{event_payload as workspace_terminal_payload, pty_event_route};
 use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -287,9 +289,16 @@ pub fn run() {
                         session_id
                     }
                 };
-                // Only sign-in terminals start a PTY; any other id has no listener.
-                if is_sign_in_terminal_id(session_id) {
-                    let _ = app.emit(SIGN_IN_TERMINAL_EVENT, sign_in_event_payload(&event));
+                // Only sign-in terminals and workspace shells start a PTY; any
+                // other id has no listener.
+                match pty_event_route(session_id) {
+                    Some(SIGN_IN_TERMINAL_EVENT) => {
+                        let _ = app.emit(SIGN_IN_TERMINAL_EVENT, sign_in_event_payload(&event));
+                    }
+                    Some(channel) => {
+                        let _ = app.emit(channel, workspace_terminal_payload(&event));
+                    }
+                    None => {}
                 }
             }
         }
@@ -347,6 +356,8 @@ pub fn run() {
             get_agent_icons,
             list_workspaces,
             send_input,
+            workspace_terminal::workspace_terminal_open,
+            workspace_terminal::workspace_terminal_close,
             resize_session,
             terminate_session,
             end_orphaned_sessions,
