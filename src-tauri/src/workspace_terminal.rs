@@ -5,6 +5,7 @@
 //! `send_input` and `resize_session`. Nothing here logs a shell's input or output.
 
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -50,11 +51,18 @@ pub fn shell_from(env: &HashMap<String, String>) -> String {
         .unwrap_or_else(|| FALLBACK_SHELL.to_string())
 }
 
+#[cfg(unix)]
 fn is_executable_file(path: &Path) -> bool {
     path.is_absolute()
         && path
             .metadata()
             .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+/// Without Unix permission bits there is no executable flag to check.
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_absolute() && path.is_file()
 }
 
 /// Starts `shell -l` in `folder` as PTY session `id`.
