@@ -1,9 +1,16 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import type { Ref } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { PtyOutputStore } from "../lib/pty-output-store";
 import { XTERM_OPTIONS } from "../lib/xterm-options";
+
+/** What a parent can ask of a mounted terminal. */
+export interface TerminalViewHandle {
+  /** Moves keyboard focus into the terminal without rebuilding it. */
+  focus: () => void;
+}
 
 export interface TerminalViewProps {
   sessionId: string;
@@ -16,6 +23,7 @@ export interface TerminalViewProps {
   autoFocus?: boolean;
   /** Accessible name of the terminal. */
   label?: string;
+  ref?: Ref<TerminalViewHandle>;
 }
 
 /**
@@ -30,8 +38,12 @@ export function TerminalView({
   onResize,
   autoFocus = true,
   label = "Agent terminal",
+  ref,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  // autoFocus only decides the focus at mount; this is the way to focus a terminal that is already there.
+  useImperativeHandle(ref, () => ({ focus: () => terminalRef.current?.focus() }), []);
   // App re-renders on every output chunk; callbacks and autoFocus are read
   // through refs so that a change never tears down the terminal.
   const callbacksRef = useRef({ onInput, onResize, autoFocus });
@@ -46,6 +58,7 @@ export function TerminalView({
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(container);
+    terminalRef.current = terminal;
 
     // Keystrokes are taken only once the replay is parsed: old output holds
     // terminal queries (cursor position, colours) that xterm would answer as
@@ -77,6 +90,7 @@ export function TerminalView({
       unsubscribe();
       input?.dispose();
       observer?.disconnect();
+      terminalRef.current = null;
       terminal.dispose();
     };
   }, [sessionId, output, isLive]);

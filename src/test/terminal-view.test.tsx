@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createRef } from "react";
 import { render, act, screen } from "@testing-library/react";
 import type { ITerminalOptions } from "@xterm/xterm";
 import { createPtyOutputStore } from "../lib/pty-output-store";
@@ -46,7 +47,7 @@ vi.mock("@xterm/xterm", () => ({ Terminal: FakeTerminal }));
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 
-import { TerminalView } from "../components/TerminalView";
+import { TerminalView, type TerminalViewHandle } from "../components/TerminalView";
 
 describe("TerminalView", () => {
   beforeEach(() => {
@@ -123,6 +124,25 @@ describe("TerminalView", () => {
     render(<TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />);
 
     expect(focusSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("focuses a mounted terminal through its handle, without rebuilding it", () => {
+    const handle = createRef<TerminalViewHandle>();
+    render(
+      <TerminalView ref={handle} sessionId="s-1" output={createPtyOutputStore()} isLive autoFocus={false} onInput={() => {}} onResize={() => {}} />,
+    );
+    expect(terminals[0].focused).toBe(false);
+
+    act(() => handle.current?.focus());
+
+    expect(terminals[0].focused).toBe(true);
+    expect(terminals).toHaveLength(1);
+  });
+
+  it("keeps the terminal's dark fill on its own container", () => {
+    render(<TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />);
+
+    expect(screen.getByTestId("terminal-view").classList.contains("bg-terminal-bg")).toBe(true);
   });
 
   it("does not take focus when autoFocus is false", () => {

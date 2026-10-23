@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, within } from "@testing-library/react";
 import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
@@ -18,8 +18,15 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 // The xterm view needs a real canvas; the drawer only has to mount one per live tab.
+// Each mount records the autoFocus it started with: the real view reads it only then.
+const mounts: { sessionId: string; autoFocus?: boolean }[] = [];
+
 vi.mock("../components/TerminalView", () => ({
   TerminalView: function FakeTerminalView(props: TerminalViewProps) {
+    useState(() => {
+      mounts.push({ sessionId: props.sessionId, autoFocus: props.autoFocus });
+      return null;
+    });
     return <div data-testid={`view-${props.sessionId}`} aria-label={props.label} />;
   },
 }));
@@ -58,11 +65,18 @@ function order(spy: Spy, ...cmds: string[]) {
 let nextShell = 1;
 
 async function renderApp(
-  options: { strict?: boolean; removeWorktree?: () => Promise<unknown>; openGate?: Promise<void> } = {},
+  options: {
+    strict?: boolean;
+    removeWorktree?: () => Promise<unknown>;
+    openGate?: Promise<void>;
+    /** Called for each open; true makes that open fail. */
+    openFails?: () => boolean;
+  } = {},
 ): Promise<Spy> {
   nextShell = 1;
   const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
     if (cmd === "workspace_terminal_open") {
+      if (options.openFails?.()) return Promise.reject("The folder is gone");
       const id = `shell-${nextShell++}`;
       return (options.openGate ?? Promise.resolve()).then(() => id);
     }
@@ -99,6 +113,7 @@ describe("Workspace terminal in the app", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     listeners.clear();
+    mounts.length = 0;
   });
 
   it("the Terminal button opens a shell in the session's folder", async () => {
@@ -250,6 +265,43 @@ describe("Workspace terminal in the app", () => {
 
     expect(callsTo(spy, "workspace_terminal_open")).toHaveLength(1);
     expect(screen.getAllByRole("tab")).toHaveLength(1);
+  });
+
+  it("shows that the first shell is starting, offers no second one, and focuses it once it is there", async () => {
+    fakeStore().state.sessions = [seedSession("s-a", "Fix login", REPO, 1000)];
+    let release = () => {};
+    const openGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const spy = await renderApp({ openGate });
+    await openSession("Fix login");
+
+    await click(terminalButton());
+
+    expect(screen.getByText("Starting a shell…")).toBeInTheDocument();
+    expect(screen.queryByText("No terminal in zorvo.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "New terminal" })).toBeNull();
+    await act(async () => {
+      release();
+    });
+
+    expect(callsTo(spy, "workspace_terminal_open")).toHaveLength(1);
+    expect(screen.queryByText("Starting a shell…")).toBeNull();
+    expect(mounts).toEqual([{ sessionId: "shell-1", autoFocus: true }]);
+  });
+
+  it("a first shell that could not start gives the empty state back, and New terminal tries again", async () => {
+    fakeStore().state.sessions = [seedSession("s-a", "Fix login", REPO, 1000)];
+    let attempts = 0;
+    const spy = await renderApp({ openFails: () => attempts++ === 0 });
+    await openSession("Fix login");
+
+    await click(terminalButton());
+    expect(screen.getByText("No terminal in zorvo.")).toBeInTheDocument();
+    await click(screen.getByRole("button", { name: "New terminal" }));
+
+    expect(callsTo(spy, "workspace_terminal_open")).toHaveLength(2);
+    expect(screen.getByTestId("view-shell-1")).toBeInTheDocument();
   });
 
   it("a worktree another session still uses keeps its terminals", async () => {

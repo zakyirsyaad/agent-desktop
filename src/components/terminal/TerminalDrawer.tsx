@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
-import { Plus, X } from "lucide-react";
-import { TerminalView } from "../TerminalView";
+import { ChevronDown, Plus, X } from "lucide-react";
+import { TerminalView, type TerminalViewHandle } from "../TerminalView";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { tabLabel } from "../../lib/terminal-labels";
@@ -18,6 +18,10 @@ export interface TerminalDrawerProps {
   /** The folder's current branch, read at render. */
   branch?: string;
   terminals: WorkspaceTerminals;
+  /** The folder whose first shell is starting, if any: the drawer says so and focuses that shell once it is there. */
+  startingFor: string | null;
+  /** Starts a shell through the caller's guard against a second start in the same folder. */
+  onStartShell: (folderPath: string) => Promise<string | null>;
   onHide: () => void;
 }
 
@@ -33,7 +37,15 @@ function clampHeight(height: number): number {
  * The shells of one folder, in a drawer under the chat. The caller keys nothing
  * on the folder: switching sessions only changes `folderPath`.
  */
-export function TerminalDrawer({ folderPath, folderName, branch, terminals, onHide }: TerminalDrawerProps) {
+export function TerminalDrawer({
+  folderPath,
+  folderName,
+  branch,
+  terminals,
+  startingFor,
+  onStartShell,
+  onHide,
+}: TerminalDrawerProps) {
   const tabs = terminals.tabsFor(folderPath);
   const [height, setHeight] = useState(START_HEIGHT);
   const [activeByFolder, setActiveByFolder] = useState<Record<string, string>>({});
@@ -42,6 +54,17 @@ export function TerminalDrawer({ folderPath, folderName, branch, terminals, onHi
   // the drawer (opening it, New terminal, picking a tab, Start a new shell),
   // never by a session switch. The view reads it only on mount.
   const [focusTabId, setFocusTabId] = useState<string | null>(() => pickActive(tabs, undefined)?.id ?? null);
+  // The folder whose first shell was starting when the drawer last looked: that
+  // shell is not in the list yet, so its tab takes focus when it appears.
+  const isStarting = startingFor === folderPath && tabs.length === 0;
+  const [awaitingFirst, setAwaitingFirst] = useState<string | null>(null);
+  if (isStarting && awaitingFirst !== folderPath) setAwaitingFirst(folderPath);
+  const focusFirst = awaitingFirst === folderPath && activeTab !== undefined;
+  // After a close, focus has nowhere to stay: it goes to the tab strip, or to New terminal.
+  const [restoreFocus, setRestoreFocus] = useState(false);
+  const viewRef = useRef<TerminalViewHandle>(null);
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const emptyActionRef = useRef<HTMLButtonElement>(null);
   const folderRef = useRef(folderPath);
   useEffect(() => {
     folderRef.current = folderPath;
@@ -49,49 +72,77 @@ export function TerminalDrawer({ folderPath, folderName, branch, terminals, onHi
   useEffect(() => {
     if (focusTabId && activeTab?.id === focusTabId) setFocusTabId(null);
   }, [focusTabId, activeTab?.id]);
+  useEffect(() => {
+    // Done once the tab is there, or when the start ended without one or you left the folder.
+    if (awaitingFirst && (focusFirst || awaitingFirst !== folderPath || (!isStarting && tabs.length === 0))) {
+      setAwaitingFirst(null);
+    }
+  }, [awaitingFirst, focusFirst, folderPath, isStarting, tabs.length]);
+  useEffect(() => {
+    if (!restoreFocus) return;
+    const selected = tabListRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    (selected ?? emptyActionRef.current)?.focus();
+    setRestoreFocus(false);
+  }, [restoreFocus]);
 
   const labelOf = (tab: WorkspaceTerminalTab) => tabLabel(folderName, branch, tab.number);
 
   const select = (id: string) => {
     setActiveByFolder((current) => ({ ...current, [folderPath]: id }));
-    setFocusTabId(id);
+    // The view in front is already mounted, so it is focused directly; another one mounts focused.
+    if (id === activeTab?.id) viewRef.current?.focus();
+    else setFocusTabId(id);
   };
 
-  const openShell = async () => {
+  const closeTab = (id: string) => {
+    terminals.close(id);
+    const remaining = tabs.filter((tab) => tab.id !== id);
+    const next = pickActive(remaining, undefined);
+    if (id === activeTab?.id && next) setFocusTabId(next.id);
+    else setRestoreFocus(true);
+  };
+
+  const openWith = async (open: (folderPath: string) => Promise<string | null>) => {
     const forFolder = folderPath;
-    const id = await terminals.open(forFolder);
+    const id = await open(forFolder);
     if (!id) return;
     setActiveByFolder((current) => ({ ...current, [forFolder]: id }));
     // Opened for a folder you have left since: it shows without taking focus.
     if (folderRef.current === forFolder) setFocusTabId(id);
   };
 
+  // New terminal beside the tabs may be pressed twice in a row for two shells; the
+  // folder's first shell, and a restart, go through the caller's guard.
+  const addShell = () => openWith(terminals.open);
+  const startShell = () => openWith(onStartShell);
+
+  // Only the terminal itself stays dark in both themes; the drawer's own controls follow the theme.
   return (
     <section
       aria-label="Terminal"
       style={{ height, maxHeight: `${MAX_HEIGHT_RATIO * 100}vh` }}
-      className="flex shrink-0 flex-col border-t border-border bg-terminal-bg"
+      className="flex shrink-0 flex-col border-t border-border bg-surface-1"
     >
       <ResizeHandle height={height} onChange={(next) => setHeight(clampHeight(next))} />
       <div className="flex items-center gap-1 border-b border-border px-2">
-        <div role="tablist" aria-label="Terminals" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <div ref={tabListRef} role="tablist" aria-label="Terminals" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           {tabs.map((tab) => (
             <TabItem
               key={tab.id}
               label={labelOf(tab)}
               selected={tab.id === activeTab?.id}
               onSelect={() => select(tab.id)}
-              onClose={() => terminals.close(tab.id)}
+              onClose={() => closeTab(tab.id)}
             />
           ))}
         </div>
         {activeTab && (
-          <IconButton label="New terminal" onClick={openShell}>
+          <IconButton label="New terminal" onClick={addShell}>
             <Plus size={14} aria-hidden />
           </IconButton>
         )}
         <IconButton label="Hide terminal" onClick={onHide}>
-          <X size={14} aria-hidden />
+          <ChevronDown size={14} aria-hidden />
         </IconButton>
       </div>
       <div role="tabpanel" className="flex min-h-0 flex-1 flex-col">
@@ -100,26 +151,33 @@ export function TerminalDrawer({ folderPath, folderName, branch, terminals, onHi
             <div className="min-h-0 flex-1">
               <TerminalView
                 key={activeTab.id}
+                ref={viewRef}
                 sessionId={activeTab.id}
                 output={terminals.output}
                 isLive={activeTab.status === "live"}
                 onInput={(data) => terminals.send(activeTab.id, data)}
                 onResize={(cols, rows) => terminals.resize(activeTab.id, cols, rows)}
-                autoFocus={activeTab.id === focusTabId}
+                autoFocus={activeTab.id === focusTabId || focusFirst}
                 label={labelOf(activeTab)}
               />
             </div>
             {activeTab.status === "exited" && (
               <div className="flex items-center gap-3 border-t border-border px-3 py-2 text-xs text-fg-muted">
                 <span>The shell exited.</span>
-                <Button onClick={openShell}>Start a new shell</Button>
+                <Button onClick={startShell}>Start a new shell</Button>
               </div>
             )}
           </>
+        ) : isStarting ? (
+          <div className="flex flex-1 items-center justify-center text-xs text-fg-muted">
+            <p role="status">Starting a shell…</p>
+          </div>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-xs text-fg-muted">
             <p>No terminal in {folderName}.</p>
-            <Button onClick={openShell}>New terminal</Button>
+            <Button ref={emptyActionRef} onClick={startShell}>
+              New terminal
+            </Button>
           </div>
         )}
       </div>

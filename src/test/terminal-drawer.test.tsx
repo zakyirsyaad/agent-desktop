@@ -1,14 +1,15 @@
 import "@testing-library/jest-dom/vitest";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { useState } from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { useImperativeHandle, useState } from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { createPtyOutputStore } from "../lib/pty-output-store";
 import type { WorkspaceTerminals, WorkspaceTerminalTab } from "../hooks/useWorkspaceTerminals";
 import type { TerminalViewProps } from "../components/TerminalView";
 
 // Each mount records the autoFocus it started with: the real view reads it only then.
-const { mounts } = vi.hoisted(() => ({
+const { mounts, focusCalls } = vi.hoisted(() => ({
   mounts: [] as { sessionId: string; label?: string; autoFocus?: boolean }[],
+  focusCalls: [] as string[],
 }));
 
 vi.mock("../components/TerminalView", () => ({
@@ -17,6 +18,8 @@ vi.mock("../components/TerminalView", () => ({
       mounts.push({ sessionId: props.sessionId, label: props.label, autoFocus: props.autoFocus });
       return null;
     });
+    // A view that is already mounted is focused through its handle, not through autoFocus.
+    useImperativeHandle(props.ref, () => ({ focus: () => focusCalls.push(props.sessionId) }));
     return <div data-testid={`view-${props.sessionId}`} aria-label={props.label} />;
   },
 }));
@@ -40,12 +43,36 @@ function fakeTerminals(tabs: WorkspaceTerminalTab[], overrides: Partial<Workspac
   };
 }
 
-const baseProps = { folderPath: "/work/zorvo", folderName: "zorvo", branch: "main", onHide: vi.fn() };
+const baseProps = {
+  folderPath: "/work/zorvo",
+  folderName: "zorvo",
+  branch: "main",
+  startingFor: null as string | null,
+  onStartShell: vi.fn(async (_folderPath: string): Promise<string | null> => null),
+  onHide: vi.fn(),
+};
+
+/** Tabs that change when a shell is opened or closed, like the real hook. */
+function StatefulDrawer({ initial, extra = {} }: { initial: WorkspaceTerminalTab[]; extra?: object }) {
+  const [tabs, setTabs] = useState(initial);
+  const terminals = fakeTerminals(tabs, {
+    close: vi.fn((id: string) => setTabs((current) => current.filter((t) => t.id !== id))),
+  });
+  return <TerminalDrawer {...baseProps} {...extra} terminals={terminals} />;
+}
 
 describe("TerminalDrawer", () => {
+  const originalHeight = window.innerHeight;
+
   beforeEach(() => {
     mounts.length = 0;
+    focusCalls.length = 0;
     baseProps.onHide.mockClear();
+    baseProps.onStartShell.mockClear();
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
   });
 
   it("shows an empty state for a folder without terminals", () => {
@@ -55,6 +82,96 @@ describe("TerminalDrawer", () => {
     expect(screen.getByText("No terminal in zorvo.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New terminal" })).toBeInTheDocument();
     expect(terminals.open).not.toHaveBeenCalled();
+  });
+
+  it("starts the folder's first shell through the caller's guard", async () => {
+    const terminals = fakeTerminals([]);
+    render(<TerminalDrawer {...baseProps} terminals={terminals} />);
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New terminal" })); });
+
+    expect(baseProps.onStartShell).toHaveBeenCalledWith("/work/zorvo");
+    expect(terminals.open).not.toHaveBeenCalled();
+  });
+
+  it("shows that a shell is starting instead of the empty state, then focuses the first tab", () => {
+    let tabs: WorkspaceTerminalTab[] = [];
+    const terminals = fakeTerminals([], { tabsFor: (folderPath) => tabs.filter((t) => t.folderPath === folderPath) });
+    const { rerender } = render(<TerminalDrawer {...baseProps} startingFor="/work/zorvo" terminals={terminals} />);
+
+    expect(screen.getByText("Starting a shell…")).toBeInTheDocument();
+    expect(screen.queryByText("No terminal in zorvo.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "New terminal" })).toBeNull();
+
+    tabs = [tab("shell-1", "/work/zorvo", 1)];
+    rerender(<TerminalDrawer {...baseProps} startingFor="/work/zorvo" terminals={{ ...terminals }} />);
+    rerender(<TerminalDrawer {...baseProps} startingFor={null} terminals={{ ...terminals }} />);
+
+    expect(screen.queryByText("Starting a shell…")).toBeNull();
+    expect(mounts).toEqual([expect.objectContaining({ sessionId: "shell-1", autoFocus: true })]);
+  });
+
+  it("does not focus a first shell that appears after you left its folder", () => {
+    let tabs: WorkspaceTerminalTab[] = [tab("shell-2", "/work/other", 1)];
+    const terminals = fakeTerminals([], { tabsFor: (folderPath) => tabs.filter((t) => t.folderPath === folderPath) });
+    const { rerender } = render(<TerminalDrawer {...baseProps} startingFor="/work/zorvo" terminals={terminals} />);
+    rerender(<TerminalDrawer {...baseProps} folderPath="/work/other" folderName="other" startingFor="/work/zorvo" terminals={terminals} />);
+    mounts.length = 0;
+
+    tabs = [...tabs, tab("shell-1", "/work/zorvo", 1)];
+    rerender(<TerminalDrawer {...baseProps} startingFor={null} terminals={{ ...terminals }} />);
+
+    expect(mounts.at(-1)).toMatchObject({ sessionId: "shell-1", autoFocus: false });
+  });
+
+  it("the drawer's section keeps the terminal's dark fill to the terminal", () => {
+    render(<TerminalDrawer {...baseProps} terminals={fakeTerminals([tab("shell-1", "/work/zorvo", 1, "exited")])} />);
+
+    expect(screen.getByRole("region", { name: "Terminal" })).not.toHaveClass("bg-terminal-bg");
+    expect(screen.getByRole("tablist").parentElement).not.toHaveClass("bg-terminal-bg");
+    expect(screen.getByText("The shell exited.").parentElement).not.toHaveClass("bg-terminal-bg");
+  });
+
+  it("Hide terminal does not use the close icon", () => {
+    render(<TerminalDrawer {...baseProps} terminals={fakeTerminals([tab("shell-1", "/work/zorvo", 1)])} />);
+
+    const hide = screen.getByRole("button", { name: "Hide terminal" });
+    expect(hide.querySelector("svg")).toHaveClass("lucide-chevron-down");
+    expect(screen.getByRole("button", { name: "Close zorvo · main" }).querySelector("svg")).toHaveClass("lucide-x");
+  });
+
+  it("picking the tab that is already in front focuses its shell", async () => {
+    render(<TerminalDrawer {...baseProps} terminals={fakeTerminals([tab("shell-1", "/work/zorvo", 1)])} />);
+
+    await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "zorvo · main" })); });
+
+    expect(focusCalls).toEqual(["shell-1"]);
+    expect(mounts).toHaveLength(1);
+  });
+
+  it("closing the tab in front focuses the shell that takes its place", async () => {
+    render(<StatefulDrawer initial={[tab("shell-1", "/work/zorvo", 1), tab("shell-2", "/work/zorvo", 2)]} />);
+    mounts.length = 0;
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Close zorvo · main 2" })); });
+
+    expect(mounts).toEqual([expect.objectContaining({ sessionId: "shell-1", autoFocus: true })]);
+  });
+
+  it("closing a tab behind the one in front puts focus on the tab strip", async () => {
+    render(<StatefulDrawer initial={[tab("shell-1", "/work/zorvo", 1), tab("shell-2", "/work/zorvo", 2)]} />);
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Close zorvo · main" })); });
+
+    expect(screen.getByRole("tab", { name: "zorvo · main 2" })).toHaveFocus();
+  });
+
+  it("closing the last tab puts focus on New terminal", async () => {
+    render(<StatefulDrawer initial={[tab("shell-1", "/work/zorvo", 1)]} />);
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Close zorvo · main" })); });
+
+    expect(screen.getByRole("button", { name: "New terminal" })).toHaveFocus();
   });
 
   it("shows the folder's tabs and switches between them", async () => {
@@ -140,7 +257,7 @@ describe("TerminalDrawer", () => {
     expect(screen.getByText("The shell exited.")).toBeInTheDocument();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start a new shell" })); });
 
-    expect(terminals.open).toHaveBeenCalledWith("/work/zorvo");
+    expect(baseProps.onStartShell).toHaveBeenCalledWith("/work/zorvo");
   });
 
   it("Escape in the terminal leaves the drawer open", () => {

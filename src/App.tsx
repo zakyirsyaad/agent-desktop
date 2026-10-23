@@ -807,6 +807,8 @@ export default function App() {
               folderName={filesFolder.name}
               branch={workspaceDetails?.branch ?? undefined}
               terminals={terminals}
+              startingFor={terminalDrawer.startingFor}
+              onStartShell={terminalDrawer.startShell}
               onHide={terminalDrawer.hide}
             />
           )}
