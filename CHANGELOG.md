@@ -13,6 +13,7 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 ### Fixed
 
+- **The landing site uses Next.js 16.4.2.** 16.3.8 is affected by advisories GHSA-2464-fhr4-w9xw, GHSA-673q-mjm6-r5xr and GHSA-p3m5-59mp-jv5r.
 - **A permission request shows one card, and says when the mode changed after it.** A replayed or duplicated request no longer adds a second card. If you switch modes while a request waits, the card says the agent asked before the switch, so its answer is still expected.
 - **A composer menu leaves a long conversation alone.** Folder, agent, permission, model and effort menus keep their open state inside the composer, so opening or closing one does not re-render the message list; a regression test now holds that.
 - **A background pull request refresh stays quiet.** If `gh` is slow after the Mac wakes, the top bar keeps the last pull request it read instead of a red notice; the next minute or focus tries again.
