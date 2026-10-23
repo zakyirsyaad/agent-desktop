@@ -57,8 +57,9 @@ like Claude Code Desktop, but for whichever agent you have.
   another branch, from the folder list.
 - **A terminal where the agent works.** The **Terminal** button opens a shell
   in the session's folder (its worktree, when it has one), in a drawer under
-  the chat. Each folder keeps its own tabs. Closing a tab, deleting a worktree
-  session or quitting Zorvo ends the shell and what it started.
+  the chat. Each folder keeps its own tabs. Closing a tab or quitting Zorvo
+  ends the shell and what it started. A worktree's terminals end when Zorvo
+  removes that worktree; a kept or shared worktree keeps them.
 - **Review and commit.** The Changes panel shows each changed file's diff
   and commits the files you choose. The top bar shows the branch's pull
   request and its checks, and the panel lists your pull requests. All of

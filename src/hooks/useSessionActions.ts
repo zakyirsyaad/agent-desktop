@@ -16,7 +16,7 @@ export interface SessionActionsDeps {
   removeTranscript: (sessionId: string) => void;
   navigation: Pick<NavigationHistory, 'remove'>;
   acp: Pick<AcpEngine, 'stop'>;
-  /** Ends the shells open in a folder; called before a session's worktree is removed. */
+  /** Ends the shells open in a folder; called once a session's worktree is removed. */
   closeTerminals?: (folderPath: string) => void;
   onNotice: (message: string) => void;
 }

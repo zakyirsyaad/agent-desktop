@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { StrictMode, useState } from "react";
+import { StrictMode } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, fireEvent, within } from "@testing-library/react";
 import { fakeTauriInvoke, type FakeTauriStore } from "./setup";
@@ -20,7 +20,6 @@ vi.mock("@tauri-apps/api/event", () => ({
 // The xterm view needs a real canvas; the drawer only has to mount one per live tab.
 vi.mock("../components/TerminalView", () => ({
   TerminalView: function FakeTerminalView(props: TerminalViewProps) {
-    useState(() => null);
     return <div data-testid={`view-${props.sessionId}`} aria-label={props.label} />;
   },
 }));
@@ -58,15 +57,19 @@ function order(spy: Spy, ...cmds: string[]) {
 
 let nextShell = 1;
 
-async function renderApp(options: { strict?: boolean } = {}): Promise<Spy> {
+async function renderApp(
+  options: { strict?: boolean; removeWorktree?: () => Promise<unknown>; openGate?: Promise<void> } = {},
+): Promise<Spy> {
   nextShell = 1;
-  const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) =>
-    cmd === "workspace_terminal_open"
-      ? Promise.resolve(`shell-${nextShell++}`)
-      : cmd === "workspace_terminal_close"
-        ? Promise.resolve(undefined)
-        : fakeTauriInvoke(cmd, args),
-  );
+  const spy = vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd, args) => {
+    if (cmd === "workspace_terminal_open") {
+      const id = `shell-${nextShell++}`;
+      return (options.openGate ?? Promise.resolve()).then(() => id);
+    }
+    if (cmd === "workspace_terminal_close") return Promise.resolve(undefined);
+    if (cmd === "remove_session_worktree" && options.removeWorktree) return options.removeWorktree();
+    return fakeTauriInvoke(cmd, args);
+  });
   await act(async () => {
     render(options.strict ? <StrictMode><App /></StrictMode> : <App />);
   });
@@ -180,9 +183,10 @@ describe("Workspace terminal in the app", () => {
     expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
   });
 
-  it("deleting a worktree session closes its terminals before the worktree goes", async () => {
+  it("deleting a worktree session closes its terminals once the worktree is removed", async () => {
     fakeStore().state.sessions = [
       seedSession("s-w", "Fix login", WORKTREE.path, 1000, { worktree: WORKTREE }),
+      seedSession("s-x", "Same folder", WORKTREE.path, 500),
     ];
     const spy = await renderApp();
     await openSession("Fix login");
@@ -190,11 +194,62 @@ describe("Workspace terminal in the app", () => {
 
     await deleteSession("Fix login");
 
-    expect(order(spy, "workspace_terminal_close", "remove_session_worktree")).toEqual([
-      "workspace_terminal_close",
+    expect(order(spy, "remove_session_worktree", "workspace_terminal_close")).toEqual([
       "remove_session_worktree",
+      "workspace_terminal_close",
     ]);
     expect(callsTo(spy, "workspace_terminal_close")[0][1]).toEqual({ id: "shell-1" });
+    expect(screen.queryByTestId("view-shell-1")).toBeNull();
+  });
+
+  it("keeps the terminals of a worktree that could not be removed", async () => {
+    fakeStore().state.sessions = [
+      seedSession("s-w", "Fix login", WORKTREE.path, 1000, { worktree: WORKTREE }),
+      seedSession("s-x", "Same folder", WORKTREE.path, 500),
+    ];
+    const spy = await renderApp({ removeWorktree: () => Promise.reject("it has uncommitted changes, so it was kept") });
+    await openSession("Fix login");
+    await click(terminalButton());
+
+    await deleteSession("Fix login");
+
+    expect(callsTo(spy, "remove_session_worktree")).toHaveLength(1);
+    expect(callsTo(spy, "workspace_terminal_close")).toHaveLength(0);
+    expect((await screen.findByRole("alert")).textContent).toContain("uncommitted changes");
+    expect(screen.getByTestId("view-shell-1")).toBeInTheDocument();
+  });
+
+  it("also closes the terminals of the session's folder inside the removed worktree", async () => {
+    const inside = `${WORKTREE.path}/packages/app`;
+    fakeStore().state.sessions = [seedSession("s-w", "Fix login", inside, 1000, { worktree: WORKTREE })];
+    const spy = await renderApp();
+    await openSession("Fix login");
+    await click(terminalButton());
+    expect(callsTo(spy, "workspace_terminal_open")[0][1]).toEqual({ path: inside });
+
+    await deleteSession("Fix login");
+
+    expect(callsTo(spy, "workspace_terminal_close").map(([, args]) => args)).toEqual([{ id: "shell-1" }]);
+  });
+
+  it("does not start a second shell while the first is still starting", async () => {
+    fakeStore().state.sessions = [seedSession("s-a", "Fix login", REPO, 1000)];
+    let release = () => {};
+    const openGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const spy = await renderApp({ strict: true, openGate });
+    await openSession("Fix login");
+
+    await click(terminalButton());
+    await click(terminalButton());
+    await click(terminalButton());
+    await act(async () => {
+      release();
+    });
+
+    expect(callsTo(spy, "workspace_terminal_open")).toHaveLength(1);
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
   });
 
   it("a worktree another session still uses keeps its terminals", async () => {
