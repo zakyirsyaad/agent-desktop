@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act, screen } from "@testing-library/react";
 import type { ITerminalOptions } from "@xterm/xterm";
 import { createPtyOutputStore } from "../lib/pty-output-store";
@@ -51,6 +51,10 @@ import { TerminalView } from "../components/TerminalView";
 describe("TerminalView", () => {
   beforeEach(() => {
     terminals.length = 0;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("replays what the agent drew before, then follows new output", () => {
@@ -119,7 +123,6 @@ describe("TerminalView", () => {
     render(<TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />);
 
     expect(focusSpy).toHaveBeenCalledTimes(1);
-    focusSpy.mockRestore();
   });
 
   it("does not take focus when autoFocus is false", () => {
@@ -141,7 +144,20 @@ describe("TerminalView", () => {
 
     expect(focusSpy).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(composer);
-    focusSpy.mockRestore();
+  });
+
+  it("keeps the same terminal when autoFocus changes", () => {
+    const output = createPtyOutputStore();
+    const { rerender } = render(
+      <TerminalView sessionId="s-1" output={output} isLive autoFocus onInput={() => {}} onResize={() => {}} />
+    );
+
+    rerender(
+      <TerminalView sessionId="s-1" output={output} isLive autoFocus={false} onInput={() => {}} onResize={() => {}} />
+    );
+
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0].disposed).toBe(false);
   });
 
   it("labels the terminal with the given label, defaulting to Agent terminal", () => {

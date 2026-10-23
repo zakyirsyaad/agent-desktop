@@ -12,7 +12,7 @@ export interface TerminalViewProps {
   isLive: boolean;
   onInput: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
-  /** Take keyboard focus on mount. False keeps focus where it is, e.g. on a composer. */
+  /** Take keyboard focus when the terminal mounts. False keeps focus where it is, e.g. on a composer. Changes later do not rebuild the terminal. */
   autoFocus?: boolean;
   /** Accessible name of the terminal. */
   label?: string;
@@ -32,11 +32,11 @@ export function TerminalView({
   label = "Agent terminal",
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  // App re-renders on every output chunk; callbacks are read through refs so
-  // that never tears down the terminal.
-  const callbacksRef = useRef({ onInput, onResize });
+  // App re-renders on every output chunk; callbacks and autoFocus are read
+  // through refs so that a change never tears down the terminal.
+  const callbacksRef = useRef({ onInput, onResize, autoFocus });
   useLayoutEffect(() => {
-    callbacksRef.current = { onInput, onResize };
+    callbacksRef.current = { onInput, onResize, autoFocus };
   });
 
   useEffect(() => {
@@ -53,6 +53,7 @@ export function TerminalView({
     let input: { dispose: () => void } | null = null;
     let isDisposed = false;
     // Replay and subscribe in the same task, so no chunk is missed or repeated.
+    // autoFocus is read only when the terminal mounts: a later change does not rebuild it.
     terminal.write(output.snapshot(sessionId), () => {
       if (isLive && !isDisposed) input = terminal.onData((data) => callbacksRef.current.onInput(data));
     });
@@ -69,7 +70,7 @@ export function TerminalView({
     fit();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
     observer?.observe(container);
-    if (isLive && autoFocus) terminal.focus();
+    if (isLive && callbacksRef.current.autoFocus) terminal.focus();
 
     return () => {
       isDisposed = true;
@@ -78,7 +79,7 @@ export function TerminalView({
       observer?.disconnect();
       terminal.dispose();
     };
-  }, [sessionId, output, isLive, autoFocus]);
+  }, [sessionId, output, isLive]);
 
   return (
     <div
