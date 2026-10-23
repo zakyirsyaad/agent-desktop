@@ -313,7 +313,6 @@ export default function App() {
     isRepository ? shownFolderPath : undefined,
     workspaceDetails?.branch ?? undefined,
     turnsEnded,
-    reportError,
   );
   // Read only while the Changes panel shows them.
   const repoPullRequests = useRepoPullRequests(

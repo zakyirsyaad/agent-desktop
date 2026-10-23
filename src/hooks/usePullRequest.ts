@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useLatest } from './useLatest';
 
 /** A branch's pull request and how its checks stand, as the backend reads it with the GitHub CLI. */
 export interface PullRequestStatus {
@@ -21,21 +20,19 @@ const REFRESH_INTERVAL_MS = 60_000;
  * The pull request for the branch checked out at `path` (the backend reads
  * it each time, so a branch the agent just made counts at once): read when
  * the path changes, when the window regains focus, when `refreshKey` changes
- * (an agent's turn ended: it may have pushed), and every minute. A failure
- * (gh not signed in, offline) shows no status and is reported once per folder
- * until a read succeeds again.
+ * (an agent's turn ended: it may have pushed), and every minute.
+ *
+ * Every read is a background refresh, so a failure (gh not signed in, offline,
+ * a timeout after the Mac wakes) is not shown as a notice: the last known pull
+ * request stays, or there is none, and the next tick or focus tries again.
  */
 export function usePullRequest(
   path: string | undefined,
   /** The branch the top bar shows: a pull request is shown only beside its own branch. */
   branch: string | undefined,
   refreshKey: number,
-  onError: (message: string) => void,
 ): PullRequestStatus | null {
   const [state, setState] = useState<{ path: string; pullRequest: PullRequestStatus | null } | null>(null);
-  const onErrorRef = useLatest(onError);
-  // Kept across refreshes, so a lasting failure is not reported again after every turn.
-  const reportedRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (!path) return;
@@ -46,16 +43,11 @@ export function usePullRequest(
       invoke<PullRequestStatus | null>('session_pull_request', { path })
         .then((pullRequest) => {
           if (isCancelled || read !== latestRead) return;
-          reportedRef.current.delete(path);
           setState({ path, pullRequest: pullRequest ?? null });
         })
-        .catch((error) => {
-          if (isCancelled || read !== latestRead) return;
-          // An unknown status is not shown as the last one seen.
-          setState({ path, pullRequest: null });
-          if (reportedRef.current.has(path)) return;
-          reportedRef.current.add(path);
-          onErrorRef.current(`Could not read the pull request: ${String(error)}`);
+        .catch(() => {
+          // A background read never interrupts. An older answer that arrives
+          // later must not replace a newer one either, so nothing is set here.
         });
     };
     load();
@@ -67,7 +59,7 @@ export function usePullRequest(
       clearInterval(timer);
     };
     // A new branch is read at once, not at the next refresh.
-  }, [path, branch, refreshKey, onErrorRef]);
+  }, [path, branch, refreshKey]);
 
   // Never show one folder's or branch's pull request beside another's while it loads.
   const pullRequest = state && state.path === path ? state.pullRequest : null;
