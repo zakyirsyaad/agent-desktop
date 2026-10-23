@@ -386,6 +386,17 @@ impl PtySessionManager {
 
     /// Kills the running child process and cleans up the session.
     pub fn kill_session(&self, session_id: &str) -> Result<(), String> {
+        if self.kill_session_if_present(session_id)? {
+            Ok(())
+        } else {
+            Err(format!("Session '{}' not found", session_id))
+        }
+    }
+
+    /// Like `kill_session`, but a session that is already gone (its process
+    /// exited and the reader thread removed it) is `Ok(false)`, not an error.
+    /// `Err` means the kill could not run at all.
+    pub fn kill_session_if_present(&self, session_id: &str) -> Result<bool, String> {
         let handle = {
             let mut sessions = self
                 .sessions
@@ -394,14 +405,13 @@ impl PtySessionManager {
             sessions.remove(session_id)
         };
 
-        if let Some(handle) = handle {
-            if let Ok(mut child) = handle.child.lock() {
-                let _ = child.kill();
-            }
-            Ok(())
-        } else {
-            Err(format!("Session '{}' not found", session_id))
+        let Some(handle) = handle else {
+            return Ok(false);
+        };
+        if let Ok(mut child) = handle.child.lock() {
+            let _ = child.kill();
         }
+        Ok(true)
     }
 }
 
@@ -410,6 +420,40 @@ mod tests {
     use super::PtySessionManager;
     use std::sync::mpsc;
     use std::time::Duration;
+
+    /// A session that is already gone is not an error to `kill_session_if_present`:
+    /// `Ok(false)` tells it apart from a kill that could not run at all.
+    #[test]
+    fn kill_session_if_present_tells_a_gone_session_from_a_failure() {
+        let manager = PtySessionManager::default_manager();
+        let cwd = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        manager
+            .start_session("present", &cwd, "/bin/cat", &[], &[])
+            .expect("start");
+
+        assert_eq!(manager.kill_session_if_present("present"), Ok(true));
+        assert!(!manager.has_session("present"));
+        assert_eq!(manager.kill_session_if_present("present"), Ok(false));
+    }
+
+    /// A poisoned sessions lock is a real failure: closing a workspace shell
+    /// reports it instead of saying the shell was closed.
+    #[test]
+    fn closing_a_shell_reports_a_poisoned_sessions_lock() {
+        let manager = PtySessionManager::default_manager();
+        let poisoner = manager.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.sessions.lock().unwrap();
+            panic!("poison the sessions lock");
+        })
+        .join();
+
+        assert!(manager.kill_session_if_present("shell-1").is_err());
+        assert!(crate::workspace_terminal::close(&manager, "shell-1").is_err());
+    }
 
     /// The reader thread holds a child's lock while it waits for the process to
     /// end; `pid_of` must not queue behind it, because it holds the sessions

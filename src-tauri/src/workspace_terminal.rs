@@ -75,32 +75,16 @@ pub fn start_shell(
 /// The tree is read while the shell still runs: once the shell is gone its
 /// children are adopted by launchd and can no longer be found from it. A
 /// shell that already exited is gone from the manager (its reader thread
-/// removed it), which is not an error.
+/// removed it), which is not an error; a kill that could not run at all is.
 pub fn close(manager: &PtySessionManager, id: &str) -> Result<(), String> {
     if !is_workspace_terminal_id(id) {
         return Err("That is not a workspace terminal".to_string());
     }
-    if !manager.has_session(id) {
-        return Ok(());
-    }
     let tree = manager.pid_of(id).map_or(Ok(()), |pid| end_tree(pid, true));
     // The shell is ended even when its tree could not be read; that error
     // still goes back to the caller.
-    settle_close(manager.kill_session(id), manager.has_session(id), tree)
-}
-
-/// What `close` reports, given how the kill went, whether the shell still
-/// runs and how ending its tree went.
-fn settle_close(
-    killed: Result<(), String>,
-    still_running: bool,
-    tree: Result<(), String>,
-) -> Result<(), String> {
-    match killed {
-        // The shell exited between the check and the kill: it is closed.
-        Err(error) if still_running => Err(error),
-        _ => tree,
-    }
+    manager.kill_session_if_present(id)?;
+    tree
 }
 
 /// Ends every workspace shell with everything it started, at once: used when
@@ -172,37 +156,4 @@ pub fn workspace_terminal_close(
     id: String,
 ) -> Result<(), String> {
     close(&pty, &id)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::settle_close;
-
-    #[test]
-    fn a_shell_that_exited_before_the_kill_is_closed() {
-        assert_eq!(
-            settle_close(
-                Err("Session 'shell-1' not found".to_string()),
-                false,
-                Ok(())
-            ),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn a_kill_that_failed_on_a_running_shell_is_an_error() {
-        assert_eq!(
-            settle_close(Err("Lock poisoned".to_string()), true, Ok(())),
-            Err("Lock poisoned".to_string())
-        );
-    }
-
-    #[test]
-    fn a_tree_that_could_not_be_read_is_still_reported() {
-        assert_eq!(
-            settle_close(Ok(()), false, Err("ps failed".to_string())),
-            Err("ps failed".to_string())
-        );
-    }
 }
