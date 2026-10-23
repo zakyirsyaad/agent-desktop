@@ -846,7 +846,8 @@ describe("ACP sessions in the app", () => {
       attachments: ["/Users/test/shot.png"],
     });
     const chat = within(screen.getByTestId("chat-canvas-container"));
-    expect(chat.getByText("shot.png")).toBeDefined();
+    // An attached image shows as its thumbnail, named by its file.
+    expect(await chat.findByRole("img", { name: "shot.png" })).toBeDefined();
   });
 
   it("keeps slash commands the agent announced before its session finished starting", async () => {
