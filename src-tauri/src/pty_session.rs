@@ -28,6 +28,10 @@ struct SessionHandle {
     /// submission order, and callers never block on a full PTY input buffer.
     input_tx: std::sync::mpsc::Sender<Vec<u8>>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+    /// The process id, read once at spawn. The reader thread holds `child`'s
+    /// lock while it waits for the process to end, so asking `child` for it
+    /// later could block.
+    pid: Option<u32>,
 }
 
 /// Rejects a working directory that is relative or does not exist.
@@ -140,6 +144,7 @@ impl PtySessionManager {
             .try_clone_reader()
             .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
 
+        let pid = child.process_id();
         let shared_child = Arc::new(Mutex::new(child));
 
         // One writer thread per session owns the PTY writer. `write_stdin` only
@@ -167,6 +172,7 @@ impl PtySessionManager {
             master: pair.master,
             input_tx,
             child: Arc::clone(&shared_child),
+            pid,
         };
 
         {
@@ -359,9 +365,7 @@ impl PtySessionManager {
     /// The pid of a running session's process, if it has one.
     pub fn pid_of(&self, session_id: &str) -> Option<u32> {
         let sessions = self.sessions.lock().ok()?;
-        let handle = sessions.get(session_id)?;
-        let child = handle.child.lock().ok()?;
-        child.process_id()
+        sessions.get(session_id)?.pid
     }
 
     /// The ids of the running sessions, in no particular order.
@@ -398,5 +402,50 @@ impl PtySessionManager {
         } else {
             Err(format!("Session '{}' not found", session_id))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PtySessionManager;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// The reader thread holds a child's lock while it waits for the process to
+    /// end; `pid_of` must not queue behind it, because it holds the sessions
+    /// lock that every other session call needs.
+    #[test]
+    fn pid_of_does_not_wait_for_the_child_lock() {
+        let manager = PtySessionManager::default_manager();
+        let cwd = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        manager
+            .start_session("pid-lock", &cwd, "/bin/cat", &[], &[])
+            .expect("start");
+        let child = manager.sessions.lock().unwrap()["pid-lock"].child.clone();
+        let (held_tx, held_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _waiting = child.lock().unwrap();
+            held_tx.send(()).unwrap();
+            let _ = release_rx.recv_timeout(Duration::from_secs(5));
+        });
+        held_rx.recv().unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let asking = manager.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(asking.pid_of("pid-lock"));
+        });
+        let pid = rx.recv_timeout(Duration::from_secs(1));
+
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        manager.kill_session("pid-lock").expect("kill");
+        assert!(pid
+            .expect("pid_of blocked on the child's lock")
+            .is_some_and(|pid| pid > 0));
     }
 }
