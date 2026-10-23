@@ -499,6 +499,18 @@ describe("ACP chat content", () => {
     expect(screen.getByText(/Always allow/)).toBeDefined();
   });
 
+  it("says a waiting card was asked before the mode changed", () => {
+    render(
+      <ChatCanvas
+        messages={[{ id: "m-1", role: "agent", content: "", timestamp: 1, actionCard: { ...permissionCard, modeChanged: true } }]}
+        onChooseOption={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/before the switch/)).toBeDefined();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
+  });
+
   it("renders the agent's thinking collapsed and its plan as one updated line", () => {
     render(
       <ChatCanvas

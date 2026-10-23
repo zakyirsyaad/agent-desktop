@@ -5,6 +5,7 @@ import {
   applyReplayUpdate,
   closeImportedTurn,
   closeTurn,
+  noteModeChange,
   pendingCardsInTurn,
   reopenPermissionCard,
   resolvePermissionCard,
@@ -602,7 +603,14 @@ export function useAcpEngine({
   };
 
   const setMode = (sessionId: string, modeId: string) => {
-    acp.setMode(sessionId, modeId).catch(reportFailure('Could not change the mode'));
+    acp
+      .setMode(sessionId, modeId)
+      .then(() => {
+        // A request made before the switch stays right: the agent is still
+        // waiting for its answer, and the card says why it did not go away.
+        updateNow(sessionId, noteModeChange);
+      })
+      .catch(reportFailure('Could not change the mode'));
   };
 
   /** Resolves with the options the agent reports after the change, or null when it failed (reported). */

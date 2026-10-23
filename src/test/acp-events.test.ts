@@ -6,6 +6,7 @@ import {
   closeImportedTurn,
   closeTurn,
   isAwaitingPermission,
+  noteModeChange,
   pendingCardsInTurn,
   resolvePermissionCard,
   type AcpReducerContext,
@@ -355,6 +356,25 @@ describe("permission requests", () => {
 
     expect(both.map((m) => m.actionCard?.requestId)).toEqual(["perm-1", "perm-2"]);
     expect(pendingCardsInTurn(both).map((card) => card.requestId)).toEqual(["perm-1", "perm-2"]);
+  });
+
+  it("shows one card when the same request arrives twice", () => {
+    const c = ctx();
+    const once = applyPermissionRequest([], request, c);
+    const twice = applyPermissionRequest(once, request, c);
+
+    expect(twice).toHaveLength(1);
+    expect(twice[0].actionCard?.requestId).toBe("perm-1");
+    expect(pendingCardsInTurn(twice)).toHaveLength(1);
+  });
+
+  it("notes on a waiting card that the mode changed after it was asked", () => {
+    const c = ctx();
+    const withCard = applyPermissionRequest([], request, c);
+    const answered = resolvePermissionCard(withCard, withCard[0].actionCard!.id, "allow");
+
+    expect(noteModeChange(withCard)[0].actionCard?.modeChanged).toBe(true);
+    expect(noteModeChange(answered)[0].actionCard?.modeChanged).toBeUndefined();
   });
 
   it("closing a turn closes every unanswered request, not only the last one", () => {

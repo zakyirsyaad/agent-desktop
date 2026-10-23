@@ -317,6 +317,14 @@ export function applyPermissionRequest(
   payload: PermissionRequestPayload,
   ctx: AcpReducerContext,
 ): ChatMessage[] {
+  // A replayed or duplicated request is the same question, not a new one:
+  // one request renders one card. A request without an id cannot be matched.
+  if (
+    payload.requestId !== undefined &&
+    messages.some((message) => message.actionCard?.requestId === payload.requestId)
+  ) {
+    return messages;
+  }
   const toolCall = isObject(payload.toolCall) ? payload.toolCall : {};
   const rawInput = isObject(toolCall.rawInput) ? toolCall.rawInput : {};
   const title = str(toolCall.title) ?? 'The agent asks for permission';
@@ -385,6 +393,22 @@ export function reopenPermissionCard(messages: ChatMessage[], cardId: string): C
     if (card?.id !== cardId) return message;
     return { ...message, actionCard: { ...card, status: 'pending', chosenOptionId: undefined } };
   });
+}
+
+/**
+ * A mode change after a request was made: the agent had already asked, so the
+ * waiting card is still the right one to answer. Marking it says why it did
+ * not go away; a card already answered is left alone.
+ */
+export function noteModeChange(messages: ChatMessage[]): ChatMessage[] {
+  let changed = false;
+  const next = messages.map((message) => {
+    const card = message.actionCard;
+    if (card?.status !== 'pending' || card.modeChanged) return message;
+    changed = true;
+    return { ...message, actionCard: { ...card, modeChanged: true } };
+  });
+  return changed ? next : messages;
 }
 
 /**
