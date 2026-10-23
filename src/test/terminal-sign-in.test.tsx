@@ -109,8 +109,8 @@ describe("useTerminalSignIn", () => {
     await expect(outcome).resolves.toEqual({ ok: true });
   });
 
-  it("starts the login only once the startup orphan sweep is done", async () => {
-    // The sweep ends every PTY it finds, the sign-in terminal included.
+  it("starts the login at once, even while the startup orphan sweep runs", async () => {
+    // The sweep ends only the terminals it listed when the window loaded.
     let finishSweep = () => {};
     const real = internals().invoke;
     const spy = vi.spyOn(internals(), "invoke").mockImplementation((cmd, args) => {
@@ -118,42 +118,13 @@ describe("useTerminalSignIn", () => {
       if (cmd === "acp_start_terminal_sign_in") return Promise.resolve();
       return real(cmd, args);
     });
-    void sweepOrphans();
+    const sweep = sweepOrphans();
     const { result } = renderHook(() => useTerminalSignIn());
     await startRun(result);
 
-    expect(callsTo(spy, "acp_start_terminal_sign_in")).toHaveLength(0);
-    await act(async () => {
-      finishSweep();
-      for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
-    });
     expect(callsTo(spy, "acp_start_terminal_sign_in")).toHaveLength(1);
-  });
-
-  it("starts no login when it is cancelled while the orphan sweep runs", async () => {
-    // A login program can open a browser at once, so a cancelled one must not start at all.
-    let finishSweep = () => {};
-    const real = internals().invoke;
-    const spy = vi.spyOn(internals(), "invoke").mockImplementation((cmd, args) => {
-      if (cmd === "end_orphaned_sessions") return new Promise((resolve) => (finishSweep = () => resolve(0)));
-      if (cmd === "acp_start_terminal_sign_in") return Promise.resolve();
-      return real(cmd, args);
-    });
-    void sweepOrphans();
-    const { result } = renderHook(() => useTerminalSignIn());
-    const { outcome } = await startRun(result);
-
-    await act(async () => {
-      result.current.close();
-    });
-    await act(async () => {
-      finishSweep();
-      for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
-    });
-
-    expect(callsTo(spy, "acp_start_terminal_sign_in")).toHaveLength(0);
-    expect(callsTo(spy, "terminate_session")).toHaveLength(0);
-    await expect(outcome).resolves.toEqual({ ok: false, reason: "Sign-in cancelled", cancelled: true });
+    finishSweep();
+    await sweep;
   });
 
   it("fails with the exit code", async () => {
