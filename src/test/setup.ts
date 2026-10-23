@@ -129,14 +129,17 @@ if (typeof window !== "undefined") {
   });
 }
 
+/** Tauri's asset URL for a file, as the macOS webview builds it with `convertFileSrc`. */
+export function fakeConvertFileSrc(filePath: string, protocol = "asset"): string {
+  return `${protocol}://localhost/${encodeURIComponent(filePath)}`;
+}
+
 /**
  * The fake Tauri backend every test runs against. A test that spies on
  * `invoke` and passes the other commands through calls this, never the
  * `invoke` it read before spying: that may already be a spy, and Vitest
  * hands back the same spy, so calling it would recurse.
  */
-export const FAKE_IMAGE_DATA_URL =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
 export function fakeTauriInvoke(cmd: string, args?: unknown): Promise<unknown> {
   const storeResult = handleStoreCommand(cmd, args as StoreArgs | undefined);
@@ -170,7 +173,7 @@ export function fakeTauriInvoke(cmd: string, args?: unknown): Promise<unknown> {
     return Promise.resolve({ location: "~/developer", branch: "main" });
   }
   if (cmd === "attachment_preview") {
-    return Promise.resolve(FAKE_IMAGE_DATA_URL);
+    return Promise.resolve(undefined);
   }
   return Promise.resolve(undefined);
 }
@@ -181,6 +184,7 @@ if (typeof window !== "undefined") {
   const win = window as unknown as {
     __TAURI_INTERNALS__?: {
       invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+      convertFileSrc?: (filePath: string, protocol?: string) => string;
       transformCallback?: (callback: unknown, once?: boolean) => number;
       unregisterCallbackAction?: (id: number) => void;
     };
@@ -192,6 +196,7 @@ if (typeof window !== "undefined") {
   if (!win.__TAURI_INTERNALS__) {
     win.__TAURI_INTERNALS__ = {
       invoke: fakeTauriInvoke,
+      convertFileSrc: fakeConvertFileSrc,
       transformCallback: (_cb: unknown, _once?: boolean) => nextCallbackId++,
       unregisterCallbackAction: (_id: number) => {},
     };

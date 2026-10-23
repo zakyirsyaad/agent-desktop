@@ -7,27 +7,28 @@ export type AttachmentPreview =
   | { status: "ready"; src: string }
   | { status: "failed" };
 
+const LOADING: AttachmentPreview = { status: "loading" };
 const FAILED: AttachmentPreview = { status: "failed" };
 
-/** The data URL for an attached image, cached across the window. */
+function previewOf(src: string | null | undefined): AttachmentPreview {
+  if (src === undefined) return LOADING;
+  return src === null ? FAILED : { status: "ready", src };
+}
+
+/** The asset URL for an attached image, shared across the window. */
 export function useAttachmentPreview(path: string): AttachmentPreview {
-  const [preview, setPreview] = useState<AttachmentPreview>(() => {
-    const cached = cachedPreview(path);
-    if (!cached.found) return { status: "loading" };
-    return cached.src ? { status: "ready", src: cached.src } : FAILED;
-  });
+  const [preview, setPreview] = useState<AttachmentPreview>(() => previewOf(cachedPreview(path)));
 
   useEffect(() => {
     let isCancelled = false;
     const cached = cachedPreview(path);
-    if (cached.found) {
-      setPreview(cached.src ? { status: "ready", src: cached.src } : FAILED);
+    if (cached !== undefined) {
+      setPreview(previewOf(cached));
       return;
     }
-    setPreview({ status: "loading" });
+    setPreview(LOADING);
     loadPreview(path).then((src) => {
-      if (isCancelled) return;
-      setPreview(src ? { status: "ready", src } : FAILED);
+      if (!isCancelled) setPreview(previewOf(src));
     });
     return () => {
       isCancelled = true;
