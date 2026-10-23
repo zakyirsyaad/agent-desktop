@@ -84,7 +84,8 @@ New module `src-tauri/src/workspace_terminal.rs`.
   for it. It is a sync command: sync commands run on the main thread in the order the webview
   sent them, so it lists the PTY and agent sessions alive at that moment, before any session the
   new UI starts later is registered, and ends exactly those (`workspace_terminal::end_sessions`,
-  `AcpManager::stop`) on a thread of its own. All the listed shells' trees are read from one
+  and for agents `AcpManager::detach` at once, since a reopened session reuses its saved id, then
+  `DetachedSession::end`) on a thread of its own. All the listed shells' trees are read from one
   `ps` and ended with one KILL (`background_processes::end_trees`). Nothing the new UI starts
   waits for the sweep, and the sweep cannot end it.
 - **Privacy.** Nothing logs what goes into or comes out of a shell.

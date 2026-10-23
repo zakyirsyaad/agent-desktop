@@ -167,12 +167,16 @@ fn end_orphaned_sessions(
     acp: State<'_, acp::manager::AcpManager>,
 ) -> usize {
     let terminals = pty.session_ids();
-    let agents = acp.session_ids();
+    // Agent sessions are taken off the routes here, not just listed: the new UI
+    // reopens a saved session under the same app session id, and that one
+    // must not be what the thread below ends. (PTY ids are never reused.)
+    let agents: Vec<_> = acp.session_ids().iter().map(|id| acp.detach(id)).collect();
     let count = terminals.len() + agents.len();
     std::thread::spawn(move || {
         workspace_terminal::end_sessions(&app.state::<PtySessionManager>(), &terminals);
-        let acp = app.state::<acp::manager::AcpManager>();
-        agents.iter().for_each(|id| acp.stop(id));
+        agents
+            .into_iter()
+            .for_each(acp::manager::DetachedSession::end);
     });
     count
 }

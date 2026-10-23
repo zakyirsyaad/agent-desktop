@@ -13,7 +13,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use super::connection::{error_message, AcpConnection, ConnectionEvent, EventSink};
-use super::elicitation::PendingElicitations;
+use super::elicitation::{Pending, PendingElicitations};
 use super::prompt_blocks::prompt_blocks;
 use super::terminal_auth::{terminal_method, SignInAttempts, TerminalMethodError};
 use crate::pty_session::validate_cwd;
@@ -139,6 +139,25 @@ struct Routes {
     opening: HashMap<u64, String>,
     /// Elicitation requests not yet answered or finished.
     elicitations: PendingElicitations,
+}
+
+/// A session already taken off the routes by `AcpManager::detach`: its open
+/// elicitations still to answer `cancel`, and its agent to kill when no other
+/// session used it.
+#[derive(Default)]
+pub struct DetachedSession {
+    requests: Vec<Pending>,
+    connection: Option<Arc<AcpConnection>>,
+}
+
+impl DetachedSession {
+    /// The second half of `AcpManager::stop`.
+    pub fn end(self) {
+        elicitation_routes::cancel_open(self.requests);
+        if let Some(connection) = self.connection {
+            connection.kill();
+        }
+    }
 }
 
 pub struct AcpManager {
@@ -482,8 +501,16 @@ impl AcpManager {
     /// Forgets the session and answers its open elicitations `cancel`; kills
     /// the agent once no other session uses it.
     pub fn stop(&self, app_session_id: &str) {
+        self.detach(app_session_id).end();
+    }
+
+    /// The first half of `stop`: takes the session off the routes at once, so
+    /// a session started under the same id from now on is a new one, and
+    /// returns what is left to end it. The orphan sweep detaches the sessions
+    /// it lists while it lists them, and ends them later, off the main thread.
+    pub fn detach(&self, app_session_id: &str) -> DetachedSession {
         let Ok(mut routes) = self.routes.lock() else {
-            return;
+            return DetachedSession::default();
         };
         let requests = routes.elicitations.take_session(app_session_id);
         // A session stopped while it opens: later requests are cancelled.
@@ -505,10 +532,9 @@ impl AcpManager {
                 .values()
                 .any(|e| e.connection_key == entry.connection_key)
         });
-        drop(routes);
-        elicitation_routes::cancel_open(requests);
-        if let Some(entry) = unused {
-            entry.connection.kill();
+        DetachedSession {
+            requests,
+            connection: unused.map(|entry| entry.connection),
         }
     }
 
