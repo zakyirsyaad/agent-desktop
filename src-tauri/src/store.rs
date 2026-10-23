@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -177,6 +178,18 @@ pub struct SessionWorktreeRecord {
     pub branch: String,
 }
 
+/// Where the app keeps its data: the platform app-data dir, or a sibling
+/// `<identifier>.dev` folder for a dev build. Dev and release builds share an
+/// identifier, and two processes writing one data dir can lose sessions.
+pub fn data_dir_for(app_data_dir: &Path, is_dev_build: bool) -> PathBuf {
+    if !is_dev_build {
+        return app_data_dir.to_path_buf();
+    }
+    let mut name = app_data_dir.file_name().unwrap_or_default().to_os_string();
+    name.push(".dev");
+    app_data_dir.with_file_name(name)
+}
+
 /// A repository over the app's state directory.
 ///
 /// Constructed once during setup and shared with the commands through Tauri's
@@ -190,6 +203,9 @@ pub struct AppStore {
     /// Held for each write of the state file: two saves run on separate
     /// threads would otherwise share `state.json.tmp` and could interleave.
     state_write: Mutex<()>,
+    /// Held for each transcript write, so a throttled save and an immediate
+    /// one of the same session never interleave.
+    transcript_write: Mutex<()>,
     /// The worktrees folder of the pre-rename data dir, whose worktrees saved
     /// sessions still use in place and may need to remove.
     legacy_worktrees_root: Option<PathBuf>,
@@ -246,6 +262,7 @@ impl AppStore {
             root,
             known_workspaces: Mutex::new(None),
             state_write: Mutex::new(()),
+            transcript_write: Mutex::new(()),
             legacy_worktrees_root: None,
         }
     }
@@ -393,9 +410,13 @@ impl AppStore {
         let json = serde_json::to_string(messages)
             .map_err(|e| format!("Failed to serialize transcript '{}': {}", session_id, e))?;
 
+        let _guard = self
+            .transcript_write
+            .lock()
+            .map_err(|_| "The transcript lock was poisoned".to_string())?;
         atomic_write(
             &self.transcript_path(session_id),
-            &dir.join(format!("{}.json.tmp", session_id)),
+            &dir.join(unique_tmp_name(session_id)),
             json.as_bytes(),
         )
     }
@@ -467,13 +488,31 @@ fn validate_session_id(session_id: &str) -> Result<(), String> {
     }
 }
 
+/// A temp file name no other write uses, not even one from a second app
+/// process sharing the data dir: a shared name lets one write rename the
+/// other's file away before it is renamed itself.
+fn unique_tmp_name(session_id: &str) -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    format!("{}.{}.{}.json.tmp", session_id, std::process::id(), n)
+}
+
 /// Writes `contents` to `tmp` then renames it over `path`.
 ///
 /// The rename is the only visible step, so a reader sees either the old file or
 /// the complete new one, never a partial write.
 pub(crate) fn atomic_write(path: &Path, tmp: &Path, contents: &[u8]) -> Result<(), String> {
-    fs::write(tmp, contents).map_err(|e| format!("Failed to write {}: {}", tmp.display(), e))?;
-    fs::rename(tmp, path).map_err(|e| format!("Failed to replace {}: {}", path.display(), e))
+    let written = fs::write(tmp, contents)
+        .map_err(|e| format!("Failed to write {}: {}", tmp.display(), e))
+        .and_then(|()| {
+            fs::rename(tmp, path)
+                .map_err(|e| format!("Failed to replace {}: {}", path.display(), e))
+        });
+    if written.is_err() {
+        // Best effort: a failed write must not leave its scratch file behind.
+        let _ = fs::remove_file(tmp);
+    }
+    written
 }
 
 /// Marks every non-terminated session as terminated, leaving `ended_at` alone.
