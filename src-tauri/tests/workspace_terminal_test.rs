@@ -4,10 +4,12 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
+#[cfg(target_os = "macos")]
+use zorvo_lib::background_processes::{read_processes, subtree_of};
 use zorvo_lib::pty_session::{PtyEvent, PtySessionManager};
 use zorvo_lib::workspace_terminal::{
-    close, event_payload, is_workspace_terminal_id, next_terminal_id, pty_event_route, shell_from,
-    start_shell, EVENT,
+    close, end_all, event_payload, is_workspace_terminal_id, next_terminal_id, pty_event_route,
+    shell_from, start_shell, EVENT,
 };
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -159,4 +161,88 @@ fn events_carry_the_terminal_id() {
         event_payload(&exit),
         json!({ "terminalId": "shell-7", "kind": "exit", "exitCode": 3 })
     );
+}
+
+/// Starts `/bin/sh` in `dir` and runs a `nohup`ed sleep in it, which ignores
+/// the SIGHUP that ending the shell sends. Returns the shell's pid and the
+/// sleep's pid, once a fresh `ps` read shows the sleep under the shell.
+#[cfg(target_os = "macos")]
+fn shell_with_nohup_job(
+    manager: &PtySessionManager,
+    id: &str,
+    dir: &std::path::Path,
+) -> (u32, u32) {
+    start_shell(manager, id, dir, "/bin/sh").expect("start");
+    let shell_pid = manager.pid_of(id).expect("a running shell has a pid");
+    manager
+        .write_stdin(id, "nohup sleep 300 >/dev/null 2>&1 &\n")
+        .expect("write");
+
+    let started = Instant::now();
+    while started.elapsed() < WAIT {
+        let rows = read_processes().expect("list processes");
+        let job = subtree_of(&rows, shell_pid).into_iter().find(|pid| {
+            rows.iter()
+                .any(|row| row.pid == *pid && row.command.starts_with("sleep 300"))
+        });
+        if let Some(job) = job {
+            return (shell_pid, job);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("the nohup job did not start under the shell");
+}
+
+/// Whether `pid` is gone from a fresh `ps` read within `WAIT`.
+#[cfg(target_os = "macos")]
+fn gone_within_wait(pid: u32) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < WAIT {
+        if !read_processes()
+            .expect("list processes")
+            .iter()
+            .any(|row| row.pid == pid)
+        {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn closing_a_shell_ends_what_it_started() {
+    let dir = unique_dir("nohup close");
+    let manager = PtySessionManager::default_manager();
+    let id = next_terminal_id();
+    let (_shell_pid, job_pid) = shell_with_nohup_job(&manager, &id, &dir);
+
+    assert_eq!(close(&manager, &id), Ok(()));
+
+    assert!(!manager.has_session(&id));
+    assert!(
+        gone_within_wait(job_pid),
+        "the nohup job outlived its shell"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn end_all_ends_every_shell_and_what_it_started_but_not_other_sessions() {
+    let dir = unique_dir("nohup quit");
+    let manager = PtySessionManager::default_manager();
+    let id = next_terminal_id();
+    let (_shell_pid, job_pid) = shell_with_nohup_job(&manager, &id, &dir);
+    let cwd = dir.to_string_lossy().to_string();
+    manager
+        .start_session("signin-probe", &cwd, "/bin/cat", &[], &[])
+        .expect("start a sign-in style session");
+
+    end_all(&manager);
+
+    assert!(!manager.has_session(&id));
+    assert!(gone_within_wait(job_pid), "the nohup job outlived Zorvo");
+    assert!(manager.has_session("signin-probe"));
+    manager.kill_all();
 }

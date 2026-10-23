@@ -15,6 +15,7 @@ use tauri::State;
 use crate::acp::terminal_auth::{
     is_sign_in_terminal_id, sign_in_event_payload, SIGN_IN_TERMINAL_EVENT,
 };
+use crate::background_processes::end_tree;
 use crate::env_resolver::cached_user_env;
 use crate::files::{canonical_root, ensure_known_workspace};
 use crate::pty_session::{PtyEvent, PtySessionManager};
@@ -70,8 +71,11 @@ pub fn start_shell(
     manager.start_session(id, folder, shell, &["-l".to_string()], &[])
 }
 
-/// Ends the shell `id`. A shell that already exited is gone from the manager
-/// (its reader thread removed it), which is not an error.
+/// Ends the shell `id` and everything it started, a `nohup`ed job included.
+/// The tree is read while the shell still runs: once the shell is gone its
+/// children are adopted by launchd and can no longer be found from it. A
+/// shell that already exited is gone from the manager (its reader thread
+/// removed it), which is not an error.
 pub fn close(manager: &PtySessionManager, id: &str) -> Result<(), String> {
     if !is_workspace_terminal_id(id) {
         return Err("That is not a workspace terminal".to_string());
@@ -79,7 +83,28 @@ pub fn close(manager: &PtySessionManager, id: &str) -> Result<(), String> {
     if !manager.has_session(id) {
         return Ok(());
     }
-    manager.kill_session(id)
+    let tree = manager.pid_of(id).map_or(Ok(()), |pid| end_tree(pid, true));
+    // The shell is ended even when its tree could not be read; that error
+    // still goes back to the caller.
+    manager.kill_session(id).and(tree)
+}
+
+/// Ends every workspace shell with everything it started, at once: used when
+/// Zorvo quits, where a delayed escalation would not run. Other sessions are
+/// left to the caller.
+pub fn end_all(manager: &PtySessionManager) {
+    for id in manager
+        .session_ids()
+        .iter()
+        .filter(|id| is_workspace_terminal_id(id))
+    {
+        if let Some(pid) = manager.pid_of(id) {
+            if let Err(error) = end_tree(pid, false) {
+                eprintln!("Could not end the processes of terminal {id}: {error}");
+            }
+        }
+        let _ = manager.kill_session(id);
+    }
 }
 
 /// The payload of a `workspace-terminal` event: the same shape as a sign-in
@@ -116,8 +141,8 @@ pub fn workspace_terminal_open(
     Ok(id)
 }
 
-/// Ends a workspace shell.
-#[tauri::command]
+/// Ends a workspace shell and everything it started.
+#[tauri::command(async)]
 pub fn workspace_terminal_close(
     pty: State<'_, PtySessionManager>,
     id: String,

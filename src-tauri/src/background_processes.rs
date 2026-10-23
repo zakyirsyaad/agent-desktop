@@ -130,13 +130,7 @@ fn is_shell(command: &str) -> bool {
 /// root reaches it; a root listed again (an agent several sessions share)
 /// adds nothing.
 pub fn select_tasks(rows: &[ProcessRow], roots: &[(String, u32)]) -> Vec<TaskProcess> {
-    let mut children: HashMap<u32, Vec<&ProcessRow>> = HashMap::new();
-    for row in rows.iter().filter(|row| row.pid != row.ppid) {
-        children.entry(row.ppid).or_default().push(row);
-    }
-    children
-        .values_mut()
-        .for_each(|list| list.sort_by_key(|row| row.pid));
+    let children = children_by_parent(rows);
 
     let elapsed: HashMap<u32, u64> = rows.iter().map(|row| (row.pid, row.elapsed_secs)).collect();
     let mut seen_roots = HashSet::new();
@@ -209,6 +203,25 @@ fn tasks_below<'a>(
         }
     }
     found
+}
+
+/// Each process's children, by pid, keyed by parent. A process that is its
+/// own parent (launchd's view of itself) is not a child of anything.
+fn children_by_parent(rows: &[ProcessRow]) -> HashMap<u32, Vec<&ProcessRow>> {
+    let mut children: HashMap<u32, Vec<&ProcessRow>> = HashMap::new();
+    for row in rows.iter().filter(|row| row.pid != row.ppid) {
+        children.entry(row.ppid).or_default().push(row);
+    }
+    children
+        .values_mut()
+        .for_each(|list| list.sort_by_key(|row| row.pid));
+    children
+}
+
+/// `root` and every process under it in `rows`, each after all of its own
+/// descendants, so `root` comes last: the order to signal them in.
+pub fn subtree_of(rows: &[ProcessRow], root: u32) -> Vec<u32> {
+    subtree(&children_by_parent(rows), root)
 }
 
 /// `pid` and its descendants, each after all of its own descendants.
@@ -335,7 +348,7 @@ pub fn parse_lsof_ports(output: &str) -> HashMap<u32, Vec<u16>> {
 
 /// Every process, from `ps`.
 #[cfg(target_os = "macos")]
-fn read_processes() -> Result<Vec<ProcessRow>, String> {
+pub fn read_processes() -> Result<Vec<ProcessRow>, String> {
     let output = Command::new("/bin/ps")
         .args(["-axo", "pid=,ppid=,pgid=,etime=,command="])
         .output()
@@ -351,7 +364,7 @@ fn read_processes() -> Result<Vec<ProcessRow>, String> {
 
 /// Tasks are only looked for on macOS.
 #[cfg(not(target_os = "macos"))]
-fn read_processes() -> Result<Vec<ProcessRow>, String> {
+pub fn read_processes() -> Result<Vec<ProcessRow>, String> {
     Ok(Vec::new())
 }
 
@@ -490,6 +503,31 @@ pub fn terminate(task: &TaskProcess, rows: &[ProcessRow]) -> Result<(), String> 
         }
     });
     Ok(())
+}
+
+/// Ends `root` and everything under it, as a fresh read of the processes
+/// lists them. With `grace`, TERM now and KILL the survivors after
+/// `KILL_GRACE`, through `terminate`. Without it, KILL at once, for a quit
+/// that cannot wait for a thread to run.
+pub fn end_tree(root: u32, grace: bool) -> Result<(), String> {
+    let rows = read_processes()?;
+    let subtree = subtree_of(&rows, root);
+    if !grace {
+        return send_signal("-KILL", &subtree);
+    }
+    let (command, elapsed_secs) = rows
+        .iter()
+        .find(|row| row.pid == root)
+        .map(|row| (row.command.clone(), row.elapsed_secs))
+        .unwrap_or_default();
+    let task = TaskProcess {
+        pid: root,
+        session_id: String::new(),
+        command,
+        elapsed_secs,
+        subtree,
+    };
+    terminate(&task, &rows)
 }
 
 /// Every running agent's pid, by the app session it serves.

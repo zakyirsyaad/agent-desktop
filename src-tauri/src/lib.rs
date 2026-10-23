@@ -416,9 +416,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // A `nohup`ed job in a shell would otherwise outlive Zorvo.
+            // Workspace shells go with their whole process tree, so a `nohup`ed
+            // job they started does not outlive Zorvo; other sessions are only killed.
             if let tauri::RunEvent::Exit = event {
-                app.state::<PtySessionManager>().kill_all();
+                let pty = app.state::<PtySessionManager>();
+                workspace_terminal::end_all(&pty);
+                pty.kill_all();
             }
         });
 }

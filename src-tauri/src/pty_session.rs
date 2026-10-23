@@ -356,6 +356,22 @@ impl PtySessionManager {
             .count()
     }
 
+    /// The pid of a running session's process, if it has one.
+    pub fn pid_of(&self, session_id: &str) -> Option<u32> {
+        let sessions = self.sessions.lock().ok()?;
+        let handle = sessions.get(session_id)?;
+        let child = handle.child.lock().ok()?;
+        child.process_id()
+    }
+
+    /// The ids of the running sessions, in no particular order.
+    pub fn session_ids(&self) -> Vec<String> {
+        self.sessions
+            .lock()
+            .map(|sessions| sessions.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
     /// Whether a session with this id is running.
     pub fn has_session(&self, session_id: &str) -> bool {
         self.sessions

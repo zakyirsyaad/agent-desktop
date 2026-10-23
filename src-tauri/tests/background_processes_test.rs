@@ -4,8 +4,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use zorvo_lib::background_processes::{
-    display_command, parse_etime, parse_lsof_ports, parse_ps, scan, select_tasks, stop, terminate,
-    ProcessRow, TaskProcess,
+    display_command, parse_etime, parse_lsof_ports, parse_ps, scan, select_tasks, stop, subtree_of,
+    terminate, ProcessRow, TaskProcess,
 };
 
 fn row(pid: u32, ppid: u32, command: &str) -> ProcessRow {
@@ -491,4 +491,18 @@ fn reports_the_port_a_task_listens_on() {
     assert!(listening, "the server's port never showed up");
     assert!(!without_ports.is_empty());
     assert!(without_ports.iter().all(|task| task.ports.is_empty()));
+}
+
+#[test]
+fn subtree_of_lists_descendants_children_first_and_the_root_last() {
+    let rows = vec![
+        row(100, 1, "/bin/zsh -l"),
+        row(101, 100, "npm run dev"),
+        row(102, 101, "node vite"),
+        row(200, 1, "/usr/bin/unrelated"),
+    ];
+
+    assert_eq!(subtree_of(&rows, 100), vec![102, 101, 100]);
+    assert_eq!(subtree_of(&rows, 101), vec![102, 101]);
+    assert_eq!(subtree_of(&rows, 200), vec![200]);
 }
