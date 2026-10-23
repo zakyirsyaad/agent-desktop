@@ -408,9 +408,13 @@ impl PtySessionManager {
         let Some(handle) = handle else {
             return Ok(false);
         };
-        if let Ok(mut child) = handle.child.lock() {
-            let _ = child.kill();
-        }
+        // A panic elsewhere must not leave the process running while this
+        // reports it killed: the lock only guards the handle, not its state.
+        let mut child = handle
+            .child
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = child.kill();
         Ok(true)
     }
 }
@@ -437,6 +441,53 @@ mod tests {
         assert_eq!(manager.kill_session_if_present("present"), Ok(true));
         assert!(!manager.has_session("present"));
         assert_eq!(manager.kill_session_if_present("present"), Ok(false));
+    }
+
+    /// A panic that poisoned a child's lock must not leave its process running
+    /// while the kill reports success.
+    #[test]
+    fn a_poisoned_child_lock_still_kills_the_process() {
+        let manager = PtySessionManager::default_manager();
+        let cwd = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        manager
+            .start_session("poisoned-child", &cwd, "/bin/cat", &[], &[])
+            .expect("start");
+        let pid = manager.pid_of("poisoned-child").expect("pid");
+        let child = manager.sessions.lock().unwrap()["poisoned-child"]
+            .child
+            .clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = child.lock().unwrap();
+            panic!("poison the child lock");
+        })
+        .join();
+
+        assert_eq!(manager.kill_session_if_present("poisoned-child"), Ok(true));
+        assert!(
+            wait_until_gone(pid, Duration::from_secs(5)),
+            "the process kept running after a kill that reported success"
+        );
+    }
+
+    /// Whether `pid` stops running within `timeout`.
+    fn wait_until_gone(pid: u32, timeout: Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            let alive = std::process::Command::new("/bin/kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false);
+            if !alive {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
     }
 
     /// A poisoned sessions lock is a real failure: closing a workspace shell
