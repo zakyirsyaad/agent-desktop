@@ -204,14 +204,18 @@ fn write_fork_handoff(
     handoff_id: String,
     content: String,
 ) -> Result<String, String> {
-    let root = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Cannot locate the app data dir: {e}"))?;
+    let root = app_data_dir(&app).map_err(|e| format!("Cannot locate the app data dir: {e}"))?;
     let path = fork_handoff::write_handoff(&root, &handoff_id, &content)?;
     path.into_os_string()
         .into_string()
         .map_err(|p| format!("Handoff path is not valid UTF-8: {}", p.to_string_lossy()))
+}
+
+/// The app's data dir; a debug build (`pnpm tauri dev`) gets its own, so
+/// testing never writes the installed app's sessions.
+fn app_data_dir(app: &AppHandle) -> tauri::Result<std::path::PathBuf> {
+    let base = app.path().app_data_dir()?;
+    Ok(store::data_dir_for(&base, cfg!(debug_assertions)))
 }
 
 /// Tells the user that their Agent Desktop sessions were not brought over.
@@ -310,7 +314,7 @@ pub fn run() {
 
             // Persistence lives in the platform app-data directory, which only
             // exists once the app handle does, so the store is built here.
-            let data_dir = app.path().app_data_dir().map_err(|e| {
+            let data_dir = app_data_dir(app.handle()).map_err(|e| {
                 format!(
                     "Failed to resolve the app data directory for persisted state: {}",
                     e
