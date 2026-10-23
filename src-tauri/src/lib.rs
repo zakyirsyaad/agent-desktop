@@ -35,7 +35,7 @@ use profiles::{agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
 use registry::{Catalog, AGENT_PROFILES_CHANGED};
 use store::{AppStore, PersistedState};
-use workspace_terminal::{event_payload as workspace_terminal_payload, pty_event_route};
+use workspace_terminal::{event_payload as workspace_terminal_payload, pty_event_route, PtyRoute};
 use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -295,11 +295,14 @@ pub fn run() {
                 // Only sign-in terminals and workspace shells start a PTY; any
                 // other id has no listener.
                 match pty_event_route(session_id) {
-                    Some(SIGN_IN_TERMINAL_EVENT) => {
+                    Some(PtyRoute::SignIn) => {
                         let _ = app.emit(SIGN_IN_TERMINAL_EVENT, sign_in_event_payload(&event));
                     }
-                    Some(channel) => {
-                        let _ = app.emit(channel, workspace_terminal_payload(&event));
+                    Some(PtyRoute::Workspace) => {
+                        let _ = app.emit(
+                            workspace_terminal::EVENT,
+                            workspace_terminal_payload(&event),
+                        );
                     }
                     None => {}
                 }

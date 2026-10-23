@@ -4,12 +4,13 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
+use zorvo_lib::acp::terminal_auth::SIGN_IN_TERMINAL_EVENT;
 #[cfg(target_os = "macos")]
 use zorvo_lib::background_processes::{read_processes, subtree_of};
 use zorvo_lib::pty_session::{PtyEvent, PtySessionManager};
 use zorvo_lib::workspace_terminal::{
     close, end_all, end_all_sessions, event_payload, is_workspace_terminal_id, next_terminal_id,
-    pty_event_route, shell_from, start_shell, EVENT,
+    pty_event_route, shell_from, start_shell, PtyRoute, EVENT,
 };
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -136,10 +137,12 @@ fn close_refuses_ids_it_did_not_make() {
 
 #[test]
 fn pty_events_go_to_their_own_channel() {
-    assert_eq!(pty_event_route("shell-3"), Some("workspace-terminal"));
-    assert_eq!(pty_event_route("shell-3"), Some(EVENT));
-    assert_eq!(pty_event_route("signin-abc"), Some("sign-in-terminal"));
+    assert_eq!(pty_event_route("shell-3"), Some(PtyRoute::Workspace));
+    assert_eq!(pty_event_route("signin-abc"), Some(PtyRoute::SignIn));
     assert_eq!(pty_event_route("other"), None);
+    // The channels themselves do not change.
+    assert_eq!(EVENT, "workspace-terminal");
+    assert_eq!(SIGN_IN_TERMINAL_EVENT, "sign-in-terminal");
 }
 
 #[test]

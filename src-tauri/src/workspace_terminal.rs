@@ -12,9 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::Value;
 use tauri::State;
 
-use crate::acp::terminal_auth::{
-    is_sign_in_terminal_id, sign_in_event_payload, SIGN_IN_TERMINAL_EVENT,
-};
+use crate::acp::terminal_auth::{is_sign_in_terminal_id, sign_in_event_payload};
 use crate::background_processes::{end_tree, end_trees};
 use crate::env_resolver::cached_user_env;
 use crate::files::{canonical_root, ensure_known_workspace};
@@ -118,13 +116,21 @@ pub fn event_payload(event: &PtyEvent) -> Value {
     sign_in_event_payload(event)
 }
 
-/// The event a PTY session's output goes out on, by its id. Any other id has
-/// no listener.
-pub fn pty_event_route(id: &str) -> Option<&'static str> {
+/// Which listener a PTY session's output and exit go to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyRoute {
+    /// An agent's terminal sign-in, on `SIGN_IN_TERMINAL_EVENT`.
+    SignIn,
+    /// A workspace shell, on `EVENT`.
+    Workspace,
+}
+
+/// Where a PTY session's events go, by its id. Any other id has no listener.
+pub fn pty_event_route(id: &str) -> Option<PtyRoute> {
     if is_sign_in_terminal_id(id) {
-        Some(SIGN_IN_TERMINAL_EVENT)
+        Some(PtyRoute::SignIn)
     } else if is_workspace_terminal_id(id) {
-        Some(EVENT)
+        Some(PtyRoute::Workspace)
     } else {
         None
     }
