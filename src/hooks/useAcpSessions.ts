@@ -5,6 +5,7 @@ import { useLatest } from './useLatest';
 import type { PermissionRequestPayload } from '../lib/acp-events';
 import { toElicitationCard } from '../lib/acp-elicitation';
 import { toListedSessions, type ListedSessions } from '../lib/session-list';
+import { orphanSweepDone } from '../lib/orphan-sweep';
 import type { ContextUsage, ElicitationAnswer, ElicitationCard, SlashCommand } from '../types';
 
 /** The one event channel the backend emits ACP traffic on. */
@@ -245,21 +246,29 @@ export function useAcpSessions(handlers: AcpHandlers) {
     return started;
   }, []);
 
+  // The startup orphan sweep stops every agent it finds, so a session started
+  // before it ran would be stopped with the rest: each start waits for it.
   const start = useCallback(
-    async (sessionId: string, cwd: string, profileId: string) =>
-      remember(sessionId, await invoke('acp_start_session', { sessionId, cwd, profileId })),
+    async (sessionId: string, cwd: string, profileId: string) => {
+      await orphanSweepDone();
+      return remember(sessionId, await invoke('acp_start_session', { sessionId, cwd, profileId }));
+    },
     [remember],
   );
 
   const reopen = useCallback(
-    async (sessionId: string, cwd: string, profileId: string, acpSessionId: string) =>
-      remember(sessionId, await invoke('acp_reopen_session', { sessionId, cwd, profileId, acpSessionId })),
+    async (sessionId: string, cwd: string, profileId: string, acpSessionId: string) => {
+      await orphanSweepDone();
+      return remember(sessionId, await invoke('acp_reopen_session', { sessionId, cwd, profileId, acpSessionId }));
+    },
     [remember],
   );
 
   const importSession = useCallback(
-    async (sessionId: string, cwd: string, profileId: string, acpSessionId: string) =>
-      remember(sessionId, await invoke('acp_import_session', { sessionId, cwd, profileId, acpSessionId })),
+    async (sessionId: string, cwd: string, profileId: string, acpSessionId: string) => {
+      await orphanSweepDone();
+      return remember(sessionId, await invoke('acp_import_session', { sessionId, cwd, profileId, acpSessionId }));
+    },
     [remember],
   );
 
@@ -271,8 +280,10 @@ export function useAcpSessions(handlers: AcpHandlers) {
   );
 
   const fork = useCallback(
-    async (sourceSessionId: string, sessionId: string, cwd: string) =>
-      remember(sessionId, await invoke('acp_fork_session', { sourceSessionId, sessionId, cwd })),
+    async (sourceSessionId: string, sessionId: string, cwd: string) => {
+      await orphanSweepDone();
+      return remember(sessionId, await invoke('acp_fork_session', { sourceSessionId, sessionId, cwd }));
+    },
     [remember],
   );
 

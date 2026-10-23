@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-/** The latest sweep, settled whether it worked or not. Null when none was started. */
+/** Every sweep started so far, settled whether each worked or not. Null when none was started. */
 let latest: Promise<void> | null = null;
 
 /**
@@ -10,13 +10,16 @@ let latest: Promise<void> | null = null;
  */
 export function sweepOrphans(): Promise<void> {
   const sweep = invoke("end_orphaned_sessions").then(() => undefined);
-  latest = sweep.catch(() => undefined);
+  // An earlier sweep can still be ending sessions after this one is done
+  // (StrictMode runs the mount effect twice), so the wait covers both.
+  const earlier = latest ?? Promise.resolve();
+  latest = Promise.all([earlier, sweep.catch(() => undefined)]).then(() => undefined);
   return sweep;
 }
 
 /**
- * Resolves once the latest sweep has settled, or at once when none was
- * started. A shell opened before the sweep ran would be ended by it.
+ * Resolves once every sweep started so far has settled, or at once when none
+ * was started. A session or shell started before a sweep ran would be ended by it.
  */
 export function orphanSweepDone(): Promise<void> {
   return latest ?? Promise.resolve();

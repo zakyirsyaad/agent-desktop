@@ -17,11 +17,11 @@ function holdSweep() {
   return sweeps;
 }
 
-/** Whether `promise` settled within a few microtask turns. */
+/** Whether `promise` settled within a bounded number of microtask turns (no timers: a pending sweep never settles). */
 async function settles(promise: Promise<unknown>): Promise<boolean> {
   let settled = false;
   void promise.then(() => (settled = true));
-  for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+  for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
   return settled;
 }
 
@@ -55,6 +55,20 @@ describe("orphan sweep", () => {
 
   it("is done at once when no sweep was started", async () => {
     expect(await settles(orphanSweepDone())).toBe(true);
+  });
+
+  it("waits for every sweep still running, not only the newest", async () => {
+    // StrictMode runs App's mount effect twice: the first sweep can still be
+    // ending sessions after the second one is done.
+    const sweeps = holdSweep();
+    void sweepOrphans();
+    void sweepOrphans();
+    const done = orphanSweepDone();
+
+    sweeps[1].resolve();
+    expect(await settles(done)).toBe(false);
+    sweeps[0].resolve();
+    expect(await settles(done)).toBe(true);
   });
 
   it("waits for the latest of two sweeps", async () => {
