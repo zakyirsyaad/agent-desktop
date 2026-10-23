@@ -22,17 +22,20 @@ export async function createSessionWorktree(
  * Removes a deleted session's worktree when no other session runs in it,
  * once its agent has stopped: never from under a running agent. The backend
  * keeps one with uncommitted changes, and its branch always. Resolves with a
- * notice for the user when the worktree was kept, or null.
+ * notice for the user when the worktree was kept, or null. `onRemoving` runs
+ * right before the removal is asked for, so shells in the worktree end first.
  */
 export async function removeSessionWorktree(
   session: Session,
   otherSessions: readonly Session[],
   stopped: Promise<boolean>,
+  onRemoving?: (path: string) => void,
 ): Promise<string | null> {
   const worktree = session.worktree;
   if (!worktree) return null;
   if (otherSessions.some((s) => s.id !== session.id && s.worktree?.path === worktree.path)) return null;
   if (!(await stopped)) return `Kept the worktree of "${session.name}": its agent could not be stopped.`;
+  onRemoving?.(worktree.path);
   try {
     await invoke('remove_session_worktree', { repoPath: worktree.repoPath, path: worktree.path });
     return null;

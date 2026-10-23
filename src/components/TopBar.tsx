@@ -6,6 +6,7 @@ import {
   GitCompare,
   ExternalLink,
   MoreHorizontal,
+  SquareTerminal,
 } from "lucide-react";
 import { IconButton } from "./ui/IconButton";
 import { DiffStatChip } from "./changes/DiffStatChip";
@@ -45,6 +46,9 @@ export interface TopBarProps {
   /** Shows or hides the workspace's files; the button is hidden when absent. */
   onToggleFiles?: () => void;
   isFilesOpen?: boolean;
+  /** Shows or hides the terminal drawer; the button is hidden when absent. */
+  onToggleTerminal?: () => void;
+  isTerminalOpen?: boolean;
   /** Shows or hides the session's uncommitted changes; the button is hidden when absent. */
   onToggleChanges?: () => void;
   isChangesOpen?: boolean;
@@ -73,6 +77,8 @@ export function TopBar({
   onPopout,
   onToggleFiles,
   isFilesOpen = false,
+  onToggleTerminal,
+  isTerminalOpen = false,
   onToggleChanges,
   isChangesOpen = false,
   diffStats,
@@ -182,6 +188,17 @@ export function TopBar({
             title="Files"
           >
             <Folder size={14} className={isFilesOpen ? "text-fg" : undefined} />
+          </IconButton>
+        )}
+
+        {onToggleTerminal && (
+          <IconButton
+            label="Terminal"
+            onClick={onToggleTerminal}
+            aria-pressed={isTerminalOpen}
+            title="Terminal"
+          >
+            <SquareTerminal size={14} className={isTerminalOpen ? "text-fg" : undefined} />
           </IconButton>
         )}
 

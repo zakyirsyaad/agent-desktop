@@ -16,6 +16,8 @@ export interface SessionActionsDeps {
   removeTranscript: (sessionId: string) => void;
   navigation: Pick<NavigationHistory, 'remove'>;
   acp: Pick<AcpEngine, 'stop'>;
+  /** Ends the shells open in a folder; called before a session's worktree is removed. */
+  closeTerminals?: (folderPath: string) => void;
   onNotice: (message: string) => void;
 }
 
@@ -58,7 +60,11 @@ export function useSessionActions(deps: SessionActionsDeps): SessionActions {
     deps.updateState((prev) => removeSessionFrom(prev, sessionId));
     deps.removeTranscript(sessionId);
     if (session) {
-      void removeSessionWorktree(session, sessions, stopped).then((kept) => kept && onNotice(kept));
+      void removeSessionWorktree(session, sessions, stopped, (path) => {
+        deps.closeTerminals?.(path);
+        // A session can run in a folder inside its worktree; that folder's shells go too.
+        if (session.cwd !== path) deps.closeTerminals?.(session.cwd);
+      }).then((kept) => kept && onNotice(kept));
     }
     selectNextAfter(sessionId);
   };

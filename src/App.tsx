@@ -65,6 +65,8 @@ import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { useBranchPicker } from "./hooks/useBranchPicker";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
+import { useWorkspaceTerminals } from "./hooks/useWorkspaceTerminals";
+import { TerminalDrawer } from "./components/terminal/TerminalDrawer";
 import { useDraftSessionList } from "./hooks/useDraftSessionList";
 import type { OpenNewSessionOptions } from "./hooks/useSessionImport";
 import { useSessionFork } from "./hooks/useSessionFork";
@@ -470,6 +472,17 @@ export default function App() {
     [forgetQueued, removeTranscript],
   );
 
+  // The drawer shows the shells of the folder the top bar names. Opening it on a
+  // folder without a shell starts one, here and not in an effect: StrictMode runs effects twice.
+  const terminals = useWorkspaceTerminals(setNotice);
+  const [isTerminalOpen, setTerminalOpen] = useState(false);
+  const toggleTerminal = () => {
+    const folderPath = filesFolder?.path;
+    if (!folderPath) return;
+    if (!isTerminalOpen && terminals.tabsFor(folderPath).length === 0) void terminals.open(folderPath);
+    setTerminalOpen(!isTerminalOpen);
+  };
+
   const sessionActions = useSessionActions({
     sessions,
     setActiveSessionId,
@@ -479,6 +492,7 @@ export default function App() {
     removeTranscript: forgetTranscript,
     navigation,
     acp,
+    closeTerminals: terminals.closeFolder,
     onNotice: setNotice,
   });
 
@@ -599,6 +613,8 @@ export default function App() {
         onForward={() => navigateTo(navigation.forward())}
         onToggleFiles={filesFolder ? () => sidePanel.toggle("files") : undefined}
         isFilesOpen={sidePanel.open === "files" && Boolean(filesFolder)}
+        onToggleTerminal={filesFolder ? toggleTerminal : undefined}
+        isTerminalOpen={isTerminalOpen && Boolean(filesFolder)}
         onToggleChanges={filesFolder && isRepository ? () => sidePanel.toggle("changes") : undefined}
         isChangesOpen={sidePanel.open === "changes" && Boolean(filesFolder) && isRepository}
         diffStats={diffStats}
@@ -646,6 +662,8 @@ export default function App() {
           }
         />
 
+        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1">
         <article className={`${isDiffOpen && isDiffExpanded ? "hidden" : "flex"} flex-1 flex-col bg-bg relative overflow-hidden`}>
           {isDraggingFiles && <FileDropOverlay />}
           {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
@@ -789,6 +807,17 @@ export default function App() {
             onRevealRoot={() => filesFolder && shell.revealFolder(filesFolder.path)}
           />
         )}
+        </div>
+        {isTerminalOpen && filesFolder && (
+          <TerminalDrawer
+            folderPath={filesFolder.path}
+            folderName={filesFolder.name}
+            branch={workspaceDetails?.branch ?? undefined}
+            terminals={terminals}
+            onHide={() => setTerminalOpen(false)}
+          />
+        )}
+        </div>
       </section>
       <AppSettingsDialog
         isOpen={settingsTab !== null}
