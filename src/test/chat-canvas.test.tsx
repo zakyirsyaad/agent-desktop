@@ -532,10 +532,17 @@ describe("ACP chat content", () => {
 
     expect(screen.getByText("Thinking")).toBeDefined();
     expect(screen.getByText("First I will read the parser")).toBeDefined();
-    expect(screen.getByText("Updated the plan")).toBeDefined();
-    // The steps live in the top bar's plan menu, not in the conversation.
+    // The current steps live in the top bar's plan menu; the reply keeps one line.
+    const row = screen.getByRole("button", { name: "Updated the plan" });
+    expect(row.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("list", { name: "Plan" })).toBeNull();
     expect(screen.queryByText("Split it in two")).toBeNull();
+
+    // An earlier plan stays readable: the line opens that reply's own steps.
+    fireEvent.click(row);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("list", { name: "Plan" })).toBeDefined();
+    expect(screen.getByText("Split it in two")).toBeDefined();
   });
 
   it("shows an ACP tool call by its title, without empty parentheses", () => {

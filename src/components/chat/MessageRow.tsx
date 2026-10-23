@@ -103,7 +103,7 @@ export const MessageRow = memo(function MessageRow({
           // A reply is done once its turn ended or anything came after it.
           <ThinkingBlock text={message.thinking} isDone={Boolean(message.isComplete) || !isLast} />
         )}
-        {message.plan && message.plan.length > 0 && <PlanUpdatedRow />}
+        {message.plan && message.plan.length > 0 && <PlanUpdatedRow entries={message.plan} />}
         {message.attachments && message.attachments.length > 0 && (
           <div className={parts.length > 0 ? "mb-2" : undefined}>
             <AttachmentChips paths={message.attachments} />
