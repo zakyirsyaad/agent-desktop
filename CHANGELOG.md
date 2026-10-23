@@ -4,6 +4,8 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-24
+
 ### Added
 
 - **A terminal for the session's folder.** The **Terminal** button in the top bar opens a drawer under the chat and the side panels with a shell in the folder the session works in (its worktree, when it has one). Each folder keeps its own tabs, so switching sessions and coming back leaves them as they were; **New terminal** adds a tab, and the drawer's edge resizes it. The shell is your login shell, and closing a tab or quitting Zorvo ends the shell and the processes running under it (a job detached from the shell, or left after `exit`, can outlive it). A worktree's terminals end when Zorvo removes that worktree; a worktree it keeps (with uncommitted changes, or still used by another session) keeps them.
@@ -121,7 +123,8 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 - Approval safety, terminal handling, the stream parser and working folders. ([#1])
 
-[Unreleased]: https://github.com/zakyirsyaad/zorvo/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/zakyirsyaad/zorvo/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/zakyirsyaad/zorvo/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/zakyirsyaad/zorvo/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zakyirsyaad/zorvo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zakyirsyaad/zorvo/releases/tag/v0.1.0
