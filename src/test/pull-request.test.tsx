@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, renderHook, act, waitFor } from "@testing-library/react";
-import { usePullRequest, type PullRequestStatus } from "../hooks/usePullRequest";
+import { MAX_FAILED_READS, usePullRequest, type PullRequestStatus } from "../hooks/usePullRequest";
 import { PullRequestChip } from "../components/topbar/PullRequestChip";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
@@ -94,6 +94,34 @@ describe("usePullRequest after a failure", () => {
     });
     await waitFor(() => expect(result.current?.state).toBe("merged"));
     expect(result.current?.checks.passing).toBe(3);
+  });
+});
+
+describe("usePullRequest when reads keep failing", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("stops showing a pull request it can no longer read, without a notice", async () => {
+    // Signed out of gh, the last checks seen would otherwise stay shown forever.
+    let fail = false;
+    vi.spyOn(tauriInternals(), "invoke").mockImplementation((cmd) =>
+      cmd === "session_pull_request" ? (fail ? Promise.reject("gh: not logged in") : Promise.resolve(OPEN)) : Promise.resolve(undefined),
+    );
+    const { result } = renderHook(() => usePullRequest("/w/api", "feat/x", 0));
+    await waitFor(() => expect(result.current).toEqual(OPEN));
+
+    fail = true;
+    for (let i = 1; i < MAX_FAILED_READS; i += 1) {
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+      });
+    }
+    // One slow read, or a few, is a blip: the last pull request stays.
+    expect(result.current).toEqual(OPEN);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(result.current).toBeNull();
   });
 });
 

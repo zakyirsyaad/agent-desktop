@@ -17,6 +17,13 @@ export interface PullRequestStatus {
 const REFRESH_INTERVAL_MS = 60_000;
 
 /**
+ * Failed reads in a row before the last pull request is no longer shown: one
+ * slow `gh` after the Mac wakes is a blip, a lasting failure (signed out,
+ * offline) would otherwise leave old checks on screen as if current.
+ */
+export const MAX_FAILED_READS = 3;
+
+/**
  * The pull request for the branch checked out at `path` (the backend reads
  * it each time, so a branch the agent just made counts at once): read when
  * the path changes, when the window regains focus, when `refreshKey` changes
@@ -24,7 +31,8 @@ const REFRESH_INTERVAL_MS = 60_000;
  *
  * Every read is a background refresh, so a failure (gh not signed in, offline,
  * a timeout after the Mac wakes) is not shown as a notice: the last known pull
- * request stays, or there is none, and the next tick or focus tries again.
+ * request stays, and the next tick or focus tries again. After
+ * `MAX_FAILED_READS` failures in a row it is no longer shown.
  */
 export function usePullRequest(
   path: string | undefined,
@@ -38,16 +46,21 @@ export function usePullRequest(
     if (!path) return;
     let isCancelled = false;
     let latestRead = 0;
+    let failedReads = 0;
     const load = () => {
       const read = ++latestRead;
       invoke<PullRequestStatus | null>('session_pull_request', { path })
         .then((pullRequest) => {
           if (isCancelled || read !== latestRead) return;
+          failedReads = 0;
           setState({ path, pullRequest: pullRequest ?? null });
         })
         .catch(() => {
-          // A background read never interrupts. An older answer that arrives
-          // later must not replace a newer one either, so nothing is set here.
+          // A background read never interrupts, and an older answer that
+          // arrives after a newer read started counts for nothing.
+          if (isCancelled || read !== latestRead) return;
+          failedReads += 1;
+          if (failedReads >= MAX_FAILED_READS) setState({ path, pullRequest: null });
         });
     };
     load();
