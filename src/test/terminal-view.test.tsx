@@ -114,6 +114,49 @@ describe("TerminalView", () => {
     expect(terminals[0].dataListener).not.toBeNull();
   });
 
+  it("takes focus on mount by default", () => {
+    const focusSpy = vi.spyOn(FakeTerminal.prototype, "focus");
+    render(<TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />);
+
+    expect(focusSpy).toHaveBeenCalledTimes(1);
+    focusSpy.mockRestore();
+  });
+
+  it("does not take focus when autoFocus is false", () => {
+    const output = createPtyOutputStore();
+    const focusSpy = vi.spyOn(FakeTerminal.prototype, "focus");
+    const composerWithTerminal = (showTerminal: boolean) => (
+      <>
+        <textarea aria-label="Composer" />
+        {showTerminal && (
+          <TerminalView sessionId="s-1" output={output} isLive autoFocus={false} onInput={() => {}} onResize={() => {}} />
+        )}
+      </>
+    );
+    const { rerender } = render(composerWithTerminal(false));
+    const composer = screen.getByLabelText("Composer");
+    composer.focus();
+
+    rerender(composerWithTerminal(true));
+
+    expect(focusSpy).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(composer);
+    focusSpy.mockRestore();
+  });
+
+  it("labels the terminal with the given label, defaulting to Agent terminal", () => {
+    const { unmount } = render(
+      <TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />
+    );
+    expect(screen.getByLabelText("Agent terminal")).toBe(screen.getByTestId("terminal-view"));
+    unmount();
+
+    render(
+      <TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive label="Workspace shell" onInput={() => {}} onResize={() => {}} />
+    );
+    expect(screen.getByLabelText("Workspace shell")).toBe(screen.getByTestId("terminal-view"));
+  });
+
   it("terminal uses the design system font and colors", () => {
     render(<TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />);
 

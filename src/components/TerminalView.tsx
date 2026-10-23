@@ -12,13 +12,25 @@ export interface TerminalViewProps {
   isLive: boolean;
   onInput: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
+  /** Take keyboard focus on mount. False keeps focus where it is, e.g. on a composer. */
+  autoFocus?: boolean;
+  /** Accessible name of the terminal. */
+  label?: string;
 }
 
 /**
  * An agent's sign-in terminal. It replays the output so far, then follows new
  * output; keystrokes go straight to the agent's login program.
  */
-export function TerminalView({ sessionId, output, isLive, onInput, onResize }: TerminalViewProps) {
+export function TerminalView({
+  sessionId,
+  output,
+  isLive,
+  onInput,
+  onResize,
+  autoFocus = true,
+  label = "Agent terminal",
+}: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // App re-renders on every output chunk; callbacks are read through refs so
   // that never tears down the terminal.
@@ -57,7 +69,7 @@ export function TerminalView({ sessionId, output, isLive, onInput, onResize }: T
     fit();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
     observer?.observe(container);
-    if (isLive) terminal.focus();
+    if (isLive && autoFocus) terminal.focus();
 
     return () => {
       isDisposed = true;
@@ -66,13 +78,13 @@ export function TerminalView({ sessionId, output, isLive, onInput, onResize }: T
       observer?.disconnect();
       terminal.dispose();
     };
-  }, [sessionId, output, isLive]);
+  }, [sessionId, output, isLive, autoFocus]);
 
   return (
     <div
       ref={containerRef}
       data-testid="terminal-view"
-      aria-label="Agent terminal"
+      aria-label={label}
       className="flex-1 min-h-0 overflow-hidden bg-terminal-bg px-3 py-2"
     />
   );
