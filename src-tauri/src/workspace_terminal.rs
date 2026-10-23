@@ -183,8 +183,9 @@ pub fn workspace_terminal_open(
     pty: State<'_, PtySessionManager>,
     path: String,
 ) -> Result<OpenedTerminal, String> {
-    // The shell starts in the very folder that was checked, not in a second
-    // resolution of `path` that a repointed symlink could send elsewhere.
+    // The shell starts from the canonical folder that was checked, so a symlink
+    // in `path` repointed after the check no longer redirects it. (A component
+    // of that canonical path swapped for a link later is still followed.)
     let mut checked = None;
     ensure_known_workspace(&path, |canonical| {
         checked = Some(canonical.to_path_buf());
