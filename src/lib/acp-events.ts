@@ -318,10 +318,13 @@ export function applyPermissionRequest(
   ctx: AcpReducerContext,
 ): ChatMessage[] {
   // A replayed or duplicated request is the same question, not a new one:
-  // one request renders one card. A request without an id cannot be matched.
+  // one request renders one card. Only a card still waiting in this turn can
+  // be its duplicate: JSON-RPC ids restart with each agent process, so a
+  // reopened session reuses the ids of answered cards. A request without an
+  // id cannot be matched.
   if (
     payload.requestId !== undefined &&
-    messages.some((message) => message.actionCard?.requestId === payload.requestId)
+    pendingCardsInTurn(messages).some((card) => card.requestId === payload.requestId)
   ) {
     return messages;
   }

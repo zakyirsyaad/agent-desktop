@@ -368,6 +368,20 @@ describe("permission requests", () => {
     expect(pendingCardsInTurn(twice)).toHaveLength(1);
   });
 
+  it("shows a new card when a reopened agent reuses an answered request's id", () => {
+    // JSON-RPC ids restart with each agent process, so an id seen in an
+    // earlier, answered turn says nothing about a request now.
+    const c = ctx();
+    const answered = applyPermissionRequest([], request, c).map((m) =>
+      m.actionCard ? { ...m, actionCard: { ...m.actionCard, status: "approved" as const } } : m,
+    );
+    const user: ChatMessage = { id: "u-2", role: "user", content: "go on", timestamp: 2 };
+
+    const messages = applyPermissionRequest([...answered, user], request, c);
+
+    expect(pendingCardsInTurn(messages).map((card) => card.requestId)).toEqual(["perm-1"]);
+  });
+
   it("notes on a waiting card that the mode changed after it was asked", () => {
     const c = ctx();
     const withCard = applyPermissionRequest([], request, c);
