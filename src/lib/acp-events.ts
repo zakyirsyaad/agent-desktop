@@ -401,13 +401,15 @@ export function reopenPermissionCard(messages: ChatMessage[], cardId: string): C
 /**
  * A mode change after a request was made: the agent had already asked, so the
  * waiting card is still the right one to answer. Marking it says why it did
- * not go away; a card already answered is left alone.
+ * not go away. Only the cards in `askedBefore` (waiting when the change was
+ * sent) are marked: one asked while the change was in flight is in the new
+ * mode. A card already answered is left alone.
  */
-export function noteModeChange(messages: ChatMessage[]): ChatMessage[] {
+export function noteModeChange(messages: ChatMessage[], askedBefore: ReadonlySet<string>): ChatMessage[] {
   let changed = false;
   const next = messages.map((message) => {
     const card = message.actionCard;
-    if (card?.status !== 'pending' || card.modeChanged) return message;
+    if (card?.status !== 'pending' || card.modeChanged || !askedBefore.has(card.id)) return message;
     changed = true;
     return { ...message, actionCard: { ...card, modeChanged: true } };
   });

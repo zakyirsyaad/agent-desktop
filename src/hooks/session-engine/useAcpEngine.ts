@@ -603,12 +603,14 @@ export function useAcpEngine({
   };
 
   const setMode = (sessionId: string, modeId: string) => {
+    // Read now, not once the change lands: a request asked meanwhile is in the new mode.
+    const askedBefore = new Set(pendingCardsInTurn(transcriptOf(sessionId) ?? []).map((card) => card.id));
     acp
       .setMode(sessionId, modeId)
       .then(() => {
         // A request made before the switch stays right: the agent is still
         // waiting for its answer, and the card says why it did not go away.
-        updateNow(sessionId, noteModeChange);
+        if (askedBefore.size > 0) updateNow(sessionId, (prev) => noteModeChange(prev, askedBefore));
       })
       .catch(reportFailure('Could not change the mode'));
   };

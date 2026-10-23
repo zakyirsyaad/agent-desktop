@@ -387,8 +387,22 @@ describe("permission requests", () => {
     const withCard = applyPermissionRequest([], request, c);
     const answered = resolvePermissionCard(withCard, withCard[0].actionCard!.id, "allow");
 
-    expect(noteModeChange(withCard)[0].actionCard?.modeChanged).toBe(true);
-    expect(noteModeChange(answered)[0].actionCard?.modeChanged).toBeUndefined();
+    const askedBefore = new Set([withCard[0].actionCard!.id]);
+
+    expect(noteModeChange(withCard, askedBefore)[0].actionCard?.modeChanged).toBe(true);
+    expect(noteModeChange(answered, askedBefore)[0].actionCard?.modeChanged).toBeUndefined();
+  });
+
+  it("leaves a card asked after the mode change unmarked", () => {
+    // The agent may ask while set_mode is in flight: that request is in the new mode.
+    const c = ctx();
+    const first = applyPermissionRequest([], request, c);
+    const askedBefore = new Set([first[0].actionCard!.id]);
+    const both = applyPermissionRequest(first, { ...request, requestId: "perm-2" }, c);
+
+    const noted = noteModeChange(both, askedBefore);
+
+    expect(noted.map((m) => m.actionCard?.modeChanged)).toEqual([true, undefined]);
   });
 
   it("closing a turn closes every unanswered request, not only the last one", () => {
