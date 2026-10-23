@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use zorvo_lib::background_processes::{
     display_command, parse_etime, parse_lsof_ports, parse_ps, scan, select_tasks, stop, subtree_of,
-    terminate, ProcessRow, TaskProcess,
+    subtrees_of, terminate, ProcessRow, TaskProcess,
 };
 
 fn row(pid: u32, ppid: u32, command: &str) -> ProcessRow {
@@ -505,4 +505,28 @@ fn subtree_of_lists_descendants_children_first_and_the_root_last() {
     assert_eq!(subtree_of(&rows, 100), vec![102, 101, 100]);
     assert_eq!(subtree_of(&rows, 101), vec![102, 101]);
     assert_eq!(subtree_of(&rows, 200), vec![200]);
+}
+
+#[test]
+fn subtrees_of_lists_each_root_once_with_children_before_parents() {
+    let rows = vec![
+        row(1, 0, "/sbin/launchd"),
+        row(100, 1, "-zsh"),
+        row(101, 100, "node server.js"),
+        row(102, 101, "node worker.js"),
+        row(200, 1, "-zsh"),
+        row(201, 200, "sleep 300"),
+    ];
+
+    // Two separate shells, their trees one after the other.
+    assert_eq!(
+        subtrees_of(&rows, &[100, 200]),
+        vec![102, 101, 100, 201, 200]
+    );
+    // A root inside another's tree, in either order, is listed once and after its children.
+    assert_eq!(subtrees_of(&rows, &[100, 101]), vec![102, 101, 100]);
+    assert_eq!(subtrees_of(&rows, &[101, 100]), vec![102, 101, 100]);
+    // The same root twice, and a root that is not running.
+    assert_eq!(subtrees_of(&rows, &[200, 200, 999]), vec![201, 200, 999]);
+    assert_eq!(subtrees_of(&rows, &[]), Vec::<u32>::new());
 }

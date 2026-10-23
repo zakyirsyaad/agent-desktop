@@ -224,6 +224,18 @@ pub fn subtree_of(rows: &[ProcessRow], root: u32) -> Vec<u32> {
     subtree(&children_by_parent(rows), root)
 }
 
+/// Every root and everything under it in `rows`, each process once and after
+/// all of its own descendants: the order to signal them in.
+pub fn subtrees_of(rows: &[ProcessRow], roots: &[u32]) -> Vec<u32> {
+    let children = children_by_parent(rows);
+    let mut seen = HashSet::new();
+    roots
+        .iter()
+        .flat_map(|root| subtree(&children, *root))
+        .filter(|pid| seen.insert(*pid))
+        .collect()
+}
+
 /// `pid` and its descendants, each after all of its own descendants.
 fn subtree(children: &HashMap<u32, Vec<&ProcessRow>>, pid: u32) -> Vec<u32> {
     let mut order = Vec::new();
@@ -528,6 +540,17 @@ pub fn end_tree(root: u32, grace: bool) -> Result<(), String> {
         subtree,
     };
     terminate(&task, &rows)
+}
+
+/// Ends every root and everything under it with `KILL` at once, from one read
+/// of the processes however many roots there are: for a quit with several
+/// shells, where a `ps` per shell would delay the exit.
+pub fn end_trees(roots: &[u32]) -> Result<(), String> {
+    if roots.is_empty() {
+        return Ok(());
+    }
+    let rows = read_processes()?;
+    send_signal("-KILL", &subtrees_of(&rows, roots))
 }
 
 /// Every running agent's pid, by the app session it serves.

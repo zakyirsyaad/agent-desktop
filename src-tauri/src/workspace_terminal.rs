@@ -15,7 +15,7 @@ use tauri::State;
 use crate::acp::terminal_auth::{
     is_sign_in_terminal_id, sign_in_event_payload, SIGN_IN_TERMINAL_EVENT,
 };
-use crate::background_processes::end_tree;
+use crate::background_processes::{end_tree, end_trees};
 use crate::env_resolver::cached_user_env;
 use crate::files::{canonical_root, ensure_known_workspace};
 use crate::pty_session::{PtyEvent, PtySessionManager};
@@ -91,22 +91,19 @@ pub fn close(manager: &PtySessionManager, id: &str) -> Result<(), String> {
 /// Zorvo quits, where a delayed escalation would not run. Other sessions are
 /// left to the caller. Returns how many shells were ended.
 pub fn end_all(manager: &PtySessionManager) -> usize {
-    let mut ended = 0;
-    for id in manager
+    let ids: Vec<String> = manager
         .session_ids()
-        .iter()
+        .into_iter()
         .filter(|id| is_workspace_terminal_id(id))
-    {
-        if let Some(pid) = manager.pid_of(id) {
-            if let Err(error) = end_tree(pid, false) {
-                eprintln!("Could not end the processes of terminal {id}: {error}");
-            }
-        }
-        if manager.kill_session(id).is_ok() {
-            ended += 1;
-        }
+        .collect();
+    // One read of the processes for every shell, however many there are.
+    let pids: Vec<u32> = ids.iter().filter_map(|id| manager.pid_of(id)).collect();
+    if let Err(error) = end_trees(&pids) {
+        eprintln!("Could not end the processes of the terminals: {error}");
     }
-    ended
+    ids.iter()
+        .filter(|id| manager.kill_session(id).is_ok())
+        .count()
 }
 
 /// Ends every PTY session: workspace shells with their trees, then the rest.
