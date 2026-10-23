@@ -44,11 +44,16 @@ export function TerminalView({
   const terminalRef = useRef<Terminal | null>(null);
   // autoFocus only decides the focus at mount; this is the way to focus a terminal that is already there.
   useImperativeHandle(ref, () => ({ focus: () => terminalRef.current?.focus() }), []);
-  // App re-renders on every output chunk; callbacks and autoFocus are read
-  // through refs so that a change never tears down the terminal.
-  const callbacksRef = useRef({ onInput, onResize, autoFocus });
+  // The keystroke listener, kept apart from the mount effect so that a session
+  // ending or starting can drop or add it without rebuilding the terminal.
+  const inputRef = useRef<{ dispose: () => void } | null>(null);
+  // Puts a terminal that is already mounted to use once its session is live.
+  const goLiveRef = useRef<() => void>(() => {});
+  // App re-renders on every output chunk; callbacks, autoFocus and isLive are
+  // read through refs so that a change never tears down the terminal.
+  const callbacksRef = useRef({ onInput, onResize, autoFocus, isLive });
   useLayoutEffect(() => {
-    callbacksRef.current = { onInput, onResize, autoFocus };
+    callbacksRef.current = { onInput, onResize, autoFocus, isLive };
   });
 
   useEffect(() => {
@@ -63,12 +68,19 @@ export function TerminalView({
     // Keystrokes are taken only once the replay is parsed: old output holds
     // terminal queries (cursor position, colours) that xterm would answer as
     // input, and those answers must not reach the live agent.
-    let input: { dispose: () => void } | null = null;
     let isDisposed = false;
+    let isReplayed = false;
+    const attachInput = () => {
+      if (isReplayed && !isDisposed && !inputRef.current) {
+        inputRef.current = terminal.onData((data) => callbacksRef.current.onInput(data));
+      }
+    };
     // Replay and subscribe in the same task, so no chunk is missed or repeated.
-    // autoFocus is read only when the terminal mounts: a later change does not rebuild it.
+    // autoFocus and isLive are read when they are needed, not as dependencies:
+    // a session that ends keeps its terminal, with its scroll position and selection.
     terminal.write(output.snapshot(sessionId), () => {
-      if (isLive && !isDisposed) input = terminal.onData((data) => callbacksRef.current.onInput(data));
+      isReplayed = true;
+      if (callbacksRef.current.isLive) attachInput();
     });
     const unsubscribe = output.subscribe(sessionId, (data) => terminal.write(data));
 
@@ -78,22 +90,46 @@ export function TerminalView({
       } catch {
         return; // Hidden or detached container: nothing to measure.
       }
-      if (isLive && terminal.cols && terminal.rows) callbacksRef.current.onResize(terminal.cols, terminal.rows);
+      if (callbacksRef.current.isLive && terminal.cols && terminal.rows) callbacksRef.current.onResize(terminal.cols, terminal.rows);
     };
     fit();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
     observer?.observe(container);
-    if (isLive && callbacksRef.current.autoFocus) terminal.focus();
+    const focusIfWanted = () => {
+      if (callbacksRef.current.autoFocus) terminal.focus();
+    };
+    if (callbacksRef.current.isLive) focusIfWanted();
+    goLiveRef.current = () => {
+      attachInput();
+      fit();
+      focusIfWanted();
+    };
 
     return () => {
       isDisposed = true;
+      goLiveRef.current = () => {};
       unsubscribe();
-      input?.dispose();
+      inputRef.current?.dispose();
+      inputRef.current = null;
       observer?.disconnect();
       terminalRef.current = null;
       terminal.dispose();
     };
-  }, [sessionId, output, isLive]);
+  }, [sessionId, output]);
+
+  // A session's liveness changes without rebuilding the terminal: a shell that
+  // exits keeps its last screen, and a sign-in that starts becomes typeable.
+  const wasLiveRef = useRef(isLive);
+  useEffect(() => {
+    if (wasLiveRef.current === isLive) return;
+    wasLiveRef.current = isLive;
+    if (isLive) {
+      goLiveRef.current();
+      return;
+    }
+    inputRef.current?.dispose();
+    inputRef.current = null;
+  }, [isLive]);
 
   return (
     <div

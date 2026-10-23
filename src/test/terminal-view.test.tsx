@@ -180,6 +180,60 @@ describe("TerminalView", () => {
     expect(terminals[0].disposed).toBe(false);
   });
 
+  it("keeps the terminal when the session ends, and stops sending input", () => {
+    const output = createPtyOutputStore();
+    output.append("s-1", "last output");
+    const onInput = vi.fn();
+    const view = (isLive: boolean) => (
+      <TerminalView sessionId="s-1" output={output} isLive={isLive} onInput={onInput} onResize={() => {}} />
+    );
+    const { rerender } = render(view(true));
+    act(() => terminals[0].flushWrites());
+    expect(terminals[0].dataListener).not.toBeNull();
+
+    rerender(view(false));
+
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0].disposed).toBe(false);
+    expect(terminals[0].dataListener).toBeNull();
+    expect(onInput).not.toHaveBeenCalled();
+  });
+
+  it("takes input, its size and focus when a session becomes live, without rebuilding the terminal", () => {
+    const output = createPtyOutputStore();
+    const onInput = vi.fn();
+    const onResize = vi.fn();
+    const view = (isLive: boolean) => (
+      <TerminalView sessionId="s-1" output={output} isLive={isLive} onInput={onInput} onResize={onResize} />
+    );
+    const { rerender } = render(view(false));
+    act(() => terminals[0].flushWrites());
+    expect(terminals[0].dataListener).toBeNull();
+    expect(onResize).not.toHaveBeenCalled();
+    expect(terminals[0].focused).toBe(false);
+
+    rerender(view(true));
+    terminals[0].dataListener?.("y");
+
+    expect(terminals).toHaveLength(1);
+    expect(onInput).toHaveBeenCalledWith("y");
+    expect(onResize).toHaveBeenCalledWith(100, 30);
+    expect(terminals[0].focused).toBe(true);
+  });
+
+  it("does not attach input when the replay finishes after the session ended", () => {
+    const output = createPtyOutputStore();
+    const view = (isLive: boolean) => (
+      <TerminalView sessionId="s-1" output={output} isLive={isLive} onInput={() => {}} onResize={() => {}} />
+    );
+    const { rerender } = render(view(true));
+
+    rerender(view(false));
+    act(() => terminals[0].flushWrites());
+
+    expect(terminals[0].dataListener).toBeNull();
+  });
+
   it("labels the terminal with the given label, defaulting to Agent terminal", () => {
     const { unmount } = render(
       <TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />
