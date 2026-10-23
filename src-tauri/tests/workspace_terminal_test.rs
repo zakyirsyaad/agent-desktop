@@ -9,8 +9,8 @@ use zorvo_lib::acp::terminal_auth::SIGN_IN_TERMINAL_EVENT;
 use zorvo_lib::background_processes::{read_processes, subtree_of};
 use zorvo_lib::pty_session::{PtyEvent, PtySessionManager};
 use zorvo_lib::workspace_terminal::{
-    close, end_all, end_all_sessions, event_payload, is_workspace_terminal_id, next_terminal_id,
-    open_shell, pty_event_route, shell_from, start_shell, PtyRoute, EVENT,
+    close, end_all, end_all_sessions, end_sessions, event_payload, is_workspace_terminal_id,
+    next_terminal_id, open_shell, pty_event_route, shell_from, start_shell, PtyRoute, EVENT,
 };
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -314,6 +314,35 @@ fn end_all_ends_every_shell_and_what_it_started_but_not_other_sessions() {
     assert!(!manager.has_session(&id));
     assert!(gone_within_wait(job_pid), "the nohup job outlived Zorvo");
     assert!(manager.has_session("signin-probe"));
+    manager.kill_all();
+}
+
+/// The orphan sweep lists the sessions alive when a window loads and ends
+/// exactly those: a shell started after the list was taken must survive it.
+#[cfg(target_os = "macos")]
+#[test]
+fn ending_a_snapshot_spares_sessions_started_after_it() {
+    let dir = unique_dir("snapshot");
+    let manager = PtySessionManager::default_manager();
+    let old = next_terminal_id();
+    let (_shell_pid, job_pid) = shell_with_nohup_job(&manager, &old, &dir);
+    let cwd = dir.to_string_lossy().to_string();
+    manager
+        .start_session("signin-old", &cwd, "/bin/cat", &[], &[])
+        .expect("start a sign-in style session");
+    let snapshot = manager.session_ids();
+    let fresh = next_terminal_id();
+    start_shell(&manager, &fresh, &dir, "/bin/sh").expect("start a shell after the snapshot");
+
+    assert_eq!(end_sessions(&manager, &snapshot), 2);
+
+    assert!(!manager.has_session(&old));
+    assert!(!manager.has_session("signin-old"));
+    assert!(gone_within_wait(job_pid), "the listed shell's job survived");
+    assert!(
+        manager.has_session(&fresh),
+        "a shell started after the snapshot was ended"
+    );
     manager.kill_all();
 }
 

@@ -489,6 +489,25 @@ fn recognizes_a_sign_in_request_however_the_agent_phrases_it() {
     }
 }
 
+/// The orphan sweep takes the sessions a previous UI left off the routes
+/// while it lists them, and ends their agents later on a thread of its own.
+/// App session ids are saved, so the new UI can reopen one under the same id
+/// before that: ending the detached orphan must not end the reopened session.
+#[test]
+fn ending_a_detached_session_spares_one_reopened_under_its_id() {
+    let (manager, rx) = manager();
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+
+    let orphan = manager.detach("s-1");
+    manager.start("s-1", &cwd(), &fake_agent()).unwrap();
+    orphan.end();
+
+    manager.prompt("s-1", "hi", &[]).unwrap();
+    let chunk = wait_for(&rx, |e| agent_text(e).is_some());
+    assert_eq!(agent_text(&chunk).as_deref(), Some("echo: hi"));
+    manager.stop("s-1");
+}
+
 #[test]
 fn stop_all_ends_every_session_a_previous_ui_left_running() {
     let (manager, _rx) = manager();

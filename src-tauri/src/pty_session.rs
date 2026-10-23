@@ -474,6 +474,28 @@ mod tests {
             wait_until_gone(pid, Duration::from_secs(5)),
             "the process kept running after a kill that reported success"
         );
+        // The reader reaps it too: a poisoned lock must not leave a zombie behind.
+        assert!(
+            wait_until_reaped(pid, Duration::from_secs(5)),
+            "the killed process was never reaped"
+        );
+    }
+
+    /// Whether `pid` leaves the process table (a zombie still has an entry) within `timeout`.
+    fn wait_until_reaped(pid: u32, timeout: Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            let listed = std::process::Command::new("/bin/ps")
+                .args(["-o", "stat=", "-p", &pid.to_string()])
+                .output()
+                .map(|out| !String::from_utf8_lossy(&out.stdout).trim().is_empty())
+                .unwrap_or(false);
+            if !listed {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
     }
 
     /// Whether `pid` stops running within `timeout`.
