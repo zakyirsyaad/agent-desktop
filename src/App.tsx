@@ -20,6 +20,7 @@ import { totalsOf } from "./lib/diff-stats";
 import { useSidePanel } from "./hooks/useSidePanel";
 import { useTurnsEnded } from "./hooks/useTurnsEnded";
 import { usePullRequest } from "./hooks/usePullRequest";
+import { currentPlan } from "./lib/plan";
 import { useRepoPullRequests } from "./hooks/useRepoPullRequests";
 import { useAgentSignIn } from "./hooks/useAgentSignIn";
 import { useDraftAgentCheck } from "./hooks/useDraftAgentCheck";
@@ -552,6 +553,7 @@ export default function App() {
   const canGoBack = isNewSessionDraft ? lastViewedSessionId !== null : navigation.canGoBack;
 
   const currentMessages = transcripts[activeSessionId] ?? [];
+  const sessionPlan = currentPlan(currentMessages);
   const canStartSession = Boolean(activeWorkspacePath && newSessionAgent);
   const composer = composerStateFor({
     session: activeSession,
@@ -611,6 +613,7 @@ export default function App() {
           onOpenTask: backgroundTasks.open,
           onStopTask: backgroundTasks.stop,
         }}
+        plan={sessionPlan}
       />
 
       <section className="flex flex-1 overflow-hidden">

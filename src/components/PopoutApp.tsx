@@ -12,6 +12,7 @@ import {
   IDLE_STATUS,
 } from "../lib/popout-bridge";
 import { folderNameOf } from "../lib/session-helpers";
+import { currentPlan } from "../lib/plan";
 import { MAIN_WINDOW_LABEL } from "../lib/window-mode";
 import { useAgentProfiles } from "../hooks/useDiscovery";
 import { TopBar } from "./TopBar";
@@ -87,6 +88,7 @@ export function PopoutApp({ sessionId }: PopoutAppProps) {
       <TopBar
         sessionName={session?.name}
         workspaceName={session ? folderNameOf(session.cwd) : undefined}
+        plan={currentPlan(messages)}
       />
       <article className="flex-1 flex flex-col bg-bg relative overflow-hidden">
         {messages.length > 0 || session?.historyElsewhere ? (

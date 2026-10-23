@@ -7,7 +7,7 @@ import { MessageActionBar } from "../MessageActionBar";
 import { UserMessageBar } from "./UserMessageBar";
 import { AttachmentChips } from "../composer/AttachmentChips";
 import { ToolsPart } from "./ToolsPart";
-import { PlanList, ThinkingBlock } from "./ReplyExtras";
+import { PlanUpdatedRow, ThinkingBlock } from "./ReplyExtras";
 import { partsOf } from "../../lib/acp-events";
 import { formatRelativeTime } from "../../lib/relative-time";
 import type { ChatMessage, ElicitationAnswer } from "../../types";
@@ -103,7 +103,7 @@ export const MessageRow = memo(function MessageRow({
           // A reply is done once its turn ended or anything came after it.
           <ThinkingBlock text={message.thinking} isDone={Boolean(message.isComplete) || !isLast} />
         )}
-        {message.plan && message.plan.length > 0 && <PlanList entries={message.plan} />}
+        {message.plan && message.plan.length > 0 && <PlanUpdatedRow />}
         {parts.length > 0 && (
           <div className="space-y-4">
             {parts.map((part, index) => {

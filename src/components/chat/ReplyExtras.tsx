@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { CheckCircle2, ChevronRight, Circle, CircleDot, Sparkles } from "lucide-react";
+import { CheckCircle2, ChevronRight, Circle, CircleDot, ListTodo, Sparkles } from "lucide-react";
 import type { PlanEntry } from "../../types";
 
 /**
@@ -63,5 +63,18 @@ export function PlanList({ entries }: { entries: PlanEntry[] }) {
         );
       })}
     </ul>
+  );
+}
+
+/**
+ * A reply that carried a plan. The steps live in the top bar's plan menu, so
+ * the conversation keeps one quiet line instead of a list that scrolls away.
+ */
+export function PlanUpdatedRow() {
+  return (
+    <p className="mb-3 flex items-center gap-1.5 text-xs text-fg-subtle">
+      <ListTodo className="h-3.5 w-3.5" aria-hidden="true" />
+      Updated the plan
+    </p>
   );
 }

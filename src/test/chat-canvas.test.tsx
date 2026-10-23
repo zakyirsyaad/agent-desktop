@@ -499,7 +499,7 @@ describe("ACP chat content", () => {
     expect(screen.getByText(/Always allow/)).toBeDefined();
   });
 
-  it("renders the agent's thinking collapsed and its plan with statuses", () => {
+  it("renders the agent's thinking collapsed and its plan as one updated line", () => {
     render(
       <ChatCanvas
         messages={[
@@ -520,9 +520,10 @@ describe("ACP chat content", () => {
 
     expect(screen.getByText("Thinking")).toBeDefined();
     expect(screen.getByText("First I will read the parser")).toBeDefined();
-    const plan = screen.getByRole("list", { name: "Plan" });
-    expect(within(plan).getAllByRole("listitem")).toHaveLength(2);
-    expect(within(plan).getByText("Split it in two")).toBeDefined();
+    expect(screen.getByText("Updated the plan")).toBeDefined();
+    // The steps live in the top bar's plan menu, not in the conversation.
+    expect(screen.queryByRole("list", { name: "Plan" })).toBeNull();
+    expect(screen.queryByText("Split it in two")).toBeNull();
   });
 
   it("shows an ACP tool call by its title, without empty parentheses", () => {

@@ -110,6 +110,30 @@ describe("Popout windows", () => {
     });
   });
 
+  it("shows the session's plan from the snapshot it is sent", async () => {
+    await act(async () => {
+      render(<PopoutApp sessionId="s-1" />);
+    });
+    await deliver("session-snapshot", {
+      sessionId: "s-1",
+      session: runningSession,
+      messages: [
+        {
+          id: "m-1",
+          role: "agent",
+          content: "Working on it",
+          timestamp: 1,
+          plan: [
+            { content: "Read the parser", status: "completed" },
+            { content: "Run the tests", status: "in_progress" },
+          ],
+        },
+      ],
+    });
+
+    expect(screen.getByRole("button", { name: "Plan (1 of 2 done)" })).toBeDefined();
+  });
+
   it("shows the history note for a resumed import with no messages", async () => {
     await act(async () => {
       render(<PopoutApp sessionId="s-1" />);
