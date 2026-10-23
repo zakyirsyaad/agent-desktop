@@ -23,6 +23,26 @@ describe("currentPlan", () => {
     expect(currentPlan(messages)).toEqual([step("Keep me", "pending")]);
   });
 
+  it("forgets an earlier turn's plan once you send a new message", () => {
+    // A finished plan from yesterday is not what the agent is doing now.
+    const messages: ChatMessage[] = [
+      { id: "a-1", role: "agent", content: "", timestamp: 1, plan: [step("Done step", "completed")] },
+      { id: "u-2", role: "user", content: "a quick question", timestamp: 2 },
+      { id: "a-2", role: "agent", content: "the answer", timestamp: 3 },
+    ];
+
+    expect(currentPlan(messages)).toBeUndefined();
+  });
+
+  it("keeps the plan of a turn that just ended until the next message", () => {
+    const messages: ChatMessage[] = [
+      { id: "u-1", role: "user", content: "go", timestamp: 1 },
+      { id: "a-1", role: "agent", content: "", timestamp: 2, plan: [step("Step", "completed")], isComplete: true },
+    ];
+
+    expect(currentPlan(messages)).toEqual([step("Step", "completed")]);
+  });
+
   it("has no plan before the agent reports one", () => {
     expect(currentPlan([])).toBeUndefined();
     expect(

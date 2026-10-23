@@ -1,11 +1,12 @@
 import type { ChatMessage, PlanEntry } from "../types";
 
 /**
- * The plan a session is on: the newest reply the agent reported one for.
- * Older replies keep the plan they showed; an empty plan is not a plan.
+ * The plan a session is on: the newest one the agent reported in the current
+ * turn (since your last message). An earlier turn's plan is not what the agent
+ * is doing now; that reply still opens its own steps. An empty plan is not a plan.
  */
 export function currentPlan(messages: readonly ChatMessage[]): PlanEntry[] | undefined {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
+  for (let i = messages.length - 1; i >= 0 && messages[i].role !== "user"; i -= 1) {
     const plan = messages[i].plan;
     if (plan && plan.length > 0) return plan;
   }
