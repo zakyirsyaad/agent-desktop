@@ -1,5 +1,5 @@
-import { memo } from "react";
-import { CheckCircle2, ChevronRight, Circle, CircleDot, Sparkles } from "lucide-react";
+import { memo, useState } from "react";
+import { CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDot, ListTodo, Sparkles } from "lucide-react";
 import type { PlanEntry } from "../../types";
 
 /**
@@ -63,5 +63,34 @@ export function PlanList({ entries }: { entries: PlanEntry[] }) {
         );
       })}
     </ul>
+  );
+}
+
+/**
+ * A reply that carried a plan. The current steps live in the top bar's plan
+ * menu, so the conversation keeps one quiet line, which opens the steps this
+ * reply reported.
+ */
+export function PlanUpdatedRow({ entries }: { entries: PlanEntry[] }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const Chevron = isOpen ? ChevronDown : ChevronRight;
+  return (
+    <div className="mb-3">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((open) => !open)}
+        className="flex items-center gap-1.5 rounded text-xs text-fg-subtle hover:text-fg-secondary focus-ring"
+      >
+        <ListTodo className="h-3.5 w-3.5" aria-hidden="true" />
+        Updated the plan
+        <Chevron className="h-3 w-3" aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <div className="mt-2">
+          <PlanList entries={entries} />
+        </div>
+      )}
+    </div>
   );
 }

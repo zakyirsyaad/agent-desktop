@@ -6,6 +6,7 @@ import {
   closeImportedTurn,
   closeTurn,
   isAwaitingPermission,
+  noteModeChange,
   pendingCardsInTurn,
   resolvePermissionCard,
   type AcpReducerContext,
@@ -355,6 +356,53 @@ describe("permission requests", () => {
 
     expect(both.map((m) => m.actionCard?.requestId)).toEqual(["perm-1", "perm-2"]);
     expect(pendingCardsInTurn(both).map((card) => card.requestId)).toEqual(["perm-1", "perm-2"]);
+  });
+
+  it("shows one card when the same request arrives twice", () => {
+    const c = ctx();
+    const once = applyPermissionRequest([], request, c);
+    const twice = applyPermissionRequest(once, request, c);
+
+    expect(twice).toHaveLength(1);
+    expect(twice[0].actionCard?.requestId).toBe("perm-1");
+    expect(pendingCardsInTurn(twice)).toHaveLength(1);
+  });
+
+  it("shows a new card when a reopened agent reuses an answered request's id", () => {
+    // JSON-RPC ids restart with each agent process, so an id seen in an
+    // earlier, answered turn says nothing about a request now.
+    const c = ctx();
+    const answered = applyPermissionRequest([], request, c).map((m) =>
+      m.actionCard ? { ...m, actionCard: { ...m.actionCard, status: "approved" as const } } : m,
+    );
+    const user: ChatMessage = { id: "u-2", role: "user", content: "go on", timestamp: 2 };
+
+    const messages = applyPermissionRequest([...answered, user], request, c);
+
+    expect(pendingCardsInTurn(messages).map((card) => card.requestId)).toEqual(["perm-1"]);
+  });
+
+  it("notes on a waiting card that the mode changed after it was asked", () => {
+    const c = ctx();
+    const withCard = applyPermissionRequest([], request, c);
+    const answered = resolvePermissionCard(withCard, withCard[0].actionCard!.id, "allow");
+
+    const askedBefore = new Set([withCard[0].actionCard!.id]);
+
+    expect(noteModeChange(withCard, askedBefore)[0].actionCard?.modeChanged).toBe(true);
+    expect(noteModeChange(answered, askedBefore)[0].actionCard?.modeChanged).toBeUndefined();
+  });
+
+  it("leaves a card asked after the mode change unmarked", () => {
+    // The agent may ask while set_mode is in flight: that request is in the new mode.
+    const c = ctx();
+    const first = applyPermissionRequest([], request, c);
+    const askedBefore = new Set([first[0].actionCard!.id]);
+    const both = applyPermissionRequest(first, { ...request, requestId: "perm-2" }, c);
+
+    const noted = noteModeChange(both, askedBefore);
+
+    expect(noted.map((m) => m.actionCard?.modeChanged)).toEqual([true, undefined]);
   });
 
   it("closing a turn closes every unanswered request, not only the last one", () => {

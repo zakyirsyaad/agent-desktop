@@ -56,3 +56,15 @@ fn inline_styles_stay_allowed_in_the_bundled_app() {
         .unwrap()
         .contains("style-src 'self' 'unsafe-inline'"));
 }
+
+/// Attached images are served by the asset protocol. Its scope must start
+/// empty: the backend adds one checked image at a time, so the webview can
+/// never load an arbitrary file.
+#[test]
+fn the_asset_protocol_starts_with_an_empty_scope() {
+    let config = tauri_config();
+    let asset = &config["app"]["security"]["assetProtocol"];
+
+    assert_eq!(asset["enable"], true, "{asset}");
+    assert_eq!(asset["scope"], serde_json::json!([]), "{asset}");
+}

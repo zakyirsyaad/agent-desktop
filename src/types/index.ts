@@ -172,6 +172,8 @@ export interface ActionCard {
   requestId?: string | number;
   /** The option the user picked, once answered. */
   chosenOptionId?: string;
+  /** The mode changed after the agent asked; the card still needs its answer. */
+  modeChanged?: boolean;
 }
 
 /** A command an agent offers, typed as `/name` in the prompt. */

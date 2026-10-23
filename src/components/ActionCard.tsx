@@ -92,6 +92,12 @@ export function ActionCard({ card, onChoose, disabled = false }: ActionCardProps
         </div>
       )}
 
+      {card.status === "pending" && card.modeChanged && (
+        <p className="mt-2 text-[11px] text-fg-subtle">
+          The permission mode changed after the agent asked. This request was made before the switch, so it still needs an answer.
+        </p>
+      )}
+
       <PermissionChoices card={card} disabled={disabled} onChoose={onChoose} />
     </div>
   );

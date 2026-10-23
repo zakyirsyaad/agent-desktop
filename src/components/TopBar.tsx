@@ -10,8 +10,10 @@ import {
 import { IconButton } from "./ui/IconButton";
 import { DiffStatChip } from "./changes/DiffStatChip";
 import { BackgroundTasksMenu, type BackgroundTasksMenuProps } from "./topbar/BackgroundTasksMenu";
+import { PlanMenu } from "./topbar/PlanMenu";
 import { PullRequestChip } from "./topbar/PullRequestChip";
 import type { PullRequestStatus } from "../hooks/usePullRequest";
+import type { PlanEntry } from "../types";
 
 /**
  * Left inset reserved for the native macOS traffic lights.
@@ -53,6 +55,8 @@ export interface TopBarProps {
   onOpenSettings?: () => void;
   /** What is running in the background; the menu is hidden when absent. */
   backgroundTasks?: BackgroundTasksMenuProps;
+  /** The session's current plan; the menu is hidden when it has none. */
+  plan?: readonly PlanEntry[];
 }
 
 export function TopBar({
@@ -75,6 +79,7 @@ export function TopBar({
   onOpenDiff,
   onOpenSettings,
   backgroundTasks,
+  plan,
 }: TopBarProps) {
   return (
     <header
@@ -148,6 +153,8 @@ export function TopBar({
 
       {/* Right: Actions (popout, folder, overflow) */}
       <div className="flex items-center space-x-1 text-fg-muted">
+        {plan && plan.length > 0 && <PlanMenu plan={plan} />}
+
         {backgroundTasks && <BackgroundTasksMenu {...backgroundTasks} />}
 
         {onToggleChanges && diffStats && onOpenDiff && (

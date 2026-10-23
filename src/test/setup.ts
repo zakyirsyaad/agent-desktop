@@ -123,9 +123,15 @@ if (typeof window !== "undefined") {
   afterEach(async () => {
     // Imported here, not at the top: a static import would load the module before a test file's vi.mock applies.
     (await import("../lib/agent-icons")).resetAgentIcons();
+    (await import("../lib/attachment-previews")).clearAttachmentPreviews();
     (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
     delete (window as unknown as { __FAKE_ACP_LIST__?: unknown }).__FAKE_ACP_LIST__;
   });
+}
+
+/** Tauri's asset URL for a file, as the macOS webview builds it with `convertFileSrc`. */
+export function fakeConvertFileSrc(filePath: string, protocol = "asset"): string {
+  return `${protocol}://localhost/${encodeURIComponent(filePath)}`;
 }
 
 /**
@@ -134,6 +140,7 @@ if (typeof window !== "undefined") {
  * `invoke` it read before spying: that may already be a spy, and Vitest
  * hands back the same spy, so calling it would recurse.
  */
+
 export function fakeTauriInvoke(cmd: string, args?: unknown): Promise<unknown> {
   const storeResult = handleStoreCommand(cmd, args as StoreArgs | undefined);
   if (storeResult) {
@@ -165,6 +172,9 @@ export function fakeTauriInvoke(cmd: string, args?: unknown): Promise<unknown> {
   if (cmd === "workspace_details") {
     return Promise.resolve({ location: "~/developer", branch: "main" });
   }
+  if (cmd === "attachment_preview") {
+    return Promise.resolve(undefined);
+  }
   return Promise.resolve(undefined);
 }
 
@@ -174,6 +184,7 @@ if (typeof window !== "undefined") {
   const win = window as unknown as {
     __TAURI_INTERNALS__?: {
       invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+      convertFileSrc?: (filePath: string, protocol?: string) => string;
       transformCallback?: (callback: unknown, once?: boolean) => number;
       unregisterCallbackAction?: (id: number) => void;
     };
@@ -185,6 +196,7 @@ if (typeof window !== "undefined") {
   if (!win.__TAURI_INTERNALS__) {
     win.__TAURI_INTERNALS__ = {
       invoke: fakeTauriInvoke,
+      convertFileSrc: fakeConvertFileSrc,
       transformCallback: (_cb: unknown, _once?: boolean) => nextCallbackId++,
       unregisterCallbackAction: (_id: number) => {},
     };

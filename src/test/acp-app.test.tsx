@@ -207,6 +207,33 @@ describe("ACP sessions in the app", () => {
     expect(callsTo(spy, "acp_set_mode").map(([, a]) => a)).toContainEqual({ sessionId, modeId: "yolo" });
   });
 
+  it("sends a mode change at once and says a waiting request was asked before it", async () => {
+    const spy = await renderWithQwen();
+    const sessionId = await startQwenSession(spy);
+    await send("clean up");
+    await acpEvent({
+      sessionId,
+      kind: "permission",
+      requestId: "perm-8",
+      toolCall: { title: "Run rm -rf build", kind: "execute" },
+      options: [
+        { optionId: "proceed_once", name: "Allow", kind: "allow_once" },
+        { optionId: "cancel", name: "Reject", kind: "reject_once" },
+      ],
+    });
+    expect(screen.getByText("Run rm -rf build")).toBeDefined();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /permission mode: default/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: "YOLO" }));
+    });
+
+    expect(callsTo(spy, "acp_set_mode").map(([, a]) => a)).toContainEqual({ sessionId, modeId: "yolo" });
+    expect(await screen.findByText(/before the switch/)).toBeDefined();
+  });
+
   it("marks the session ended when the agent exits", async () => {
     const spy = await renderWithQwen();
     const sessionId = await startQwenSession(spy);
@@ -819,7 +846,8 @@ describe("ACP sessions in the app", () => {
       attachments: ["/Users/test/shot.png"],
     });
     const chat = within(screen.getByTestId("chat-canvas-container"));
-    expect(chat.getByText("shot.png")).toBeDefined();
+    // An attached image shows as its thumbnail, named by its file.
+    expect(await chat.findByRole("img", { name: "shot.png" })).toBeDefined();
   });
 
   it("keeps slash commands the agent announced before its session finished starting", async () => {

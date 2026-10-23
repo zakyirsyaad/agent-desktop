@@ -6,8 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::json;
 
 use zorvo_lib::store::{
-    AppStore, PersistedState, RecentFolder, SessionRecord, SessionWorktreeRecord, Settings,
-    STATE_VERSION,
+    data_dir_for, AppStore, PersistedState, RecentFolder, SessionRecord, SessionWorktreeRecord,
+    Settings, STATE_VERSION,
 };
 
 /// Builds a root path that is unique to this process and this call, so tests
@@ -771,4 +771,59 @@ fn concurrent_saves_never_share_the_scratch_file_and_leave_valid_json() {
         "no scratch file is left behind"
     );
     let _ = fs::remove_dir_all(&root);
+}
+
+/// A throttled save and an immediate one (or a second app instance) can write
+/// the same transcript at once; each must succeed and leave a whole file.
+#[test]
+fn concurrent_saves_of_one_transcript_all_succeed() {
+    let root = unique_temp_root("transcripts-concurrent");
+    let store = std::sync::Arc::new(AppStore::new(root.clone()));
+    let payloads: Vec<Vec<serde_json::Value>> = (0..8)
+        .map(|n| vec![json!({ "role": "agent", "content": "x".repeat(20_000 + n) })])
+        .collect();
+
+    let handles: Vec<_> = payloads
+        .iter()
+        .cloned()
+        .map(|messages| {
+            let store = store.clone();
+            std::thread::spawn(move || {
+                (0..20)
+                    .map(|_| store.save_transcript("s-race", &messages))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+        })
+        .collect();
+    for handle in handles {
+        handle
+            .join()
+            .expect("writer thread")
+            .expect("every save succeeds");
+    }
+
+    let saved = store.load_transcript("s-race").expect("load transcript");
+    assert!(
+        payloads.contains(&saved),
+        "the file holds one whole payload"
+    );
+    let leftovers: Vec<_> = fs::read_dir(root.join("transcripts"))
+        .expect("read transcripts dir")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "no temp file is left: {leftovers:?}");
+}
+
+/// A dev build (`pnpm tauri dev`) must never write the installed app's data:
+/// both share one identifier, and two processes on one data dir lose sessions.
+#[test]
+fn a_dev_build_keeps_its_data_beside_the_installed_apps() {
+    let base = Path::new("/Users/me/Library/Application Support/xyz.zorvo.desktop");
+
+    assert_eq!(data_dir_for(base, false), base);
+    assert_eq!(
+        data_dir_for(base, true),
+        Path::new("/Users/me/Library/Application Support/xyz.zorvo.desktop.dev")
+    );
 }

@@ -499,7 +499,19 @@ describe("ACP chat content", () => {
     expect(screen.getByText(/Always allow/)).toBeDefined();
   });
 
-  it("renders the agent's thinking collapsed and its plan with statuses", () => {
+  it("says a waiting card was asked before the mode changed", () => {
+    render(
+      <ChatCanvas
+        messages={[{ id: "m-1", role: "agent", content: "", timestamp: 1, actionCard: { ...permissionCard, modeChanged: true } }]}
+        onChooseOption={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/before the switch/)).toBeDefined();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDefined();
+  });
+
+  it("renders the agent's thinking collapsed and its plan as one updated line", () => {
     render(
       <ChatCanvas
         messages={[
@@ -520,9 +532,17 @@ describe("ACP chat content", () => {
 
     expect(screen.getByText("Thinking")).toBeDefined();
     expect(screen.getByText("First I will read the parser")).toBeDefined();
-    const plan = screen.getByRole("list", { name: "Plan" });
-    expect(within(plan).getAllByRole("listitem")).toHaveLength(2);
-    expect(within(plan).getByText("Split it in two")).toBeDefined();
+    // The current steps live in the top bar's plan menu; the reply keeps one line.
+    const row = screen.getByRole("button", { name: "Updated the plan" });
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("list", { name: "Plan" })).toBeNull();
+    expect(screen.queryByText("Split it in two")).toBeNull();
+
+    // An earlier plan stays readable: the line opens that reply's own steps.
+    fireEvent.click(row);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("list", { name: "Plan" })).toBeDefined();
+    expect(screen.getByText("Split it in two")).toBeDefined();
   });
 
   it("shows an ACP tool call by its title, without empty parentheses", () => {

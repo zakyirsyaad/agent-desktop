@@ -6,12 +6,20 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 ### Added
 
+- **Image attachments show themselves.** A picture attached from Finder, the file picker or a workspace file is a thumbnail in the composer and above the sent message, and opens larger on a click. Another file keeps its chip, and a picture that cannot be read says "Image not found" instead of showing a broken image. The backend checks the file's type by its first bytes and refuses anything over 10 MB, then lets the window load just that file, so large pictures are never copied into the window's memory.
+- **The agent's plan stays in reach.** The session's current plan sits in the top bar, beside Background tasks, with a count of the steps it has done. The conversation keeps one quiet "Updated the plan" line where the steps used to scroll away.
 - **Tool calls sit where they happened in a reply.** Each run of tools folds into one line, such as "Ran 2 commands, read 3 files", that opens on a click; a part that changes a file opens on its own so you see the diff. Older saved conversations render as they did.
 - **Background tasks lists the work itself, not only the session.** A running shell command or subagent gets its own row with its session and how long it has run, and Open jumps to it. A shell row that matches a running process is shown once, as the process, so Stop still works.
 
 ### Fixed
 
+- **The landing site uses Next.js 16.4.2.** 16.3.8 is affected by advisories GHSA-2464-fhr4-w9xw, GHSA-673q-mjm6-r5xr and GHSA-p3m5-59mp-jv5r.
+- **A permission request shows one card, and says when the mode changed after it.** A replayed or duplicated request no longer adds a second card. If you switch modes while a request waits, the card says the agent asked before the switch, so its answer is still expected.
+- **A composer menu leaves a long conversation alone.** Folder, agent, permission, model and effort menus keep their open state inside the composer, so opening or closing one does not re-render the message list; a regression test now holds that.
+- **A background pull request refresh stays quiet.** If `gh` is slow after the Mac wakes, the top bar keeps the last pull request it read instead of a red notice; the next minute or focus tries again. After three failed reads in a row, such as when you are signed out of `gh`, it stops showing checks it can no longer confirm.
 - **A long session scrolls smoothly.** Finished tool rows, diffs and outputs stay out of the page until you open them; earlier turns start collapsed, and a huge diff or output shows its first 400 rows with the rest one click away. Saved conversations without reply parts now get the same compact rows.
+- **Saving a conversation no longer fails while its agent runs.** Two saves of one session at once shared a scratch file, so one could move it away from the other and report "Failed to replace … No such file or directory". Each save now has its own scratch file and waits for the one before it.
+- **A dev build keeps its own data.** `pnpm tauri dev` now stores sessions in `xyz.zorvo.desktop.dev` beside the installed app's folder, so testing never writes your daily sessions and the two never save over each other.
 - **A shell command that replaces its shell shows up in Background tasks.** Qwen Code starts each command in its own process group and a simple command replaces the shell, so the scan saw no shell and listed nothing; it now lists the group leader too.
 
 - **Scrolling up while the agent streams leaves the bottom at once.** A small upward scroll, wheel or key keeps your place, so a streaming reply no longer shakes the view or snaps it back down while you read.
