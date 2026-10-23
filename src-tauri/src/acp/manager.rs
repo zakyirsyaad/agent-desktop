@@ -413,13 +413,17 @@ impl AcpManager {
         Ok(response["configOptions"].clone())
     }
 
-    /// Stops every session; returns how many there were.
-    pub fn stop_all(&self) -> usize {
-        let ids: Vec<String> = self
-            .routes
+    /// The app session ids of every running session, in no particular order.
+    pub fn session_ids(&self) -> Vec<String> {
+        self.routes
             .lock()
             .map(|routes| routes.sessions.keys().cloned().collect())
-            .unwrap_or_default();
+            .unwrap_or_default()
+    }
+
+    /// Stops every session; returns how many there were.
+    pub fn stop_all(&self) -> usize {
+        let ids = self.session_ids();
         ids.iter().for_each(|id| self.stop(id));
         ids.len()
     }

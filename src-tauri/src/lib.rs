@@ -149,18 +149,32 @@ fn terminate_session(
 
 /// Loads the persisted app state, or the default state on a first launch.
 ///
-/// Ends every agent the backend still runs. The UI calls this when it loads:
-/// a webview reload leaves the backend (and its agents) running, but the new
-/// UI knows none of them and shows their sessions as ended, so they would
-/// only linger, holding sessions the UI may resume in a new process. Workspace
-/// shells go with the processes under them: the new UI has no tabs for them.
-/// Reading those processes runs `ps`, so the command is `async`.
-#[tauri::command(async)]
+/// Ends every agent and terminal a previous UI left running. The UI calls this
+/// when it loads: a webview reload leaves the backend (and its agents) running,
+/// but the new UI knows none of them and shows their sessions as ended, so they
+/// would only linger, holding sessions the UI may resume in a new process.
+/// Workspace shells go with the processes under them: the new UI has no tabs
+/// for them. Returns how many sessions are being ended.
+///
+/// Sync on purpose, like `send_input`: sync commands run on the main thread in
+/// the order the webview sent them, so the list is taken before any session
+/// the new UI starts later is registered, and only the listed ones are ended.
+/// The ending itself (`ps`, kills) runs on its own thread, off the main one.
+#[tauri::command]
 fn end_orphaned_sessions(
+    app: AppHandle,
     pty: State<'_, PtySessionManager>,
     acp: State<'_, acp::manager::AcpManager>,
 ) -> usize {
-    workspace_terminal::end_all_sessions(&pty) + acp.stop_all()
+    let terminals = pty.session_ids();
+    let agents = acp.session_ids();
+    let count = terminals.len() + agents.len();
+    std::thread::spawn(move || {
+        workspace_terminal::end_sessions(&app.state::<PtySessionManager>(), &terminals);
+        let acp = app.state::<acp::manager::AcpManager>();
+        agents.iter().for_each(|id| acp.stop(id));
+    });
+    count
 }
 
 /// Reads the state file from disk, so it stays off the main thread.
