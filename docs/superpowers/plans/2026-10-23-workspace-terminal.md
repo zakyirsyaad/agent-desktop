@@ -86,11 +86,11 @@ Run: `cd src-tauri && cargo test --test workspace_terminal_test`
 Expected: compile errors, because `zorvo_lib::workspace_terminal` does not exist yet.
 
 - [ ] **Step 3: Implement the module, the commands and the event routing**
-  - **`close`** maps `kill_session`'s "not found" error to `Ok(())`. A shell that exited has already been removed by its reader thread.
+  - **`close`** returns `Ok(())` when `!manager.has_session(id)`, without matching error text: a shell that exited has already been removed by its reader thread. Otherwise it calls `kill_session`.
   - **`workspace_terminal_open`**:
     1. `ensure_known_workspace`;
     2. canonicalize the path;
-    3. `shell_from(&cached_user_env()?)`;
+    3. `shell_from(&cached_user_env().unwrap_or_default())`. If the login environment could not be read, the shell still starts, as `/bin/zsh`;
     4. `start_shell`;
     5. return the id.
   - **`lib.rs`.** In the PTY callback, replace the `is_sign_in_terminal_id` branch with a `match pty_event_route(session_id)`: the sign-in channel keeps `sign_in_event_payload`, and the workspace channel uses `event_payload`. Register both commands. Make the module `pub mod` if the integration test needs it, as `store` is.
@@ -166,6 +166,7 @@ export function useWorkspaceTerminals(onNotice: (message: string) => void): Work
   - `keeps output that arrives before open resolves`: the fake open emits output `"$ "` for `shell-1` before resolving `"shell-1"`, then `output.snapshot("shell-1")` is `"$ "`.
   - `marks a shell that exits before open resolves as exited`.
   - `marks a tab exited on its exit event`.
+  - `ignores events after it unmounts`: unmount, emit output for a known id, and nothing is appended. Under `React.StrictMode` the listener is attached, detached and attached again, and `unlisten` resolves later, so a disposed flag checked inside the callback is what keeps output from being appended twice.
   - `ignores events for a closed tab`: after `close(id)`, a late exit adds nothing, `output.has(id)` is false, and `workspace_terminal_close` was called with `{ id }`.
   - `reports a failed open and adds no tab`: the open rejects with `"/w/gone is not one of your workspaces"`, `onNotice` gets `Could not open a terminal: /w/gone is not one of your workspaces`, and `tabsFor("/w/gone")` is `[]`.
   - `two quick opens make two tabs`: `Promise.all([open(f), open(f)])` gives two distinct ids, and `tabsFor(f)` has both.
@@ -178,7 +179,7 @@ Run: `pnpm vitest run src/test/use-workspace-terminals.test.tsx`
 Expected: FAIL, the module is not found.
 
 - [ ] **Step 3: Implement the hook**
-  - One `listen("workspace-terminal")` for the hook's lifetime.
+  - One `listen("workspace-terminal")` for the hook's lifetime. The callback returns early once the effect's cleanup has set `disposed`.
   - Output goes to the store unless the id is in a closed-ids ref.
   - Exits go to an `exited` set held in state, plus a ref, so that an exit before `open` resolves still lands.
   - Tabs are state: an array, changed only by open, close and exit.
@@ -230,6 +231,7 @@ git commit -m "feat: let a terminal view leave focus where it is"
 
 **Interfaces:**
 - Consumes: `WorkspaceTerminals` and `WorkspaceTerminalTab` (Task 3), and `TerminalView` with `autoFocus` and `label` (Task 4).
+- Note: a worktree session's folder name is its worktree directory's name (`filesFolder` falls back to `folderNameOf(cwd)`), so its tab reads like `agent-fix-parser · agent/fix-parser`. That is expected.
 - Produces:
   - `export function tabLabel(folderName: string, branch: string | undefined, number: number): string` gives `"zorvo · main"` for number 1, `"zorvo · main 2"` for number 2, and `"zorvo"` without a branch. The branch is the folder's current one, passed in at render.
   - `export interface TerminalDrawerProps { folderPath: string; folderName: string; branch?: string; terminals: WorkspaceTerminals; onHide: () => void }`
@@ -237,7 +239,7 @@ git commit -m "feat: let a terminal view leave focus where it is"
 
 - [ ] **Step 1: Write the failing tests**
   - `tabLabel`: the three cases above.
-  - `opens a first shell when the folder has none`: mounting with an empty `tabsFor` calls `open(folderPath)` once.
+  - `shows an empty state for a folder without terminals`: with an empty `tabsFor`, the drawer shows `No terminal in zorvo.` and a `New terminal` button, and **does not** call `open` by itself. Auto-opening from an effect would start two shells under StrictMode, and would start shells unasked when you switch to a folder.
   - `shows the folder's tabs and switches between them`: two tabs labelled `zorvo · main` and `zorvo · main 2`. Clicking the second gives it `aria-selected="true"` and renders its `TerminalView` (label = tab label).
   - `New terminal adds a tab, and its view takes focus`: the button `New terminal` calls `open`, and the new tab's view gets `autoFocus`.
   - `a session switch does not take focus`: rerender with another `folderPath` whose tabs exist; the active view has `autoFocus={false}`.
@@ -269,7 +271,7 @@ git commit -m "feat: add the terminal drawer"
 **Files:**
 - Modify:
   - `src/components/TopBar.tsx`: new props `isTerminalOpen?: boolean` and `onToggleTerminal?: () => void`. The button uses lucide `SquareTerminal`, `aria-label="Terminal"` and `aria-pressed`, sits beside the files button, and is hidden when `onToggleTerminal` is absent.
-  - `src/App.tsx`: the hook call and drawer state. The drawer's folder is `shownFolderPath` (a session's `cwd` is already its worktree when it has one); its name is `filesFolder?.name`; its branch is `workspaceDetails?.branch`. Wrap the `<article>` and the right panels in `<div className="flex min-w-0 flex-1 flex-col"><div className="flex min-h-0 flex-1">…</div>{drawer}</div>`, so the drawer spans both.
+  - `src/App.tsx`: the hook call (before `useSessionActions`, which takes `closeFolder`) and the drawer state. The toggle handler opens a shell when it opens the drawer on a folder with no tabs. The drawer's folder is `shownFolderPath` (a session's `cwd` is already its worktree when it has one); its name is `filesFolder?.name`; its branch is `workspaceDetails?.branch`. Wrap the `<article>` and the right panels in `<div className="flex min-w-0 flex-1 flex-col"><div className="flex min-h-0 flex-1">…</div>{drawer}</div>`, so the drawer spans both.
   - `src/lib/session-worktree.ts`: `removeSessionWorktree(session, otherSessions, stopped, onRemoving?: (path: string) => void)`, called right before `invoke('remove_session_worktree', …)`.
   - `src/hooks/useSessionActions.ts`: a new dep `closeTerminals?: (folderPath: string) => void`, passed as `onRemoving`.
   - `CHANGELOG.md`, `CLAUDE.md`, `README.md`, as the spec's Docs section says.
@@ -279,7 +281,9 @@ git commit -m "feat: add the terminal drawer"
 - Consumes: Tasks 3–5.
 
 - [ ] **Step 1: Write the failing app-level tests** (render `App` with the fake store, as `acp-app.test.tsx` does):
-  - `the Terminal button opens a shell in the session's folder`: clicking `Terminal` gives `aria-pressed="true"` and calls `workspace_terminal_open` with the session's `cwd`.
+  - `the Terminal button opens a shell in the session's folder`: clicking `Terminal` gives `aria-pressed="true"` and calls `workspace_terminal_open` exactly once with the session's `cwd`, even under `React.StrictMode` (wrap the render). The open happens in the click handler, not in an effect.
+  - `opening the drawer again does not add a shell`: hide, then click `Terminal` again; there is no second open while the folder has a tab.
+  - `switching to a folder without terminals opens none`: with the drawer open, switching to session B (another folder) shows the empty state, and `workspace_terminal_open` is not called for B.
   - `a worktree session's terminal starts in its worktree`: a session with `worktree.path` as `cwd` opens there, not in `repoPath`.
   - `switching sessions keeps the first folder's terminal`: open a terminal in session A, switch to B (another folder), then back to A. No second open for A, and A's tab is still there with its output.
   - `no Terminal button without a folder`.

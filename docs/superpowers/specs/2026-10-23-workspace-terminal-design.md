@@ -20,7 +20,7 @@ No sign-in, no prompt: the shell opens at once.
 | Placement | A drawer along the bottom of the content area, under the chat column (composer included) and under the right panel (Files, Changes, Diff), across their full width. The right panel stays open above it, so a diff and a test run show together. |
 | Tabs | Several per folder. The drawer shows a tab bar with a **+** button; the first tab opens by itself when the drawer opens on a folder that has none. |
 | Which folder | The folder of the session on screen: its worktree when it has one, else its workspace. A new-session draft uses its picked folder. No folder means no drawer button. |
-| Switching sessions | The drawer shows the tabs of the shown folder only. Other folders' shells keep running and come back, scrollback included, when you return. |
+| Switching sessions | The drawer shows the tabs of the shown folder only. Other folders' shells keep running and come back, scrollback included, when you return. A folder with no terminal shows "No terminal in <folder>." and **New terminal**; a shell is never started unasked by a switch. |
 | Shell | `$SHELL -l` from the resolved login environment (`env_resolver.rs`), falling back to `/bin/zsh`. The UI never sends a command, argument or environment. |
 | Lifetime | Closing a tab ends its shell. Hiding the drawer does not. A webview reload ends every shell (`end_orphaned_sessions`, which already kills every PTY). Quitting Zorvo ends every shell. Deleting a worktree session ends the shells in that worktree. Nothing is saved to disk; a restart starts with no terminals. |
 | Keyboard | Every key, Escape and Ctrl+C included, goes to the shell. The drawer opens and closes only with buttons; there is no global shortcut (the user declined shortcuts). |
