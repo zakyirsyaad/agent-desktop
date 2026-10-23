@@ -7,6 +7,7 @@
 //! the user attached. What this command will read is bounded instead by the
 //! image extension, the file's own magic bytes, and [`MAX_PREVIEW_BYTES`].
 
+use std::io::Read;
 use std::path::Path;
 
 use base64::Engine as _;
@@ -42,6 +43,14 @@ fn sniff_mime(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
+fn too_large(path: &Path) -> String {
+    format!(
+        "Cannot preview {}: larger than {} MB",
+        path.display(),
+        MAX_PREVIEW_BYTES / (1024 * 1024)
+    )
+}
+
 /// Reads an attached image and returns it as a `data:` URL, or an error the
 /// composer shows on the attachment's chip.
 ///
@@ -62,14 +71,16 @@ pub fn preview_data_url(path: &Path) -> Result<String, String> {
         return Err(format!("Cannot preview {}: not a file", path.display()));
     }
     if metadata.len() > MAX_PREVIEW_BYTES {
-        return Err(format!(
-            "Cannot preview {}: larger than {} MB",
-            path.display(),
-            MAX_PREVIEW_BYTES / (1024 * 1024)
-        ));
+        return Err(too_large(path));
     }
-    let bytes =
-        std::fs::read(path).map_err(|e| format!("Cannot preview {}: {}", path.display(), e))?;
+    // Bounded read: a file that grew after the size check still stops at the cap.
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|file| file.take(MAX_PREVIEW_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(|e| format!("Cannot preview {}: {}", path.display(), e))?;
+    if bytes.len() as u64 > MAX_PREVIEW_BYTES {
+        return Err(too_large(path));
+    }
     let actual = sniff_mime(&bytes).ok_or_else(|| {
         format!(
             "Cannot preview {}: its contents are not an image",

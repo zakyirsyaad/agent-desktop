@@ -1,7 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
-/** Preview data URLs by path; null marks a file that could not be read. */
-const previews = new Map<string, string | null>();
+/**
+ * How many previews stay in memory. Each is a data URL of up to ~13 MB, so
+ * the oldest one read makes room once the cache is full.
+ */
+export const MAX_CACHED_PREVIEWS = 24;
+
+/** Preview data URLs by path, oldest read first. */
+const previews = new Map<string, string>();
 
 export interface CachedPreview {
   /** False until the path's preview has been asked for. */
@@ -11,26 +17,32 @@ export interface CachedPreview {
 
 /** The preview already read for `path`, if any. */
 export function cachedPreview(path: string): CachedPreview {
-  return previews.has(path) ? { found: true, src: previews.get(path) ?? null } : { found: false, src: null };
+  const src = previews.get(path);
+  return src === undefined ? { found: false, src: null } : { found: true, src };
 }
 
 /**
  * Reads an attached image as a data URL, once per path for the whole window:
  * the composer's thumbnail and the sent message's thumbnail share one read.
- * A failure is remembered too, so a missing file is not asked for again.
+ * A failure is not remembered: a screenshot still being written, or a drive
+ * not yet mounted, can be read the next time it is shown.
  */
 export function loadPreview(path: string): Promise<string | null> {
   const cached = previews.get(path);
-  if (cached !== undefined) return Promise.resolve(cached);
+  if (cached !== undefined) {
+    // Read again, so it is the newest entry and the last to be dropped.
+    previews.delete(path);
+    previews.set(path, cached);
+    return Promise.resolve(cached);
+  }
   return invoke<string>("attachment_preview", { path }).then(
     (src) => {
       previews.set(path, src);
+      const oldest = previews.keys().next().value;
+      if (previews.size > MAX_CACHED_PREVIEWS && oldest !== undefined) previews.delete(oldest);
       return src;
     },
-    () => {
-      previews.set(path, null);
-      return null;
-    },
+    () => null,
   );
 }
 
