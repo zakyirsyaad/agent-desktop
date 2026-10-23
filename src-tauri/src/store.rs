@@ -410,10 +410,12 @@ impl AppStore {
         let json = serde_json::to_string(messages)
             .map_err(|e| format!("Failed to serialize transcript '{}': {}", session_id, e))?;
 
+        // Recovered like `state_write`: the lock only orders writes and guards
+        // no data, so a panic in another save must not stop this one.
         let _guard = self
             .transcript_write
             .lock()
-            .map_err(|_| "The transcript lock was poisoned".to_string())?;
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         atomic_write(
             &self.transcript_path(session_id),
             &dir.join(unique_tmp_name(session_id)),
@@ -531,4 +533,37 @@ fn unix_millis_now() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A panic while a save holds the lock must not stop every later save:
+    /// the lock only orders writes, it guards no data a panic could leave half-done.
+    #[test]
+    fn a_poisoned_transcript_lock_still_lets_saves_through() {
+        let root = std::env::temp_dir().join(format!(
+            "zorvo-store-poison-{}-{}",
+            std::process::id(),
+            unix_millis_now()
+        ));
+        let store = std::sync::Arc::new(AppStore::new(root.clone()));
+        let poisoner = store.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.transcript_write.lock().unwrap();
+            panic!("poison the transcript lock");
+        })
+        .join();
+        assert!(store.transcript_write.is_poisoned());
+
+        store
+            .save_transcript(
+                "s-1",
+                &[serde_json::json!({ "role": "user", "content": "hi" })],
+            )
+            .expect("a save after the poison");
+
+        fs::remove_dir_all(root).ok();
+    }
 }
