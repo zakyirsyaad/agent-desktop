@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
+/** How long a start waits for the sweep before going ahead anyway. */
+export const SWEEP_WAIT_LIMIT_MS = 10_000;
+
 /** Every sweep started so far, settled whether each worked or not. Null when none was started. */
 let latest: Promise<void> | null = null;
 
@@ -18,11 +21,22 @@ export function sweepOrphans(): Promise<void> {
 }
 
 /**
- * Resolves once every sweep started so far has settled, or at once when none
- * was started. A session or shell started before a sweep ran would be ended by it.
+ * Resolves once every sweep started so far has settled, at once when none was
+ * started, or after `SWEEP_WAIT_LIMIT_MS` at the latest. A session or shell
+ * started before a sweep ran would be ended by it.
  */
 export function orphanSweepDone(): Promise<void> {
-  return latest ?? Promise.resolve();
+  const sweeps = latest;
+  if (!sweeps) return Promise.resolve();
+  // A sweep that never ends (a wedged ps or kill) must not freeze every start:
+  // past the limit the wait gives up, and a start may then race the sweep.
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, SWEEP_WAIT_LIMIT_MS);
+    void sweeps.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 /** Forgets the sweep, for tests. */

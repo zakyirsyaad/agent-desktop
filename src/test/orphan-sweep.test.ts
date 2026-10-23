@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { orphanSweepDone, resetOrphanSweep, sweepOrphans } from "../lib/orphan-sweep";
+import { orphanSweepDone, resetOrphanSweep, sweepOrphans, SWEEP_WAIT_LIMIT_MS } from "../lib/orphan-sweep";
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 
@@ -55,6 +55,23 @@ describe("orphan sweep", () => {
 
   it("is done at once when no sweep was started", async () => {
     expect(await settles(orphanSweepDone())).toBe(true);
+  });
+
+  it("stops waiting for a sweep that never ends, so nothing hangs forever", async () => {
+    // A wedged ps or kill must not freeze every session start, terminal and sign-in.
+    vi.useFakeTimers();
+    try {
+      holdSweep();
+      void sweepOrphans();
+      const done = orphanSweepDone();
+
+      vi.advanceTimersByTime(SWEEP_WAIT_LIMIT_MS - 1);
+      expect(await settles(done)).toBe(false);
+      vi.advanceTimersByTime(1);
+      expect(await settles(done)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits for every sweep still running, not only the newest", async () => {
