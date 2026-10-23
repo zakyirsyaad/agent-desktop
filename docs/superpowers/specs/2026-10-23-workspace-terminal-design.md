@@ -48,11 +48,17 @@ New module `src-tauri/src/workspace_terminal.rs`.
      `store.rs`); a draft's picked folder passes through recent folders.
   2. Pick the shell: `SHELL` from `env_resolver::cached_user_env()`, if it is an absolute path to
      an executable file; else `/bin/zsh`.
-  3. Make a fresh id `shell-<random>` in the backend, and
-     `PtySessionManager::start_session(id, path, shell, ["-l"], [])`.
-  4. Return the id.
+  3. Make a fresh id in the backend: `shell-<n>` from a process-wide `AtomicU64` counter. The
+     id needs no randomness, because only ids the manager holds reach a PTY. That means no new
+     dependency.
+  4. `PtySessionManager::start_session(id, canonical_path, shell, ["-l"], [])`, through a
+     helper `start_shell(manager, id, folder, shell)` that tests can call with an explicit
+     shell.
+  5. Return the id.
 - `workspace_terminal_close(id: String) -> Result<(), String>`: accepts only an id with the
-  `shell-` prefix, then `PtySessionManager::kill_session`. An id already gone is success.
+  `shell-` prefix, then `PtySessionManager::kill_session`. A shell that exited by itself has
+  already left the manager (its reader thread removes it), so `kill_session`'s "not found" is
+  mapped to success here.
 - `is_workspace_terminal_id(id) -> bool`, the same shape as `is_sign_in_terminal_id`: prefix
   plus a bounded `[A-Za-z0-9]` suffix.
 - **Input and resize** stay on `send_input` and `resize_session`. They only reach ids that exist
@@ -78,25 +84,44 @@ New module `src-tauri/src/workspace_terminal.rs`.
   Because the store outlives the drawer, a tab shown again replays its scrollback through
   `TerminalView`, which already replays a snapshot and then follows new output. Its API is
   `tabsFor(folder)`, `open(folder)`, `close(id)`, `closeFolder(folder)` and `send` / `resize`.
-- **Labels.** The folder name, plus the branch for a repository: `zorvo · main`. A second tab
-  becomes `zorvo · main 2`.
+  Events for an id the hook no longer holds (the exit that follows a close) are ignored, and
+  `close` forgets the id's output in the store.
+- **Labels.** Worked out at render, not stored: the folder name, plus the folder's current branch
+  for a repository (`zorvo · main`), so a `git switch` typed in the shell shows in the label. A
+  tab keeps its number among the folder's tabs: `zorvo · main 2`.
 - **`src/components/terminal/TerminalDrawer.tsx`.** Along the bottom of the content area,
   under both the chat column and the right panel, with:
   - a resize handle on its top edge: drag it, or use arrow up and down when it has focus, with
-    `aria-orientation="horizontal"`, `role="separator"` and `focus-ring`;
+    `aria-orientation="horizontal"`, `role="separator"` and `focus-ring`. The height starts at
+    280 px, stays between 120 px and 70% of the window, and is not saved;
   - the tab bar: each tab is a button with a close **×**, then **+** (`aria-label="New terminal"`)
     and a hide button;
   - the active tab's `TerminalView`.
+
+  **Focus.** `TerminalView` focuses its terminal whenever it mounts, which would take focus from
+  the composer every time you switch sessions with the drawer open. It gets an `autoFocus` prop,
+  so the terminal takes focus only when you open the drawer, add a tab or pick one, never on a
+  session switch.
 
   When a shell exits, its tab shows "The shell exited." and a **Start a new shell** button,
   which opens a fresh tab in the same folder. The terminal stays dark in both themes
   (`bg-terminal-bg`).
 - **Top bar.** A terminal button (lucide `SquareTerminal`) with `aria-pressed`, shown when the
   view has a folder. Opening the drawer on a folder without tabs opens one.
-- **Deleting a worktree session.** `removeSessionWorktree` (`src/lib/session-worktree.ts`) closes
-  the worktree folder's terminals (`closeFolder`) before it removes the worktree.
+- **Deleting a worktree session.** `removeSessionWorktree` (`src/lib/session-worktree.ts`) takes
+  an `onRemoving` callback, and `useSessionActions.deleteSession` passes `closeFolder` for the
+  worktree's path. It runs right before `remove_session_worktree`, so a worktree another session
+  still uses, or one kept because its agent would not stop, keeps its shells.
 - **`App.tsx`** gets a hook call, a prop to `TopBar` and the drawer's mount; the logic stays in
   the hook.
+
+## Docs
+
+- `CHANGELOG.md`: a line under `Unreleased` → `Added`.
+- `CLAUDE.md`: "What this is" says a PTY is used only for an agent's terminal sign-in. That
+  changes, so add a **Workspace terminal** paragraph to Architecture (ids, event, lifetime, the
+  rule that the UI sends only a folder).
+- `README.md`: the feature list.
 
 ## Risks accepted
 
@@ -111,8 +136,12 @@ New module `src-tauri/src/workspace_terminal.rs`.
 Rust (`src-tauri/tests/workspace_terminal_test.rs`, and unit tests in the module):
 
 - an unknown folder is refused before anything starts;
-- a shell starts in the given folder: write `pwd` to it and read the folder back from its output;
-- close ends the process, and closing an id that is already gone succeeds;
+- a shell starts in the given folder: through `start_shell` with `/bin/sh` (no user dotfiles),
+  write `pwd` and read the folder back from its output. CI runs Rust on `macos-latest`;
+- close ends the process, closing a shell that already exited succeeds, and ids from the counter
+  never repeat;
+- `RunEvent::Exit` ends every PTY: the handler calls one `kill_all` function, which is tested
+  directly;
 - close and the id check refuse an id without the `shell-` prefix, and a `signin-` id;
 - the shell falls back to `/bin/zsh` when `SHELL` is missing or not an executable path;
 - the PTY event routing sends `shell-` ids to `workspace-terminal` and `signin-` ids to
@@ -128,7 +157,10 @@ Vitest:
   its output;
 - the top-bar button toggles the drawer, and its button is absent without a folder;
 - deleting a worktree session closes its terminals;
-- Escape typed in the terminal does not close the drawer.
+- Escape typed in the terminal does not close the drawer;
+- switching sessions with the drawer open leaves focus where it was, while opening the drawer
+  focuses the terminal;
+- a tab's label follows the folder's current branch.
 
 Manual, in `pnpm tauri dev` and in a release build (`pnpm tauri build`):
 
