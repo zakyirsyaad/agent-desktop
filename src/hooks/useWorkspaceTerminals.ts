@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { orphanSweepDone } from '../lib/orphan-sweep';
 import { createPtyOutputStore, type PtyOutputStore } from '../lib/pty-output-store';
+import { errorMessage } from '../lib/files';
 
 export interface WorkspaceTerminalTab {
   id: string;
@@ -41,10 +42,6 @@ const NO_TABS: WorkspaceTerminalTab[] = [];
 function normalizePath(path: string): string {
   const trimmed = path.replace(/\/+$/, '');
   return trimmed === '' && path.startsWith('/') ? '/' : trimmed;
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -109,7 +106,7 @@ export function useWorkspaceTerminals(onNotice: (message: string) => void): Work
         await orphanSweepDone();
         opened = await invoke<OpenedTerminal>('workspace_terminal_open', { path });
       } catch (error) {
-        onNoticeRef.current(`Could not open a terminal: ${errorText(error)}`);
+        onNoticeRef.current(`Could not open a terminal: ${errorMessage(error)}`);
         return null;
       }
       const { id, folder } = opened;
