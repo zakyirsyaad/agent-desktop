@@ -56,9 +56,13 @@ New module `src-tauri/src/workspace_terminal.rs`.
      shell.
   5. Return the id.
 - `workspace_terminal_close(id: String) -> Result<(), String>`: accepts only an id with the
-  `shell-` prefix, then `PtySessionManager::kill_session`. A shell that exited by itself has
-  already left the manager (its reader thread removes it), so `kill_session`'s "not found" is
-  mapped to success here.
+  `shell-` prefix. It reads the shell's process tree while the shell still runs (afterwards
+  launchd adopts the children) and ends it with TERM, then KILL after a grace period
+  (`background_processes::end_tree`), then `PtySessionManager::kill_session`. This ends the
+  processes running under the shell, a `nohup`ed job included; a job detached from the shell
+  (double-forked, or left after `exit`) can outlive it. A shell that exited by itself has
+  already left the manager (its reader thread removes it), so a missing session is success,
+  also when it exits between the check and the kill.
 - `is_workspace_terminal_id(id) -> bool`, the same shape as `is_sign_in_terminal_id`: prefix
   plus a bounded `[A-Za-z0-9]` suffix.
 - **Input and resize** stay on `send_input` and `resize_session`. They only reach ids that exist
@@ -68,11 +72,14 @@ New module `src-tauri/src/workspace_terminal.rs`.
   It also routes `shell-` ids to `workspace-terminal`, with payload
   `{ terminalId, kind: "output", data }` or `{ terminalId, kind: "exit", exitCode }`. The
   sign-in routing does not change.
-- **Quit.** `lib.rs` ends with `.run(generate_context!())`, and nothing kills PTYs when the app
-  quits. A shell usually dies of SIGHUP when its PTY closes, but a `nohup`ed or disowned job
-  would outlive Zorvo. Change it to `.build(ctx)` plus `.run(|app, event| …)`, which calls
-  `PtySessionManager::kill_all` on `RunEvent::Exit`. That also covers sign-in terminals, which
-  is right.
+- **Quit and reload.** `lib.rs` ends with `.build(ctx)` plus `.run(|app, event| …)`. A shell
+  usually dies of SIGHUP when its PTY closes, but a `nohup`ed or disowned job would outlive
+  Zorvo. On `RunEvent::Exit` the handler first ends every workspace shell's process tree with
+  KILL at once (a delayed escalation would not run while the app quits), then calls
+  `PtySessionManager::kill_all` for the other sessions, sign-in terminals included, which is
+  right. `end_orphaned_sessions`, which the UI calls when it loads, does the same, because a
+  webview reload leaves the shells running while the new UI has no tabs for them; it is
+  `async` because it reads processes.
 - **Privacy.** Nothing logs what goes into or comes out of a shell.
 
 ## Frontend
@@ -100,8 +107,12 @@ New module `src-tauri/src/workspace_terminal.rs`.
 
   **Focus.** `TerminalView` focuses its terminal whenever it mounts, which would take focus from
   the composer every time you switch sessions with the drawer open. It gets an `autoFocus` prop,
-  so the terminal takes focus only when you open the drawer, add a tab or pick one, never on a
-  session switch.
+  read only when the view mounts, so the terminal takes focus only when you open the drawer,
+  add a tab or pick one, never on a session switch. A view that is already mounted is focused
+  through a small `focus()` handle (a `ref`), not by changing the prop. The first shell, which
+  is still starting when the drawer opens, takes focus when its tab appears, and the drawer
+  says "Starting a shell…" until then. Closing the tab in front moves focus to the shell that
+  takes its place, or to the tab strip or New terminal.
 
   When a shell exits, its tab shows "The shell exited." and a **Start a new shell** button,
   which opens a fresh tab in the same folder. The terminal stays dark in both themes
@@ -109,9 +120,10 @@ New module `src-tauri/src/workspace_terminal.rs`.
 - **Top bar.** A terminal button (lucide `SquareTerminal`) with `aria-pressed`, shown when the
   view has a folder. Opening the drawer on a folder without tabs opens one.
 - **Deleting a worktree session.** `removeSessionWorktree` (`src/lib/session-worktree.ts`) takes
-  an `onRemoving` callback, and `useSessionActions.deleteSession` passes `closeFolder` for the
-  worktree's path. It runs right before `remove_session_worktree`, so a worktree another session
-  still uses, or one kept because its agent would not stop, keeps its shells.
+  an `onRemoved` callback, and `useSessionActions.deleteSession` passes `closeFolder` for the
+  worktree's path. It runs only after `remove_session_worktree` succeeds, so a worktree another
+  session still uses, one kept because its agent would not stop, or one the backend kept
+  (uncommitted changes) keeps its shells.
 - **`App.tsx`** gets a hook call, a prop to `TopBar` and the drawer's mount; the logic stays in
   the hook.
 
@@ -140,8 +152,9 @@ Rust (`src-tauri/tests/workspace_terminal_test.rs`, and unit tests in the module
   write `pwd` and read the folder back from its output. CI runs Rust on `macos-latest`;
 - close ends the process, closing a shell that already exited succeeds, and ids from the counter
   never repeat;
-- `RunEvent::Exit` ends every PTY: the handler calls one `kill_all` function, which is tested
-  directly;
+- `RunEvent::Exit` and `end_orphaned_sessions` end every PTY: both call one `end_all_sessions`
+  function, which is tested directly, with a shell's `nohup`ed job and another session;
+- closing a shell ends what it started, and `pid_of` does not wait for the child's lock;
 - close and the id check refuse an id without the `shell-` prefix, and a `signin-` id;
 - the shell falls back to `/bin/zsh` when `SHELL` is missing or not an executable path;
 - the PTY event routing sends `shell-` ids to `workspace-terminal` and `signin-` ids to

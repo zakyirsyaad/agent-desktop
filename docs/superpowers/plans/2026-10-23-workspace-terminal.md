@@ -107,15 +107,15 @@ git add src-tauri/src/workspace_terminal.rs src-tauri/src/lib.rs src-tauri/tests
 git commit -m "feat: open a login shell in a workspace folder"
 ```
 
-### Task 2: Backend: end every PTY when Zorvo quits
+### Task 2: Backend: end every PTY when Zorvo quits or the page reloads
 
 **Files:**
 - Modify: `src-tauri/src/lib.rs` (the final `.run(tauri::generate_context!())`, ~line 405)
 
 **Interfaces:**
-- Consumes: `PtySessionManager::kill_all() -> usize`, which is already covered by `pty_session_test::kill_all_ends_every_running_session`.
+- Consumes: `PtySessionManager::kill_all() -> usize`, which is already covered by `pty_session_test::kill_all_ends_every_running_session`. Built on top of it: `workspace_terminal::end_all_sessions`, which first ends every workspace shell's process tree (KILL at once, `end_tree(pid, false)`) and then calls `kill_all`.
 
-- [ ] **Step 1: Replace `.run(ctx).expect(..)`** with `.build(tauri::generate_context!()).expect("error while building tauri application").run(|app, event| { if let tauri::RunEvent::Exit = event { app.state::<PtySessionManager>().kill_all(); } })`. Add a one-line comment: a `nohup`ed job in a shell would otherwise outlive Zorvo.
+- [ ] **Step 1: Replace `.run(ctx).expect(..)`** with `.build(tauri::generate_context!()).expect("error while building tauri application").run(|app, event| { if let tauri::RunEvent::Exit = event { workspace_terminal::end_all_sessions(&app.state::<PtySessionManager>()); } })`. Add a one-line comment: a `nohup`ed job in a shell would otherwise outlive Zorvo. `end_orphaned_sessions` (now `#[tauri::command(async)]`, because it reads processes) calls the same function, so a webview reload does not leave shells whose tabs the new UI forgot.
 
 - [ ] **Step 2: Verify**
 
@@ -212,7 +212,7 @@ git commit -m "feat: keep workspace terminals per folder"
 
 - [ ] **Step 2: Run the tests and confirm they fail.** Run `pnpm vitest run src/test/terminal-view.test.tsx`; expect the first test to FAIL.
 
-- [ ] **Step 3: Implement.** Focus only when `isLive && autoFocus`. Add `autoFocus` to the effect's deps.
+- [ ] **Step 3: Implement.** Focus only when `isLive && autoFocus`, and read `autoFocus` only when the view mounts (through a ref): it is not an effect dependency, so a later change does not rebuild the terminal. A view that is already mounted is focused through an imperative `focus()` handle.
 
 - [ ] **Step 4: Run the tests and confirm they pass**, along with `src/test/terminal-sign-in.test.tsx`.
 
@@ -272,8 +272,8 @@ git commit -m "feat: add the terminal drawer"
 - Modify:
   - `src/components/TopBar.tsx`: new props `isTerminalOpen?: boolean` and `onToggleTerminal?: () => void`. The button uses lucide `SquareTerminal`, `aria-label="Terminal"` and `aria-pressed`, sits beside the files button, and is hidden when `onToggleTerminal` is absent.
   - `src/App.tsx`: the hook call (before `useSessionActions`, which takes `closeFolder`) and the drawer state. The toggle handler opens a shell when it opens the drawer on a folder with no tabs. The drawer's folder is `shownFolderPath` (a session's `cwd` is already its worktree when it has one); its name is `filesFolder?.name`; its branch is `workspaceDetails?.branch`. Wrap the `<article>` and the right panels in `<div className="flex min-w-0 flex-1 flex-col"><div className="flex min-h-0 flex-1">…</div>{drawer}</div>`, so the drawer spans both.
-  - `src/lib/session-worktree.ts`: `removeSessionWorktree(session, otherSessions, stopped, onRemoving?: (path: string) => void)`, called right before `invoke('remove_session_worktree', …)`.
-  - `src/hooks/useSessionActions.ts`: a new dep `closeTerminals?: (folderPath: string) => void`, passed as `onRemoving`.
+  - `src/lib/session-worktree.ts`: `removeSessionWorktree(session, otherSessions, stopped, onRemoved?: (path: string) => void)`, called after `invoke('remove_session_worktree', …)` has succeeded (a worktree the backend kept keeps its shells).
+  - `src/hooks/useSessionActions.ts`: a new dep `closeTerminals?: (folderPath: string) => void`, passed as `onRemoved`.
   - `CHANGELOG.md`, `CLAUDE.md`, `README.md`, as the spec's Docs section says.
 - Test: `src/test/workspace-terminal-app.test.tsx`
 
@@ -287,7 +287,8 @@ git commit -m "feat: add the terminal drawer"
   - `a worktree session's terminal starts in its worktree`: a session with `worktree.path` as `cwd` opens there, not in `repoPath`.
   - `switching sessions keeps the first folder's terminal`: open a terminal in session A, switch to B (another folder), then back to A. No second open for A, and A's tab is still there with its output.
   - `no Terminal button without a folder`.
-  - `deleting a worktree session closes its terminals before the worktree goes`: in call order, `workspace_terminal_close` for that tab comes before `remove_session_worktree`.
+  - `deleting a worktree session closes its terminals once the worktree is removed`: in call order, `workspace_terminal_close` for that tab comes after `remove_session_worktree`.
+  - `keeps the terminals of a worktree that could not be removed`: `remove_session_worktree` rejects, no close call, and the tab stays.
   - `a worktree another session still uses keeps its terminals`: no close call.
   - `a popout has no Terminal button`: render `PopoutApp`.
 
