@@ -449,3 +449,48 @@ fn a_second_session_with_a_running_id_is_refused() {
         .kill_session("same-id-1")
         .expect("the first session still runs");
 }
+
+#[test]
+fn pid_of_reports_the_child_until_it_is_killed() {
+    let manager = PtySessionManager::default_manager();
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    manager
+        .start_session("pid-of-1", &cwd, "/bin/cat", &[], &[])
+        .expect("start");
+
+    let pid = manager
+        .pid_of("pid-of-1")
+        .expect("a running child has a pid");
+    assert!(pid > 0);
+    assert_eq!(manager.pid_of("pid-of-unknown"), None);
+
+    manager.kill_session("pid-of-1").expect("kill");
+    assert_eq!(manager.pid_of("pid-of-1"), None);
+}
+
+#[test]
+fn session_ids_lists_only_running_sessions() {
+    let manager = PtySessionManager::default_manager();
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    assert!(manager.session_ids().is_empty());
+    manager
+        .start_session("ids-1", &cwd, "/bin/cat", &[], &[])
+        .expect("start first");
+    manager
+        .start_session("ids-2", &cwd, "/bin/cat", &[], &[])
+        .expect("start second");
+
+    let mut ids = manager.session_ids();
+    ids.sort();
+    assert_eq!(ids, vec!["ids-1".to_string(), "ids-2".to_string()]);
+
+    manager.kill_session("ids-1").expect("kill");
+    assert_eq!(manager.session_ids(), vec!["ids-2".to_string()]);
+    manager.kill_all();
+}

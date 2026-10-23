@@ -124,6 +124,7 @@ if (typeof window !== "undefined") {
     // Imported here, not at the top: a static import would load the module before a test file's vi.mock applies.
     (await import("../lib/agent-icons")).resetAgentIcons();
     (await import("../lib/attachment-previews")).clearAttachmentPreviews();
+    (await import("../lib/orphan-sweep")).resetOrphanSweep();
     (window as unknown as { __FAKE_TAURI_STORE__: FakeTauriStore }).__FAKE_TAURI_STORE__ = emptyFakeStore();
     delete (window as unknown as { __FAKE_ACP_LIST__?: unknown }).__FAKE_ACP_LIST__;
   });

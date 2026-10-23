@@ -26,6 +26,7 @@ import { useAgentSignIn } from "./hooks/useAgentSignIn";
 import { useDraftAgentCheck } from "./hooks/useDraftAgentCheck";
 import { useLatest } from "./hooks/useLatest";
 import { createSessionWorktree } from "./lib/session-worktree";
+import { sweepOrphans } from "./lib/orphan-sweep";
 import {
   isWaitingForAnswer,
   newSessionRecord,
@@ -65,6 +66,9 @@ import { useWorkspaceDetails } from "./hooks/useWorkspaceDetails";
 import { useBranchPicker } from "./hooks/useBranchPicker";
 import { usePopoutHost } from "./hooks/usePopoutHost";
 import { useSessionActions } from "./hooks/useSessionActions";
+import { useWorkspaceTerminals } from "./hooks/useWorkspaceTerminals";
+import { useTerminalDrawer } from "./hooks/useTerminalDrawer";
+import { TerminalDrawer } from "./components/terminal/TerminalDrawer";
 import { useDraftSessionList } from "./hooks/useDraftSessionList";
 import type { OpenNewSessionOptions } from "./hooks/useSessionImport";
 import { useSessionFork } from "./hooks/useSessionFork";
@@ -178,7 +182,7 @@ export default function App() {
   // alive) are unknown to this one, which shows their sessions as ended;
   // end them so a resume does not collide with a still-open session.
   useEffect(() => {
-    invoke("end_orphaned_sessions").catch((error) => {
+    sweepOrphans().catch((error) => {
       setNotice(`Could not stop agents left from before: ${String(error)}`);
     });
   }, []);
@@ -470,6 +474,9 @@ export default function App() {
     [forgetQueued, removeTranscript],
   );
 
+  const terminals = useWorkspaceTerminals(setNotice);
+  const terminalDrawer = useTerminalDrawer(filesFolder?.path, terminals);
+
   const sessionActions = useSessionActions({
     sessions,
     setActiveSessionId,
@@ -479,6 +486,7 @@ export default function App() {
     removeTranscript: forgetTranscript,
     navigation,
     acp,
+    closeTerminals: terminals.closeFolder,
     onNotice: setNotice,
   });
 
@@ -599,6 +607,8 @@ export default function App() {
         onForward={() => navigateTo(navigation.forward())}
         onToggleFiles={filesFolder ? () => sidePanel.toggle("files") : undefined}
         isFilesOpen={sidePanel.open === "files" && Boolean(filesFolder)}
+        onToggleTerminal={filesFolder ? terminalDrawer.toggle : undefined}
+        isTerminalOpen={terminalDrawer.isOpen}
         onToggleChanges={filesFolder && isRepository ? () => sidePanel.toggle("changes") : undefined}
         isChangesOpen={sidePanel.open === "changes" && Boolean(filesFolder) && isRepository}
         diffStats={diffStats}
@@ -646,149 +656,164 @@ export default function App() {
           }
         />
 
-        <article className={`${isDiffOpen && isDiffExpanded ? "hidden" : "flex"} flex-1 flex-col bg-bg relative overflow-hidden`}>
-          {isDraggingFiles && <FileDropOverlay />}
-          {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
-          <UpdateNotice
-            agents={agentUpdates.unnotified}
-            onShow={() => { agentUpdates.acknowledge(); setSettingsTab("agents"); }}
-            onDismiss={agentUpdates.acknowledge}
-          />
-          <SignInLayer signIn={signIn} agents={agents} agentId={activeSession?.profileId ?? newSessionAgent?.id} />
-          {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
-          {activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId) || activeSession.historyElsewhere) ? (
-            <ChatCanvas
-              conversationId={activeSessionId}
-              messages={currentMessages}
-              agentName={activeAgent?.name}
-              onForkBranch={(messageId) => void forkSession(messageId)}
-              onRewind={(messageId) => void rewind(activeSession, messageId)}
-              header={
-                <div className="space-y-3 rounded-xl border border-border bg-surface-1 px-4 py-3">
-                  {activeSession.historyElsewhere && (
-                    <HistoryElsewhereNote agentName={activeAgent?.name ?? "the agent"} />
-                  )}
-                  <WorkspaceSummary
-                    name={folderNameOf(workspacePathOf(activeSession))}
-                    path={shownFolderPath ?? activeSession.cwd}
-                    details={workspaceDetails}
-                  />
-                </div>
-              }
-              onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
-              onAnswerElicitation={(key, answer) => acp.answerElicitation(activeSessionId, key, answer)}
-              onReopenElicitationUrl={(key) => acp.reopenElicitationUrl(activeSessionId, key)}
-              isWorking={isSessionBusy(activeSessionId) && !isAwaitingUser(currentMessages)}
-            />
-          ) : isNewSessionDraft ? (
-            <NewSessionView
-              workspace={activeWorkspace}
-              details={workspaceDetails}
-              agentName={newSessionAgent?.name}
-              unavailableReason={areAgentsLoaded && !agentsInUse.some(isAgentReady) ? noAgentNotice(agentsInUse) : undefined}
-              worktreeBaseBranch={isWorktreeOn && canUseWorktree ? branchPicker.baseBranch : undefined}
-              sessionList={draftSessionList.sessionList}
-            />
-          ) : (
-            <EmptySessionState />
-          )}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1">
+            <article className={`${isDiffOpen && isDiffExpanded ? "hidden" : "flex"} flex-1 flex-col bg-bg relative overflow-hidden`}>
+              {isDraggingFiles && <FileDropOverlay />}
+              {notice && <NoticeBanner message={notice} onDismiss={() => setNotice(null)} />}
+              <UpdateNotice
+                agents={agentUpdates.unnotified}
+                onShow={() => { agentUpdates.acknowledge(); setSettingsTab("agents"); }}
+                onDismiss={agentUpdates.acknowledge}
+              />
+              <SignInLayer signIn={signIn} agents={agents} agentId={activeSession?.profileId ?? newSessionAgent?.id} />
+              {installPanelAgent ? <AgentInstallPanel agent={installPanelAgent} /> : null}
+              {activeSession && (currentMessages.length > 0 || isSessionBusy(activeSessionId) || activeSession.historyElsewhere) ? (
+                <ChatCanvas
+                  conversationId={activeSessionId}
+                  messages={currentMessages}
+                  agentName={activeAgent?.name}
+                  onForkBranch={(messageId) => void forkSession(messageId)}
+                  onRewind={(messageId) => void rewind(activeSession, messageId)}
+                  header={
+                    <div className="space-y-3 rounded-xl border border-border bg-surface-1 px-4 py-3">
+                      {activeSession.historyElsewhere && (
+                        <HistoryElsewhereNote agentName={activeAgent?.name ?? "the agent"} />
+                      )}
+                      <WorkspaceSummary
+                        name={folderNameOf(workspacePathOf(activeSession))}
+                        path={shownFolderPath ?? activeSession.cwd}
+                        details={workspaceDetails}
+                      />
+                    </div>
+                  }
+                  onChooseOption={(cardId, optionId) => chooseOption(activeSessionId, cardId, optionId)}
+                  onAnswerElicitation={(key, answer) => acp.answerElicitation(activeSessionId, key, answer)}
+                  onReopenElicitationUrl={(key) => acp.reopenElicitationUrl(activeSessionId, key)}
+                  isWorking={isSessionBusy(activeSessionId) && !isAwaitingUser(currentMessages)}
+                />
+              ) : isNewSessionDraft ? (
+                <NewSessionView
+                  workspace={activeWorkspace}
+                  details={workspaceDetails}
+                  agentName={newSessionAgent?.name}
+                  unavailableReason={areAgentsLoaded && !agentsInUse.some(isAgentReady) ? noAgentNotice(agentsInUse) : undefined}
+                  worktreeBaseBranch={isWorktreeOn && canUseWorktree ? branchPicker.baseBranch : undefined}
+                  sessionList={draftSessionList.sessionList}
+                />
+              ) : (
+                <EmptySessionState />
+              )}
 
-          <div className="p-4 flex justify-center">
-            {activeAgentRemoved ? (
-              <RemovedAgentPanel agentName={activeAgentRemoved} onAdd={() => activeAgent && catalogActions.addAgent(activeAgent.id)} />
-            ) : (
-              <ComposerDock
-                controls={composer.controls}
-                isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
-                onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
-                disabled={
-                  isCreatingWorktree ||
-                  (!isActiveRunning && ((!isDraftAgentReady && !draftNeedsInstall) || (!isResumable && !canStartSession)))
-                }
-                sendDisabled={draftNeedsInstall}
-                placeholder={composerPlaceholder({
-                  isRunning: isActiveRunning,
-                  isCreatingWorktree,
-                  isResumable,
-                  canStartSession,
-                  agentToInstall: draftNeedsInstall ? draftAgent?.name : undefined,
-                  isEndedSession: Boolean(activeSession),
-                })}
-                onSendMessage={handleSendMessage}
-                attachAsFiles
-                onAttach={pickFiles}
-                handleRef={composerRef}
-                commands={composerCommands}
-                note={
-                  !isActiveRunning && draftAgent && agentCheck.isProbing(draftAgent.id)
-                    ? `Loading ${draftAgent.name}'s models and commands…`
-                    : undefined
-                }
-                contextUsage={isActiveRunning ? acp.info[activeSessionId]?.usage : undefined}
-                mentions={filesFolder ? { root: filesFolder.path, loadFiles: () => shell.loadWorkspaceFiles(filesFolder.path) } : undefined}
-                folder={
-                  isNewSessionDraft
-                    ? {
-                        folders: workspaces,
-                        selectedPath: activeWorkspacePath,
-                        onSelect: chooseFolder,
-                        onOpenFolder: () => void openFolder(),
-                        worktree: canUseWorktree ? { isOn: isWorktreeOn, onChange: setIsWorktreeOn } : undefined,
-                        branch: branchPicker.control,
-                      }
-                    : undefined
-                }
-                agent={
-                  isNewSessionDraft && newSessionAgent
-                    ? {
-                        options: pickableAgents.map((a) => ({ value: a.id, label: pickerLabelOf(a) })),
-                        selected: newSessionAgent.id,
-                        onChange: (agentId) => setPickedAgentId(agentId ?? null),
-                      }
-                    : undefined
-                }
+              <div className="p-4 flex justify-center">
+                {activeAgentRemoved ? (
+                  <RemovedAgentPanel agentName={activeAgentRemoved} onAdd={() => activeAgent && catalogActions.addAgent(activeAgent.id)} />
+                ) : (
+                  <ComposerDock
+                    controls={composer.controls}
+                    isThinking={Boolean(activeSession) && isSessionBusy(activeSessionId)}
+                    onStop={activeSession ? () => handleInterrupt(activeSessionId) : undefined}
+                    disabled={
+                      isCreatingWorktree ||
+                      (!isActiveRunning && ((!isDraftAgentReady && !draftNeedsInstall) || (!isResumable && !canStartSession)))
+                    }
+                    sendDisabled={draftNeedsInstall}
+                    placeholder={composerPlaceholder({
+                      isRunning: isActiveRunning,
+                      isCreatingWorktree,
+                      isResumable,
+                      canStartSession,
+                      agentToInstall: draftNeedsInstall ? draftAgent?.name : undefined,
+                      isEndedSession: Boolean(activeSession),
+                    })}
+                    onSendMessage={handleSendMessage}
+                    attachAsFiles
+                    onAttach={pickFiles}
+                    handleRef={composerRef}
+                    commands={composerCommands}
+                    note={
+                      !isActiveRunning && draftAgent && agentCheck.isProbing(draftAgent.id)
+                        ? `Loading ${draftAgent.name}'s models and commands…`
+                        : undefined
+                    }
+                    contextUsage={isActiveRunning ? acp.info[activeSessionId]?.usage : undefined}
+                    mentions={filesFolder ? { root: filesFolder.path, loadFiles: () => shell.loadWorkspaceFiles(filesFolder.path) } : undefined}
+                    folder={
+                      isNewSessionDraft
+                        ? {
+                            folders: workspaces,
+                            selectedPath: activeWorkspacePath,
+                            onSelect: chooseFolder,
+                            onOpenFolder: () => void openFolder(),
+                            worktree: canUseWorktree ? { isOn: isWorktreeOn, onChange: setIsWorktreeOn } : undefined,
+                            branch: branchPicker.control,
+                          }
+                        : undefined
+                    }
+                    agent={
+                      isNewSessionDraft && newSessionAgent
+                        ? {
+                            options: pickableAgents.map((a) => ({ value: a.id, label: pickerLabelOf(a) })),
+                            selected: newSessionAgent.id,
+                            onChange: (agentId) => setPickedAgentId(agentId ?? null),
+                          }
+                        : undefined
+                    }
+                  />
+                )}
+              </div>
+
+            </article>
+            {sidePanel.open === "changes" && filesFolder && isRepository && (
+              <ChangesPanel
+                key={filesFolder.path}
+                rootPath={filesFolder.path}
+                rootName={filesFolder.name}
+                branch={workspaceDetails?.branch ?? undefined}
+                changes={sidePanel.changes.changes}
+                version={sidePanel.changes.version}
+                onReload={sidePanel.changes.reload}
+                onClose={sidePanel.close}
+                pullRequests={repoPullRequests}
+                onOpenPullRequest={openPullRequest}
+                diffStats={diffStats}
+                onOpenDiff={() => sidePanel.show("diff")}
+              />
+            )}
+            {isDiffOpen && filesFolder && (
+              <DiffView
+                key={filesFolder.path}
+                rootPath={filesFolder.path}
+                version={sidePanel.changes.version}
+                isExpanded={isDiffExpanded}
+                onToggleExpanded={() => setExpandedDiffFolder(isDiffExpanded ? null : filesFolder.path)}
+                onClose={sidePanel.close}
+                onError={reportError}
+              />
+            )}
+            {sidePanel.open === "files" && filesFolder && (
+              <FilesPanel
+                key={filesFolder.path}
+                rootPath={filesFolder.path}
+                rootName={filesFolder.name}
+                onClose={sidePanel.close}
+                onInsertPath={(path) => composerRef.current?.insertPaths([path])}
+                onRevealRoot={() => filesFolder && shell.revealFolder(filesFolder.path)}
               />
             )}
           </div>
-
-        </article>
-        {sidePanel.open === "changes" && filesFolder && isRepository && (
-          <ChangesPanel
-            key={filesFolder.path}
-            rootPath={filesFolder.path}
-            rootName={filesFolder.name}
-            branch={workspaceDetails?.branch ?? undefined}
-            changes={sidePanel.changes.changes}
-            version={sidePanel.changes.version}
-            onReload={sidePanel.changes.reload}
-            onClose={sidePanel.close}
-            pullRequests={repoPullRequests}
-            onOpenPullRequest={openPullRequest}
-            diffStats={diffStats}
-            onOpenDiff={() => sidePanel.show("diff")}
-          />
-        )}
-        {isDiffOpen && filesFolder && (
-          <DiffView
-            key={filesFolder.path}
-            rootPath={filesFolder.path}
-            version={sidePanel.changes.version}
-            isExpanded={isDiffExpanded}
-            onToggleExpanded={() => setExpandedDiffFolder(isDiffExpanded ? null : filesFolder.path)}
-            onClose={sidePanel.close}
-            onError={reportError}
-          />
-        )}
-        {sidePanel.open === "files" && filesFolder && (
-          <FilesPanel
-            key={filesFolder.path}
-            rootPath={filesFolder.path}
-            rootName={filesFolder.name}
-            onClose={sidePanel.close}
-            onInsertPath={(path) => composerRef.current?.insertPaths([path])}
-            onRevealRoot={() => filesFolder && shell.revealFolder(filesFolder.path)}
-          />
-        )}
+          {terminalDrawer.isOpen && filesFolder && (
+            <TerminalDrawer
+              folderPath={filesFolder.path}
+              folderName={filesFolder.name}
+              branch={workspaceDetails?.branch ?? undefined}
+              terminals={terminals}
+              startingFor={terminalDrawer.startingFor}
+              onStartShell={terminalDrawer.startShell}
+              onHide={terminalDrawer.hide}
+            />
+          )}
+        </div>
       </section>
       <AppSettingsDialog
         isOpen={settingsTab !== null}

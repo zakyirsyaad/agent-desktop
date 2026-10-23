@@ -19,6 +19,7 @@ pub mod store;
 pub mod user_profile;
 pub mod windows;
 pub mod workspace_files;
+pub mod workspace_terminal;
 pub mod workspaces;
 pub mod worktrees;
 
@@ -27,13 +28,14 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use acp::commands::{event_payload, ACP_EVENT};
 use acp::manager::AcpManager;
-use acp::terminal_auth::{is_sign_in_terminal_id, sign_in_event_payload, SIGN_IN_TERMINAL_EVENT};
+use acp::terminal_auth::{sign_in_event_payload, SIGN_IN_TERMINAL_EVENT};
 use installer::commands::{clean_up_at_start, versions_in_use, AppInstaller};
 use installer::layout::ToolsDir;
 use profiles::{agent_profiles, AgentProfile};
 use pty_session::{PtyEvent, PtySessionManager};
 use registry::{Catalog, AGENT_PROFILES_CHANGED};
 use store::{AppStore, PersistedState};
+use workspace_terminal::{event_payload as workspace_terminal_payload, pty_event_route, PtyRoute};
 use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -42,9 +44,10 @@ use workspaces::{default_workspace_root, list_workspaces_in, Workspace};
 // resolve the login-shell environment or wait on a child process are marked
 // `async` so they run on the async runtime and cannot freeze the window.
 //
-// `send_input` stays sync deliberately. It only enqueues a sign-in terminal's
-// keystrokes to the PTY's writer thread, which drains the queue in order, so it
-// never blocks on a full PTY input buffer. Marking it `async` would run
+// `send_input` stays sync deliberately. It carries the keystrokes of a sign-in
+// terminal and of a workspace shell, where typing order matters most. It only
+// enqueues them to the PTY's writer thread, which drains the queue in order, so
+// it never blocks on a full PTY input buffer. Marking it `async` would run
 // keystrokes on a thread pool, where concurrent calls could reach the PTY out
 // of order.
 
@@ -149,13 +152,15 @@ fn terminate_session(
 /// Ends every agent the backend still runs. The UI calls this when it loads:
 /// a webview reload leaves the backend (and its agents) running, but the new
 /// UI knows none of them and shows their sessions as ended, so they would
-/// only linger, holding sessions the UI may resume in a new process.
-#[tauri::command]
+/// only linger, holding sessions the UI may resume in a new process. Workspace
+/// shells go with the processes under them: the new UI has no tabs for them.
+/// Reading those processes runs `ps`, so the command is `async`.
+#[tauri::command(async)]
 fn end_orphaned_sessions(
     pty: State<'_, PtySessionManager>,
     acp: State<'_, acp::manager::AcpManager>,
 ) -> usize {
-    pty.kill_all() + acp.stop_all()
+    workspace_terminal::end_all_sessions(&pty) + acp.stop_all()
 }
 
 /// Reads the state file from disk, so it stays off the main thread.
@@ -287,9 +292,19 @@ pub fn run() {
                         session_id
                     }
                 };
-                // Only sign-in terminals start a PTY; any other id has no listener.
-                if is_sign_in_terminal_id(session_id) {
-                    let _ = app.emit(SIGN_IN_TERMINAL_EVENT, sign_in_event_payload(&event));
+                // Only sign-in terminals and workspace shells start a PTY; any
+                // other id has no listener.
+                match pty_event_route(session_id) {
+                    Some(PtyRoute::SignIn) => {
+                        let _ = app.emit(SIGN_IN_TERMINAL_EVENT, sign_in_event_payload(&event));
+                    }
+                    Some(PtyRoute::Workspace) => {
+                        let _ = app.emit(
+                            workspace_terminal::EVENT,
+                            workspace_terminal_payload(&event),
+                        );
+                    }
+                    None => {}
                 }
             }
         }
@@ -347,6 +362,8 @@ pub fn run() {
             get_agent_icons,
             list_workspaces,
             send_input,
+            workspace_terminal::workspace_terminal_open,
+            workspace_terminal::workspace_terminal_close,
             resize_session,
             terminate_session,
             end_orphaned_sessions,
@@ -402,8 +419,16 @@ pub fn run() {
             installer::commands::cancel_agent_install,
             installer::commands::remove_agent_install
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Workspace shells go with their whole process tree, so a `nohup`ed
+            // job they started does not outlive Zorvo; other sessions are only killed.
+            if let tauri::RunEvent::Exit = event {
+                let pty = app.state::<PtySessionManager>();
+                workspace_terminal::end_all_sessions(&pty);
+            }
+        });
 }
 
 #[cfg(all(test, target_os = "macos"))]

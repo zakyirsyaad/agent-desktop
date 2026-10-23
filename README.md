@@ -55,6 +55,12 @@ like Claude Code Desktop, but for whichever agent you have.
   `agent/<title>` branch, so agents in the same repository never edit the
   same files. Pick the branch it starts from, or switch your folder to
   another branch, from the folder list.
+- **A terminal where the agent works.** The **Terminal** button opens a shell
+  in the session's folder (its worktree, when it has one), in a drawer under
+  the chat. Each folder keeps its own tabs. Closing a tab or quitting Zorvo
+  ends the shell and the processes running under it; a job detached from the
+  shell (or left after `exit`) can outlive it. A worktree's terminals end when Zorvo
+  removes that worktree; a kept or shared worktree keeps them.
 - **Review and commit.** The Changes panel shows each changed file's diff
   and commits the files you choose. The top bar shows the branch's pull
   request and its checks, and the panel lists your pull requests. All of
@@ -159,6 +165,7 @@ identifier.
    - Answer its permission requests in the chat.
    - Open **Files** to browse the folder and **Changes** to review and commit
      what it changed.
+   - Open **Terminal** for a shell in the same folder.
    - Use the top bar to go back and forth between sessions.
 4. **Branch off.**
    - **Fork** under any reply starts a new session from there.
@@ -230,7 +237,8 @@ flowchart LR
   is an ACP chat, run by `hooks/session-engine/useAcpEngine.ts`.
 - **The backend** (`src-tauri/src/`, Tauri 2):
   - `acp/`: the ACP client;
-  - `pty_session.rs`: the terminal an agent's own sign-in runs in;
+  - `pty_session.rs` and `workspace_terminal.rs`: the terminals an agent's own
+    sign-in and the workspace shells run in;
   - `registry/`: the ACP agent registry, its dated version history and the
     agents you use;
   - `installer/`: installing agents, Node.js and `uv`, every download checked
