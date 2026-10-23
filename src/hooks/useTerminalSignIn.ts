@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { parseAuthRequired, type AuthMethod } from '../lib/acp-auth';
 import { createId } from '../lib/ids';
 import { createPtyOutputStore, type PtyOutputStore } from '../lib/pty-output-store';
+import { orphanSweepDone } from '../lib/orphan-sweep';
 
 export type LoginOutcome =
   | { ok: true }
@@ -97,8 +98,18 @@ export function useTerminalSignIn() {
         runRef.current = current;
         setDialog({ terminalId, agentName, methodName: method.name, phase: 'starting' });
 
-        invoke('acp_start_terminal_sign_in', { profileId, cwd, methodId: method.id, terminalId }).then(
-          () => {
+        // The startup orphan sweep ends every PTY it finds, so the login waits for it.
+        // A login cancelled meanwhile is not started at all: its program could open a browser at once.
+        orphanSweepDone()
+          .then(() => {
+            if (current.isCancelled) return false;
+            return invoke('acp_start_terminal_sign_in', { profileId, cwd, methodId: method.id, terminalId }).then(
+              () => true,
+            );
+          })
+          .then(
+          (started) => {
+            if (!started) return current.settle(CANCELLED);
             current.isStarted = true;
             if (current.isCancelled) {
               void invoke('terminate_session', { sessionId: terminalId }).catch(() => {});

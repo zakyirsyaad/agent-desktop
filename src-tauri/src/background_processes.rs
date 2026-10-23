@@ -219,18 +219,23 @@ fn children_by_parent(rows: &[ProcessRow]) -> HashMap<u32, Vec<&ProcessRow>> {
 }
 
 /// `root` and every process under it in `rows`, each after all of its own
-/// descendants, so `root` comes last: the order to signal them in.
+/// descendants, so `root` comes last: the order to signal them in. Empty when
+/// `rows` does not list `root`.
 pub fn subtree_of(rows: &[ProcessRow], root: u32) -> Vec<u32> {
-    subtree(&children_by_parent(rows), root)
+    subtrees_of(rows, &[root])
 }
 
 /// Every root and everything under it in `rows`, each process once and after
-/// all of its own descendants: the order to signal them in.
+/// all of its own descendants: the order to signal them in. A root `rows`
+/// does not list is left out.
 pub fn subtrees_of(rows: &[ProcessRow], roots: &[u32]) -> Vec<u32> {
     let children = children_by_parent(rows);
     let mut seen = HashSet::new();
     roots
         .iter()
+        // A root ps does not list has ended; its pid may already belong to
+        // another process, so it is never signalled.
+        .filter(|root| rows.iter().any(|row| row.pid == **root))
         .flat_map(|root| subtree(&children, *root))
         .filter(|pid| seen.insert(*pid))
         .collect()
@@ -524,6 +529,9 @@ pub fn terminate(task: &TaskProcess, rows: &[ProcessRow]) -> Result<(), String> 
 pub fn end_tree(root: u32, grace: bool) -> Result<(), String> {
     let rows = read_processes()?;
     let subtree = subtree_of(&rows, root);
+    if subtree.is_empty() {
+        return Ok(());
+    }
     if !grace {
         return send_signal("-KILL", &subtree);
     }
@@ -550,7 +558,11 @@ pub fn end_trees(roots: &[u32]) -> Result<(), String> {
         return Ok(());
     }
     let rows = read_processes()?;
-    send_signal("-KILL", &subtrees_of(&rows, roots))
+    let pids = subtrees_of(&rows, roots);
+    if pids.is_empty() {
+        return Ok(());
+    }
+    send_signal("-KILL", &pids)
 }
 
 /// Every running agent's pid, by the app session it serves.

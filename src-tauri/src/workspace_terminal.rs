@@ -108,8 +108,10 @@ pub fn end_all(manager: &PtySessionManager) -> usize {
     if let Err(error) = end_trees(&pids) {
         eprintln!("Could not end the processes of the terminals: {error}");
     }
+    // A shell the KILL already ended may have been removed by its reader
+    // thread by now; it was still ended here, so it counts.
     ids.iter()
-        .filter(|id| manager.kill_session(id).is_ok())
+        .filter(|id| manager.kill_session_if_present(id).is_ok())
         .count()
 }
 
@@ -181,13 +183,16 @@ pub fn workspace_terminal_open(
     pty: State<'_, PtySessionManager>,
     path: String,
 ) -> Result<OpenedTerminal, String> {
-    ensure_known_workspace(&path, |p| store.is_known_workspace(p))?;
+    // The shell starts in the very folder that was checked, not in a second
+    // resolution of `path` that a repointed symlink could send elsewhere.
+    let mut checked = None;
+    ensure_known_workspace(&path, |canonical| {
+        checked = Some(canonical.to_path_buf());
+        store.is_known_workspace(canonical)
+    })?;
+    let folder = checked.ok_or_else(|| format!("{path} is not one of your workspaces"))?;
     // A login environment that cannot be read still gives a shell.
-    open_shell(
-        &pty,
-        Path::new(&path),
-        &cached_user_env().unwrap_or_default(),
-    )
+    open_shell(&pty, &folder, &cached_user_env().unwrap_or_default())
 }
 
 /// Ends a workspace shell and everything it started.

@@ -42,6 +42,7 @@ vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 
 import { useTerminalSignIn, type LoginOutcome } from "../hooks/useTerminalSignIn";
+import { sweepOrphans } from "../lib/orphan-sweep";
 import { TerminalSignInDialog } from "../components/TerminalSignInDialog";
 import { createPtyOutputStore } from "../lib/pty-output-store";
 import type { AuthMethod } from "../lib/acp-auth";
@@ -106,6 +107,53 @@ describe("useTerminalSignIn", () => {
 
     await terminalEvent({ terminalId: args?.terminalId, kind: "exit", exitCode: 0 });
     await expect(outcome).resolves.toEqual({ ok: true });
+  });
+
+  it("starts the login only once the startup orphan sweep is done", async () => {
+    // The sweep ends every PTY it finds, the sign-in terminal included.
+    let finishSweep = () => {};
+    const real = internals().invoke;
+    const spy = vi.spyOn(internals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "end_orphaned_sessions") return new Promise((resolve) => (finishSweep = () => resolve(0)));
+      if (cmd === "acp_start_terminal_sign_in") return Promise.resolve();
+      return real(cmd, args);
+    });
+    void sweepOrphans();
+    const { result } = renderHook(() => useTerminalSignIn());
+    await startRun(result);
+
+    expect(callsTo(spy, "acp_start_terminal_sign_in")).toHaveLength(0);
+    await act(async () => {
+      finishSweep();
+      for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+    });
+    expect(callsTo(spy, "acp_start_terminal_sign_in")).toHaveLength(1);
+  });
+
+  it("starts no login when it is cancelled while the orphan sweep runs", async () => {
+    // A login program can open a browser at once, so a cancelled one must not start at all.
+    let finishSweep = () => {};
+    const real = internals().invoke;
+    const spy = vi.spyOn(internals(), "invoke").mockImplementation((cmd, args) => {
+      if (cmd === "end_orphaned_sessions") return new Promise((resolve) => (finishSweep = () => resolve(0)));
+      if (cmd === "acp_start_terminal_sign_in") return Promise.resolve();
+      return real(cmd, args);
+    });
+    void sweepOrphans();
+    const { result } = renderHook(() => useTerminalSignIn());
+    const { outcome } = await startRun(result);
+
+    await act(async () => {
+      result.current.close();
+    });
+    await act(async () => {
+      finishSweep();
+      for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+    });
+
+    expect(callsTo(spy, "acp_start_terminal_sign_in")).toHaveLength(0);
+    expect(callsTo(spy, "terminate_session")).toHaveLength(0);
+    await expect(outcome).resolves.toEqual({ ok: false, reason: "Sign-in cancelled", cancelled: true });
   });
 
   it("fails with the exit code", async () => {

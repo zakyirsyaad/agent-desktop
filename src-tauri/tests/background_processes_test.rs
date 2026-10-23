@@ -505,6 +505,8 @@ fn subtree_of_lists_descendants_children_first_and_the_root_last() {
     assert_eq!(subtree_of(&rows, 100), vec![102, 101, 100]);
     assert_eq!(subtree_of(&rows, 101), vec![102, 101]);
     assert_eq!(subtree_of(&rows, 200), vec![200]);
+    // A root ps does not list is not running: nothing to signal.
+    assert_eq!(subtree_of(&rows, 999), Vec::<u32>::new());
 }
 
 #[test]
@@ -526,7 +528,8 @@ fn subtrees_of_lists_each_root_once_with_children_before_parents() {
     // A root inside another's tree, in either order, is listed once and after its children.
     assert_eq!(subtrees_of(&rows, &[100, 101]), vec![102, 101, 100]);
     assert_eq!(subtrees_of(&rows, &[101, 100]), vec![102, 101, 100]);
-    // The same root twice, and a root that is not running.
-    assert_eq!(subtrees_of(&rows, &[200, 200, 999]), vec![201, 200, 999]);
+    // The same root twice, and a root that is not running: a pid ps no longer
+    // lists may already belong to another process, so it is never signalled.
+    assert_eq!(subtrees_of(&rows, &[200, 200, 999]), vec![201, 200]);
     assert_eq!(subtrees_of(&rows, &[]), Vec::<u32>::new());
 }
