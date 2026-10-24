@@ -13,7 +13,7 @@ use zorvo_lib::registry::resolve::SystemTools;
 use zorvo_lib::registry::schema::{Distribution, RegistryEntry};
 use zorvo_lib::registry::Catalog;
 
-const BUNDLE: &str = include_str!("../resources/registry-history.json");
+const BUNDLE: &str = include_str!("../../resources/registry-history.json");
 const DAY: u64 = 24 * 60 * 60;
 const T0: u64 = 1_790_000_000;
 

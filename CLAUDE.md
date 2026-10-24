@@ -18,6 +18,7 @@ pnpm vitest run src/test/persistence.test.ts -t "name" # one test
 pnpm design-system          # local design-system reference on :5180
 pnpm registry:update        # refresh the bundled ACP registry history (src-tauri/resources/registry-history.json)
 pnpm tauri build            # production bundle (the only build that applies the CSP)
+pnpm clean:rust             # cargo clean for src-tauri
 ```
 
 Rust (from `src-tauri/`; `pnpm build` must have produced `dist/` first, since Tauri embeds it at compile time):
@@ -26,9 +27,11 @@ Rust (from `src-tauri/`; `pnpm build` must have produced `dist/` first, since Ta
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
-cargo test --test acp_manager_test            # one integration test file
-cargo test --test acp_manager_test some_name  # one test
+cargo test --test it acp_manager_test::            # one integration test file
+cargo test --test it acp_manager_test::some_name   # one test
 ```
+
+Integration tests are modules of one binary, `tests/it/main.rs` (a new file needs a `mod` line there), so they share a process and run in parallel threads. A test that sets process-wide state gets its own file in `tests/`, like `installer_state_test.rs`.
 
 The Rust ACP tests spawn `src-tauri/tests/fixtures/fake_acp_agent.mjs` with Node, so Node must be on PATH. Its flags add capabilities on top of its defaults (`loadSession`, `fork`, `delete`): `FAKE_ACP_RESUME` (`session/resume`), `FAKE_ACP_LIST` (`session/list`), `FAKE_ACP_LIST_PAGES` (pages from a JSON file), `FAKE_ACP_LIST_FAIL_AT=<n>`, `FAKE_ACP_CALL_LOG` (every method received, one per line) and `FAKE_ACP_SLOW_REPLAY` (a load replay that pauses mid-way). CI runs all of the above except `cargo fmt` (lefthook runs that pre-commit if installed with `pnpm lefthook install`).
 
@@ -73,6 +76,7 @@ The Rust ACP tests spawn `src-tauri/tests/fixtures/fake_acp_agent.mjs` with Node
 - Frontend tests live in `src/test/` (Vitest + Testing Library, jsdom). `src/test/setup.ts` fakes Tauri `invoke`, including an in-memory store seeded via `window.__FAKE_TAURI_STORE__` and canned ACP responses; agent profile fixtures are in `src/test/fixtures/agents.ts`.
 - Rust tests are in `#[cfg(test)]` modules and `src-tauri/tests/`.
 - Agent worktrees under `.claude/` contain copies of the repo; Vitest and ESLint both exclude `.claude/**`.
+- Each worktree under `.claude/worktrees/` builds its own `src-tauri/target` (a few GB). Run `pnpm clean:rust` there once its PR has merged or its session is done.
 
 ## Design system rules (enforced by tests)
 

@@ -110,7 +110,8 @@ fn round_trips_through_json() {
 
 #[test]
 fn bundled_history_offers_the_default_agents() {
-    let h = VersionHistory::from_json(include_str!("../resources/registry-history.json")).unwrap();
+    let h =
+        VersionHistory::from_json(include_str!("../../resources/registry-history.json")).unwrap();
     let generated_at = h
         .agents
         .values()

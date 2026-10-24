@@ -12,6 +12,7 @@
     "test": "vitest run",
     "registry:update": "node scripts/registry-update.mjs",
     "runtimes:update": "node scripts/runtimes-update.mjs",
+    "clean:rust": "cargo clean --manifest-path src-tauri/Cargo.toml",
     "tauri": "tauri"
   },
   "dependencies": {

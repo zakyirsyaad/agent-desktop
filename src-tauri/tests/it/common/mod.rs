@@ -1,7 +1,4 @@
-#![allow(dead_code)]
-//! Helpers shared by the ACP integration tests. Each test file compiles its
-//! own copy of this module, so a helper one file does not use would otherwise
-//! fail the build as dead code.
+//! Helpers shared by the ACP integration tests.
 
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver};

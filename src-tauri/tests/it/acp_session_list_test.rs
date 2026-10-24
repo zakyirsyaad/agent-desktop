@@ -1,14 +1,12 @@
 //! Listing an agent's sessions for a folder: every page is followed, the caps
 //! stop it, and entries the app must not see are dropped.
 
-mod common;
-
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::{json, Value};
 
-use common::{called_methods, cwd, fake_agent, fake_agent_with, manager};
+use crate::common::{called_methods, cwd, fake_agent, fake_agent_with, manager};
 use zorvo_lib::acp::manager::{AcpLaunch, AUTH_REQUIRED_PREFIX};
 use zorvo_lib::acp::session_list::MAX_LISTED_SESSIONS;
 
