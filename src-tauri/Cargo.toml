@@ -35,3 +35,12 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSDictionary", "NSString", "NSUserDefaults", "NSValue"] }
+
+# Line numbers for our own code, no debug info for dependencies: keeps
+# target/ small in every checkout and on CI. Leave `incremental` to each
+# machine's ~/.cargo/config.toml.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
