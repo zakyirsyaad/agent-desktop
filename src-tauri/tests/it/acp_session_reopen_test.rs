@@ -2,8 +2,6 @@
 //! when the agent offers it and `session/load` when it does not, and refuses
 //! when it offers neither.
 
-mod common;
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
@@ -12,7 +10,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use common::{agent_text, called_methods, cwd, fake_agent, fake_agent_with, manager, wait_for};
+use crate::common::{
+    agent_text, called_methods, cwd, fake_agent, fake_agent_with, manager, wait_for,
+};
 use zorvo_lib::acp::manager::{AcpEvent, ReopenMethod, ReopenPurpose};
 
 /// A fresh file the fake agent records the methods it was called with in.

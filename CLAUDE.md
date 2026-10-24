@@ -26,9 +26,11 @@ Rust (from `src-tauri/`; `pnpm build` must have produced `dist/` first, since Ta
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
-cargo test --test acp_manager_test            # one integration test file
-cargo test --test acp_manager_test some_name  # one test
+cargo test --test it acp_manager_test::            # one integration test file
+cargo test --test it acp_manager_test::some_name   # one test
 ```
+
+Integration tests are modules of one binary, `tests/it/main.rs` (a new file needs a `mod` line there), so they share a process and run in parallel threads. A test that sets process-wide state gets its own file in `tests/`, like `installer_state_test.rs`.
 
 The Rust ACP tests spawn `src-tauri/tests/fixtures/fake_acp_agent.mjs` with Node, so Node must be on PATH. Its flags add capabilities on top of its defaults (`loadSession`, `fork`, `delete`): `FAKE_ACP_RESUME` (`session/resume`), `FAKE_ACP_LIST` (`session/list`), `FAKE_ACP_LIST_PAGES` (pages from a JSON file), `FAKE_ACP_LIST_FAIL_AT=<n>`, `FAKE_ACP_CALL_LOG` (every method received, one per line) and `FAKE_ACP_SLOW_REPLAY` (a load replay that pauses mid-way). CI runs all of the above except `cargo fmt` (lefthook runs that pre-commit if installed with `pnpm lefthook install`).
 

@@ -442,7 +442,7 @@ fn with_cmd(entry: &serde_json::Value, cmd: &str) -> String {
 #[test]
 fn keeps_every_binary_agent_in_the_bundled_history() {
     let bundle: serde_json::Value =
-        serde_json::from_str(include_str!("../resources/registry-history.json")).unwrap();
+        serde_json::from_str(include_str!("../../resources/registry-history.json")).unwrap();
     let agents = bundle["agents"].as_object().expect("agents object");
     let mut kept = 0;
     for (id, versions) in agents {
