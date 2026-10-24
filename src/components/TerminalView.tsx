@@ -131,12 +131,13 @@ export function TerminalView({
     inputRef.current = null;
   }, [isLive]);
 
+  // The view fills its flex parent. xterm is drawn in an unpadded box laid over
+  // it: the fit addon sizes rows and columns from the box's own height and width,
+  // so padding there would be counted as room, and a box sized by its content
+  // would grow by a row on every fit.
   return (
-    <div
-      ref={containerRef}
-      data-testid="terminal-view"
-      aria-label={label}
-      className="flex-1 min-h-0 overflow-hidden bg-terminal-bg px-3 py-2"
-    />
+    <div data-testid="terminal-view" aria-label={label} className="relative min-h-0 flex-1 overflow-hidden bg-terminal-bg">
+      <div ref={containerRef} className="absolute inset-x-3 inset-y-2" />
+    </div>
   );
 }

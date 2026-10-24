@@ -132,6 +132,14 @@ describe("TerminalDrawer", () => {
     expect(screen.getByText("The shell exited.").parentElement).not.toHaveClass("bg-terminal-bg");
   });
 
+  it("puts the terminal straight into the panel's flex column, so its height comes from the drawer and not from its output", () => {
+    render(<TerminalDrawer {...baseProps} terminals={fakeTerminals([tab("shell-1", "/work/zorvo", 1)])} />);
+
+    const panel = screen.getByRole("tabpanel");
+    expect(screen.getByTestId("view-shell-1").parentElement).toBe(panel);
+    expect(panel).toHaveClass("flex", "flex-col");
+  });
+
   it("Hide terminal does not use the close icon", () => {
     render(<TerminalDrawer {...baseProps} terminals={fakeTerminals([tab("shell-1", "/work/zorvo", 1)])} />);
 
