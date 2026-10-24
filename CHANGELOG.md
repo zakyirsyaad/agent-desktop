@@ -4,6 +4,8 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-24
+
 ### Fixed
 
 - **The terminal drawer scrolls, and its latest line stays in view.** The shell took its height from its own output, so every fit added a row: it grew past the bottom of the window, the prompt and newest output fell out of sight, and nothing was left in its scrollback to scroll. It now fills the drawer, and the sign-in terminal no longer clips its last row.
@@ -127,7 +129,8 @@ All notable changes to Zorvo. Versions follow [Semantic Versioning](https://semv
 
 - Approval safety, terminal handling, the stream parser and working folders. ([#1])
 
-[Unreleased]: https://github.com/zakyirsyaad/zorvo/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/zakyirsyaad/zorvo/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/zakyirsyaad/zorvo/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/zakyirsyaad/zorvo/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/zakyirsyaad/zorvo/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zakyirsyaad/zorvo/compare/v0.1.0...v0.2.0
