@@ -148,19 +148,17 @@ export function TerminalDrawer({
       <div role="tabpanel" className="flex min-h-0 flex-1 flex-col">
         {activeTab ? (
           <>
-            <div className="min-h-0 flex-1">
-              <TerminalView
-                key={activeTab.id}
-                ref={viewRef}
-                sessionId={activeTab.id}
-                output={terminals.output}
-                isLive={activeTab.status === "live"}
-                onInput={(data) => terminals.send(activeTab.id, data)}
-                onResize={(cols, rows) => terminals.resize(activeTab.id, cols, rows)}
-                autoFocus={activeTab.id === focusTabId || focusFirst}
-                label={labelOf(activeTab)}
-              />
-            </div>
+            <TerminalView
+              key={activeTab.id}
+              ref={viewRef}
+              sessionId={activeTab.id}
+              output={terminals.output}
+              isLive={activeTab.status === "live"}
+              onInput={(data) => terminals.send(activeTab.id, data)}
+              onResize={(cols, rows) => terminals.resize(activeTab.id, cols, rows)}
+              autoFocus={activeTab.id === focusTabId || focusFirst}
+              label={labelOf(activeTab)}
+            />
             {activeTab.status === "exited" && (
               <div className="flex items-center gap-3 border-t border-border px-3 py-2 text-xs text-fg-muted">
                 <span>The shell exited.</span>

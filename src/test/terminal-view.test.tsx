@@ -19,7 +19,10 @@ const { FakeTerminal, terminals } = vi.hoisted(() => {
       terminals.push(this);
     }
     loadAddon() {}
-    open() {}
+    openedIn: HTMLElement | null = null;
+    open(element: HTMLElement) {
+      this.openedIn = element;
+    }
     focus() {
       this.focused = true;
     }
@@ -143,6 +146,17 @@ describe("TerminalView", () => {
     render(<TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />);
 
     expect(screen.getByTestId("terminal-view").classList.contains("bg-terminal-bg")).toBe(true);
+  });
+
+  it("draws the terminal in an unpadded box laid over the view, so a fit measures the room it has and never its own output", () => {
+    render(<TerminalView sessionId="s-1" output={createPtyOutputStore()} isLive onInput={() => {}} onResize={() => {}} />);
+
+    const view = screen.getByTestId("terminal-view");
+    const box = terminals[0].openedIn;
+    expect(box?.parentElement).toBe(view);
+    expect(view.classList.contains("relative")).toBe(true);
+    expect(box?.classList.contains("absolute")).toBe(true);
+    expect(box?.className).not.toMatch(/(^|\s)p[xytrbl]?-/);
   });
 
   it("does not take focus when autoFocus is false", () => {
